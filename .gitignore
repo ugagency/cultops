@@ -1,0 +1,32 @@
+# Dependências
+node_modules/
+
+# Configurações de Ambient (Contendo chaves reais)
+.env
+.env.local
+config.js
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDEs e Editores
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Sistema Operacional
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+build/
+
+# Versão do Banco (SQL com dados sensíveis se houver)
+ seed_data.sql
