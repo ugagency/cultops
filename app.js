@@ -10,7 +10,14 @@ const state = {
     user: null,
     projects: [],
     documents: [],
-    loading: false
+    currentDocument: null,
+    loading: false,
+    filters: {
+        project: '',
+        startDate: '',
+        endDate: '',
+        search: ''
+    }
 };
 
 const STATUS_MAP = {
@@ -175,6 +182,31 @@ ${Header()}
             </div>
         </div>
         
+        <div class="card mb-4">
+            <div class="filters-bar" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; align-items: end;">
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label>Buscar Arquivo</label>
+                    <input type="text" id="filter-search" placeholder="Nome do arquivo..." value="${state.filters.search}" oninput="window.updateFilters('search', this.value)">
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label>Filtrar por Projeto</label>
+                    <select id="filter-project" style="width: 100%; padding: 0.625rem; border-radius: var(--radius); border: 1px solid var(--border-color);" onchange="window.updateFilters('project', this.value)">
+                        <option value="">Todos os Projetos</option>
+                        ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label>De:</label>
+                    <input type="date" id="filter-start" value="${state.filters.startDate}" onchange="window.updateFilters('startDate', this.value)" style="width: 100%; padding: 0.5rem; border-radius: var(--radius); border: 1px solid var(--border-color);">
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label>Até:</label>
+                    <input type="date" id="filter-end" value="${state.filters.endDate}" onchange="window.updateFilters('endDate', this.value)" style="width: 100%; padding: 0.5rem; border-radius: var(--radius); border: 1px solid var(--border-color);">
+                </div>
+                <button class="btn btn-ghost" onclick="window.clearFilters()" style="margin-bottom: 2px;">Limpar</button>
+            </div>
+        </div>
+        
         <div class="card">
             <div class="flex-row mb-4">
                 <div>
@@ -189,14 +221,14 @@ ${Header()}
             
             <div class="data-table-container">
                 ${state.documents.length === 0 ?
-        `<p style="text-align: center; padding: 2rem; color: var(--text-muted);">Nenhum documento encontrado. Faça seu primeiro upload!</p>` :
+        `<p style="text-align: center; padding: 2rem; color: var(--text-muted);">Nenhum documento encontrado com os filtros aplicados.</p>` :
         `<table class="data-table">
                         <thead>
                             <tr>
                                 <th>Arquivo</th>
                                 <th>Status</th>
                                 <th>Data</th>
-                                <th>Ações</th>
+                                <th style="text-align: right;">Ações</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -215,8 +247,15 @@ ${Header()}
                                         </span>
                                     </td>
                                     <td style="color: var(--text-muted); font-size: 0.75rem;">${new Date(doc.created_at).toLocaleString('pt-BR')}</td>
-                                    <td>
-                                        <button class="btn btn-ghost" onclick="window.navigate('details', '${doc.id}')">Ver Detalhes</button>
+                                    <td style="text-align: right;">
+                                        <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                                            <button class="btn btn-ghost" style="padding: 0.5rem;" onclick="window.navigate('details', '${doc.id}')" title="Ver Detalhes">
+                                                <i data-lucide="eye"></i>
+                                            </button>
+                                            <button class="btn btn-ghost" style="padding: 0.5rem; color: var(--error);" onclick="window.handleDeleteDocument('${doc.id}', '${doc.file_path}')" title="Excluir">
+                                                <i data-lucide="trash-2"></i>
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             `).join('')}
@@ -279,6 +318,180 @@ ${Header()}
     </div>
 </main>
 `;
+
+const DetailsView = () => {
+    const doc = state.currentDocument;
+    if (!doc) return `<div class="container" style="padding: 4rem; text-align: center;">Carregando detalhes...</div>`;
+
+    const steps = [
+        { id: 'uploaded', label: 'Enviado', icon: 'upload-cloud' },
+        { id: 'processing_ocr', label: 'OCR (IA)', icon: 'cpu' },
+        { id: 'validated', label: 'Validada', icon: 'shield-check' },
+        { id: 'enviado_salic', label: 'RPA Salic', icon: 'bot' },
+        { id: 'concluido', label: 'Concluído', icon: 'check-circle' }
+    ];
+
+    // Lógica para determinar o índice do passo atual no pipeline
+    let activeIndex = 0;
+    if (doc.status === 'uploaded') activeIndex = 0;
+    else if (doc.status === 'processing_ocr') activeIndex = 1;
+    else if (doc.status === 'validated' || doc.status === 'aguardando_d3') activeIndex = 2;
+    else if (doc.status === 'enviado_salic') activeIndex = 3;
+    else if (doc.status === 'concluido') activeIndex = 4;
+    else if (doc.status.includes('erro') || doc.status.includes('bloqueado')) activeIndex = -1; // Status de erro
+
+    return `
+${Header()}
+<main class="document-details-view view-content">
+    <div class="container">
+        <div class="flex-row mb-4">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <button class="btn btn-ghost" onclick="window.navigate('dashboard')" style="padding: 0.5rem;">
+                    <i data-lucide="arrow-left"></i>
+                    Voltar
+                </button>
+                <div>
+                    <h1 style="font-size: 1.5rem;">Detalhes do Documento</h1>
+                    <p style="color: var(--text-muted); font-size: 0.875rem;">Acompanhe o processamento em tempo real</p>
+                </div>
+            </div>
+            <div class="badge ${(STATUS_MAP[doc.status] || {}).class || 'status-pending'}">
+                <span class="badge-dot"></span>
+                ${(STATUS_MAP[doc.status] || {}).label || doc.status}
+            </div>
+        </div>
+
+        <!-- Pipeline -->
+        <div class="card mb-4" style="padding: 2.5rem 1rem;">
+             <h3 class="mb-4" style="font-size: 1rem; margin-left:1rem">Pipeline de Processamento</h3>
+            <div class="pipeline">
+                ${steps.map((step, index) => {
+        let statusClass = '';
+        if (activeIndex === -1) {
+            statusClass = index === 0 ? 'completed' : 'error'; // Simplificação: se erro, marca o primeiro como ok e o resto em dúvida ou focado no erro
+        } else {
+            statusClass = index === activeIndex ? 'active' : (index < activeIndex ? 'completed' : '');
+        }
+
+        return `
+                    <div class="step ${statusClass}">
+                        <div class="step-icon">
+                            <i data-lucide="${step.icon}" style="width: 20px; height: 20px;"></i>
+                        </div>
+                        <span class="step-label">${step.label}</span>
+                        ${index <= activeIndex && activeIndex !== -1 ? `<span class="step-time">${index === activeIndex ? 'Em curso' : 'Concluído'}</span>` : ''}
+                    </div>
+                `}).join('')}
+            </div>
+        </div>
+
+        <!-- Mini Cards Summary -->
+        <div class="details-grid mb-4">
+            <div class="card" style="border-left: 4px solid var(--primary); padding: 1rem;">
+                <div class="flex-row">
+                    <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">TIPO</span>
+                    <i data-lucide="file-text" style="width: 16px; color: var(--primary);"></i>
+                </div>
+                <p style="font-size: 1.125rem; font-weight: 700; margin-top: 0.5rem;">PDF</p>
+            </div>
+            <div class="card" style="border-left: 4px solid #10B981; padding: 1rem;">
+                <div class="flex-row">
+                    <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">VALOR</span>
+                    <i data-lucide="dollar-sign" style="width: 16px; color: #10B981;"></i>
+                </div>
+                <p style="font-size: 1.125rem; font-weight: 700; margin-top: 0.5rem;">R$ ${doc.valor ? doc.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '0,00'}</p>
+            </div>
+            <div class="card" style="border-left: 4px solid #8B5CF6; padding: 1rem;">
+                <div class="flex-row">
+                    <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">EMISSOR</span>
+                    <i data-lucide="building" style="width: 16px; color: #8B5CF6;"></i>
+                </div>
+                <p style="font-size: 0.875rem; font-weight: 700; margin-top: 0.5rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${doc.cnpj_emissor || 'Não identificado'}</p>
+            </div>
+            <div class="card" style="border-left: 4px solid #F59E0B; padding: 1rem;">
+                <div class="flex-row">
+                    <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">PROTOCOLO</span>
+                    <i data-lucide="hash" style="width: 16px; color: #F59E0B;"></i>
+                </div>
+                <p style="font-size: 1.125rem; font-weight: 700; margin-top: 0.5rem;">${doc.protocolo_salic || '---'}</p>
+            </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 1.5rem;" class="details-container-split">
+            <!-- Coluna 1: Dados do Arquivo e Extraídos -->
+            <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+                <div class="card">
+                    <div class="flex-row mb-4" style="border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">
+                         <h3 style="font-size: 1rem;">Informações do Arquivo</h3>
+                         <button class="btn btn-ghost" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;" onclick="window.open('${supabaseUrl}/storage/v1/object/public/documentos/${doc.file_path}', '_blank')">
+                            <i data-lucide="external-link"></i> Abrir Original
+                         </button>
+                    </div>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <label>Nome do Arquivo</label>
+                            <p>${doc.name}</p>
+                        </div>
+                        <div class="info-item">
+                            <label>Tamanho</label>
+                            <p>${doc.size || '---'}</p>
+                        </div>
+                        <div class="info-item">
+                            <label>Data de Upload</label>
+                            <p>${new Date(doc.created_at).toLocaleDateString('pt-BR')}</p>
+                        </div>
+                        <div class="info-item">
+                            <label>PRONAC Relacionado</label>
+                            <p>${doc.projects ? doc.projects.pronac + ' - ' + doc.projects.nome : '---'}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 class="mb-4" style="font-size: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">Dados Extraídos (IA)</h3>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <label>Data Emissão</label>
+                            <p>${doc.data_emissao ? new Date(doc.data_emissao).toLocaleDateString('pt-BR') : '---'}</p>
+                        </div>
+                        <div class="info-item">
+                            <label>Data Vencimento/Pagto</label>
+                            <p>${doc.data_pagamento ? new Date(doc.data_pagamento).toLocaleDateString('pt-BR') : '---'}</p>
+                        </div>
+                        <div class="info-item">
+                            <label>CNPJ Emissor</label>
+                            <p>${doc.cnpj_emissor || '---'}</p>
+                        </div>
+                        <div class="info-item">
+                            <label>Valor Bruto</label>
+                            <p>R$ ${doc.valor ? doc.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '0,00'}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Coluna 2: Justificativa e OCR -->
+            <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+                <div class="card">
+                    <h3 class="mb-2" style="font-size: 1rem;">Justificativa</h3>
+                    <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 1rem;">Análise automática de conformidade</p>
+                    <div class="justification-box">
+                        ${doc.justification || 'Aguardando processamento da IA para gerar justificativa de conformidade...'}
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 class="mb-4" style="font-size: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">Metadados OCR</h3>
+                    <div style="font-family: monospace; font-size: 0.75rem; background: #f1f5f9; padding: 1rem; border-radius: 4px; max-height: 200px; overflow-y: auto;">
+                        <pre style="white-space: pre-wrap;">${JSON.stringify(doc.json_extraido || {}, null, 2)}</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+`;
+};
 
 // --- Handlers & API ---
 
@@ -353,11 +566,36 @@ window.navigate = async function (view, id = null) {
         await fetchProjects();
     } else if (view === 'upload') {
         await fetchProjects();
+    } else if (view === 'details' && id) {
+        await fetchDocumentDetails(id);
     }
 
     render();
     window.scrollTo(0, 0);
 };
+
+async function fetchDocumentDetails(id) {
+    if (!supabaseClient || !state.user) return;
+    state.loading = true;
+    render();
+
+    try {
+        const { data, error } = await supabaseClient
+            .from('documents')
+            .select('*, projects(nome, pronac)')
+            .eq('id', id)
+            .single();
+
+        if (error) throw error;
+        state.currentDocument = data;
+    } catch (error) {
+        console.error("Erro ao buscar detalhes:", error);
+        alert("Erro ao carregar detalhes do documento.");
+        window.navigate('dashboard');
+    } finally {
+        state.loading = false;
+    }
+}
 
 async function fetchProjects() {
     if (!supabaseClient || !state.user) return;
@@ -367,12 +605,66 @@ async function fetchProjects() {
 
 async function fetchDocuments() {
     if (!supabaseClient || !state.user) return;
-    const { data } = await supabaseClient
-        .from('documents')
-        .select('*')
-        .order('created_at', { ascending: false });
+
+    let query = supabaseClient.from('documents').select('*');
+
+    // Filtros
+    if (state.filters.project) query = query.eq('project_id', state.filters.project);
+    if (state.filters.search) query = query.ilike('name', `%${state.filters.search}%`);
+    if (state.filters.startDate) query = query.gte('created_at', state.filters.startDate + 'T00:00:00');
+    if (state.filters.endDate) query = query.lte('created_at', state.filters.endDate + 'T23:59:59');
+
+    const { data } = await query.order('created_at', { ascending: false });
     state.documents = data || [];
 }
+
+window.updateFilters = function (key, value) {
+    state.filters[key] = value;
+    // Debounce na busca para evitar muitas requisições
+    if (window.filterTimeout) clearTimeout(window.filterTimeout);
+    window.filterTimeout = setTimeout(() => {
+        fetchDocuments().then(render);
+    }, 400);
+};
+
+window.clearFilters = function () {
+    state.filters = { project: '', startDate: '', endDate: '', search: '' };
+    fetchDocuments().then(render);
+};
+
+window.handleDeleteDocument = async function (id, filePath) {
+    if (!confirm("Tem certeza que deseja excluir este documento? Esta ação não pode ser desfeita.")) return;
+
+    state.loading = true;
+    render();
+
+    try {
+        // 1. Excluir do Storage
+        const { error: storageError } = await supabaseClient.storage
+            .from('documentos')
+            .remove([filePath]);
+
+        // Ignoramos erro de "não encontrado" no storage para permitir limpar o banco
+        if (storageError && storageError.message !== 'Object not found') throw storageError;
+
+        // 2. Excluir do Banco
+        const { error: dbError } = await supabaseClient
+            .from('documents')
+            .delete()
+            .eq('id', id);
+
+        if (dbError) throw dbError;
+
+        alert("Documento excluído com sucesso.");
+        await fetchDocuments();
+        render();
+    } catch (error) {
+        alert("Erro ao excluir: " + error.message);
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
 
 window.handleCreateProject = async function () {
     if (!supabaseClient || !state.user) return;
@@ -424,8 +716,8 @@ window.handleUpload = async function (file) {
 
         if (uploadError) throw uploadError;
 
-        // 2. Salvar no Banco
-        const { error: dbError } = await supabaseClient
+        // 2. Salvar no Banco (Status inicial: 'processing_ocr' para indicar que n8n assumiu)
+        const { data: dbData, error: dbError } = await supabaseClient
             .from('documents')
             .insert({
                 user_id: state.user.id,
@@ -433,12 +725,36 @@ window.handleUpload = async function (file) {
                 name: file.name,
                 size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
                 file_path: filePath,
-                status: 'uploaded'
-            });
+                status: 'processing_ocr'
+            })
+            .select()
+            .single();
 
         if (dbError) throw dbError;
 
-        alert("Upload concluído com sucesso!");
+        // 3. Disparar Webhook para o n8n
+        console.log("Tentando notificar n8n em:", CONFIG.N8N_WEBHOOK_URL);
+
+        if (CONFIG.N8N_WEBHOOK_URL) {
+            fetch(CONFIG.N8N_WEBHOOK_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                mode: 'cors', // Força o modo CORS
+                body: JSON.stringify({
+                    document_id: dbData.id,
+                    file_path: filePath,
+                    user_id: state.user.id,
+                    bucket: 'documentos'
+                })
+            })
+                .then(response => console.log("Resposta n8n:", response.status))
+                .catch(err => {
+                    console.error("ERRO CRÍTICO n8n:", err);
+                    alert("O arquivo foi enviado, mas o processamento automático falhou. Verifique a URL do n8n.");
+                });
+        }
+
+        alert("Upload concluído! A IA está processando seu documento...");
         window.navigate('dashboard');
     } catch (error) {
         alert("Erro no upload: " + error.message);
@@ -468,6 +784,9 @@ function render() {
         case 'upload':
             content = UploadView();
             break;
+        case 'details':
+            content = DetailsView();
+            break;
         default:
             content = LoginView();
     }
@@ -476,5 +795,55 @@ function render() {
     lucide.createIcons();
 }
 
-// Initial render
+// --- Realtime Listener ---
+function setupRealtime() {
+    if (!supabaseClient) return;
+
+    supabaseClient
+        .channel('document-updates')
+        .on(
+            'postgres_changes',
+            {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'documents'
+            },
+            (payload) => {
+                console.log('Mudança em tempo real detectada:', payload.new);
+                
+                // 1. Atualiza o documento na lista geral (Dashboard)
+                state.documents = state.documents.map(doc => 
+                    doc.id === payload.new.id ? { ...doc, ...payload.new } : doc
+                );
+
+                // 2. Atualiza o documento se o usuário estiver na tela de detalhes
+                if (state.currentDocument && state.currentDocument.id === payload.new.id) {
+                    // Mantemos os metadados do projeto que vêm de um join (projects)
+                    state.currentDocument = { ...state.currentDocument, ...payload.new };
+                }
+
+                // 3. Renderiza novamente a tela com os novos dados
+                render();
+            }
+        )
+        .on(
+            'postgres_changes',
+            {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'documents'
+            },
+            (payload) => {
+                // Opcional: Adiciona novos documentos na lista automaticamente
+                if (state.currentView === 'dashboard') {
+                    state.documents = [payload.new, ...state.documents];
+                    render();
+                }
+            }
+        )
+        .subscribe();
+}
+
+// Initial render and setup
 render();
+setupRealtime();
