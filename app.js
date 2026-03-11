@@ -10,8 +10,11 @@ const state = {
     user: null,
     projects: [],
     documents: [],
+    rubricas_disponiveis: [],
+    catalogo_rubricas: [],
     currentDocument: null,
     loading: false,
+    rubricas: [],
     filters: {
         project: '',
         startDate: '',
@@ -42,6 +45,7 @@ const Header = () => `
     <nav class="navbar">
         <a class="nav-link ${state.currentView === 'dashboard' ? 'active' : ''}" onclick="window.navigate('dashboard')">Dashboard</a>
         <a class="nav-link ${state.currentView === 'upload' ? 'active' : ''}" onclick="window.navigate('upload')">Upload</a>
+        <a class="nav-link ${state.currentView === 'orcamento' ? 'active' : ''}" onclick="window.navigate('orcamento')">Orçamento</a>
         <a class="nav-link" href="#">Configurações</a>
         <a class="nav-link" href="#">Admin</a>
     </nav>
@@ -296,11 +300,18 @@ ${Header()}
             <h3 class="mb-4">Upload de Documentos</h3>
             <div class="form-group mb-4">
                 <label>Selecione o Projeto</label>
-                <select id="project-selector" style="width: 100%; padding: 0.625rem; border-radius: var(--radius); border: 1px solid var(--border-color);">
+                <select id="project-selector" style="width: 100%; padding: 0.625rem; border-radius: var(--radius); border: 1px solid var(--border-color);" onchange="window.handleProjectSelectChange(this.value)">
                     <option value="">Selecione um projeto...</option>
                     ${state.projects.map(p => `<option value="${p.id}">${p.pronac} - ${p.nome}</option>`).join('')}
                 </select>
                 ${state.projects.length === 0 ? '<p style="font-size: 0.75rem; color: var(--error); margin-top: 0.5rem;">Crie um projeto primeiro no formulário ao lado!</p>' : ''}
+            </div>
+
+            <div class="form-group mb-4">
+                <label>Rubrica (Categoria Orçamentária)</label>
+                <select id="rubrica-input" style="width: 100%; padding: 0.625rem; border-radius: var(--radius); border: 1px solid var(--border-color);">
+                    <option value="">Selecione um projeto primeiro...</option>
+                </select>
             </div>
 
             <div class="upload-area" onclick="if(document.getElementById('project-selector').value) document.getElementById('file-input').click(); else alert('Selecione um projeto primeiro!');">
@@ -441,6 +452,34 @@ ${Header()}
                             <p>${new Date(doc.created_at).toLocaleDateString('pt-BR')}</p>
                         </div>
                         <div class="info-item">
+                            <label>Rubrica Molic / OCR</label>
+                            <p>${doc.rubrica || '---'}</p>
+                        </div>
+                        <div class="info-item" style="grid-column: span 2;">
+                            <label>Rubrica Oficial (Fase 2)</label>
+                            ${doc.despesas && doc.despesas.length > 0 ? `
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem;">
+                                    <span class="badge status-completed"><i data-lucide="check-circle" style="width:12px; height:12px;"></i> Vinculada</span>
+                                    <p style="margin: 0; font-weight: 600;">${state.rubricas_disponiveis.find(r => r.id === doc.despesas[0].rubrica_id)?.nome || 'ID: ' + doc.despesas[0].rubrica_id}</p>
+                                </div>
+                            ` : (doc.status === 'validated' ? `
+                                <div style="background: var(--bg-color); padding: 1rem; border-radius: var(--radius); margin-top: 0.5rem; border: 1px dashed var(--border-color);">
+                                    <p style="font-size: 0.75rem; font-weight: 600; color: var(--pending); margin-bottom: 0.5rem;">
+                                        <i data-lucide="alert-triangle" style="width: 14px; display:inline-block; vertical-align:middle;"></i> Ação Requerida: Vincular Rubrica Oficial
+                                    </p>
+                                    <div style="display: flex; gap: 0.5rem;">
+                                        <select id="vincular-rubrica-select" style="flex:1; padding: 0.5rem; border-radius: var(--radius); border: 1px solid var(--border-color);">
+                                            <option value="">Selecione uma rubrica...</option>
+                                            ${(state.rubricas_disponiveis || []).map(r => {
+                                                return `<option value="${r.id}">${r.nome}</option>`;
+                                            }).join('')}
+                                        </select>
+                                        <button class="btn btn-primary" style="padding: 0.5rem 1rem;" onclick="window.handleVincularRubrica('${doc.id}', '${doc.project_id}', ${doc.valor || 0})">Vincular</button>
+                                    </div>
+                                </div>
+                            ` : `<p style="color: var(--text-muted); font-size: 0.75rem; margin-top: 0.25rem;">Aguardando etapa OCR (Validação) para permitir vínculo.</p>`)}
+                        </div>
+                        <div class="info-item">
                             <label>PRONAC Relacionado</label>
                             <p>${doc.projects ? doc.projects.pronac + ' - ' + doc.projects.nome : '---'}</p>
                         </div>
@@ -558,6 +597,81 @@ window.handleLogout = async function () {
     window.navigate('login');
 };
 
+// --- OrcamentoView ---
+
+const OrcamentoView = () => `
+${Header()}
+<main class="orcamento-view view-content">
+    <div class="container">
+        <div class="flex-row mb-4">
+            <div>
+                <h1 style="font-size: 1.5rem;">Gestão de Orçamento (Rubricas)</h1>
+                <p style="color: var(--text-muted); font-size: 0.875rem;">Acompanhe a execução do plano aprovado pelo MinC</p>
+            </div>
+            
+            <div class="form-group" style="margin-bottom: 0; min-width: 250px;">
+                <select id="orcamento-project" style="width: 100%; padding: 0.625rem; border-radius: var(--radius); border: 1px solid var(--border-color);" onchange="window.navigate('orcamento', this.value)">
+                    <option value="">Selecione o Projeto...</option>
+                    ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
+                </select>
+            </div>
+        </div>
+
+        ${!state.filters.project ? `<div class="card" style="text-align: center; padding: 4rem;"><p style="color: var(--text-muted);">Por favor, selecione um projeto acima para gerenciar o orçamento.</p></div>` : `
+        
+        <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 2rem; align-items: start;">
+            <!-- Cadastro de Rubrica -->
+            <div class="card">
+                <h3 class="mb-4">Nova Rubrica</h3>
+                <form onsubmit="event.preventDefault(); window.handleCreateRubrica();">
+                    <div class="form-group">
+                        <label>Catálogo de Rubricas</label>
+                        <select id="rubrica-nome" style="width: 100%; padding: 0.625rem; border-radius: var(--radius); border: 1px solid var(--border-color);" required>
+                            <option value="">Selecione uma rubrica do catálogo...</option>
+                            ${(state.catalogo_rubricas || []).map(c => `<option value="${c.nome}">${c.nome} (Espec: ${c.especificacoes})</option>`).join('')}
+                        </select>
+                        <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem;">A IA usará estas especificações para validar as despesas nesta rubrica.</p>
+                    </div>
+                    <button class="btn btn-primary" style="width: 100%;">
+                        ${state.loading ? 'Salvando...' : 'Adicionar Rubrica'}
+                    </button>
+                </form>
+            </div>
+
+            <!-- Listagem de Rubricas -->
+            <div class="card">
+                <h3 class="mb-4">Rubricas do Projeto</h3>
+                <div class="data-table-container">
+                    ${state.rubricas.length === 0 ? `<p style="color: var(--text-muted); text-align: center; padding: 2rem;">Nenhuma rubrica cadastrada para este projeto.</p>` : `
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Nome da Rubrica</th>
+                                <th style="text-align: right;">Total Executado</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${state.rubricas.map(r => {
+                                const executado = r.despesas ? r.despesas.reduce((acc, curr) => acc + parseFloat(curr.valor), 0) : 0;
+                                return `
+                                <tr>
+                                    <td>
+                                        <div style="font-weight: 500;">${r.nome}</div>
+                                        <div style="font-size: 0.75rem; color: var(--text-muted);">Cadastrada em ${new Date(r.created_at).toLocaleDateString('pt-BR')}</div>
+                                    </td>
+                                    <td style="text-align: right; font-weight: 600;">R$ ${executado.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
+                                </tr>
+                            `}).join('')}
+                        </tbody>
+                    </table>`}
+                </div>
+            </div>
+        </div>
+        `}
+    </div>
+</main>
+`;
+
 window.navigate = async function (view, id = null) {
     state.currentView = view;
 
@@ -566,12 +680,76 @@ window.navigate = async function (view, id = null) {
         await fetchProjects();
     } else if (view === 'upload') {
         await fetchProjects();
+    } else if (view === 'orcamento') {
+        await fetchProjects();
+        await fetchCatalogoRubricas();
+        if(id) state.filters.project = id;
+        if(state.filters.project) await fetchRubricas(state.filters.project);
     } else if (view === 'details' && id) {
         await fetchDocumentDetails(id);
     }
 
     render();
     window.scrollTo(0, 0);
+};
+
+async function fetchCatalogoRubricas() {
+    if (!supabaseClient) return;
+    try {
+        const { data, error } = await supabaseClient.from('catalogo_rubricas').select('*').order('nome');
+        if (!error && data) state.catalogo_rubricas = data;
+    } catch(err) {
+        console.error("Erro fetch catalogo:", err);
+    }
+}
+
+async function fetchRubricas(projectId) {
+    if (!supabaseClient || !projectId) return;
+    try {
+        const { data, error } = await supabaseClient
+            .from('rubricas')
+            .select('*, despesas(id, valor)')
+            .eq('project_id', projectId)
+            .order('nome');
+            
+        if (error) {
+            // Se o join de despesas falhar, tenta pegar apenas as rubricas
+            const { data: fallbackData } = await supabaseClient.from('rubricas').select('*').eq('project_id', projectId);
+            state.rubricas = fallbackData || [];
+            return;
+        }
+        
+        state.rubricas = data || [];
+    } catch(err) {
+        console.error("Erro fetch rubricas:", err);
+    }
+}
+
+window.handleCreateRubrica = async function() {
+    if (!supabaseClient || !state.filters.project) return;
+    
+    const nome = document.getElementById('rubrica-nome').value;
+
+    state.loading = true;
+    render();
+
+    try {
+        const { error } = await supabaseClient
+            .from('rubricas')
+            .insert({
+                project_id: state.filters.project,
+                nome: nome
+            });
+
+        if (error) throw error;
+        alert("Rubrica cadastrada com sucesso!");
+        await fetchRubricas(state.filters.project);
+    } catch(err) {
+        alert("Erro ao criar rubrica: " + err.message);
+    } finally {
+        state.loading = false;
+        render();
+    }
 };
 
 async function fetchDocumentDetails(id) {
@@ -582,18 +760,79 @@ async function fetchDocumentDetails(id) {
     try {
         const { data, error } = await supabaseClient
             .from('documents')
-            .select('*, projects(nome, pronac)')
+            .select('*, projects(nome, pronac), despesas(*)')
             .eq('id', id)
             .single();
 
         if (error) throw error;
         state.currentDocument = data;
+
+        // Traz rubricas se precisar vincular
+        if (data && data.project_id) {
+            const { data: rubData } = await supabaseClient
+                .from('rubricas')
+                .select('id, nome')
+                .eq('project_id', data.project_id)
+                .order('nome');
+                
+            state.rubricas_disponiveis = rubData || [];
+        }
+
     } catch (error) {
         console.error("Erro ao buscar detalhes:", error);
         alert("Erro ao carregar detalhes do documento.");
         window.navigate('dashboard');
     } finally {
         state.loading = false;
+        render(); // render here because details needs the rubricas_disponiveis
+    }
+}
+
+window.handleVincularRubrica = async function(documentId, projectId, valorDespesa) {
+    const rubricaId = document.getElementById('vincular-rubrica-select').value;
+    if(!rubricaId) return alert('Selecione uma rubrica!');
+    if(valorDespesa === undefined || valorDespesa === null) valorDespesa = 0;
+
+    state.loading = true;
+    render();
+
+    try {
+        // Obter os valores do form original no currentDocument (cnpj_fornecedor, emissão, etc)
+        const doc = state.currentDocument;
+
+        // Insert into despesas
+        const { error } = await supabaseClient.from('despesas').insert({
+            document_id: documentId,
+            rubrica_id: rubricaId,
+            project_id: projectId,
+            valor: parseFloat(valorDespesa),
+            cnpj_fornecedor: doc.cnpj_emissor || null,
+            data_emissao: doc.data_emissao || null,
+            data_pagamento: doc.data_pagamento || null
+        });
+
+        if (error) {
+            // Caso de quebra de saldo no RLS (se implementado) ou erro unique
+            throw error;
+        }
+
+        alert('Rubrica vinculada com sucesso! O workflow do n8n de conformidade deve ser acionado agora.');
+        
+        // Simular o acionamento do workflow n8n - Fase 2 # Workflow 3.3
+        // No front-end nós recarregamos após notificar o n8n
+        if(CONFIG.N8N_WEBHOOK_CNAE_URL) {
+            fetch(CONFIG.N8N_WEBHOOK_CNAE_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ document_id: documentId, cnpj_fornecedor: doc.cnpj_emissor })
+            }).catch(e => console.error("Erro ao notificar n8n (CNAE):", e));
+        }
+
+        await fetchDocumentDetails(documentId);
+    } catch(err) {
+        alert("Erro ao vincular despesa: " + err.message);
+        state.loading = false;
+        render();
     }
 }
 
@@ -697,8 +936,42 @@ window.handleCreateProject = async function () {
     }
 };
 
+window.handleProjectSelectChange = async function(projectId) {
+    const select = document.getElementById('rubrica-input');
+    if (!select) return;
+    
+    select.innerHTML = '<option value="">Carregando...</option>';
+    
+    if (!projectId || !supabaseClient) {
+        select.innerHTML = '<option value="">Selecione um projeto primeiro...</option>';
+        return;
+    }
+
+    try {
+        const { data, error } = await supabaseClient
+            .from('rubricas')
+            .select('id, nome')
+            .eq('project_id', projectId)
+            .order('nome');
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+            select.innerHTML = '<option value="">Selecione uma rubrica...</option>' + 
+                data.map(r => `<option value="${r.nome}">${r.nome}</option>`).join('');
+        } else {
+            select.innerHTML = '<option value="">Nenhuma rubrica cadastrada neste projeto.</option>';
+        }
+    } catch (error) {
+        console.error("Erro ao carregar rubricas:", error);
+        select.innerHTML = '<option value="">Erro ao carregar rubricas.</option>';
+    }
+};
+
 window.handleUpload = async function (file) {
     const projectId = document.getElementById('project-selector').value;
+    const rubrica = document.getElementById('rubrica-input') ? document.getElementById('rubrica-input').value : null;
+
     if (!file || !projectId) return alert("Selecione um projeto e um arquivo PDF!");
 
     state.loading = true;
@@ -725,7 +998,8 @@ window.handleUpload = async function (file) {
                 name: file.name,
                 size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
                 file_path: filePath,
-                status: 'processing_ocr'
+                status: 'processing_ocr',
+                rubrica: rubrica || null
             })
             .select()
             .single();
@@ -784,6 +1058,9 @@ function render() {
         case 'upload':
             content = UploadView();
             break;
+        case 'orcamento':
+            content = OrcamentoView();
+            break;
         case 'details':
             content = DetailsView();
             break;
@@ -810,9 +1087,9 @@ function setupRealtime() {
             },
             (payload) => {
                 console.log('Mudança em tempo real detectada:', payload.new);
-                
+
                 // 1. Atualiza o documento na lista geral (Dashboard)
-                state.documents = state.documents.map(doc => 
+                state.documents = state.documents.map(doc =>
                     doc.id === payload.new.id ? { ...doc, ...payload.new } : doc
                 );
 

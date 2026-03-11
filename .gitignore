@@ -20,6 +20,9 @@ yarn-error.log*
 *.swp
 *.swo
 
+# Agent
+.agent/
+
 # Sistema Operacional
 .DS_Store
 Thumbs.db

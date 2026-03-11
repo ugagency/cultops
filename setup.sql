@@ -49,3 +49,61 @@ CREATE POLICY "Users can access their own documents" ON documents FOR ALL USING 
 -- 1. Vá em Storage no painel do Supabase.
 -- 2. Crie um novo Bucket chamado: documentos
 -- 3. Edite as políticas do Bucket para permitir INSERT e SELECT para usuários autenticados.
+
+-- ==========================================================
+-- FASE 2: GESTÃO FINANCEIRA E ORÇAMENTO
+-- ==========================================================
+
+-- 3.5. Catálogo Global de Rubricas (Validação por IA)
+CREATE TABLE IF NOT EXISTS public.catalogo_rubricas (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    nome TEXT NOT NULL UNIQUE,
+    especificacoes TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- Inserir alguns exemplos iniciais de rubricas
+INSERT INTO public.catalogo_rubricas (nome, especificacoes) VALUES 
+('Cachê Artístico', 'Pagamento de artistas, músicos, atores. Exige nota fiscal com CNAE artístico ou recibo no caso de Pessoa Física.'),
+('Assessoria Jurídica', 'Serviços de advogados. Limitado a profissionais inscritos na OAB.'),
+('Coordenação Geral', 'Pagamento do coordenador do projeto. Sem exigência cruzada específica de fornecedor.'),
+('Aluguel de Equipamentos', 'Locação de som, luz, palco para o projeto.'),
+('Divulgação e Marketing', 'Serviços de panfletagem, tráfego pago, assessoria de imprensa.')
+ON CONFLICT (nome) DO NOTHING;
+
+-- 4. Tabela de Rubricas (Fase 2)
+CREATE TABLE IF NOT EXISTS public.rubricas (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE NOT NULL,
+    nome TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    UNIQUE(project_id, nome)
+);
+
+-- 5. Tabela de Despesas (Fase 2)
+CREATE TABLE IF NOT EXISTS public.despesas (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    document_id UUID REFERENCES public.documents(id) ON DELETE CASCADE NOT NULL UNIQUE,
+    rubrica_id UUID REFERENCES public.rubricas(id) ON DELETE RESTRICT NOT NULL,
+    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE NOT NULL,
+    valor NUMERIC(12,2) NOT NULL,
+    cnpj_fornecedor TEXT,
+    cnae_fornecedor TEXT,
+    data_emissao DATE,
+    data_pagamento DATE,
+    status_conformidade TEXT DEFAULT 'pendente' CHECK (status_conformidade IN ('ok', 'bloqueado', 'pendente')),
+    motivo_bloqueio TEXT,
+    conciliado BOOLEAN DEFAULT false,
+    liberado_rpa BOOLEAN DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- RLS para Rubricas e Despesas
+ALTER TABLE rubricas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE despesas ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can access rubricas of their projects" 
+ON rubricas FOR ALL USING (project_id IN (SELECT id FROM projects WHERE user_id = auth.uid()));
+
+CREATE POLICY "Users can access despesas of their projects" 
+ON despesas FOR ALL USING (project_id IN (SELECT id FROM projects WHERE user_id = auth.uid()));
