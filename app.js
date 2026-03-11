@@ -46,6 +46,7 @@ const Header = () => `
         <a class="nav-link ${state.currentView === 'dashboard' ? 'active' : ''}" onclick="window.navigate('dashboard')">Dashboard</a>
         <a class="nav-link ${state.currentView === 'upload' ? 'active' : ''}" onclick="window.navigate('upload')">Upload</a>
         <a class="nav-link ${state.currentView === 'orcamento' ? 'active' : ''}" onclick="window.navigate('orcamento')">Orçamento</a>
+        <a class="nav-link ${state.currentView === 'financeiro' ? 'active' : ''}" onclick="window.navigate('financeiro')">Financeiro</a>
         <a class="nav-link" href="#">Configurações</a>
         <a class="nav-link" href="#">Admin</a>
     </nav>
@@ -597,6 +598,95 @@ window.handleLogout = async function () {
     window.navigate('login');
 };
 
+// --- FinanceiroView ---
+const FinanceiroView = () => {
+    let content = `
+    ${Header()}
+    <main class="financeiro-view view-content">
+        <div class="container">
+            <div class="flex-row mb-4">
+                <div>
+                    <h1 style="font-size: 1.5rem;">Painel Financeiro</h1>
+                    <p style="color: var(--text-muted); font-size: 0.875rem;">Visão macro e indicadores de conciliação</p>
+                </div>
+                
+                <div class="form-group" style="margin-bottom: 0; min-width: 250px;">
+                    <select id="financeiro-project" style="width: 100%; padding: 0.625rem; border-radius: var(--radius); border: 1px solid var(--border-color);" onchange="window.navigate('financeiro', this.value)">
+                        <option value="">Todos os Projetos</option>
+                        ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
+                    </select>
+                </div>
+            </div>`;
+
+    if (!state.filters.project && state.projects.length === 0) {
+         content += `<div class="card" style="text-align: center; padding: 4rem;"><p style="color: var(--text-muted);">Nenhum projeto encontrado. Crie um projeto primeiro.</p></div>`;
+    } else {
+         // Calculate metrics
+         let totalExecutado = 0;
+         let pendentesConformidade = 0;
+         let pendentesConciliacao = 0;
+         const chartLabels = [];
+         const chartData = [];
+
+         state.rubricas.forEach(r => {
+             let rubricaTotal = 0;
+             if (r.despesas && r.despesas.length > 0) {
+                 r.despesas.forEach(d => {
+                     rubricaTotal += parseFloat(d.valor || 0);
+                     if (d.status_conformidade === 'pendente') pendentesConformidade++;
+                     if (d.conciliado === false || d.conciliado === null) pendentesConciliacao++;
+                 });
+             }
+             if (rubricaTotal > 0) {
+                 chartLabels.push(r.nome);
+                 chartData.push(rubricaTotal);
+             }
+             totalExecutado += rubricaTotal;
+         });
+
+         // Store for chart initialization later
+         state.chartData = { labels: chartLabels, data: chartData };
+
+         content += `
+         <div class="metrics-grid mb-4">
+             <div class="card metric-card">
+                 <p class="metric-label">Total Executado</p>
+                 <div class="metric-value">
+                     R$ ${totalExecutado.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
+                     <i data-lucide="dollar-sign" style="color: var(--primary); opacity: 0.2;"></i>
+                 </div>
+             </div>
+             <div class="card metric-card">
+                 <p class="metric-label">Aguardando Conformidade (n8n)</p>
+                 <div class="metric-value">
+                     ${pendentesConformidade}
+                     <i data-lucide="shield-alert" style="color: var(--pending); opacity: 0.2;"></i>
+                 </div>
+             </div>
+             <div class="card metric-card">
+                 <p class="metric-label">Pendentes de Conciliação</p>
+                 <div class="metric-value">
+                     ${pendentesConciliacao}
+                     <i data-lucide="building-2" style="color: var(--error); opacity: 0.2;"></i>
+                 </div>
+             </div>
+         </div>
+
+         <div style="display: grid; grid-template-columns: 1fr; gap: 2rem;">
+             <div class="card">
+                 <h3 class="mb-4">Despesas por Rubrica (R$)</h3>
+                 <div style="position: relative; height: 300px; width: 100%;">
+                     ${chartLabels.length > 0 ? '<canvas id="rubricasChart"></canvas>' : '<p style="text-align: center; color: var(--text-muted); padding-top: 4rem;">Não há dados financeiros suficientes para gerar o gráfico.</p>'}
+                 </div>
+             </div>
+         </div>
+         `;
+    }
+
+    content += `</div></main>`;
+    return content;
+};
+
 // --- OrcamentoView ---
 
 const OrcamentoView = () => `
@@ -680,10 +770,12 @@ window.navigate = async function (view, id = null) {
         await fetchProjects();
     } else if (view === 'upload') {
         await fetchProjects();
-    } else if (view === 'orcamento') {
+    } else if (view === 'orcamento' || view === 'financeiro') {
         await fetchProjects();
         await fetchCatalogoRubricas();
         if(id) state.filters.project = id;
+        else if(!state.filters.project && state.projects.length > 0) state.filters.project = state.projects[0].id;
+        
         if(state.filters.project) await fetchRubricas(state.filters.project);
     } else if (view === 'details' && id) {
         await fetchDocumentDetails(id);
@@ -708,7 +800,7 @@ async function fetchRubricas(projectId) {
     try {
         const { data, error } = await supabaseClient
             .from('rubricas')
-            .select('*, despesas(id, valor)')
+            .select('*, despesas(id, valor, status_conformidade, conciliado)')
             .eq('project_id', projectId)
             .order('nome');
             
@@ -1061,6 +1153,9 @@ function render() {
         case 'orcamento':
             content = OrcamentoView();
             break;
+        case 'financeiro':
+            content = FinanceiroView();
+            break;
         case 'details':
             content = DetailsView();
             break;
@@ -1070,6 +1165,62 @@ function render() {
 
     app.innerHTML = content;
     lucide.createIcons();
+
+    if (state.currentView === 'financeiro') {
+        setTimeout(initFinanceiroCharts, 50); // Initialize charts after DOM updates
+    }
+}
+
+function initFinanceiroCharts() {
+    if (!window.Chart) return; // Ensure Chart.js is loaded
+    const ctx = document.getElementById('rubricasChart');
+    if (!ctx) return;
+    
+    // Destroy previous chart instance if exists
+    if (window.rubricasChartInstance) {
+        window.rubricasChartInstance.destroy();
+    }
+
+    const labels = state.chartData?.labels || [];
+    const data = state.chartData?.data || [];
+
+    window.rubricasChartInstance = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: data,
+                backgroundColor: [
+                    '#2563eb', '#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe',
+                    '#1d4ed8', '#1e40af', '#1e3a8a', '#172554'
+                ],
+                borderWidth: 0,
+                hoverOffset: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'right',
+                    labels: { color: getComputedStyle(document.documentElement).getPropertyValue('--text-color') || '#1e293b' }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.label || '';
+                            if (label) label += ': ';
+                            if (context.parsed !== null) {
+                                label += new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(context.parsed);
+                            }
+                            return label;
+                        }
+                    }
+                }
+            }
+        }
+    });
 }
 
 // --- Realtime Listener ---
