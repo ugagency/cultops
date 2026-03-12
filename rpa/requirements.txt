@@ -1,0 +1,7 @@
+selenium
+webdriver-manager
+supabase
+python-decouple
+fastapi
+uvicorn
+psycopg2-binary

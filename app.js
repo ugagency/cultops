@@ -25,7 +25,11 @@ const state = {
         search: ''
     },
     all_fornecedores: [],
-    vinculos_fornecedores: []
+    vinculos_fornecedores: [],
+    settings: {
+        salic_user: '',
+        salic_pass: ''
+    }
 };
 
 const STATUS_MAP = {
@@ -45,7 +49,7 @@ const Header = () => `
 <header class="header">
     <div class="logo">
         <i data-lucide="shield-check"></i>
-        <span>CultOps</span>
+        <span>Prestaí</span>
     </div>
     <nav class="navbar">
         <a class="nav-link ${state.currentView === 'dashboard' ? 'active' : ''}" onclick="window.navigate('dashboard')">Dashboard</a>
@@ -53,7 +57,7 @@ const Header = () => `
         <a class="nav-link ${state.currentView === 'orcamento' ? 'active' : ''}" onclick="window.navigate('orcamento')">Orçamento</a>
         <a class="nav-link ${state.currentView === 'financeiro' ? 'active' : ''}" onclick="window.navigate('financeiro')">Financeiro</a>
         <a class="nav-link ${state.currentView === 'admin_fornecedores' ? 'active' : ''}" onclick="window.navigate('admin_fornecedores')">Fornecedores</a>
-        <a class="nav-link" href="#">Configurações</a>
+        <a class="nav-link ${state.currentView === 'configuracoes' ? 'active' : ''}" onclick="window.navigate('configuracoes')">Configurações</a>
         <a class="nav-link" href="#">Admin</a>
     </nav>
     <div style="display: flex; align-items: center; gap: 1rem;">
@@ -95,7 +99,7 @@ const LoginView = () => `
         <div style="text-align: center; margin-bottom: 2rem;">
             <div class="logo" style="justify-content: center; font-size: 2rem; margin-bottom: 0.5rem;">
                 <i data-lucide="shield-check" style="width: 32px; height: 32px;"></i>
-                <span>CultOps</span>
+                <span>Prestaí</span>
             </div>
             <p style="color: var(--text-muted); font-size: 0.875rem;">Acesse sua conta</p>
         </div>
@@ -143,7 +147,7 @@ const RegisterView = () => `
         <div style="text-align: center; margin-bottom: 2rem;">
             <div class="logo" style="justify-content: center; font-size: 2rem; margin-bottom: 0.5rem;">
                 <i data-lucide="shield-check" style="width: 32px; height: 32px;"></i>
-                <span>CultOps</span>
+                <span>Prestaí</span>
             </div>
             <p style="color: var(--text-muted); font-size: 0.875rem;">Crie sua conta gratuita</p>
         </div>
@@ -158,7 +162,7 @@ const RegisterView = () => `
                 <label for="reg-password">Senha</label>
                 <input type="password" id="reg-password" placeholder="••••••••" required minlength="6">
             </div>
-
+ 
             <div class="form-group">
                 <label for="reg-password-confirm">Confirmar Senha</label>
                 <input type="password" id="reg-password-confirm" placeholder="••••••••" required minlength="6">
@@ -216,7 +220,7 @@ const FornecedorLoginView = () => `
                 <p style="margin-bottom: 0.5rem;">É um proponente/gestor?</p>
                 <button class="btn btn-ghost" onclick="window.navigate('login')" style="width: 100%; border: 1px solid var(--primary); color: var(--primary);">
                     <i data-lucide="shield-check"></i>
-                    Acesso Gestor CultOps
+                    Acesso Gestor Prestaí
                 </button>
             </div>
         </div>
@@ -276,7 +280,7 @@ const FornecedorRegisterView = () => `
                 <p style="margin-bottom: 0.5rem;">É um proponente/gestor?</p>
                 <button class="btn btn-ghost" onclick="window.navigate('login')" style="width: 100%; border: 1px solid var(--primary); color: var(--primary);">
                     <i data-lucide="shield-check"></i>
-                    Acesso Gestor CultOps
+                    Acesso Gestor Prestaí
                 </button>
             </div>
         </div>
@@ -1181,6 +1185,8 @@ window.navigate = async function (view, id = null) {
     } else if (view === 'admin_fornecedores') {
         await fetchProjects();
         await fetchFornecedoresAdmin();
+    } else if (view === 'configuracoes') {
+        await fetchSettings();
     }
 
     render();
@@ -1497,6 +1503,135 @@ window.handleCreateProject = async function () {
 
     const pronac = document.getElementById('new-pronac').value.trim();
     const nome = document.getElementById('new-project-name').value.trim();
+};
+
+// --- Settings & Credentials ---
+
+const ConfiguracoesView = () => `
+${Header()}
+<main class="settings-view view-content">
+    <div class="container" style="max-width: 800px;">
+        <div class="dashboard-header mb-4">
+            <h1 style="font-size: 1.5rem;">Configurações</h1>
+            <p style="color: var(--text-muted); font-size: 0.875rem;">Gerencie suas credenciais e preferências do sistema</p>
+        </div>
+
+        <div class="card mb-4">
+            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem;">
+                <div style="background: rgba(16, 185, 129, 0.1); color: #10B981; padding: 0.5rem; border-radius: 8px;">
+                    <i data-lucide="bot"></i>
+                </div>
+                <div>
+                    <h3 style="font-size: 1rem; margin: 0;">Credenciais SALIC (Rouanet)</h3>
+                    <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0;">Utilizadas pelo robô para envio automático de comprovantes</p>
+                </div>
+            </div>
+
+            <form onsubmit="event.preventDefault(); window.handleSaveSettings();">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="salic-user">CPF / Usuário</label>
+                        <input type="text" id="salic-user" placeholder="000.000.000-00" value="${state.settings.salic_user || ''}" required>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="salic-pass">Senha SALIC</label>
+                        <input type="password" id="salic-pass" placeholder="••••••••" value="${state.settings.salic_pass || ''}" required>
+                    </div>
+                </div>
+                
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem;">
+                    <p style="font-size: 0.75rem; color: #64748b; line-height: 1.5; margin: 0;">
+                        <i data-lucide="shield" style="width: 14px; display: inline-block; vertical-align: middle; margin-right: 0.25rem;"></i>
+                        <strong>Segurança:</strong> Suas credenciais são armazenadas com segurança no Supabase e protegidas por Row Level Security (RLS). Apenas você e o sistema de automação têm acesso.
+                    </p>
+                </div>
+
+                <button class="btn btn-primary" id="save-settings-btn">
+                    ${state.loading ? 'Salvando...' : 'Salvar Configurações'}
+                </button>
+            </form>
+        </div>
+
+        <div class="card">
+            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem;">
+                <div style="background: rgba(239, 68, 68, 0.1); color: #ef4444; padding: 0.5rem; border-radius: 8px;">
+                    <i data-lucide="user-x"></i>
+                </div>
+                <div>
+                    <h3 style="font-size: 1rem; margin: 0;">Zona de Perigo</h3>
+                    <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0;">Ações irreversíveis na sua conta</p>
+                </div>
+            </div>
+            
+            <button class="btn btn-ghost" style="color: #ef4444; border: 1px solid #fee2e2;" onclick="alert('Funcionalidade em desenvolvimento')">
+                Excluir Minha Conta
+            </button>
+        </div>
+    </div>
+</main>
+`;
+
+async function fetchSettings() {
+    if (!supabaseClient || !state.user) return;
+    
+    try {
+        const { data, error } = await supabaseClient
+            .from('external_credentials')
+            .select('*')
+            .eq('service_name', 'salic')
+            .maybeSingle();
+
+        if (error) throw error;
+
+        if (data) {
+            state.settings = {
+                salic_user: data.identifier,
+                salic_pass: data.secret
+            };
+        } else {
+            state.settings = { salic_user: '', salic_pass: '' };
+        }
+    } catch (err) {
+        console.error("Erro ao buscar configurações:", err);
+    }
+}
+
+window.handleSaveSettings = async function() {
+    if (!supabaseClient || !state.user) return;
+
+    const salicUser = document.getElementById('salic-user').value.trim();
+    const salicPass = document.getElementById('salic-pass').value.trim();
+
+    state.loading = true;
+    render();
+
+    try {
+        const { error } = await supabaseClient
+            .from('external_credentials')
+            .upsert({
+                user_id: state.user.id,
+                service_name: 'salic',
+                identifier: salicUser,
+                secret: salicPass,
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'user_id, service_name' });
+
+        if (error) throw error;
+
+        state.settings = { salic_user: salicUser, salic_pass: salicPass };
+        alert("Configurações salvas com sucesso!");
+    } catch (err) {
+        alert("Erro ao salvar configurações: " + err.message);
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
+window.handleCreateProject = async function () {
+    if (!supabaseClient || !state.user) return;
+
+    const pronac = document.getElementById('new-pronac').value.trim();
+    const nome = document.getElementById('new-project-name').value.trim();
 
     if (!pronac || !nome) return alert('Preencha PRONAC e Nome do Projeto!');
 
@@ -1743,6 +1878,9 @@ function render() {
             break;
         case 'admin_fornecedores':
             content = FornecedoresAdminView();
+            break;
+        case 'configuracoes':
+            content = ConfiguracoesView();
             break;
         default:
             content = LoginView();

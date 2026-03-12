@@ -1,5 +1,5 @@
 -- ==========================================================
--- SQL SETUP PARA CULTOPS - UPLOAD E PROJETOS
+-- SQL SETUP PARA PRESTAÍ - UPLOAD E PROJETOS
 -- ==========================================================
 
 -- 1. Tabela de Projetos (PRONACs)
@@ -219,3 +219,23 @@ USING (
 );
 
 
+-- ============================================================
+-- SPRINT 4: AUTOMAÇÃO E CREDENCIAIS EXTERNAS
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS public.external_credentials (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+    service_name TEXT NOT NULL, -- ex: 'salic'
+    identifier TEXT NOT NULL,    -- ex: CPF
+    secret TEXT NOT NULL,        -- ex: Senha (idealmente criptografada)
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    UNIQUE(user_id, service_name)
+);
+
+ALTER TABLE external_credentials ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can manage their own credentials" 
+ON external_credentials FOR ALL 
+USING (auth.uid() = user_id);

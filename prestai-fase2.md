@@ -1,7 +1,7 @@
-# Plano de Implementação: CultOps Fase 2
+# Plano de Implementação: Prestaí Fase 2
 
 ## Visão Geral
-Este plano define a execução da Fase 2 do CultOps, transformando o sistema num gerenciador financeiro completo para projetos da Lei Rouanet. Ele introduz gestão de rubricas, conciliação bancária, validações de conformidade de CNPJ/CNAE, Portal do Fornecedor e automação RPA para o SALIC.
+Este plano define a execução da Fase 2 do Prestaí, transformando o sistema num gerenciador financeiro completo para projetos da Lei Rouanet. Ele introduz gestão de rubricas, conciliação bancária, validações de conformidade de CNPJ/CNAE, Portal do Fornecedor e automação RPA para o SALIC.
 
 ## Tipo de Projeto
 WEB (Front-end Vanilla + Supabase) + BACKEND (n8n Webhooks + Python/Selenium RPA)
@@ -21,7 +21,7 @@ WEB (Front-end Vanilla + Supabase) + BACKEND (n8n Webhooks + Python/Selenium RPA
 
 ## Estrutura de Arquivos
 ```text
-cultops/
+prestai/
 ├── orcamento.html      ← Gestão de rubricas e despesas
 ├── conciliacao.html    ← Tela de conciliação bancária
 ├── conformidade.html   ← Painel de conformidade
