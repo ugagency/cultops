@@ -5,8 +5,11 @@ const supabaseClient = (window.supabase) ? window.supabase.createClient(supabase
 
 const app = document.getElementById('app');
 
+const isFornecedorMode = window.location.pathname.includes('fornecedor') || window.location.hash.includes('fornecedor') || window.location.search.includes('fornecedor');
+
 const state = {
-    currentView: 'login', // 'login' or 'register'
+    isFornecedorMode: isFornecedorMode,
+    currentView: isFornecedorMode ? 'fornecedor_login' : 'login',
     user: null,
     projects: [],
     documents: [],
@@ -20,7 +23,9 @@ const state = {
         startDate: '',
         endDate: '',
         search: ''
-    }
+    },
+    all_fornecedores: [],
+    vinculos_fornecedores: []
 };
 
 const STATUS_MAP = {
@@ -47,6 +52,7 @@ const Header = () => `
         <a class="nav-link ${state.currentView === 'upload' ? 'active' : ''}" onclick="window.navigate('upload')">Upload</a>
         <a class="nav-link ${state.currentView === 'orcamento' ? 'active' : ''}" onclick="window.navigate('orcamento')">Orçamento</a>
         <a class="nav-link ${state.currentView === 'financeiro' ? 'active' : ''}" onclick="window.navigate('financeiro')">Financeiro</a>
+        <a class="nav-link ${state.currentView === 'admin_fornecedores' ? 'active' : ''}" onclick="window.navigate('admin_fornecedores')">Fornecedores</a>
         <a class="nav-link" href="#">Configurações</a>
         <a class="nav-link" href="#">Admin</a>
     </nav>
@@ -54,6 +60,26 @@ const Header = () => `
         <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; font-weight: 500;">
             <i data-lucide="user-circle"></i>
             <span>${state.user ? state.user.email.split('@')[0] : 'Admin'}</span>
+        </div>
+        <button class="btn btn-ghost" onclick="window.handleLogout()">
+            <i data-lucide="log-out"></i>
+            Sair
+        </button>
+    </div>
+</header>
+${state.userStatus === 'fornecedor' ? `<div style="background: #fee2e2; color: #b91c1c; text-align: center; padding: 0.5rem; font-size: 0.875rem; font-weight: 600;">⚠️ Você está logado como FORNECEDOR. O painel de gestor está bloqueado. <a href="#" onclick="window.handleLogout()" style="text-decoration: underline;">Sair e trocar conta</a></div>` : ''}
+`;
+
+const FornecedorHeader = () => `
+<header class="header">
+    <div class="logo">
+        <i data-lucide="truck"></i>
+        <span>Portal Fornecedor</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 1rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; font-weight: 500;">
+            <i data-lucide="user-circle"></i>
+            <span>${state.user ? state.user.email.split('@')[0] : 'Fornecedor'}</span>
         </div>
         <button class="btn btn-ghost" onclick="window.handleLogout()">
             <i data-lucide="log-out"></i>
@@ -99,10 +125,13 @@ const LoginView = () => `
         
         <div class="login-footer">
             <p>Não tem uma conta? <a href="#" onclick="window.navigate('register')" style="color: var(--primary); font-weight: 600;">Crie uma agora</a></p>
-            <a href="#" style="display: flex; align-items: center; justify-content: center; gap: 0.25rem; margin-top: 1rem;">
-                <i data-lucide="arrow-left" style="width: 14px;"></i>
-                Voltar ao site
-            </a>
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
+                <p style="margin-bottom: 0.5rem;">É um fornecedor?</p>
+                <button class="btn btn-ghost" onclick="window.navigate('fornecedor_login')" style="width: 100%; border: 1px solid #f59e0b; color: #d97706;">
+                    <i data-lucide="truck"></i>
+                    Acesso Fornecedor
+                </button>
+            </div>
         </div>
     </div>
 </div>
@@ -142,9 +171,187 @@ const RegisterView = () => `
         
         <div class="login-footer">
             <p>Já tem uma conta? <a href="#" onclick="window.navigate('login')" style="color: var(--primary); font-weight: 600;">Faça login</a></p>
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
+                <p style="margin-bottom: 0.5rem;">É um fornecedor?</p>
+                <button class="btn btn-ghost" onclick="window.navigate('fornecedor_login')" style="width: 100%; border: 1px solid #f59e0b; color: #d97706;">
+                    <i data-lucide="truck"></i>
+                    Acesso Fornecedor
+                </button>
+            </div>
         </div>
     </div>
 </div>
+`;
+
+const FornecedorLoginView = () => `
+<div class="login-view view-content">
+    <div class="card login-card">
+        <div style="text-align: center; margin-bottom: 2rem;">
+            <div class="logo" style="justify-content: center; font-size: 2rem; margin-bottom: 0.5rem; color: #f59e0b;">
+                <i data-lucide="truck" style="width: 32px; height: 32px;"></i>
+                <span>Portal Fornecedor</span>
+            </div>
+            <p style="color: var(--text-muted); font-size: 0.875rem;">Acesse para enviar comprovantes</p>
+        </div>
+        
+        <form onsubmit="event.preventDefault(); window.handleFornecedorLogin();">
+            <div class="form-group">
+                <label for="f-email">E-mail</label>
+                <input type="email" id="f-login-email" placeholder="fornecedor@email.com" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="f-password">Senha</label>
+                <input type="password" id="f-login-password" placeholder="••••••••" required>
+            </div>
+            
+            <button class="btn btn-primary" id="f-login-btn" style="width: 100%; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); shadow: 0 4px 10px rgba(245, 158, 11, 0.3);" ${state.loading ? 'disabled' : ''}>
+                ${state.loading ? 'Entrando...' : 'Acessar Área do Fornecedor'}
+            </button>
+        </form>
+        
+        <div class="login-footer">
+            <p>Primeiro acesso? <a href="#" onclick="window.navigate('fornecedor_register')" style="color: #d97706; font-weight: 600;">Cadastre sua empresa</a></p>
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
+                <p style="margin-bottom: 0.5rem;">É um proponente/gestor?</p>
+                <button class="btn btn-ghost" onclick="window.navigate('login')" style="width: 100%; border: 1px solid var(--primary); color: var(--primary);">
+                    <i data-lucide="shield-check"></i>
+                    Acesso Gestor CultOps
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+`;
+
+const FornecedorRegisterView = () => `
+<div class="login-view view-content">
+    <div class="card login-card" style="max-width: 500px;">
+        <div style="text-align: center; margin-bottom: 2rem;">
+            <div class="logo" style="justify-content: center; font-size: 2rem; margin-bottom: 0.5rem; color: #f59e0b;">
+                <i data-lucide="truck" style="width: 32px; height: 32px;"></i>
+                <span>Portal Fornecedor</span>
+            </div>
+            <p style="color: var(--text-muted); font-size: 0.875rem;">Cadastro Rápido de Empresa</p>
+        </div>
+        
+        <form onsubmit="event.preventDefault(); window.handleFornecedorRegister();">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group">
+                    <label>CNPJ</label>
+                    <input type="text" id="f-reg-cnpj" placeholder="00.000.000/0000-00" required>
+                </div>
+                <div class="form-group">
+                    <label>Telefone</label>
+                    <input type="text" id="f-reg-telefone" placeholder="(00) 00000-0000" required>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Razão Social</label>
+                <input type="text" id="f-reg-razao" placeholder="Sua Empresa LTDA" required>
+            </div>
+            <div class="form-group">
+                <label>E-mail (Login)</label>
+                <input type="email" id="f-reg-email" placeholder="contato@empresa.com" required>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group">
+                    <label>Senha</label>
+                    <input type="password" id="f-reg-password" placeholder="••••••••" required minlength="6">
+                </div>
+                <div class="form-group">
+                    <label>Confirmar Senha</label>
+                    <input type="password" id="f-reg-password-confirm" placeholder="••••••••" required minlength="6">
+                </div>
+            </div>
+            
+            <button class="btn btn-primary" id="f-register-btn" style="width: 100%; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); shadow: 0 4px 10px rgba(245, 158, 11, 0.3);" ${state.loading ? 'disabled' : ''}>
+                ${state.loading ? 'Criando conta...' : 'Concluir Cadastro'}
+            </button>
+        </form>
+        
+        <div class="login-footer">
+            <p>Já tem uma conta? <a href="#" onclick="window.navigate('fornecedor_login')" style="color: #d97706; font-weight: 600;">Faça login</a></p>
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
+                <p style="margin-bottom: 0.5rem;">É um proponente/gestor?</p>
+                <button class="btn btn-ghost" onclick="window.navigate('login')" style="width: 100%; border: 1px solid var(--primary); color: var(--primary);">
+                    <i data-lucide="shield-check"></i>
+                    Acesso Gestor CultOps
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+`;
+
+const FornecedorDashboardView = () => `
+${FornecedorHeader()}
+<main class="dashboard-view view-content">
+    <div class="container">
+        <div class="dashboard-header mb-4">
+            <h1 style="font-size: 1.5rem;">Meus Envios</h1>
+            <p style="color: var(--text-muted); font-size: 0.875rem;">Acompanhe o status das suas notas e recibos enviados</p>
+        </div>
+        
+        <div class="card mb-4" style="background: rgba(245, 158, 11, 0.05); border: 1px dashed rgba(245, 158, 11, 0.5);">
+            <div style="display: grid; grid-template-columns: 1fr auto; gap: 2rem; align-items: center;">
+                <div>
+                    <h3 class="mb-2">Enviar Novo Documento</h3>
+                    <p style="color: var(--text-muted); font-size: 0.875rem;">Escolha o PRONAC solicitante e anexe seu PDF.</p>
+                </div>
+                <div style="display: flex; gap: 1rem;">
+                    <select id="f-upload-project" style="min-width: 250px; padding: 0.625rem; border-radius: var(--radius); border: 1px solid var(--border-color);">
+                        <option value="">Selecione o Projeto / PRONAC...</option>
+                        ${state.projects.map(p => `<option value="${p.project_id}">${p.projects.pronac} - ${p.projects.nome}</option>`).join('')}
+                    </select>
+                    <input type="file" id="f-upload-file" style="display: none;" accept=".pdf" onchange="window.handleFornecedorUpload(this.files[0])">
+                    <button class="btn btn-primary" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);" onclick="if(document.getElementById('f-upload-project').value) document.getElementById('f-upload-file').click(); else alert('Selecione primeiro o PRONAC!');">
+                        <i data-lucide="upload-cloud"></i> Enviar Arquivo
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h3 class="mb-4">Histórico de Documentos</h3>
+            <div class="data-table-container">
+                ${state.documents.length === 0 ?
+        `<p style="text-align: center; padding: 2rem; color: var(--text-muted);">Nenhum documento enviado ainda.</p>` :
+        `<table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Arquivo</th>
+                            <th>Projeto Destino</th>
+                            <th>Status Financeiro</th>
+                            <th>Data Envio</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${state.documents.map(doc => `
+                            <tr>
+                                <td>
+                                    <div class="file-info">
+                                        <span class="file-name">${doc.name}</span>
+                                        <span class="file-size">${doc.size || '---'}</span>
+                                    </div>
+                                </td>
+                                <td style="font-size: 0.875rem;">${doc.projects ? doc.projects.pronac : '---'}</td>
+                                <td>
+                                    <span class="badge ${(STATUS_MAP[doc.status] || {}).class || 'status-pending'}">
+                                        <span class="badge-dot"></span>
+                                        ${(STATUS_MAP[doc.status] || {}).label || doc.status}
+                                    </span>
+                                </td>
+                                <td style="color: var(--text-muted); font-size: 0.75rem;">${new Date(doc.created_at).toLocaleString('pt-BR')}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>`
+    }
+            </div>
+        </div>
+    </div>
+</main>
 `;
 
 const DashboardView = () => `
@@ -535,6 +742,178 @@ ${Header()}
 
 // --- Handlers & API ---
 
+window.handleFornecedorLogin = async function() {
+    if (!supabaseClient) return alert("Erro ao carregar o Supabase Client.");
+
+    const email = document.getElementById('f-login-email').value;
+    const password = document.getElementById('f-login-password').value;
+
+    state.loading = true;
+    render();
+
+    try {
+        const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+
+        // VALIDAÇÃO: Verificar Role no Metadata (O campo oficial no Auth que você pediu)
+        const role = data.user.user_metadata?.role;
+
+        if (role !== 'fornecedor') {
+            await supabaseClient.auth.signOut();
+            throw new Error("Esta conta não possui permissão de Fornecedor. Use o Portal do Gestor.");
+        }
+
+        state.user = data.user;
+        window.navigate('fornecedor_dashboard');
+    } catch (error) {
+        alert("Erro no login Fornecedor: " + error.message);
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
+
+window.handleFornecedorRegister = async function() {
+    if (!supabaseClient) return alert("Erro ao carregar o Supabase Client.");
+
+    const email = document.getElementById('f-reg-email').value;
+    const password = document.getElementById('f-reg-password').value;
+    const confirmPassword = document.getElementById('f-reg-password-confirm').value;
+    const cnpj = document.getElementById('f-reg-cnpj').value;
+    const razao = document.getElementById('f-reg-razao').value;
+    const telefone = document.getElementById('f-reg-telefone').value;
+
+    if (password !== confirmPassword) {
+        return alert("As senhas não coincidem!");
+    }
+
+    state.loading = true;
+    render();
+
+    try {
+        // 1. Cadastrar Usuario com ROLE no Metadata (O campo no Supabase Auth)
+        const { data, error } = await supabaseClient.auth.signUp({ 
+            email, 
+            password,
+            options: {
+                data: {
+                    role: 'fornecedor',
+                    razao_social: razao
+                }
+            }
+        });
+        if (error) throw error;
+
+        if (data.user) {
+            // 2. Inserir no Perfil Fornecedor
+            const { error: profileError } = await supabaseClient.from('fornecedores').insert({
+                id: data.user.id,
+                cnpj: cnpj,
+                razao_social: razao,
+                telefone: telefone
+            });
+            
+            if (profileError) {
+                console.error("Erro ao salvar perfil de fornecedor:", profileError);
+                alert("Erro ao salvar dados da empresa. Entre em contato com o suporte.");
+            }
+
+            // 3. Importante: Limpar estado e navegar para o login do fornecedor para garantir a validação do perfil
+            alert("Conta de fornecedor criada com sucesso! Faça login para acessar o portal.");
+            await supabaseClient.auth.signOut();
+            state.user = null;
+            window.navigate('fornecedor_login');
+        }
+    } catch (error) {
+        alert("Erro ao cadastrar: " + error.message);
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
+
+window.handleFornecedorUpload = async function (file) {
+    const projectId = document.getElementById('f-upload-project').value;
+    if (!file || !projectId) return alert("Selecione um projeto e um arquivo!");
+
+    state.loading = true;
+    render();
+
+    try {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Math.random()}.${fileExt}`;
+        const filePath = `${state.user.id}/${fileName}`;
+
+        // Upload Storage
+        const { error: uploadError } = await supabaseClient.storage.from('documentos').upload(filePath, file);
+        if (uploadError) throw uploadError;
+
+        // Salvar Documento
+        const { data: dbData, error: dbError } = await supabaseClient.from('documents').insert({
+            user_id: state.user.id,
+            project_id: projectId,
+            fornecedor_id: state.user.id,
+            name: file.name,
+            size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
+            file_path: filePath,
+            status: 'processing_ocr'
+        }).select().single();
+
+        if (dbError) throw dbError;
+
+        // Disparar Webhook para o n8n
+        console.log("Notificando n8n (Fornecedor)...", CONFIG.N8N_WEBHOOK_URL);
+        if (CONFIG.N8N_WEBHOOK_URL) {
+            fetch(CONFIG.N8N_WEBHOOK_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                mode: 'cors',
+                body: JSON.stringify({
+                    document_id: dbData.id,
+                    file_path: filePath,
+                    user_id: state.user.id,
+                    fornecedor: true,
+                    bucket: 'documentos'
+                })
+            }).catch(err => console.error("Erro Webhook Fornecedor:", err));
+        }
+
+        alert("Upload concluído! Gestor notificado.");
+        await fetchFornecedorDashboard(); // recarrega a grid
+    } catch (error) {
+        alert("Erro no upload: " + error.message);
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
+
+async function fetchFornecedorDashboard() {
+    if (!supabaseClient || !state.user) return;
+    try {
+        // Busca projetos vinculados ao fornecedor
+        const { data: projData, error: projError } = await supabaseClient
+            .from('projeto_fornecedores')
+            .select('project_id, projects(id, pronac, nome)');
+        
+        if (projError) console.error('Erro ao buscar projetos do fornecedor:', projError);
+        state.projects = (projData || []).filter(p => p.projects); // filtra registros com join válido
+
+        // Busca historico de docs
+        const { data: docData, error: docError } = await supabaseClient
+            .from('documents')
+            .select('*, projects(pronac, nome)')
+            .eq('fornecedor_id', state.user.id)
+            .order('created_at', { ascending: false });
+        
+        if (docError) console.error('Erro ao buscar documentos do fornecedor:', docError);
+        state.documents = docData || [];
+    } catch(err) {
+        console.error("Erro dashboard fornecedor", err);
+    }
+}
+
+
 window.handleLogin = async function () {
     if (!supabaseClient) return alert("Erro ao carregar o Supabase Client.");
 
@@ -548,7 +927,17 @@ window.handleLogin = async function () {
         const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
         if (error) throw error;
 
+        // VALIDAÇÃO: Verificar Role no Metadata
+        const role = data.user.user_metadata?.role;
+        
+        // Se não tiver role ou for diferente de gestor, bloqueia (trata usuários antigos como gestores se necessário)
+        if (role === 'fornecedor') {
+            await supabaseClient.auth.signOut();
+            throw new Error("Esta é uma conta de Fornecedor. Use o Portal do Fornecedor.");
+        }
+
         state.user = data.user;
+        state.userStatus = 'gestor'; 
         window.navigate('dashboard');
     } catch (error) {
         alert("Erro no login: " + error.message);
@@ -573,7 +962,15 @@ window.handleRegister = async function () {
     render();
 
     try {
-        const { data, error } = await supabaseClient.auth.signUp({ email, password });
+        const { data, error } = await supabaseClient.auth.signUp({ 
+            email, 
+            password,
+            options: {
+                data: {
+                    role: 'gestor'
+                }
+            }
+        });
         if (error) throw error;
 
         if (data.user && data.session) {
@@ -766,8 +1163,10 @@ window.navigate = async function (view, id = null) {
     state.currentView = view;
 
     if (view === 'dashboard') {
+        await fetchProjects(); // Sempre recarrega projetos ao voltar ao dashboard
         await fetchDocuments();
-        await fetchProjects();
+    } else if (view === 'fornecedor_dashboard') {
+        await fetchFornecedorDashboard();
     } else if (view === 'upload') {
         await fetchProjects();
     } else if (view === 'orcamento' || view === 'financeiro') {
@@ -779,6 +1178,9 @@ window.navigate = async function (view, id = null) {
         if(state.filters.project) await fetchRubricas(state.filters.project);
     } else if (view === 'details' && id) {
         await fetchDocumentDetails(id);
+    } else if (view === 'admin_fornecedores') {
+        await fetchProjects();
+        await fetchFornecedoresAdmin();
     }
 
     render();
@@ -794,6 +1196,77 @@ async function fetchCatalogoRubricas() {
         console.error("Erro fetch catalogo:", err);
     }
 }
+
+async function fetchFornecedoresAdmin() {
+    if (!supabaseClient) return;
+    try {
+        // 1. Pegar todos os fornecedores (para o select)
+        const { data: allF } = await supabaseClient.from('fornecedores').select('*').order('razao_social');
+        state.all_fornecedores = allF || [];
+
+        // 2. Pegar vínculos dos projetos que o gestor é dono
+        if (state.projects.length === 0) {
+            state.vinculos_fornecedores = [];
+            return;
+        }
+
+        const projectIds = state.projects.map(p => p.id);
+        const { data: vinculos } = await supabaseClient
+            .from('projeto_fornecedores')
+            .select('*, fornecedores(*), projects(*)')
+            .in('project_id', projectIds);
+        
+        state.vinculos_fornecedores = vinculos || [];
+    } catch (err) {
+        console.error("Erro fetch admin fornecedores:", err);
+    }
+}
+
+window.handleInviteFornecedor = async function() {
+    const fornecedorId = document.getElementById('invite-fornecedor-id').value;
+    const projectId = document.getElementById('invite-project-id').value;
+
+    if (!fornecedorId || !projectId) return alert('Selecione fornecedor e projeto!');
+
+    state.loading = true;
+    render();
+
+    try {
+        const { error } = await supabaseClient
+            .from('projeto_fornecedores')
+            .insert({ 
+                fornecedor_id: fornecedorId, 
+                project_id: projectId,
+                gestor_id: state.user.id  // obrigatório para o RLS funcionar sem recursão
+            });
+
+        if (error) throw error;
+        alert("Fornecedor vinculado com sucesso!");
+        await fetchFornecedoresAdmin();
+    } catch (err) {
+        alert("Erro ao vincular: " + (err.code === '23505' ? "Este fornecedor já está vinculado a este projeto." : err.message));
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
+
+window.handleRemoveVinculo = async function(vinculoId) {
+    if (!confirm("Tem certeza que deseja remover este acesso?")) return;
+
+    try {
+        const { error } = await supabaseClient
+            .from('projeto_fornecedores')
+            .delete()
+            .eq('id', vinculoId);
+
+        if (error) throw error;
+        await fetchFornecedoresAdmin();
+        render();
+    } catch (err) {
+        alert("Erro ao remover: " + err.message);
+    }
+};
 
 async function fetchRubricas(projectId) {
     if (!supabaseClient || !projectId) return;
@@ -844,10 +1317,13 @@ window.handleCreateRubrica = async function() {
     }
 };
 
-async function fetchDocumentDetails(id) {
+async function fetchDocumentDetails(id, silent = false) {
     if (!supabaseClient || !state.user) return;
-    state.loading = true;
-    render();
+    
+    if (!silent) {
+        state.loading = true;
+        render();
+    }
 
     try {
         const { data, error } = await supabaseClient
@@ -872,11 +1348,15 @@ async function fetchDocumentDetails(id) {
 
     } catch (error) {
         console.error("Erro ao buscar detalhes:", error);
-        alert("Erro ao carregar detalhes do documento.");
-        window.navigate('dashboard');
+        if (!silent) {
+            alert("Erro ao carregar detalhes do documento.");
+            window.navigate('dashboard');
+        }
     } finally {
-        state.loading = false;
-        render(); // render here because details needs the rubricas_disponiveis
+        if (!silent) {
+            state.loading = false;
+        }
+        render(); 
     }
 }
 
@@ -930,7 +1410,22 @@ window.handleVincularRubrica = async function(documentId, projectId, valorDespes
 
 async function fetchProjects() {
     if (!supabaseClient || !state.user) return;
-    const { data } = await supabaseClient.from('projects').select('*');
+
+    // Só bloqueia se a role for EXPLICITAMENTE 'fornecedor'
+    // Contas antigas sem role são tratadas como gestor
+    const role = state.user.user_metadata?.role;
+    if (role === 'fornecedor') {
+        state.userStatus = 'fornecedor';
+        state.projects = [];
+        render();
+        return;
+    }
+
+    const { data, error } = await supabaseClient.from('projects').select('*').order('nome');
+    if (error) {
+        console.error('Erro ao buscar projetos:', error);
+        return;
+    }
     state.projects = data || [];
 }
 
@@ -1000,31 +1495,33 @@ window.handleDeleteDocument = async function (id, filePath) {
 window.handleCreateProject = async function () {
     if (!supabaseClient || !state.user) return;
 
-    const pronac = document.getElementById('new-pronac').value;
-    const nome = document.getElementById('new-project-name').value;
+    const pronac = document.getElementById('new-pronac').value.trim();
+    const nome = document.getElementById('new-project-name').value.trim();
+
+    if (!pronac || !nome) return alert('Preencha PRONAC e Nome do Projeto!');
 
     state.loading = true;
     render();
 
     try {
-        const { error } = await supabaseClient
+        const { data: newProject, error } = await supabaseClient
             .from('projects')
-            .insert({
-                user_id: state.user.id,
-                pronac,
-                nome
-            });
+            .insert({ user_id: state.user.id, pronac, nome })
+            .select()
+            .single();
 
         if (error) throw error;
 
-        alert("Projeto criado com sucesso!");
-        await fetchProjects();
-        render(); // Atualiza a lista no select
+        // Adiciona imediatamente ao state sem precisar de re-fetch
+        state.projects = [...state.projects, newProject].sort((a, b) => a.nome.localeCompare(b.nome));
+        state.loading = false;
+        render(); // Renderiza imediatamente com o novo projeto na lista
+
+        alert(`Projeto "${nome}" criado com sucesso!`);
     } catch (error) {
-        alert("Erro ao criar projeto: " + error.message);
-    } finally {
         state.loading = false;
         render();
+        alert('Erro ao criar projeto: ' + error.message);
     }
 };
 
@@ -1130,11 +1627,87 @@ window.handleUpload = async function (file) {
     }
 };
 
+const FornecedoresAdminView = () => `
+${Header()}
+<main class="dashboard-view view-content">
+    <div class="container">
+        <div class="dashboard-header mb-4">
+            <h1 style="font-size: 1.5rem;">Gestão de Fornecedores</h1>
+            <p style="color: var(--text-muted); font-size: 0.875rem;">Vincule fornecedores aos seus projetos para que eles enviem notas</p>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 2rem; align-items: start;">
+            <!-- Painel de Vínculo -->
+            <div class="card">
+                <h3 class="mb-4">Vincular Fornecedor</h3>
+                <form onsubmit="event.preventDefault(); window.handleInviteFornecedor();">
+                    <div class="form-group">
+                        <label>Selecionar Fornecedor</label>
+                        <select id="invite-fornecedor-id" style="width: 100%;" required>
+                            <option value="">Selecione um fornecedor cadastrado...</option>
+                            ${(state.all_fornecedores || []).map(f => `<option value="${f.id}">${f.razao_social} (${f.cnpj})</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Projeto Destino</label>
+                        <select id="invite-project-id" style="width: 100%;" required>
+                            <option value="">Selecione o projeto...</option>
+                            ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
+                        </select>
+                    </div>
+                    <button class="btn btn-primary" style="width: 100%;">
+                        ${state.loading ? 'Vinculando...' : 'Conceder Acesso'}
+                    </button>
+                    <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 1rem;">
+                        O fornecedor selecionado poderá visualizar este projeto e enviar documentos diretamente para ele.
+                    </p>
+                </form>
+            </div>
+
+            <!-- Listagem de Vínculos -->
+            <div class="card">
+                <h3 class="mb-4">Vínculos Ativos</h3>
+                <div class="data-table-container">
+                    ${(state.vinculos_fornecedores || []).length === 0 ? 
+                        `<p style="text-align: center; padding: 2rem; color: var(--text-muted);">Nenhum fornecedor vinculado ainda.</p>` :
+                        `<table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Fornecedor</th>
+                                    <th>Projeto</th>
+                                    <th style="text-align: right;">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${(state.vinculos_fornecedores || []).map(v => `
+                                    <tr>
+                                        <td>
+                                            <div style="font-weight: 500;">${v.fornecedores.razao_social}</div>
+                                            <div style="font-size: 0.75rem; color: var(--text-muted);">${v.fornecedores.cnpj}</div>
+                                        </td>
+                                        <td style="font-size: 0.875rem;">${v.projects.pronac} - ${v.projects.nome}</td>
+                                        <td style="text-align: right;">
+                                            <button class="btn btn-ghost" style="color: var(--error);" onclick="window.handleRemoveVinculo('${v.id}')">
+                                                <i data-lucide="trash-2" style="width: 16px;"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>`
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+`;
+
 function render() {
     let content = '';
 
-    if (!state.user && state.currentView !== 'login' && state.currentView !== 'register') {
-        state.currentView = 'login';
+    if (!state.user && !['login', 'register', 'fornecedor_login', 'fornecedor_register'].includes(state.currentView)) {
+        state.currentView = state.isFornecedorMode ? 'fornecedor_login' : 'login';
     }
 
     switch (state.currentView) {
@@ -1143,6 +1716,15 @@ function render() {
             break;
         case 'register':
             content = RegisterView();
+            break;
+        case 'fornecedor_login':
+            content = FornecedorLoginView();
+            break;
+        case 'fornecedor_register':
+            content = FornecedorRegisterView();
+            break;
+        case 'fornecedor_dashboard':
+            content = FornecedorDashboardView();
             break;
         case 'dashboard':
             content = DashboardView();
@@ -1158,6 +1740,9 @@ function render() {
             break;
         case 'details':
             content = DetailsView();
+            break;
+        case 'admin_fornecedores':
+            content = FornecedoresAdminView();
             break;
         default:
             content = LoginView();
@@ -1244,14 +1829,13 @@ function setupRealtime() {
                     doc.id === payload.new.id ? { ...doc, ...payload.new } : doc
                 );
 
-                // 2. Atualiza o documento se o usuário estiver na tela de detalhes
-                if (state.currentDocument && state.currentDocument.id === payload.new.id) {
-                    // Mantemos os metadados do projeto que vêm de um join (projects)
-                    state.currentDocument = { ...state.currentDocument, ...payload.new };
+                // 2. Se estivermos vendo os detalhes DESTE documento, fazemos um fetch silencioso 
+                // para garantir que pegamos as relações (despesas, etc) que o n8n pode ter criado.
+                if (state.currentDocument && state.currentDocument.id === payload.new.id && state.currentView === 'details') {
+                    fetchDocumentDetails(payload.new.id, true);
+                } else {
+                    render();
                 }
-
-                // 3. Renderiza novamente a tela com os novos dados
-                render();
             }
         )
         .on(
