@@ -26,6 +26,7 @@ const state = {
     },
     all_fornecedores: [],
     vinculos_fornecedores: [],
+    extratos: [],
     settings: {
         salic_user: '',
         salic_pass: ''
@@ -56,6 +57,7 @@ const Header = () => `
         <a class="nav-link ${state.currentView === 'upload' ? 'active' : ''}" onclick="window.navigate('upload')">Upload</a>
         <a class="nav-link ${state.currentView === 'orcamento' ? 'active' : ''}" onclick="window.navigate('orcamento')">Orçamento</a>
         <a class="nav-link ${state.currentView === 'financeiro' ? 'active' : ''}" onclick="window.navigate('financeiro')">Financeiro</a>
+        <a class="nav-link ${state.currentView === 'conciliacao' ? 'active' : ''}" onclick="window.navigate('conciliacao')">Conciliação</a>
         <a class="nav-link ${state.currentView === 'admin_fornecedores' ? 'active' : ''}" onclick="window.navigate('admin_fornecedores')">Fornecedores</a>
         <a class="nav-link ${state.currentView === 'configuracoes' ? 'active' : ''}" onclick="window.navigate('configuracoes')">Configurações</a>
         <a class="nav-link" href="#">Admin</a>
@@ -1088,6 +1090,96 @@ const FinanceiroView = () => {
     return content;
 };
 
+// --- ConciliacaoView ---
+
+const ConciliacaoView = () => `
+${Header()}
+<main class="conciliacao-view view-content">
+    <div class="container">
+        <div class="flex-row mb-4">
+            <div>
+                <h1 style="font-size: 1.5rem;">Conciliação Bancária</h1>
+                <p style="color: var(--text-muted); font-size: 0.875rem;">Cruze as saídas da conta bancária com as despesas cadastradas</p>
+            </div>
+            
+            <div class="form-group" style="margin-bottom: 0; min-width: 250px;">
+                <select id="conciliacao-project" style="width: 100%; padding: 0.625rem; border-radius: var(--radius); border: 1px solid var(--border-color);" onchange="window.navigate('conciliacao', this.value)">
+                    <option value="">Selecione o Projeto...</option>
+                    ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
+                </select>
+            </div>
+        </div>
+
+        ${!state.filters.project ? `<div class="card" style="text-align: center; padding: 4rem;"><p style="color: var(--text-muted);">Selecione um projeto para iniciar a conciliação.</p></div>` : `
+        
+        <div style="display: grid; grid-template-columns: 1fr 2.5fr; gap: 2rem; align-items: start;">
+            <!-- Importação -->
+            <div class="card">
+                <h3 class="mb-4">Importar Extrato</h3>
+                <div class="upload-area" style="padding: 1.5rem;" onclick="document.getElementById('extrato-input').click()">
+                    <input type="file" id="extrato-input" style="display: none;" accept=".ofx,.csv" onchange="window.handleImportExtrato(this.files[0])">
+                    <i data-lucide="file-up" style="width: 24px; color: var(--primary); margin-bottom: 1rem;"></i>
+                    <p style="font-size: 0.875rem; font-weight: 500;">Carregar OFX ou CSV</p>
+                    <p style="font-size: 0.75rem; color: var(--text-muted);">Padrão Internet Banking</p>
+                </div>
+                <div style="margin-top: 1.5rem;">
+                    <h4 style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-bottom: 1rem;">Dicas</h4>
+                    <ul style="font-size: 0.75rem; color: var(--text-muted); padding-left: 1rem;">
+                        <li>O arquivo OFX é mais preciso que o CSV.</li>
+                        <li>Importe apenas o período do projeto.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Listagem de Transações -->
+            <div class="card">
+                <div class="flex-row mb-4">
+                    <h3 style="margin-bottom: 0;">Transações do Extrato</h3>
+                    <button class="btn btn-primary" onclick="window.handleRunN8NReconciliation()" ${state.loading ? 'disabled' : ''}>
+                        <i data-lucide="brain"></i>
+                        Sugerir Conciliação IA
+                    </button>
+                </div>
+                <div class="data-table-container">
+                    ${state.extratos.length === 0 ? `<p style="color: var(--text-muted); text-align: center; padding: 2rem;">Nenhuma transação importada para este projeto.</p>` : `
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Data</th>
+                                <th>Descrição</th>
+                                <th style="text-align: right;">Valor</th>
+                                <th style="text-align: right;">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${state.extratos.map(ex => `
+                                <tr>
+                                    <td style="font-size: 0.875rem;">${new Date(ex.data_transacao).toLocaleDateString('pt-BR')}</td>
+                                    <td>
+                                        <div style="font-weight: 500;">${ex.descricao}</div>
+                                        ${ex.documento_referencia ? `<div style="font-size: 0.75rem; color: var(--text-muted);">Ref: ${ex.documento_referencia}</div>` : ''}
+                                    </td>
+                                    <td style="text-align: right; font-weight: 600; color: ${ex.valor < 0 ? '#ef4444' : '#10b981'};">
+                                        R$ ${Math.abs(ex.valor).toLocaleString('pt-BR', {minimumFractionDigits: 2})}
+                                    </td>
+                                    <td style="text-align: right;">
+                                        ${ex.conciliado_com_despesa_id ? 
+                                            `<span class="badge status-completed"><i data-lucide="link" style="width:12px;"></i> Conciliado</span>` : 
+                                            `<button class="btn btn-ghost" style="font-size: 0.75rem; color: var(--primary);" onclick="window.handleShowMatchForm('${ex.id}', ${ex.valor})">Conciliar</button>`
+                                        }
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>`}
+                </div>
+            </div>
+        </div>
+        `}
+    </div>
+</main>
+`;
+
 // --- OrcamentoView ---
 
 const OrcamentoView = () => `
@@ -1185,6 +1277,12 @@ window.navigate = async function (view, id = null) {
     } else if (view === 'admin_fornecedores') {
         await fetchProjects();
         await fetchFornecedoresAdmin();
+    } else if (view === 'conciliacao') {
+        await fetchProjects();
+        if(id) state.filters.project = id;
+        else if(!state.filters.project && state.projects.length > 0) state.filters.project = state.projects[0].id;
+        
+        if(state.filters.project) await fetchExtratos(state.filters.project);
     } else if (view === 'configuracoes') {
         await fetchSettings();
     }
@@ -1876,6 +1974,9 @@ function render() {
         case 'details':
             content = DetailsView();
             break;
+        case 'conciliacao':
+            content = ConciliacaoView();
+            break;
         case 'admin_fornecedores':
             content = FornecedoresAdminView();
             break;
@@ -1993,6 +2094,158 @@ function setupRealtime() {
         )
         .subscribe();
 }
+
+
+// --- Sprint 4: Banking Logic ---
+
+async function fetchExtratos(projectId) {
+    if (!supabaseClient || !projectId) return;
+    try {
+        const { data, error } = await supabaseClient
+            .from('extratos_bancarios')
+            .select('*')
+            .eq('project_id', projectId)
+            .order('data_transacao', { ascending: false });
+            
+        if (!error) state.extratos = data || [];
+    } catch(err) {
+        console.error("Erro fetch extratos:", err);
+    }
+}
+
+window.handleImportExtrato = async function(file) {
+    if (!file || !state.filters.project || !supabaseClient) return;
+    
+    state.loading = true;
+    render();
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        const text = e.target.result;
+        let transactions = [];
+
+        try {
+            if (file.name.toLowerCase().endsWith('.ofx')) {
+                transactions = parseOFX(text);
+            } else if (file.name.toLowerCase().endsWith('.csv')) {
+                transactions = parseCSV(text);
+            }
+
+            if (transactions.length === 0) {
+                state.loading = false;
+                render();
+                return alert("Nenhuma transação válida encontrada no arquivo.");
+            }
+
+            const toInsert = transactions.map(t => ({
+                project_id: state.filters.project,
+                user_id: state.user.id,
+                data_transacao: t.date,
+                descricao: t.description,
+                valor: t.amount,
+                documento_referencia: t.ref || null
+            }));
+
+            const { error } = await supabaseClient.from('extratos_bancarios').insert(toInsert);
+            if (error) throw error;
+
+            alert(`${transactions.length} transações importadas com sucesso!`);
+            await fetchExtratos(state.filters.project);
+        } catch (err) {
+            alert("Erro ao processar/salvar transações: " + err.message);
+        } finally {
+            state.loading = false;
+            render();
+        }
+    };
+    reader.readAsText(file);
+};
+
+function parseOFX(text) {
+    const transactions = [];
+    const stmtTrnRegex = /<STMTTRN>([\s\S]*?)<\/STMTTRN>/g;
+    let match;
+
+    while ((match = stmtTrnRegex.exec(text)) !== null) {
+        const block = match[1];
+        const dateStr = extractOFXTag(block, 'DTPOSTED');
+        const amount = parseFloat(extractOFXTag(block, 'TRNAMT'));
+        const memo = extractOFXTag(block, 'MEMO') || extractOFXTag(block, 'NAME');
+        const fitid = extractOFXTag(block, 'FITID');
+
+        if (dateStr && !isNaN(amount)) {
+            const formattedDate = `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
+            transactions.push({
+                date: formattedDate,
+                description: memo,
+                amount: amount,
+                ref: fitid
+            });
+        }
+    }
+    return transactions;
+}
+
+function extractOFXTag(text, tag) {
+    const regex = new RegExp(`<${tag}>([^<\\r\\n\\t]+)`, 'i');
+    const match = text.match(regex);
+    return match ? match[1].trim() : null;
+}
+
+function parseCSV(text) {
+    const lines = text.split('\n');
+    const transactions = [];
+    
+    lines.forEach(line => {
+        const cols = line.split(/[;,]/);
+        if (cols.length >= 3) {
+            const dateStr = cols[0].trim();
+            const desc = cols[1].trim();
+            const amount = parseFloat(cols[2].trim().replace(',', '.'));
+
+            if (dateStr.includes('/') && !isNaN(amount)) {
+                const parts = dateStr.split('/');
+                if (parts.length === 3) {
+                    const formattedDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                    transactions.push({
+                        date: formattedDate,
+                        description: desc,
+                        amount: amount
+                    });
+                }
+            }
+        }
+    });
+    return transactions;
+}
+
+window.handleRunN8NReconciliation = async function() {
+    if (!state.filters.project || !CONFIG.N8N_WEBHOOK_RECONCILIATION_URL) return;
+
+    state.loading = true;
+    render();
+
+    try {
+        const response = await fetch(CONFIG.N8N_WEBHOOK_RECONCILIATION_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                project_id: state.filters.project,
+                user_id: state.user.id,
+                action: 'reconcile_all'
+            })
+        });
+
+        if (!response.ok) throw new Error("Erro ao disparar n8n.");
+        
+        alert("O processo de conciliação inteligente foi iniciado no n8n. Aguarde alguns instantes e atualize a página.");
+    } catch (err) {
+        alert("Erro ao disparar conciliação: " + err.message);
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
 
 // Initial render and setup
 render();

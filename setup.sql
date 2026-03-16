@@ -239,3 +239,27 @@ ALTER TABLE external_credentials ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can manage their own credentials" 
 ON external_credentials FOR ALL 
 USING (auth.uid() = user_id);
+-- ============================================================
+-- SPRINT 4: CONCILIAÇÃO BANCÁRIA
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS public.extratos_bancarios (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE NOT NULL,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+    data_transacao DATE NOT NULL,
+    descricao TEXT NOT NULL,
+    valor NUMERIC(12,2) NOT NULL,
+    documento_referencia TEXT, -- Numero do doc/cheque no extrato
+    conciliado_com_despesa_id UUID REFERENCES public.despesas(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+ALTER TABLE extratos_bancarios ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can manage their own bank statements" 
+ON extratos_bancarios FOR ALL 
+USING (project_id IN (SELECT id FROM projects WHERE user_id = auth.uid()));
+
+-- Adicionar flag de conciliação nas despesas se não existir (ajuste da fase 2)
+ALTER TABLE public.despesas ADD COLUMN IF NOT EXISTS extrato_vinculado_id UUID REFERENCES public.extratos_bancarios(id) ON DELETE SET NULL;
