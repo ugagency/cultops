@@ -46,35 +46,67 @@ const STATUS_MAP = {
 
 // --- Templates ---
 
-const Header = () => `
-<header class="header">
-    <div class="logo">
+const Sidebar = () => `
+<aside class="sidebar">
+    <div class="sidebar-logo">
         <i data-lucide="shield-check"></i>
         <span>Prestaí</span>
     </div>
-    <nav class="navbar">
-        <a class="nav-link ${state.currentView === 'dashboard' ? 'active' : ''}" onclick="window.navigate('dashboard')">Dashboard</a>
-        <a class="nav-link ${state.currentView === 'upload' ? 'active' : ''}" onclick="window.navigate('upload')">Upload</a>
-        <a class="nav-link ${state.currentView === 'orcamento' ? 'active' : ''}" onclick="window.navigate('orcamento')">Orçamento</a>
-        <a class="nav-link ${state.currentView === 'financeiro' ? 'active' : ''}" onclick="window.navigate('financeiro')">Financeiro</a>
-        <a class="nav-link ${state.currentView === 'conciliacao' ? 'active' : ''}" onclick="window.navigate('conciliacao')">Conciliação</a>
-        <a class="nav-link ${state.currentView === 'admin_fornecedores' ? 'active' : ''}" onclick="window.navigate('admin_fornecedores')">Fornecedores</a>
-        <a class="nav-link ${state.currentView === 'configuracoes' ? 'active' : ''}" onclick="window.navigate('configuracoes')">Configurações</a>
-        <a class="nav-link" href="#">Admin</a>
+    
+    <nav class="sidebar-nav">
+        <a class="nav-item ${state.currentView === 'dashboard' ? 'active' : ''}" onclick="window.navigate('dashboard')">
+            <i data-lucide="layout-dashboard"></i>
+            <span>Dashboard</span>
+        </a>
+        <a class="nav-item ${state.currentView === 'projects' ? 'active' : ''}" onclick="window.navigate('projects')">
+            <i data-lucide="briefcase"></i>
+            <span>Projetos</span>
+        </a>
+        <a class="nav-item ${['upload', 'details'].includes(state.currentView) ? 'active' : ''}" onclick="window.navigate('upload')">
+            <i data-lucide="file-text"></i>
+            <span>Notas Fiscais</span>
+        </a>
+        <a class="nav-item ${['orcamento', 'rubricas'].includes(state.currentView) ? 'active' : ''}" onclick="window.navigate('orcamento')">
+            <i data-lucide="list-checks"></i>
+            <span>Rubricas</span>
+        </a>
+        <a class="nav-item ${state.currentView === 'financeiro' ? 'active' : ''}" onclick="window.navigate('financeiro')">
+            <i data-lucide="bar-chart-3"></i>
+            <span>Relatórios</span>
+        </a>
+        <a class="nav-item ${state.currentView === 'admin_fornecedores' ? 'active' : ''}" onclick="window.navigate('admin_fornecedores')">
+            <i data-lucide="users"></i>
+            <span>Fornecedores</span>
+        </a>
+        <a class="nav-item ${state.currentView === 'configuracoes' ? 'active' : ''}" onclick="window.navigate('configuracoes')">
+            <i data-lucide="settings"></i>
+            <span>Configurações</span>
+        </a>
     </nav>
-    <div style="display: flex; align-items: center; gap: 1rem;">
-        <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; font-weight: 500;">
-            <i data-lucide="user-circle"></i>
-            <span>${state.user ? state.user.email.split('@')[0] : 'Admin'}</span>
+
+    <div class="sidebar-footer">
+        <div style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; margin-bottom: 0.5rem;">
+            <div style="width: 32px; height: 32px; background: var(--border-light); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: var(--text-secondary);">
+                ${state.user ? state.user.email[0].toUpperCase() : 'A'}
+            </div>
+            <div style="overflow: hidden;">
+                <p style="font-size: 13px; font-weight: 600; color: var(--text-primary); white-space: nowrap; text-overflow: ellipsis;">
+                    ${state.user ? state.user.email.split('@')[0] : 'Admin'}
+                </p>
+                <p style="font-size: 11px; color: var(--text-secondary);">Gestor</p>
+            </div>
         </div>
-        <button class="btn btn-ghost" onclick="window.handleLogout()">
+        <a class="nav-item" onclick="window.handleLogout()" style="color: var(--error);">
             <i data-lucide="log-out"></i>
-            Sair
-        </button>
+            <span>Sair</span>
+        </a>
     </div>
-</header>
-${state.userStatus === 'fornecedor' ? `<div style="background: #fee2e2; color: #b91c1c; text-align: center; padding: 0.5rem; font-size: 0.875rem; font-weight: 600;">⚠️ Você está logado como FORNECEDOR. O painel de gestor está bloqueado. <a href="#" onclick="window.handleLogout()" style="text-decoration: underline;">Sair e trocar conta</a></div>` : ''}
+</aside>
 `;
+
+// Helper for Header compatibility if needed
+const Header = Sidebar;
+
 
 const FornecedorHeader = () => `
 <header class="header">
@@ -291,162 +323,46 @@ const FornecedorRegisterView = () => `
 `;
 
 const FornecedorDashboardView = () => `
-${FornecedorHeader()}
-<main class="dashboard-view view-content">
-    <div class="container">
-        <div class="dashboard-header mb-4">
-            <h1 style="font-size: 1.5rem;">Meus Envios</h1>
-            <p style="color: var(--text-muted); font-size: 0.875rem;">Acompanhe o status das suas notas e recibos enviados</p>
-        </div>
-        
-        <div class="card mb-4" style="background: rgba(245, 158, 11, 0.05); border: 1px dashed rgba(245, 158, 11, 0.5);">
-            <div style="display: grid; grid-template-columns: 1fr auto; gap: 2rem; align-items: center;">
-                <div>
-                    <h3 class="mb-2">Enviar Novo Documento</h3>
-                    <p style="color: var(--text-muted); font-size: 0.875rem;">Escolha o PRONAC solicitante e anexe seu PDF.</p>
-                </div>
-                <div style="display: flex; gap: 1rem;">
-                    <select id="f-upload-project" style="min-width: 250px; padding: 0.625rem; border-radius: var(--radius); border: 1px solid var(--border-color);">
-                        <option value="">Selecione o Projeto / PRONAC...</option>
-                        ${state.projects.map(p => `<option value="${p.project_id}">${p.projects.pronac} - ${p.projects.nome}</option>`).join('')}
-                    </select>
-                    <input type="file" id="f-upload-file" style="display: none;" accept=".pdf" onchange="window.handleFornecedorUpload(this.files[0])">
-                    <button class="btn btn-primary" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);" onclick="if(document.getElementById('f-upload-project').value) document.getElementById('f-upload-file').click(); else alert('Selecione primeiro o PRONAC!');">
-                        <i data-lucide="upload-cloud"></i> Enviar Arquivo
-                    </button>
-                </div>
-            </div>
-        </div>
-        
-        <div class="card">
-            <h3 class="mb-4">Histórico de Documentos</h3>
-            <div class="data-table-container">
-                ${state.documents.length === 0 ?
-        `<p style="text-align: center; padding: 2rem; color: var(--text-muted);">Nenhum documento enviado ainda.</p>` :
-        `<table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Arquivo</th>
-                            <th>Projeto Destino</th>
-                            <th>Status Financeiro</th>
-                            <th>Data Envio</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${state.documents.map(doc => `
-                            <tr>
-                                <td>
-                                    <div class="file-info">
-                                        <span class="file-name">${doc.name}</span>
-                                        <span class="file-size">${doc.size || '---'}</span>
-                                    </div>
-                                </td>
-                                <td style="font-size: 0.875rem;">${doc.projects ? doc.projects.pronac : '---'}</td>
-                                <td>
-                                    <span class="badge ${(STATUS_MAP[doc.status] || {}).class || 'status-pending'}">
-                                        <span class="badge-dot"></span>
-                                        ${(STATUS_MAP[doc.status] || {}).label || doc.status}
-                                    </span>
-                                </td>
-                                <td style="color: var(--text-muted); font-size: 0.75rem;">${new Date(doc.created_at).toLocaleString('pt-BR')}</td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>`
-    }
-            </div>
-        </div>
-    </div>
-</main>
-`;
-
-const DashboardView = () => `
-${Header()}
-<main class="dashboard-view view-content">
-    <div class="container">
-        <div class="dashboard-header">
-            <h1 style="font-size: 1.5rem;">Dashboard</h1>
-            <p style="color: var(--text-muted); font-size: 0.875rem;">Bem-vindo, ${state.user ? state.user.email : ''}</p>
-        </div>
-        
-        <div class="metrics-grid">
-            <div class="card metric-card">
-                <p class="metric-label">Total de Documentos</p>
-                <div class="metric-value">
-                    ${state.documents.length}
-                    <i data-lucide="file-text" style="color: var(--primary); opacity: 0.2;"></i>
-                </div>
-            </div>
-            <div class="card metric-card">
-                <p class="metric-label">Pendentes</p>
-                <div class="metric-value">
-                    ${state.documents.filter(d => d.status === 'pendente' || d.status === 'uploaded').length}
-                    <i data-lucide="clock" style="color: var(--pending); opacity: 0.2;"></i>
-                </div>
-            </div>
-            <div class="card metric-card">
-                <p class="metric-label">Enviados</p>
-                <div class="metric-value">
-                    ${state.documents.filter(d => d.status === 'concluido' || d.status === 'enviado_salic').length}
-                    <i data-lucide="check-circle" style="color: var(--success); opacity: 0.2;"></i>
-                </div>
-            </div>
-            <div class="card metric-card">
-                <p class="metric-label">Com Erro</p>
-                <div class="metric-value">
-                    ${state.documents.filter(d => d.status === 'erro' || d.status === 'erro_rpa').length}
-                    <i data-lucide="alert-circle" style="color: var(--error); opacity: 0.2;"></i>
-                </div>
-            </div>
-        </div>
-        
-        <div class="card mb-4">
-            <div class="filters-bar" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; align-items: end;">
-                <div class="form-group" style="margin-bottom: 0;">
-                    <label>Buscar Arquivo</label>
-                    <input type="text" id="filter-search" placeholder="Nome do arquivo..." value="${state.filters.search}" oninput="window.updateFilters('search', this.value)">
-                </div>
-                <div class="form-group" style="margin-bottom: 0;">
-                    <label>Filtrar por Projeto</label>
-                    <select id="filter-project" style="width: 100%; padding: 0.625rem; border-radius: var(--radius); border: 1px solid var(--border-color);" onchange="window.updateFilters('project', this.value)">
-                        <option value="">Todos os Projetos</option>
-                        ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac}</option>`).join('')}
-                    </select>
-                </div>
-                <div class="form-group" style="margin-bottom: 0;">
-                    <label>De:</label>
-                    <input type="date" id="filter-start" value="${state.filters.startDate}" onchange="window.updateFilters('startDate', this.value)" style="width: 100%; padding: 0.5rem; border-radius: var(--radius); border: 1px solid var(--border-color);">
-                </div>
-                <div class="form-group" style="margin-bottom: 0;">
-                    <label>Até:</label>
-                    <input type="date" id="filter-end" value="${state.filters.endDate}" onchange="window.updateFilters('endDate', this.value)" style="width: 100%; padding: 0.5rem; border-radius: var(--radius); border: 1px solid var(--border-color);">
-                </div>
-                <button class="btn btn-ghost" onclick="window.clearFilters()" style="margin-bottom: 2px;">Limpar</button>
-            </div>
-        </div>
-        
-        <div class="card">
-            <div class="flex-row mb-4">
-                <div>
-                    <h3>Documentos Recentes</h3>
-                    <p style="font-size: 0.75rem; color: var(--text-muted);">Últimos documentos processados pela plataforma</p>
-                </div>
-                <button class="btn btn-primary" onclick="window.navigate('upload')">
-                    <i data-lucide="plus"></i>
-                    Novo Upload
-                </button>
+<div style="display: flex; flex-direction: column; flex: 1; width: 100%;">
+    ${FornecedorHeader()}
+    <main class="dashboard-view view-content">
+        <div class="container">
+            <div class="dashboard-header mb-4">
+                <h1 style="font-size: 1.5rem;">Meus Envios</h1>
+                <p style="color: var(--text-muted); font-size: 0.875rem;">Acompanhe o status das suas notas e recibos enviados</p>
             </div>
             
-            <div class="data-table-container">
-                ${state.documents.length === 0 ?
-        `<p style="text-align: center; padding: 2rem; color: var(--text-muted);">Nenhum documento encontrado com os filtros aplicados.</p>` :
+            <div class="card mb-4" style="background: rgba(245, 158, 11, 0.05); border: 1px dashed rgba(245, 158, 11, 0.5);">
+                <div style="display: grid; grid-template-columns: 1fr auto; gap: 2rem; align-items: center;">
+                    <div>
+                        <h3 class="mb-2">Enviar Novo Documento</h3>
+                        <p style="color: var(--text-muted); font-size: 0.875rem;">Escolha o PRONAC solicitante e anexe seu PDF.</p>
+                    </div>
+                    <div style="display: flex; gap: 1rem;">
+                        <select id="f-upload-project" style="min-width: 250px; padding: 0.625rem; border-radius: var(--radius-sm); border: 1px solid var(--border-light);">
+                            <option value="">Selecione o Projeto / PRONAC...</option>
+                            ${state.projects.map(p => `<option value="${p.project_id}">${p.projects.pronac} - ${p.projects.nome}</option>`).join('')}
+                        </select>
+                        <input type="file" id="f-upload-file" style="display: none;" accept=".pdf" onchange="window.handleFornecedorUpload(this.files[0])">
+                        <button class="btn btn-primary" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);" onclick="if(document.getElementById('f-upload-project').value) document.getElementById('f-upload-file').click(); else alert('Selecione primeiro o PRONAC!');">
+                            <i data-lucide="upload-cloud"></i> Enviar Arquivo
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3 class="mb-4">Histórico de Documentos</h3>
+                <div class="data-table-container">
+                    ${state.documents.length === 0 ?
+        `<p style="text-align: center; padding: 2rem; color: var(--text-muted);">Nenhum documento enviado ainda.</p>` :
         `<table class="data-table">
                         <thead>
                             <tr>
                                 <th>Arquivo</th>
-                                <th>Status</th>
-                                <th>Data</th>
-                                <th style="text-align: right;">Ações</th>
+                                <th>Projeto Destino</th>
+                                <th>Status Financeiro</th>
+                                <th>Data Envio</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -458,6 +374,7 @@ ${Header()}
                                             <span class="file-size">${doc.size || '---'}</span>
                                         </div>
                                     </td>
+                                    <td style="font-size: 0.875rem;">${doc.projects ? doc.projects.pronac : '---'}</td>
                                     <td>
                                         <span class="badge ${(STATUS_MAP[doc.status] || {}).class || 'status-pending'}">
                                             <span class="badge-dot"></span>
@@ -465,88 +382,257 @@ ${Header()}
                                         </span>
                                     </td>
                                     <td style="color: var(--text-muted); font-size: 0.75rem;">${new Date(doc.created_at).toLocaleString('pt-BR')}</td>
-                                    <td style="text-align: right;">
-                                        <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
-                                            <button class="btn btn-ghost" style="padding: 0.5rem;" onclick="window.navigate('details', '${doc.id}')" title="Ver Detalhes">
-                                                <i data-lucide="eye"></i>
-                                            </button>
-                                            <button class="btn btn-ghost" style="padding: 0.5rem; color: var(--error);" onclick="window.handleDeleteDocument('${doc.id}', '${doc.file_path}')" title="Excluir">
-                                                <i data-lucide="trash-2"></i>
-                                            </button>
-                                        </div>
-                                    </td>
                                 </tr>
                             `).join('')}
                         </tbody>
                     </table>`
     }
+                </div>
             </div>
         </div>
+    </main>
+</div>
+`;
+
+const DashboardView = () => {
+    const totalAnalisadas = state.documents.length;
+    const pendentes = state.documents.filter(d => ['uploaded', 'processing_ocr', 'pendente'].includes(d.status)).length;
+    const erros = state.documents.filter(d => ['erro', 'erro_rpa'].includes(d.status)).length;
+
+    // Calcular valor aprovado (se disponível no state ou se precisarmos calcular de despesas)
+    // Para simplificar agora, vamos mostrar o número de notas validadas se o valor não estiver fácil
+    const aprovadas = state.documents.filter(d => ['validated', 'enviado_salic', 'concluido'].includes(d.status)).length;
+
+    return `
+${Sidebar()}
+<main class="main-content view-content">
+    <header class="content-header">
+        <h1>Dashboard</h1>
+        <p class="page-subtitle">Bem-vindo ao Prestaí, seu assistente de conformidade financeira.</p>
+    </header>
+    
+    <div class="metrics-grid">
+        <div class="card metric-card">
+            <p class="metric-label">Notas analisadas</p>
+            <div class="metric-value">${totalAnalisadas}</div>
+        </div>
+        <div class="card metric-card">
+            <p class="metric-label">Pendentes de revisão</p>
+            <div class="metric-value" style="color: var(--warning);">${pendentes}</div>
+        </div>
+        <div class="card metric-card">
+            <p class="metric-label">Notas aprovadas</p>
+            <div class="metric-value" style="color: var(--success);">${aprovadas}</div>
+        </div>
+        <div class="card metric-card">
+            <p class="metric-label">Erros encontrados</p>
+            <div class="metric-value" style="color: var(--error);">${erros}</div>
+        </div>
+    </div>
+    
+    <div class="card mb-4" style="padding: 1rem 1.5rem;">
+        <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 200px;">
+                <input type="text" placeholder="Pesquisar notas..." value="${state.filters.search}" oninput="window.updateFilters('search', this.value)">
+            </div>
+            <div style="min-width: 180px;">
+                <select onchange="window.updateFilters('project', this.value)">
+                    <option value="">Todos os projetos</option>
+                    ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
+                </select>
+            </div>
+            <button class="btn btn-secondary" onclick="window.clearFilters()">Limpar filtros</button>
+            <button class="btn btn-primary" onclick="window.navigate('upload')">
+                <i data-lucide="upload-cloud"></i>
+                Enviar nota
+            </button>
+        </div>
+    </div>
+    
+    <div class="data-table-container">
+        ${state.documents.length === 0 ? `
+            <div class="empty-state">
+                <div class="empty-state-icon"><i data-lucide="file-warning"></i></div>
+                <h3 class="h2">Nenhuma nota encontrada</h3>
+                <p class="text-sm">Tente ajustar seus filtros ou envie sua primeira nota fiscal para começar.</p>
+                <button class="btn btn-primary" onclick="window.navigate('upload')">Enviar nota</button>
+            </div>
+        ` : `
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Arquivo</th>
+                        <th>Projeto</th>
+                        <th>Status</th>
+                        <th>Data</th>
+                        <th style="text-align: right;">Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${state.documents.map(doc => {
+        const status = STATUS_MAP[doc.status] || { label: doc.status, class: 'status-pending' };
+        const project = state.projects.find(p => p.id === doc.project_id);
+        return `
+                        <tr>
+                            <td>
+                                <div style="font-weight: 500;">${doc.name}</div>
+                                <div class="text-xs">${doc.size || '---'}</div>
+                            </td>
+                            <td>
+                                <div class="text-sm">${project ? project.pronac : '---'}</div>
+                            </td>
+                            <td>
+                                <span class="badge ${status.class}">
+                                    <span class="badge-dot"></span>
+                                    ${status.label}
+                                </span>
+                            </td>
+                            <td>
+                                <div class="text-sm">${new Date(doc.created_at).toLocaleDateString('pt-BR')}</div>
+                            </td>
+                            <td style="text-align: right;">
+                                <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                                    <button class="btn btn-secondary" style="padding: 0.4rem;" title="Ver detalhes" onclick="window.navigate('details', '${doc.id}')">
+                                        <i data-lucide="eye" style="width: 16px;"></i>
+                                    </button>
+                                    <button class="btn btn-secondary" style="padding: 0.4rem; color: var(--error);" title="Excluir" onclick="window.handleDeleteDocument('${doc.id}', '${doc.file_path}')">
+                                        <i data-lucide="trash-2" style="width: 16px;"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        `;
+    }).join('')}
+                </tbody>
+            </table>
+        `}
+    </div>
+</main>
+`;
+};
+
+const ProjectsView = () => `
+${Sidebar()}
+<main class="main-content view-content">
+    <header class="content-header" style="display: flex; justify-content: space-between; align-items: flex-start;">
+        <div>
+            <h1>Gestão de Projetos</h1>
+            <p class="page-subtitle">Visualize e gerencie todos os seus projetos culturais.</p>
+        </div>
+        <button class="btn btn-primary" onclick="window.navigate('upload')">
+            <i data-lucide="plus"></i>
+            Novo Projeto
+        </button>
+    </header>
+
+    <div class="data-table-container">
+        ${state.projects.length === 0 ? `
+            <div class="empty-state">
+                <div class="empty-state-icon"><i data-lucide="briefcase"></i></div>
+                <h3 class="h2">Nenhum projeto encontrado</h3>
+                <p class="text-sm">Comece criando um novo projeto para organizar suas notas fiscais.</p>
+                <button class="btn btn-primary" onclick="window.navigate('upload')">Criar Projeto</button>
+            </div>
+        ` : `
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>PRONAC</th>
+                        <th>Nome do Projeto</th>
+                        <th>Data de Criação</th>
+                        <th style="text-align: right;">Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${state.projects.map(p => `
+                        <tr>
+                            <td style="font-weight: 600; color: var(--primary);">${p.pronac}</td>
+                            <td>${p.nome}</td>
+                            <td class="text-sm">${new Date(p.created_at).toLocaleDateString('pt-BR')}</td>
+                            <td style="text-align: right;">
+                                <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                                    <button class="btn btn-secondary" style="padding: 0.4rem;" title="Ver Dashboard" onclick="state.filters.project = '${p.id}'; window.navigate('dashboard')">
+                                        <i data-lucide="layout-dashboard" style="width: 16px;"></i>
+                                    </button>
+                                    <button class="btn btn-secondary" style="padding: 0.4rem;" title="Financeiro" onclick="state.filters.project = '${p.id}'; window.navigate('financeiro')">
+                                        <i data-lucide="bar-chart-3" style="width: 16px;"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `}
     </div>
 </main>
 `;
 
 const UploadView = () => `
-${Header()}
-<main class="upload-view view-content">
-    <div class="container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; align-items: start; max-width: 1000px;">
-        
-        <!-- Coluna 1: Criar Novo Projeto -->
-        <div class="card">
-            <h3 class="mb-4">Criar Novo Projeto / PRONAC</h3>
-            <form onsubmit="event.preventDefault(); window.handleCreateProject();">
-                <div class="form-group">
-                    <label for="new-pronac">Número PRONAC</label>
-                    <input type="text" id="new-pronac" placeholder="Ex: 230561" required>
+
+${Sidebar()}
+    <main class="main-content view-content">
+        <header class="content-header">
+            <h1>Enviar documentos</h1>
+            <p class="page-subtitle">Selecione um projeto e anexe as notas fiscais para análise.</p>
+        </header>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; align-items: start;">
+            <!-- Coluna 1: Seleção e Upload -->
+            <div class="card">
+                <h3 class="h2 mb-4">Novo upload</h3>
+
+                <div class="form-group mb-4">
+                    <label>Projeto / PRONAC</label>
+                    <select id="project-selector" onchange="window.handleProjectSelectChange(this.value)">
+                        <option value="">Selecione um projeto...</option>
+                        ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
+                    </select>
                 </div>
-                <div class="form-group">
-                    <label for="new-project-name">Nome do Projeto</label>
-                    <input type="text" id="new-project-name" placeholder="Ex: Festival de Verão" required>
+
+                <div class="form-group mb-4">
+                    <label>Rubrica orçamentária (opcional)</label>
+                    <select id="rubrica-input">
+                        <option value="">Selecione o projeto primeiro...</option>
+                    </select>
                 </div>
-                <button class="btn btn-primary" style="width: 100%;">
-                    ${state.loading ? 'Criando...' : 'Cadastrar Projeto'}
-                </button>
-            </form>
+
+                <div class="upload-area" onclick="if(document.getElementById('project-selector').value) document.getElementById('file-input').click(); else alert('Selecione um projeto primeiro!');">
+                    <input type="file" id="file-input" style="display: none;" onchange="window.handleUpload(this.files[0])" accept=".pdf">
+                        <i data-lucide="upload-cloud" style="width: 32px; color: var(--primary); margin-bottom: 1rem;"></i>
+                        <p class="text-sm" style="font-weight: 600;">Arraste um PDF ou clique para selecionar</p>
+                        <p class="text-xs" style="color: var(--text-muted); margin-top: 0.5rem;">Apenas arquivos PDF são aceitos.</p>
+                </div>
+
+                ${state.loading ? `<p class="text-xs mt-4" style="color: var(--primary); text-align: center;">Enviando arquivo, aguarde...</p>` : ''}
+            </div>
+
+            <!-- Coluna 2: Criar Projeto -->
+            <div class="card">
+                <h3 class="h2 mb-4">Cadastrar projeto</h3>
+                <p class="text-xs mb-4">Se o projeto não estiver na lista, cadastre-o aqui.</p>
+
+                <form onsubmit="event.preventDefault(); window.handleCreateProject();">
+                    <div class="form-group">
+                        <label>Número PRONAC</label>
+                        <input type="text" id="new-pronac" placeholder="Ex: 230561" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Nome do projeto</label>
+                        <input type="text" id="new-project-name" placeholder="Ex: Festival de Cinema" required>
+                    </div>
+                    <button class="btn btn-secondary" style="width: 100%;">
+                        ${state.loading ? 'Criando...' : 'Criar projeto'}
+                    </button>
+                </form>
+            </div>
         </div>
-
-        <!-- Coluna 2: Upload de Documentos -->
-        <div class="card">
-            <h3 class="mb-4">Upload de Documentos</h3>
-            <div class="form-group mb-4">
-                <label>Selecione o Projeto</label>
-                <select id="project-selector" style="width: 100%; padding: 0.625rem; border-radius: var(--radius); border: 1px solid var(--border-color);" onchange="window.handleProjectSelectChange(this.value)">
-                    <option value="">Selecione um projeto...</option>
-                    ${state.projects.map(p => `<option value="${p.id}">${p.pronac} - ${p.nome}</option>`).join('')}
-                </select>
-                ${state.projects.length === 0 ? '<p style="font-size: 0.75rem; color: var(--error); margin-top: 0.5rem;">Crie um projeto primeiro no formulário ao lado!</p>' : ''}
-            </div>
-
-            <div class="form-group mb-4">
-                <label>Rubrica (Categoria Orçamentária)</label>
-                <select id="rubrica-input" style="width: 100%; padding: 0.625rem; border-radius: var(--radius); border: 1px solid var(--border-color);">
-                    <option value="">Selecione um projeto primeiro...</option>
-                </select>
-            </div>
-
-            <div class="upload-area" onclick="if(document.getElementById('project-selector').value) document.getElementById('file-input').click(); else alert('Selecione um projeto primeiro!');">
-                <input type="file" id="file-input" style="display: none;" onchange="window.handleUpload(this.files[0])" accept=".pdf">
-                <div class="upload-icon">
-                    <i data-lucide="upload-cloud" style="width: 32px; height: 32px;"></i>
-                </div>
-                <h3 class="mb-2" style="font-size: 1rem;">Arraste aqui seu PDF</h3>
-                <p class="mb-4" style="color: var(--text-muted); font-size: 0.75rem;">ou clique para selecionar</p>
-                <button class="btn btn-primary" id="upload-btn">
-                     ${state.loading ? 'Enviando...' : 'Selecionar Arquivo'}
-                </button>
-            </div>
-        </div>
-    </div>
-</main>
-`;
+    </main>
+    `;
 
 const DetailsView = () => {
     const doc = state.currentDocument;
-    if (!doc) return `<div class="container" style="padding: 4rem; text-align: center;">Carregando detalhes...</div>`;
+    if (!doc) return `<div class="sidebar">${Sidebar()}</div><main class="main-content"><div style="padding: 4rem; text-align: center;">Carregando detalhes...</div></main>`;
 
     const steps = [
         { id: 'uploaded', label: 'Enviado', icon: 'upload-cloud' },
@@ -556,199 +642,138 @@ const DetailsView = () => {
         { id: 'concluido', label: 'Concluído', icon: 'check-circle' }
     ];
 
-    // Lógica para determinar o índice do passo atual no pipeline
     let activeIndex = 0;
     if (doc.status === 'uploaded') activeIndex = 0;
     else if (doc.status === 'processing_ocr') activeIndex = 1;
     else if (doc.status === 'validated' || doc.status === 'aguardando_d3') activeIndex = 2;
     else if (doc.status === 'enviado_salic') activeIndex = 3;
     else if (doc.status === 'concluido') activeIndex = 4;
-    else if (doc.status.includes('erro') || doc.status.includes('bloqueado')) activeIndex = -1; // Status de erro
+    else if (doc.status.includes('erro') || doc.status.includes('bloqueado')) activeIndex = -1;
 
     return `
-${Header()}
-<main class="document-details-view view-content">
-    <div class="container">
-        <div class="flex-row mb-4">
+${Sidebar()}
+    <main class="main-content view-content">
+        <header class="content-header" style="display: flex; justify-content: space-between; align-items: flex-start;">
             <div style="display: flex; align-items: center; gap: 1rem;">
-                <button class="btn btn-ghost" onclick="window.navigate('dashboard')" style="padding: 0.5rem;">
-                    <i data-lucide="arrow-left"></i>
-                    Voltar
+                <button class="btn btn-secondary" onclick="window.navigate('dashboard')" style="padding: 0.5rem;">
+                    <i data-lucide="arrow-left" style="width: 18px;"></i>
                 </button>
                 <div>
-                    <h1 style="font-size: 1.5rem;">Detalhes do Documento</h1>
-                    <p style="color: var(--text-muted); font-size: 0.875rem;">Acompanhe o processamento em tempo real</p>
+                    <h1>Detalhes da Nota</h1>
+                    <p class="page-subtitle">${doc.name}</p>
                 </div>
             </div>
             <div class="badge ${(STATUS_MAP[doc.status] || {}).class || 'status-pending'}">
                 <span class="badge-dot"></span>
                 ${(STATUS_MAP[doc.status] || {}).label || doc.status}
             </div>
-        </div>
+        </header>
 
-        <!-- Pipeline -->
-        <div class="card mb-4" style="padding: 2.5rem 1rem;">
-             <h3 class="mb-4" style="font-size: 1rem; margin-left:1rem">Pipeline de Processamento</h3>
-            <div class="pipeline">
+        <div class="card mb-4" style="padding: 2rem;">
+            <div style="display: flex; justify-content: space-between; position: relative;">
+                <div style="position: absolute; top: 15px; left: 40px; right: 40px; height: 2px; background: var(--border-subtle); z-index: 1;"></div>
                 ${steps.map((step, index) => {
         let statusClass = '';
         if (activeIndex === -1) {
-            statusClass = index === 0 ? 'completed' : 'error'; // Simplificação: se erro, marca o primeiro como ok e o resto em dúvida ou focado no erro
+            statusClass = index === 0 ? 'completed' : 'error';
         } else {
             statusClass = index === activeIndex ? 'active' : (index < activeIndex ? 'completed' : '');
         }
+        const isActive = statusClass === 'active';
+        const isCompleted = statusClass === 'completed';
 
         return `
-                    <div class="step ${statusClass}">
-                        <div class="step-icon">
-                            <i data-lucide="${step.icon}" style="width: 20px; height: 20px;"></i>
-                        </div>
-                        <span class="step-label">${step.label}</span>
-                        ${index <= activeIndex && activeIndex !== -1 ? `<span class="step-time">${index === activeIndex ? 'Em curso' : 'Concluído'}</span>` : ''}
+                <div style="position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; flex: 1;">
+                    <div style="width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: ${isCompleted ? 'var(--success)' : (isActive ? 'var(--primary)' : '#FFF')}; border: 2px solid ${isCompleted ? 'var(--success)' : (isActive ? 'var(--primary)' : 'var(--border-light)')}; color: ${isCompleted || isActive ? '#FFF' : 'var(--text-muted)'}; transition: var(--transition);">
+                        <i data-lucide="${isCompleted ? 'check' : step.icon}" style="width: 14px;"></i>
                     </div>
-                `}).join('')}
+                    <span style="font-size: 11px; font-weight: 600; color: ${isActive ? 'var(--primary)' : 'var(--text-secondary)'}">${step.label}</span>
+                </div>
+                `;
+    }).join('')}
             </div>
         </div>
 
-        <!-- Mini Cards Summary -->
-        <div class="details-grid mb-4">
-            <div class="card" style="border-left: 4px solid var(--primary); padding: 1rem;">
-                <div class="flex-row">
-                    <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">TIPO</span>
-                    <i data-lucide="file-text" style="width: 16px; color: var(--primary);"></i>
-                </div>
-                <p style="font-size: 1.125rem; font-weight: 700; margin-top: 0.5rem;">PDF</p>
-            </div>
-            <div class="card" style="border-left: 4px solid #10B981; padding: 1rem;">
-                <div class="flex-row">
-                    <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">VALOR</span>
-                    <i data-lucide="dollar-sign" style="width: 16px; color: #10B981;"></i>
-                </div>
-                <p style="font-size: 1.125rem; font-weight: 700; margin-top: 0.5rem;">R$ ${doc.valor ? doc.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '0,00'}</p>
-            </div>
-            <div class="card" style="border-left: 4px solid #8B5CF6; padding: 1rem;">
-                <div class="flex-row">
-                    <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">EMISSOR</span>
-                    <i data-lucide="building" style="width: 16px; color: #8B5CF6;"></i>
-                </div>
-                <p style="font-size: 0.875rem; font-weight: 700; margin-top: 0.5rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${doc.cnpj_emissor || 'Não identificado'}</p>
-            </div>
-            <div class="card" style="border-left: 4px solid #F59E0B; padding: 1rem;">
-                <div class="flex-row">
-                    <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">PROTOCOLO</span>
-                    <i data-lucide="hash" style="width: 16px; color: #F59E0B;"></i>
-                </div>
-                <p style="font-size: 1.125rem; font-weight: 700; margin-top: 0.5rem;">${doc.protocolo_salic || '---'}</p>
-            </div>
-        </div>
-
-        <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 1.5rem;" class="details-container-split">
-            <!-- Coluna 1: Dados do Arquivo e Extraídos -->
+        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem;">
             <div style="display: flex; flex-direction: column; gap: 1.5rem;">
                 <div class="card">
-                    <div class="flex-row mb-4" style="border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">
-                         <h3 style="font-size: 1rem;">Informações do Arquivo</h3>
-                         <button class="btn btn-ghost" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;" onclick="window.open('${supabaseUrl}/storage/v1/object/public/documentos/${doc.file_path}', '_blank')">
-                            <i data-lucide="external-link"></i> Abrir Original
-                         </button>
+                    <h3 class="h2 mb-4">Dados Extraídos</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                        <div class="info-item">
+                            <label>Fornecedor (CNPJ)</label>
+                            <p class="text-sm" style="font-weight: 600;">${doc.cnpj_emissor || '---'}</p>
+                        </div>
+                        <div class="info-item">
+                            <label>Valor Total</label>
+                            <p class="text-sm" style="font-weight: 600; color: var(--primary);">R$ ${doc.valor ? doc.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '0,00'}</p>
+                        </div>
+                        <div class="info-item">
+                            <label>Data de Emissão</label>
+                            <p class="text-sm">${doc.data_emissao ? new Date(doc.data_emissao).toLocaleDateString('pt-BR') : '---'}</p>
+                        </div>
+                        <div class="info-item">
+                            <label>Protocolo SALIC</label>
+                            <p class="text-sm">${doc.protocolo_salic || '---'}</p>
+                        </div>
                     </div>
-                    <div class="info-grid">
-                        <div class="info-item">
-                            <label>Nome do Arquivo</label>
-                            <p>${doc.name}</p>
+
+                    <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-subtle);">
+                        <label>Associação de Rubrica</label>
+                        ${doc.despesas && doc.despesas.length > 0 ? `
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; padding: 0.75rem; background: var(--bg-sidebar); border-radius: var(--radius-sm);">
+                            <i data-lucide="tag" style="width: 16px; color: var(--primary);"></i>
+                            <span class="text-sm" style="font-weight: 600;">${state.rubricas_disponiveis.find(r => r.id === doc.despesas[0].rubrica_id)?.nome || 'Rubrica vinculada'}</span>
                         </div>
-                        <div class="info-item">
-                            <label>Tamanho</label>
-                            <p>${doc.size || '---'}</p>
+                    ` : `
+                        <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                            <select id="vincular-rubrica-select" style="flex: 1;">
+                                <option value="">Selecionar rubrica...</option>
+                                ${(state.rubricas_disponiveis || []).map(r => `<option value="${r.id}">${r.nome}</option>`).join('')}
+                            </select>
+                            <button class="btn btn-primary" onclick="window.handleVincularRubrica('${doc.id}', '${doc.project_id}', ${doc.valor || 0})">Vincular</button>
                         </div>
-                        <div class="info-item">
-                            <label>Data de Upload</label>
-                            <p>${new Date(doc.created_at).toLocaleDateString('pt-BR')}</p>
-                        </div>
-                        <div class="info-item">
-                            <label>Rubrica Molic / OCR</label>
-                            <p>${doc.rubrica || '---'}</p>
-                        </div>
-                        <div class="info-item" style="grid-column: span 2;">
-                            <label>Rubrica Oficial (Fase 2)</label>
-                            ${doc.despesas && doc.despesas.length > 0 ? `
-                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem;">
-                                    <span class="badge status-completed"><i data-lucide="check-circle" style="width:12px; height:12px;"></i> Vinculada</span>
-                                    <p style="margin: 0; font-weight: 600;">${state.rubricas_disponiveis.find(r => r.id === doc.despesas[0].rubrica_id)?.nome || 'ID: ' + doc.despesas[0].rubrica_id}</p>
-                                </div>
-                            ` : (doc.status === 'validated' ? `
-                                <div style="background: var(--bg-color); padding: 1rem; border-radius: var(--radius); margin-top: 0.5rem; border: 1px dashed var(--border-color);">
-                                    <p style="font-size: 0.75rem; font-weight: 600; color: var(--pending); margin-bottom: 0.5rem;">
-                                        <i data-lucide="alert-triangle" style="width: 14px; display:inline-block; vertical-align:middle;"></i> Ação Requerida: Vincular Rubrica Oficial
-                                    </p>
-                                    <div style="display: flex; gap: 0.5rem;">
-                                        <select id="vincular-rubrica-select" style="flex:1; padding: 0.5rem; border-radius: var(--radius); border: 1px solid var(--border-color);">
-                                            <option value="">Selecione uma rubrica...</option>
-                                            ${(state.rubricas_disponiveis || []).map(r => {
-                                                return `<option value="${r.id}">${r.nome}</option>`;
-                                            }).join('')}
-                                        </select>
-                                        <button class="btn btn-primary" style="padding: 0.5rem 1rem;" onclick="window.handleVincularRubrica('${doc.id}', '${doc.project_id}', ${doc.valor || 0})">Vincular</button>
-                                    </div>
-                                </div>
-                            ` : `<p style="color: var(--text-muted); font-size: 0.75rem; margin-top: 0.25rem;">Aguardando etapa OCR (Validação) para permitir vínculo.</p>`)}
-                        </div>
-                        <div class="info-item">
-                            <label>PRONAC Relacionado</label>
-                            <p>${doc.projects ? doc.projects.pronac + ' - ' + doc.projects.nome : '---'}</p>
-                        </div>
+                    `}
                     </div>
                 </div>
 
                 <div class="card">
-                    <h3 class="mb-4" style="font-size: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">Dados Extraídos (IA)</h3>
-                    <div class="info-grid">
-                        <div class="info-item">
-                            <label>Data Emissão</label>
-                            <p>${doc.data_emissao ? new Date(doc.data_emissao).toLocaleDateString('pt-BR') : '---'}</p>
-                        </div>
-                        <div class="info-item">
-                            <label>Data Vencimento/Pagto</label>
-                            <p>${doc.data_pagamento ? new Date(doc.data_pagamento).toLocaleDateString('pt-BR') : '---'}</p>
-                        </div>
-                        <div class="info-item">
-                            <label>CNPJ Emissor</label>
-                            <p>${doc.cnpj_emissor || '---'}</p>
-                        </div>
-                        <div class="info-item">
-                            <label>Valor Bruto</label>
-                            <p>R$ ${doc.valor ? doc.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '0,00'}</p>
-                        </div>
+                    <h3 class="h2 mb-4">Justificativa de Conformidade</h3>
+                    <div style="padding: 1rem; background: var(--bg-sidebar); border-radius: var(--radius-sm); border-left: 3px solid var(--primary);">
+                        <p class="text-sm" style="line-height: 1.6; color: var(--text-primary);">
+                            ${doc.justification || 'Aguardando processamento da IA para gerar a análise de conformidade...'}
+                        </p>
                     </div>
                 </div>
             </div>
 
-            <!-- Coluna 2: Justificativa e OCR -->
             <div style="display: flex; flex-direction: column; gap: 1.5rem;">
                 <div class="card">
-                    <h3 class="mb-2" style="font-size: 1rem;">Justificativa</h3>
-                    <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 1rem;">Análise automática de conformidade</p>
-                    <div class="justification-box">
-                        ${doc.justification || 'Aguardando processamento da IA para gerar justificativa de conformidade...'}
+                    <h3 class="h2 mb-4">Arquivo Original</h3>
+                    <div style="aspect-ratio: 3/4; background: var(--bg-sidebar); border-radius: var(--radius-sm); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; border: 1px solid var(--border-light);">
+                        <i data-lucide="file-text" style="width: 48px; color: var(--text-muted);"></i>
+                        <p class="text-xs" style="color: var(--text-muted);">${doc.name}</p>
+                        <button class="btn btn-secondary" onclick="window.open('${supabaseUrl}/storage/v1/object/public/documentos/${doc.file_path}', '_blank')">
+                            Visualizar PDF
+                        </button>
                     </div>
                 </div>
 
                 <div class="card">
-                    <h3 class="mb-4" style="font-size: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">Metadados OCR</h3>
-                    <div style="font-family: monospace; font-size: 0.75rem; background: #f1f5f9; padding: 1rem; border-radius: 4px; max-height: 200px; overflow-y: auto;">
-                        <pre style="white-space: pre-wrap;">${JSON.stringify(doc.json_extraido || {}, null, 2)}</pre>
+                    <h3 class="h2 mb-2">Metadados</h3>
+                    <p class="text-xs mb-4">Dados em formato JSON gerados pelo OCR.</p>
+                    <div style="max-height: 200px; overflow: auto; background: #1e293b; color: #cbd5e1; padding: 1rem; border-radius: var(--radius-sm); font-family: monospace; font-size: 10px;">
+                        <pre style="margin: 0;">${JSON.stringify(doc.json_extraido || {}, null, 2)}</pre>
                     </div>
                 </div>
             </div>
         </div>
-    </div>
-</main>
-`;
+    </main>
+    `;
 };
 
 // --- Handlers & API ---
 
-window.handleFornecedorLogin = async function() {
+window.handleFornecedorLogin = async function () {
     if (!supabaseClient) return alert("Erro ao carregar o Supabase Client.");
 
     const email = document.getElementById('f-login-email').value;
@@ -779,7 +804,7 @@ window.handleFornecedorLogin = async function() {
     }
 };
 
-window.handleFornecedorRegister = async function() {
+window.handleFornecedorRegister = async function () {
     if (!supabaseClient) return alert("Erro ao carregar o Supabase Client.");
 
     const email = document.getElementById('f-reg-email').value;
@@ -798,8 +823,8 @@ window.handleFornecedorRegister = async function() {
 
     try {
         // 1. Cadastrar Usuario com ROLE no Metadata (O campo no Supabase Auth)
-        const { data, error } = await supabaseClient.auth.signUp({ 
-            email, 
+        const { data, error } = await supabaseClient.auth.signUp({
+            email,
             password,
             options: {
                 data: {
@@ -818,7 +843,7 @@ window.handleFornecedorRegister = async function() {
                 razao_social: razao,
                 telefone: telefone
             });
-            
+
             if (profileError) {
                 console.error("Erro ao salvar perfil de fornecedor:", profileError);
                 alert("Erro ao salvar dados da empresa. Entre em contato com o suporte.");
@@ -847,7 +872,7 @@ window.handleFornecedorUpload = async function (file) {
 
     try {
         const fileExt = file.name.split('.').pop();
-        const fileName = `${Math.random()}.${fileExt}`;
+        const fileName = `${Math.random()}.${fileExt} `;
         const filePath = `${state.user.id}/${fileName}`;
 
         // Upload Storage
@@ -870,7 +895,7 @@ window.handleFornecedorUpload = async function (file) {
         // Disparar Webhook para o n8n
         console.log("Notificando n8n (Fornecedor)...", CONFIG.N8N_WEBHOOK_URL);
         if (CONFIG.N8N_WEBHOOK_URL) {
-            fetch(CONFIG.N8N_WEBHOOK_URL, {
+            await fetch(CONFIG.N8N_WEBHOOK_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 mode: 'cors',
@@ -881,7 +906,9 @@ window.handleFornecedorUpload = async function (file) {
                     fornecedor: true,
                     bucket: 'documentos'
                 })
-            }).catch(err => console.error("Erro Webhook Fornecedor:", err));
+            })
+                .then(res => console.log("n8n ok:", res.status))
+                .catch(err => console.error("Erro Webhook n8n:", err));
         }
 
         alert("Upload concluído! Gestor notificado.");
@@ -901,7 +928,7 @@ async function fetchFornecedorDashboard() {
         const { data: projData, error: projError } = await supabaseClient
             .from('projeto_fornecedores')
             .select('project_id, projects(id, pronac, nome)');
-        
+
         if (projError) console.error('Erro ao buscar projetos do fornecedor:', projError);
         state.projects = (projData || []).filter(p => p.projects); // filtra registros com join válido
 
@@ -911,10 +938,10 @@ async function fetchFornecedorDashboard() {
             .select('*, projects(pronac, nome)')
             .eq('fornecedor_id', state.user.id)
             .order('created_at', { ascending: false });
-        
+
         if (docError) console.error('Erro ao buscar documentos do fornecedor:', docError);
         state.documents = docData || [];
-    } catch(err) {
+    } catch (err) {
         console.error("Erro dashboard fornecedor", err);
     }
 }
@@ -935,7 +962,7 @@ window.handleLogin = async function () {
 
         // VALIDAÇÃO: Verificar Role no Metadata
         const role = data.user.user_metadata?.role;
-        
+
         // Se não tiver role ou for diferente de gestor, bloqueia (trata usuários antigos como gestores se necessário)
         if (role === 'fornecedor') {
             await supabaseClient.auth.signOut();
@@ -943,7 +970,7 @@ window.handleLogin = async function () {
         }
 
         state.user = data.user;
-        state.userStatus = 'gestor'; 
+        state.userStatus = 'gestor';
         window.navigate('dashboard');
     } catch (error) {
         alert("Erro no login: " + error.message);
@@ -968,8 +995,8 @@ window.handleRegister = async function () {
     render();
 
     try {
-        const { data, error } = await supabaseClient.auth.signUp({ 
-            email, 
+        const { data, error } = await supabaseClient.auth.signUp({
+            email,
             password,
             options: {
                 data: {
@@ -996,264 +1023,258 @@ window.handleRegister = async function () {
 };
 
 window.handleLogout = async function () {
+    const wasFornecedor = state.user?.user_metadata?.role === 'fornecedor';
     await supabaseClient.auth.signOut();
     state.user = null;
-    window.navigate('login');
+    state.userStatus = null;
+    window.navigate(wasFornecedor ? 'fornecedor_login' : 'login');
 };
 
-// --- FinanceiroView ---
+
 const FinanceiroView = () => {
-    let content = `
-    ${Header()}
-    <main class="financeiro-view view-content">
-        <div class="container">
-            <div class="flex-row mb-4">
-                <div>
-                    <h1 style="font-size: 1.5rem;">Painel Financeiro</h1>
-                    <p style="color: var(--text-muted); font-size: 0.875rem;">Visão macro e indicadores de conciliação</p>
+    let totalExecutado = 0;
+    let pendentesConformidade = 0;
+    let pendentesConciliacao = 0;
+    const chartLabels = [];
+    const chartData = [];
+
+    state.rubricas.forEach(r => {
+        let rubricaTotal = 0;
+        if (r.despesas && r.despesas.length > 0) {
+            r.despesas.forEach(d => {
+                rubricaTotal += parseFloat(d.valor || 0);
+                if (d.status_conformidade === 'pendente') pendentesConformidade++;
+                if (d.conciliado === false || d.conciliado === null) pendentesConciliacao++;
+            });
+        }
+        if (rubricaTotal > 0) {
+            chartLabels.push(r.nome);
+            chartData.push(rubricaTotal);
+        }
+        totalExecutado += rubricaTotal;
+    });
+
+    state.chartData = { labels: chartLabels, data: chartData };
+
+    return `
+${Sidebar()}
+<main class="main-content view-content">
+    <header class="content-header">
+        <div style="display: flex; justify-content: space-between; align-items: flex-end;">
+            <div>
+                <h1>Relatórios Financeiros</h1>
+                <p class="page-subtitle">Indicadores de execução e conformidade do projeto.</p>
+            </div>
+            <div style="min-width: 250px;">
+                <select onchange="window.navigate('financeiro', this.value)">
+                    <option value="">Todos os Projetos</option>
+                    ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
+                </select>
+            </div>
+        </div>
+    </header>
+
+    <div class="metrics-grid">
+        <div class="card metric-card">
+            <p class="metric-label">Total Executado</p>
+            <div class="metric-value">R$ ${totalExecutado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+        </div>
+        <div class="card metric-card">
+            <p class="metric-label">Pendente Conformidade</p>
+            <div class="metric-value" style="color: var(--warning);">${pendentesConformidade}</div>
+        </div>
+        <div class="card metric-card">
+            <p class="metric-label">Pendente Conciliação</p>
+            <div class="metric-value" style="color: var(--error);">${pendentesConciliacao}</div>
+        </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+        <div class="card">
+            <h3 class="h2 mb-4">Execução por Rubrica</h3>
+            <div style="height: 300px;">
+                ${chartLabels.length > 0 ? '<canvas id="rubricasChart"></canvas>' : '<p class="text-sm" style="text-align: center; padding-top: 4rem; color: var(--text-muted);">Sem dados para o gráfico.</p>'}
+            </div>
+        </div>
+        <div class="card">
+            <h3 class="h2 mb-4">Status de Conformidade</h3>
+            <div style="display: flex; flex-direction: column; gap: 1rem; padding-top: 1rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span class="text-sm">Documentos validados</span>
+                    <span class="badge status-completed">Bom</span>
                 </div>
-                
-                <div class="form-group" style="margin-bottom: 0; min-width: 250px;">
-                    <select id="financeiro-project" style="width: 100%; padding: 0.625rem; border-radius: var(--radius); border: 1px solid var(--border-color);" onchange="window.navigate('financeiro', this.value)">
-                        <option value="">Todos os Projetos</option>
-                        ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
-                    </select>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span class="text-sm">Certidões negativas</span>
+                    <span class="badge status-completed">Regular</span>
                 </div>
-            </div>`;
-
-    if (!state.filters.project && state.projects.length === 0) {
-         content += `<div class="card" style="text-align: center; padding: 4rem;"><p style="color: var(--text-muted);">Nenhum projeto encontrado. Crie um projeto primeiro.</p></div>`;
-    } else {
-         // Calculate metrics
-         let totalExecutado = 0;
-         let pendentesConformidade = 0;
-         let pendentesConciliacao = 0;
-         const chartLabels = [];
-         const chartData = [];
-
-         state.rubricas.forEach(r => {
-             let rubricaTotal = 0;
-             if (r.despesas && r.despesas.length > 0) {
-                 r.despesas.forEach(d => {
-                     rubricaTotal += parseFloat(d.valor || 0);
-                     if (d.status_conformidade === 'pendente') pendentesConformidade++;
-                     if (d.conciliado === false || d.conciliado === null) pendentesConciliacao++;
-                 });
-             }
-             if (rubricaTotal > 0) {
-                 chartLabels.push(r.nome);
-                 chartData.push(rubricaTotal);
-             }
-             totalExecutado += rubricaTotal;
-         });
-
-         // Store for chart initialization later
-         state.chartData = { labels: chartLabels, data: chartData };
-
-         content += `
-         <div class="metrics-grid mb-4">
-             <div class="card metric-card">
-                 <p class="metric-label">Total Executado</p>
-                 <div class="metric-value">
-                     R$ ${totalExecutado.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
-                     <i data-lucide="dollar-sign" style="color: var(--primary); opacity: 0.2;"></i>
-                 </div>
-             </div>
-             <div class="card metric-card">
-                 <p class="metric-label">Aguardando Conformidade (n8n)</p>
-                 <div class="metric-value">
-                     ${pendentesConformidade}
-                     <i data-lucide="shield-alert" style="color: var(--pending); opacity: 0.2;"></i>
-                 </div>
-             </div>
-             <div class="card metric-card">
-                 <p class="metric-label">Pendentes de Conciliação</p>
-                 <div class="metric-value">
-                     ${pendentesConciliacao}
-                     <i data-lucide="building-2" style="color: var(--error); opacity: 0.2;"></i>
-                 </div>
-             </div>
-         </div>
-
-         <div style="display: grid; grid-template-columns: 1fr; gap: 2rem;">
-             <div class="card">
-                 <h3 class="mb-4">Despesas por Rubrica (R$)</h3>
-                 <div style="position: relative; height: 300px; width: 100%;">
-                     ${chartLabels.length > 0 ? '<canvas id="rubricasChart"></canvas>' : '<p style="text-align: center; color: var(--text-muted); padding-top: 4rem;">Não há dados financeiros suficientes para gerar o gráfico.</p>'}
-                 </div>
-             </div>
-         </div>
-         `;
-    }
-
-    content += `</div></main>`;
-    return content;
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span class="text-sm">Pendências SALIC</span>
+                    <span class="badge status-pending">1 pendência</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+`;
 };
-
-// --- ConciliacaoView ---
 
 const ConciliacaoView = () => `
-${Header()}
-<main class="conciliacao-view view-content">
-    <div class="container">
-        <div class="flex-row mb-4">
+${Sidebar()}
+<main class="main-content view-content">
+    <header class="content-header">
+        <div style="display: flex; justify-content: space-between; align-items: flex-end;">
             <div>
-                <h1 style="font-size: 1.5rem;">Conciliação Bancária</h1>
-                <p style="color: var(--text-muted); font-size: 0.875rem;">Cruze as saídas da conta bancária com as despesas cadastradas</p>
+                <h1>Conciliação Bancária</h1>
+                <p class="page-subtitle">Cruze o extrato bancário com as despesas analisadas.</p>
             </div>
-            
-            <div class="form-group" style="margin-bottom: 0; min-width: 250px;">
-                <select id="conciliacao-project" style="width: 100%; padding: 0.625rem; border-radius: var(--radius); border: 1px solid var(--border-color);" onchange="window.navigate('conciliacao', this.value)">
+            <div style="min-width: 250px;">
+                <select onchange="window.navigate('conciliacao', this.value)">
                     <option value="">Selecione o Projeto...</option>
                     ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
                 </select>
             </div>
         </div>
+    </header>
 
-        ${!state.filters.project ? `<div class="card" style="text-align: center; padding: 4rem;"><p style="color: var(--text-muted);">Selecione um projeto para iniciar a conciliação.</p></div>` : `
-        
-        <div style="display: grid; grid-template-columns: 1fr 2.5fr; gap: 2rem; align-items: start;">
-            <!-- Importação -->
+    ${!state.filters.project ? `
+        <div class="card" style="text-align: center; padding: 4rem;">
+            <div class="empty-state-icon" style="margin: 0 auto 1rem;"><i data-lucide="building-2"></i></div>
+            <p style="color: var(--text-muted);">Selecione um projeto para iniciar a conciliação bancária.</p>
+        </div>
+    ` : `
+        <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 2rem;">
             <div class="card">
-                <h3 class="mb-4">Importar Extrato</h3>
-                <div class="upload-area" style="padding: 1.5rem;" onclick="document.getElementById('extrato-input').click()">
+                <h3 class="h2 mb-4">Importar Extrato</h3>
+                <div class="upload-area" style="padding: 2rem;" onclick="document.getElementById('extrato-input').click()">
+                    <i data-lucide="file-up" style="width: 24px; color: var(--primary); margin-bottom: 0.5rem;"></i>
+                    <p class="text-sm" style="font-weight: 600;">Carregar OFX ou CSV</p>
                     <input type="file" id="extrato-input" style="display: none;" accept=".ofx,.csv" onchange="window.handleImportExtrato(this.files[0])">
-                    <i data-lucide="file-up" style="width: 24px; color: var(--primary); margin-bottom: 1rem;"></i>
-                    <p style="font-size: 0.875rem; font-weight: 500;">Carregar OFX ou CSV</p>
-                    <p style="font-size: 0.75rem; color: var(--text-muted);">Padrão Internet Banking</p>
                 </div>
-                <div style="margin-top: 1.5rem;">
-                    <h4 style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-bottom: 1rem;">Dicas</h4>
-                    <ul style="font-size: 0.75rem; color: var(--text-muted); padding-left: 1rem;">
-                        <li>O arquivo OFX é mais preciso que o CSV.</li>
-                        <li>Importe apenas o período do projeto.</li>
-                    </ul>
-                </div>
+                <p class="text-xs" style="margin-top: 1rem; line-height: 1.5;">O arquivo OFX exportado do seu banco é o formato recomendado para maior precisão.</p>
             </div>
 
-            <!-- Listagem de Transações -->
             <div class="card">
-                <div class="flex-row mb-4">
-                    <h3 style="margin-bottom: 0;">Transações do Extrato</h3>
+                <div style="display: flex; justify-content: space-between; align-items: center;" class="mb-4">
+                    <h3 class="h2">Transações</h3>
                     <button class="btn btn-primary" onclick="window.handleRunN8NReconciliation()" ${state.loading ? 'disabled' : ''}>
                         <i data-lucide="brain"></i>
-                        Sugerir Conciliação IA
+                        Conciliação Inteligente
                     </button>
                 </div>
                 <div class="data-table-container">
-                    ${state.extratos.length === 0 ? `<p style="color: var(--text-muted); text-align: center; padding: 2rem;">Nenhuma transação importada para este projeto.</p>` : `
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Data</th>
-                                <th>Descrição</th>
-                                <th style="text-align: right;">Valor</th>
-                                <th style="text-align: right;">Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${state.extratos.map(ex => `
+                    ${state.extSorted = [...state.extratos].sort((a, b) => new Date(b.data_transacao) - new Date(a.data_transacao)), ''}
+                    ${state.extratos.length === 0 ? `<p class="text-sm" style="text-align: center; padding: 2rem; color: var(--text-muted);">Nenhuma transação importada.</p>` : `
+                        <table class="data-table">
+                            <thead>
                                 <tr>
-                                    <td style="font-size: 0.875rem;">${new Date(ex.data_transacao).toLocaleDateString('pt-BR')}</td>
-                                    <td>
-                                        <div style="font-weight: 500;">${ex.descricao}</div>
-                                        ${ex.documento_referencia ? `<div style="font-size: 0.75rem; color: var(--text-muted);">Ref: ${ex.documento_referencia}</div>` : ''}
-                                    </td>
-                                    <td style="text-align: right; font-weight: 600; color: ${ex.valor < 0 ? '#ef4444' : '#10b981'};">
-                                        R$ ${Math.abs(ex.valor).toLocaleString('pt-BR', {minimumFractionDigits: 2})}
-                                    </td>
-                                    <td style="text-align: right;">
-                                        ${ex.conciliado_com_despesa_id ? 
-                                            `<span class="badge status-completed"><i data-lucide="link" style="width:12px;"></i> Conciliado</span>` : 
-                                            `<button class="btn btn-ghost" style="font-size: 0.75rem; color: var(--primary);" onclick="window.handleShowMatchForm('${ex.id}', ${ex.valor})">Conciliar</button>`
-                                        }
-                                    </td>
+                                    <th>Data</th>
+                                    <th>Descrição</th>
+                                    <th style="text-align: right;">Valor</th>
+                                    <th style="text-align: right;">Ações</th>
                                 </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>`}
+                            </thead>
+                            <tbody>
+                                ${state.extSorted.map(ex => `
+                                    <tr>
+                                        <td class="text-sm">${new Date(ex.data_transacao).toLocaleDateString('pt-BR')}</td>
+                                        <td>
+                                            <div style="font-weight: 500;">${ex.descricao}</div>
+                                            ${ex.documento_referencia ? `<div class="text-xs">Ref: ${ex.documento_referencia}</div>` : ''}
+                                        </td>
+                                        <td style="text-align: right; font-weight: 600; color: ${ex.valor < 0 ? 'var(--error)' : 'var(--success)'};">
+                                            R$ ${Math.abs(ex.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                        </td>
+                                        <td style="text-align: right;">
+                                            ${ex.conciliado_com_despesa_id ?
+        `<span class="badge status-completed">Conciliado</span>` :
+        `<button class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="window.handleShowMatchForm('${ex.id}', ${ex.valor})">Conciliar</button>`
+    }
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    `}
                 </div>
             </div>
         </div>
-        `}
-    </div>
+    `}
 </main>
 `;
 
-// --- OrcamentoView ---
-
 const OrcamentoView = () => `
-${Header()}
-<main class="orcamento-view view-content">
-    <div class="container">
-        <div class="flex-row mb-4">
+${Sidebar()}
+<main class="main-content view-content">
+    <header class="content-header">
+        <div style="display: flex; justify-content: space-between; align-items: flex-end;">
             <div>
-                <h1 style="font-size: 1.5rem;">Gestão de Orçamento (Rubricas)</h1>
-                <p style="color: var(--text-muted); font-size: 0.875rem;">Acompanhe a execução do plano aprovado pelo MinC</p>
+                <h1>Gestão de Rubricas</h1>
+                <p class="page-subtitle">Acompanhe e configure o plano orçamentário do projeto.</p>
             </div>
-            
-            <div class="form-group" style="margin-bottom: 0; min-width: 250px;">
-                <select id="orcamento-project" style="width: 100%; padding: 0.625rem; border-radius: var(--radius); border: 1px solid var(--border-color);" onchange="window.navigate('orcamento', this.value)">
+            <div style="min-width: 250px;">
+                <select onchange="window.navigate('orcamento', this.value)">
                     <option value="">Selecione o Projeto...</option>
                     ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
                 </select>
             </div>
         </div>
+    </header>
 
-        ${!state.filters.project ? `<div class="card" style="text-align: center; padding: 4rem;"><p style="color: var(--text-muted);">Por favor, selecione um projeto acima para gerenciar o orçamento.</p></div>` : `
-        
-        <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 2rem; align-items: start;">
-            <!-- Cadastro de Rubrica -->
+    ${!state.filters.project ? `
+        <div class="card" style="text-align: center; padding: 4rem;">
+            <div class="empty-state-icon" style="margin: 0 auto 1rem;"><i data-lucide="list-checks"></i></div>
+            <p style="color: var(--text-muted);">Selecione um projeto acima para gerenciar as rubricas.</p>
+        </div>
+    ` : `
+        <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 2rem;">
             <div class="card">
-                <h3 class="mb-4">Nova Rubrica</h3>
+                <h3 class="h2 mb-4">Adicionar Rubrica</h3>
                 <form onsubmit="event.preventDefault(); window.handleCreateRubrica();">
                     <div class="form-group">
-                        <label>Catálogo de Rubricas</label>
-                        <select id="rubrica-nome" style="width: 100%; padding: 0.625rem; border-radius: var(--radius); border: 1px solid var(--border-color);" required>
-                            <option value="">Selecione uma rubrica do catálogo...</option>
-                            ${(state.catalogo_rubricas || []).map(c => `<option value="${c.nome}">${c.nome} (Espec: ${c.especificacoes})</option>`).join('')}
+                        <label>Tipo de despesa</label>
+                        <select id="rubrica-nome" required>
+                            <option value="">Selecione do catálogo...</option>
+                            ${(state.catalogo_rubricas || []).map(c => `<option value="${c.nome}">${c.nome}</option>`).join('')}
                         </select>
-                        <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem;">A IA usará estas especificações para validar as despesas nesta rubrica.</p>
                     </div>
-                    <button class="btn btn-primary" style="width: 100%;">
-                        ${state.loading ? 'Salvando...' : 'Adicionar Rubrica'}
-                    </button>
+                    <button class="btn btn-primary" style="width: 100%;">Adicionar à lista</button>
                 </form>
+                <p class="text-xs" style="margin-top: 1rem; color: var(--text-muted);">A IA usará o nome da rubrica para classificar documentos automaticamente.</p>
             </div>
 
-            <!-- Listagem de Rubricas -->
             <div class="card">
-                <h3 class="mb-4">Rubricas do Projeto</h3>
+                <h3 class="h2 mb-4">Rubricas Vinculadas</h3>
                 <div class="data-table-container">
-                    ${state.rubricas.length === 0 ? `<p style="color: var(--text-muted); text-align: center; padding: 2rem;">Nenhuma rubrica cadastrada para este projeto.</p>` : `
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Nome da Rubrica</th>
-                                <th style="text-align: right;">Total Executado</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${state.rubricas.map(r => {
-                                const executado = r.despesas ? r.despesas.reduce((acc, curr) => acc + parseFloat(curr.valor), 0) : 0;
-                                return `
+                    ${state.rubricas.length === 0 ? `<p class="text-sm" style="text-align: center; padding: 2rem; color: var(--text-muted);">Nenhuma rubrica cadastrada.</p>` : `
+                        <table class="data-table">
+                            <thead>
                                 <tr>
-                                    <td>
-                                        <div style="font-weight: 500;">${r.nome}</div>
-                                        <div style="font-size: 0.75rem; color: var(--text-muted);">Cadastrada em ${new Date(r.created_at).toLocaleDateString('pt-BR')}</div>
-                                    </td>
-                                    <td style="text-align: right; font-weight: 600;">R$ ${executado.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
+                                    <th>Nome</th>
+                                    <th style="text-align: right;">Total Executado</th>
                                 </tr>
-                            `}).join('')}
-                        </tbody>
-                    </table>`}
+                            </thead>
+                            <tbody>
+                                ${state.rubricas.map(r => {
+    const executado = r.despesas ? r.despesas.reduce((acc, curr) => acc + parseFloat(curr.valor), 0) : 0;
+    return `
+                                    <tr>
+                                        <td>
+                                            <div style="font-weight: 500;">${r.nome}</div>
+                                            <div class="text-xs">Cadastrada em ${new Date(r.created_at).toLocaleDateString('pt-BR')}</div>
+                                        </td>
+                                        <td style="text-align: right; font-weight: 600;">R$ ${executado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                                    </tr>
+                                    `}).join('')}
+                            </tbody>
+                        </table>
+                    `}
                 </div>
             </div>
         </div>
-        `}
-    </div>
+    `}
 </main>
 `;
+
 
 window.navigate = async function (view, id = null) {
     state.currentView = view;
@@ -1268,10 +1289,10 @@ window.navigate = async function (view, id = null) {
     } else if (view === 'orcamento' || view === 'financeiro') {
         await fetchProjects();
         await fetchCatalogoRubricas();
-        if(id) state.filters.project = id;
-        else if(!state.filters.project && state.projects.length > 0) state.filters.project = state.projects[0].id;
-        
-        if(state.filters.project) await fetchRubricas(state.filters.project);
+        if (id) state.filters.project = id;
+        else if (!state.filters.project && state.projects.length > 0) state.filters.project = state.projects[0].id;
+
+        if (state.filters.project) await fetchRubricas(state.filters.project);
     } else if (view === 'details' && id) {
         await fetchDocumentDetails(id);
     } else if (view === 'admin_fornecedores') {
@@ -1279,10 +1300,12 @@ window.navigate = async function (view, id = null) {
         await fetchFornecedoresAdmin();
     } else if (view === 'conciliacao') {
         await fetchProjects();
-        if(id) state.filters.project = id;
-        else if(!state.filters.project && state.projects.length > 0) state.filters.project = state.projects[0].id;
-        
-        if(state.filters.project) await fetchExtratos(state.filters.project);
+        if (id) state.filters.project = id;
+        else if (!state.filters.project && state.projects.length > 0) state.filters.project = state.projects[0].id;
+
+        if (state.filters.project) await fetchExtratos(state.filters.project);
+    } else if (view === 'projects') {
+        await fetchProjects();
     } else if (view === 'configuracoes') {
         await fetchSettings();
     }
@@ -1296,7 +1319,7 @@ async function fetchCatalogoRubricas() {
     try {
         const { data, error } = await supabaseClient.from('catalogo_rubricas').select('*').order('nome');
         if (!error && data) state.catalogo_rubricas = data;
-    } catch(err) {
+    } catch (err) {
         console.error("Erro fetch catalogo:", err);
     }
 }
@@ -1319,14 +1342,14 @@ async function fetchFornecedoresAdmin() {
             .from('projeto_fornecedores')
             .select('*, fornecedores(*), projects(*)')
             .in('project_id', projectIds);
-        
+
         state.vinculos_fornecedores = vinculos || [];
     } catch (err) {
         console.error("Erro fetch admin fornecedores:", err);
     }
 }
 
-window.handleInviteFornecedor = async function() {
+window.handleInviteFornecedor = async function () {
     const fornecedorId = document.getElementById('invite-fornecedor-id').value;
     const projectId = document.getElementById('invite-project-id').value;
 
@@ -1338,8 +1361,8 @@ window.handleInviteFornecedor = async function() {
     try {
         const { error } = await supabaseClient
             .from('projeto_fornecedores')
-            .insert({ 
-                fornecedor_id: fornecedorId, 
+            .insert({
+                fornecedor_id: fornecedorId,
                 project_id: projectId,
                 gestor_id: state.user.id  // obrigatório para o RLS funcionar sem recursão
             });
@@ -1355,7 +1378,7 @@ window.handleInviteFornecedor = async function() {
     }
 };
 
-window.handleRemoveVinculo = async function(vinculoId) {
+window.handleRemoveVinculo = async function (vinculoId) {
     if (!confirm("Tem certeza que deseja remover este acesso?")) return;
 
     try {
@@ -1380,23 +1403,23 @@ async function fetchRubricas(projectId) {
             .select('*, despesas(id, valor, status_conformidade, conciliado)')
             .eq('project_id', projectId)
             .order('nome');
-            
+
         if (error) {
             // Se o join de despesas falhar, tenta pegar apenas as rubricas
             const { data: fallbackData } = await supabaseClient.from('rubricas').select('*').eq('project_id', projectId);
             state.rubricas = fallbackData || [];
             return;
         }
-        
+
         state.rubricas = data || [];
-    } catch(err) {
+    } catch (err) {
         console.error("Erro fetch rubricas:", err);
     }
 }
 
-window.handleCreateRubrica = async function() {
+window.handleCreateRubrica = async function () {
     if (!supabaseClient || !state.filters.project) return;
-    
+
     const nome = document.getElementById('rubrica-nome').value;
 
     state.loading = true;
@@ -1413,7 +1436,7 @@ window.handleCreateRubrica = async function() {
         if (error) throw error;
         alert("Rubrica cadastrada com sucesso!");
         await fetchRubricas(state.filters.project);
-    } catch(err) {
+    } catch (err) {
         alert("Erro ao criar rubrica: " + err.message);
     } finally {
         state.loading = false;
@@ -1423,7 +1446,7 @@ window.handleCreateRubrica = async function() {
 
 async function fetchDocumentDetails(id, silent = false) {
     if (!supabaseClient || !state.user) return;
-    
+
     if (!silent) {
         state.loading = true;
         render();
@@ -1446,7 +1469,7 @@ async function fetchDocumentDetails(id, silent = false) {
                 .select('id, nome')
                 .eq('project_id', data.project_id)
                 .order('nome');
-                
+
             state.rubricas_disponiveis = rubData || [];
         }
 
@@ -1460,14 +1483,14 @@ async function fetchDocumentDetails(id, silent = false) {
         if (!silent) {
             state.loading = false;
         }
-        render(); 
+        render();
     }
 }
 
-window.handleVincularRubrica = async function(documentId, projectId, valorDespesa) {
+window.handleVincularRubrica = async function (documentId, projectId, valorDespesa) {
     const rubricaId = document.getElementById('vincular-rubrica-select').value;
-    if(!rubricaId) return alert('Selecione uma rubrica!');
-    if(valorDespesa === undefined || valorDespesa === null) valorDespesa = 0;
+    if (!rubricaId) return alert('Selecione uma rubrica!');
+    if (valorDespesa === undefined || valorDespesa === null) valorDespesa = 0;
 
     state.loading = true;
     render();
@@ -1493,19 +1516,19 @@ window.handleVincularRubrica = async function(documentId, projectId, valorDespes
         }
 
         alert('Rubrica vinculada com sucesso! O workflow do n8n de conformidade deve ser acionado agora.');
-        
+
         // Simular o acionamento do workflow n8n - Fase 2 # Workflow 3.3
         // No front-end nós recarregamos após notificar o n8n
-        if(CONFIG.N8N_WEBHOOK_CNAE_URL) {
-            fetch(CONFIG.N8N_WEBHOOK_CNAE_URL, {
+        if (CONFIG.N8N_WEBHOOK_VALIDATION_URL) {
+            fetch(CONFIG.N8N_WEBHOOK_VALIDATION_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ document_id: documentId, cnpj_fornecedor: doc.cnpj_emissor })
-            }).catch(e => console.error("Erro ao notificar n8n (CNAE):", e));
+            }).catch(e => console.error("Erro ao notificar n8n (Validation):", e));
         }
 
         await fetchDocumentDetails(documentId);
-    } catch(err) {
+    } catch (err) {
         alert("Erro ao vincular despesa: " + err.message);
         state.loading = false;
         render();
@@ -1540,7 +1563,7 @@ async function fetchDocuments() {
 
     // Filtros
     if (state.filters.project) query = query.eq('project_id', state.filters.project);
-    if (state.filters.search) query = query.ilike('name', `%${state.filters.search}%`);
+    if (state.filters.search) query = query.ilike('name', `% ${state.filters.search}% `);
     if (state.filters.startDate) query = query.gte('created_at', state.filters.startDate + 'T00:00:00');
     if (state.filters.endDate) query = query.lte('created_at', state.filters.endDate + 'T23:59:59');
 
@@ -1601,77 +1624,89 @@ window.handleCreateProject = async function () {
 
     const pronac = document.getElementById('new-pronac').value.trim();
     const nome = document.getElementById('new-project-name').value.trim();
+
+    if (!pronac || !nome) return alert('Preencha PRONAC e Nome do Projeto!');
+
+    state.loading = true;
+    render();
+
+    try {
+        const { data: newProject, error } = await supabaseClient
+            .from('projects')
+            .insert({ user_id: state.user.id, pronac, nome })
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        // Adiciona imediatamente ao state sem precisar de re-fetch
+        state.projects = [...state.projects, newProject].sort((a, b) => a.nome.localeCompare(b.nome));
+        state.loading = false;
+        render(); // Renderiza imediatamente com o novo projeto na lista
+
+        alert(`Projeto "${nome}" criado com sucesso!`);
+    } catch (error) {
+        state.loading = false;
+        render();
+        alert('Erro ao criar projeto: ' + error.message);
+    }
 };
 
 // --- Settings & Credentials ---
 
 const ConfiguracoesView = () => `
-${Header()}
-<main class="settings-view view-content">
-    <div class="container" style="max-width: 800px;">
-        <div class="dashboard-header mb-4">
-            <h1 style="font-size: 1.5rem;">Configurações</h1>
-            <p style="color: var(--text-muted); font-size: 0.875rem;">Gerencie suas credenciais e preferências do sistema</p>
-        </div>
+${Sidebar()}
+<main class="main-content view-content">
+    <header class="content-header">
+        <h1>Configurações</h1>
+        <p class="page-subtitle">Gerencie suas credenciais e preferências da conta.</p>
+    </header>
 
+    <div style="max-width: 700px;">
         <div class="card mb-4">
-            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem;">
-                <div style="background: rgba(16, 185, 129, 0.1); color: #10B981; padding: 0.5rem; border-radius: 8px;">
-                    <i data-lucide="bot"></i>
-                </div>
-                <div>
-                    <h3 style="font-size: 1rem; margin: 0;">Credenciais SALIC (Rouanet)</h3>
-                    <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0;">Utilizadas pelo robô para envio automático de comprovantes</p>
-                </div>
-            </div>
-
+            <h3 class="h2 mb-4">Conexão SALIC</h3>
+            <p class="text-xs mb-4">Credenciais para o robô de envio automático de comprovantes (MinC).</p>
+            
             <form onsubmit="event.preventDefault(); window.handleSaveSettings();">
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
-                    <div class="form-group" style="margin-bottom: 0;">
-                        <label for="salic-user">CPF / Usuário</label>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+                    <div class="form-group">
+                        <label>Usuário / CPF</label>
                         <input type="text" id="salic-user" placeholder="000.000.000-00" value="${state.settings.salic_user || ''}" required>
                     </div>
-                    <div class="form-group" style="margin-bottom: 0;">
-                        <label for="salic-pass">Senha SALIC</label>
+                    <div class="form-group">
+                        <label>Senha</label>
                         <input type="password" id="salic-pass" placeholder="••••••••" value="${state.settings.salic_pass || ''}" required>
                     </div>
                 </div>
-                
-                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem;">
-                    <p style="font-size: 0.75rem; color: #64748b; line-height: 1.5; margin: 0;">
-                        <i data-lucide="shield" style="width: 14px; display: inline-block; vertical-align: middle; margin-right: 0.25rem;"></i>
-                        <strong>Segurança:</strong> Suas credenciais são armazenadas com segurança no Supabase e protegidas por Row Level Security (RLS). Apenas você e o sistema de automação têm acesso.
+
+                <div style="padding: 1rem; background: var(--bg-sidebar); border-radius: var(--radius-sm); margin-bottom: 1.5rem; display: flex; gap: 0.75rem; align-items: flex-start;">
+                    <i data-lucide="shield-check" style="width: 18px; color: var(--success); flex-shrink: 0;"></i>
+                    <p class="text-xs" style="color: var(--text-secondary); line-height: 1.5;">
+                        <strong>Seguro:</strong> Suas credenciais são criptografadas e utilizadas apenas para comunicação oficial com o sistema do Ministério da Cultura.
                     </p>
                 </div>
 
-                <button class="btn btn-primary" id="save-settings-btn">
-                    ${state.loading ? 'Salvando...' : 'Salvar Configurações'}
+                <button class="btn btn-primary">
+                    ${state.loading ? 'Salvando...' : 'Salvar credenciais'}
                 </button>
             </form>
         </div>
 
-        <div class="card">
-            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem;">
-                <div style="background: rgba(239, 68, 68, 0.1); color: #ef4444; padding: 0.5rem; border-radius: 8px;">
-                    <i data-lucide="user-x"></i>
-                </div>
-                <div>
-                    <h3 style="font-size: 1rem; margin: 0;">Zona de Perigo</h3>
-                    <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0;">Ações irreversíveis na sua conta</p>
-                </div>
-            </div>
+        <div class="card" style="border-top: 4px solid var(--error);">
+            <h3 class="h2 mb-2">Zona de perigo</h3>
+            <p class="text-sm mb-4">Ações irreversíveis que podem apagar seus dados permanentemente.</p>
             
-            <button class="btn btn-ghost" style="color: #ef4444; border: 1px solid #fee2e2;" onclick="alert('Funcionalidade em desenvolvimento')">
-                Excluir Minha Conta
+            <button class="btn btn-secondary" style="color: var(--error); border-color: var(--error);" onclick="alert('Funcionalidade em desenvolvimento')">
+                Excluir conta e dados
             </button>
         </div>
     </div>
 </main>
 `;
 
+
 async function fetchSettings() {
     if (!supabaseClient || !state.user) return;
-    
     try {
         const { data, error } = await supabaseClient
             .from('external_credentials')
@@ -1694,7 +1729,7 @@ async function fetchSettings() {
     }
 }
 
-window.handleSaveSettings = async function() {
+window.handleSaveSettings = async function () {
     if (!supabaseClient || !state.user) return;
 
     const salicUser = document.getElementById('salic-user').value.trim();
@@ -1725,45 +1760,14 @@ window.handleSaveSettings = async function() {
         render();
     }
 };
-window.handleCreateProject = async function () {
-    if (!supabaseClient || !state.user) return;
 
-    const pronac = document.getElementById('new-pronac').value.trim();
-    const nome = document.getElementById('new-project-name').value.trim();
 
-    if (!pronac || !nome) return alert('Preencha PRONAC e Nome do Projeto!');
-
-    state.loading = true;
-    render();
-
-    try {
-        const { data: newProject, error } = await supabaseClient
-            .from('projects')
-            .insert({ user_id: state.user.id, pronac, nome })
-            .select()
-            .single();
-
-        if (error) throw error;
-
-        // Adiciona imediatamente ao state sem precisar de re-fetch
-        state.projects = [...state.projects, newProject].sort((a, b) => a.nome.localeCompare(b.nome));
-        state.loading = false;
-        render(); // Renderiza imediatamente com o novo projeto na lista
-
-        alert(`Projeto "${nome}" criado com sucesso!`);
-    } catch (error) {
-        state.loading = false;
-        render();
-        alert('Erro ao criar projeto: ' + error.message);
-    }
-};
-
-window.handleProjectSelectChange = async function(projectId) {
+window.handleProjectSelectChange = async function (projectId) {
     const select = document.getElementById('rubrica-input');
     if (!select) return;
-    
+
     select.innerHTML = '<option value="">Carregando...</option>';
-    
+
     if (!projectId || !supabaseClient) {
         select.innerHTML = '<option value="">Selecione um projeto primeiro...</option>';
         return;
@@ -1779,7 +1783,7 @@ window.handleProjectSelectChange = async function(projectId) {
         if (error) throw error;
 
         if (data && data.length > 0) {
-            select.innerHTML = '<option value="">Selecione uma rubrica...</option>' + 
+            select.innerHTML = '<option value="">Selecione uma rubrica...</option>' +
                 data.map(r => `<option value="${r.nome}">${r.nome}</option>`).join('');
         } else {
             select.innerHTML = '<option value="">Nenhuma rubrica cadastrada neste projeto.</option>';
@@ -1801,7 +1805,7 @@ window.handleUpload = async function (file) {
 
     try {
         const fileExt = file.name.split('.').pop();
-        const fileName = `${Math.random()}.${fileExt}`;
+        const fileName = `${Math.random()}.${fileExt} `;
         const filePath = `${state.user.id}/${fileName}`;
 
         // 1. Upload para o Storage
@@ -1861,86 +1865,90 @@ window.handleUpload = async function (file) {
 };
 
 const FornecedoresAdminView = () => `
-${Header()}
-<main class="dashboard-view view-content">
-    <div class="container">
-        <div class="dashboard-header mb-4">
-            <h1 style="font-size: 1.5rem;">Gestão de Fornecedores</h1>
-            <p style="color: var(--text-muted); font-size: 0.875rem;">Vincule fornecedores aos seus projetos para que eles enviem notas</p>
+${Sidebar()}
+<main class="main-content view-content">
+    <header class="content-header">
+        <h1>Gestão de Fornecedores</h1>
+        <p class="page-subtitle">Autorize fornecedores a enviar documentos diretamente para seus projetos.</p>
+    </header>
+
+    <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 2rem;">
+        <div class="card">
+            <h3 class="h2 mb-4">Novo acesso</h3>
+            <form onsubmit="event.preventDefault(); window.handleInviteFornecedor();">
+                <div class="form-group">
+                    <label>Fornecedor</label>
+                    <select id="invite-fornecedor-id" required>
+                        <option value="">Selecione o fornecedor...</option>
+                        ${(state.all_fornecedores || []).map(f => `<option value="${f.id}">${f.razao_social}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Projeto</label>
+                    <select id="invite-project-id" required>
+                        <option value="">Selecione o projeto...</option>
+                        ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
+                    </select>
+                </div>
+                <button class="btn btn-primary" style="width: 100%;">Liberar acesso</button>
+            </form>
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-subtle);">
+                <p class="text-xs mb-2" style="font-weight: 600;">O fornecedor não aparece na lista?</p>
+                <p class="text-xs mb-3" style="color: var(--text-muted);">Envie este link para que ele se cadastre na plataforma:</p>
+                <button class="btn btn-secondary" style="width: 100%; font-size: 11px;" onclick="const link = window.location.origin + '?fornecedor=true'; navigator.clipboard.writeText(link); alert('Link de cadastro copiado!');">
+                    <i data-lucide="copy" style="width: 12px;"></i>
+                    Copiar link de cadastro
+                </button>
+            </div>
         </div>
 
-        <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 2rem; align-items: start;">
-            <!-- Painel de Vínculo -->
-            <div class="card">
-                <h3 class="mb-4">Vincular Fornecedor</h3>
-                <form onsubmit="event.preventDefault(); window.handleInviteFornecedor();">
-                    <div class="form-group">
-                        <label>Selecionar Fornecedor</label>
-                        <select id="invite-fornecedor-id" style="width: 100%;" required>
-                            <option value="">Selecione um fornecedor cadastrado...</option>
-                            ${(state.all_fornecedores || []).map(f => `<option value="${f.id}">${f.razao_social} (${f.cnpj})</option>`).join('')}
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Projeto Destino</label>
-                        <select id="invite-project-id" style="width: 100%;" required>
-                            <option value="">Selecione o projeto...</option>
-                            ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
-                        </select>
-                    </div>
-                    <button class="btn btn-primary" style="width: 100%;">
-                        ${state.loading ? 'Vinculando...' : 'Conceder Acesso'}
-                    </button>
-                    <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 1rem;">
-                        O fornecedor selecionado poderá visualizar este projeto e enviar documentos diretamente para ele.
-                    </p>
-                </form>
-            </div>
-
-            <!-- Listagem de Vínculos -->
-            <div class="card">
-                <h3 class="mb-4">Vínculos Ativos</h3>
-                <div class="data-table-container">
-                    ${(state.vinculos_fornecedores || []).length === 0 ? 
-                        `<p style="text-align: center; padding: 2rem; color: var(--text-muted);">Nenhum fornecedor vinculado ainda.</p>` :
-                        `<table class="data-table">
-                            <thead>
+        <div class="card">
+            <h3 class="h2 mb-4">Acessos ativos</h3>
+            <div class="data-table-container">
+                ${(state.vinculos_fornecedores || []).length === 0 ?
+        `<p class="text-sm" style="text-align: center; padding: 2rem; color: var(--text-muted);">Nenhum fornecedor vinculado ainda.</p>` : `
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Fornecedor</th>
+                                <th>Projeto</th>
+                                <th style="text-align: right;">Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${(state.vinculos_fornecedores || []).map(v => `
                                 <tr>
-                                    <th>Fornecedor</th>
-                                    <th>Projeto</th>
-                                    <th style="text-align: right;">Ações</th>
+                                    <td>
+                                        <div style="font-weight: 500;">${v.fornecedores.razao_social}</div>
+                                        <div class="text-xs">${v.fornecedores.cnpj}</div>
+                                    </td>
+                                    <td class="text-sm">${v.projects.pronac}</td>
+                                    <td style="text-align: right;">
+                                        <button class="btn btn-secondary" style="padding: 4px 8px; color: var(--error);" onclick="window.handleRemoveVinculo('${v.id}')">Remover</button>
+                                    </td>
                                 </tr>
-                            </thead>
-                            <tbody>
-                                ${(state.vinculos_fornecedores || []).map(v => `
-                                    <tr>
-                                        <td>
-                                            <div style="font-weight: 500;">${v.fornecedores.razao_social}</div>
-                                            <div style="font-size: 0.75rem; color: var(--text-muted);">${v.fornecedores.cnpj}</div>
-                                        </td>
-                                        <td style="font-size: 0.875rem;">${v.projects.pronac} - ${v.projects.nome}</td>
-                                        <td style="text-align: right;">
-                                            <button class="btn btn-ghost" style="color: var(--error);" onclick="window.handleRemoveVinculo('${v.id}')">
-                                                <i data-lucide="trash-2" style="width: 16px;"></i>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>`
-                    }
-                </div>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `}
             </div>
         </div>
     </div>
 </main>
 `;
 
+
 function render() {
     let content = '';
 
     if (!state.user && !['login', 'register', 'fornecedor_login', 'fornecedor_register'].includes(state.currentView)) {
         state.currentView = state.isFornecedorMode ? 'fornecedor_login' : 'login';
+    }
+
+    // Segurança: Bloquear fornecedor de acessar rotas de gestor
+    const isGestorView = !['login', 'register', 'fornecedor_login', 'fornecedor_register', 'fornecedor_dashboard'].includes(state.currentView);
+    if (state.user && state.user.user_metadata?.role === 'fornecedor' && isGestorView) {
+        state.currentView = 'fornecedor_dashboard';
     }
 
     switch (state.currentView) {
@@ -1958,6 +1966,9 @@ function render() {
             break;
         case 'fornecedor_dashboard':
             content = FornecedorDashboardView();
+            break;
+        case 'projects':
+            content = ProjectsView();
             break;
         case 'dashboard':
             content = DashboardView();
@@ -1999,7 +2010,7 @@ function initFinanceiroCharts() {
     if (!window.Chart) return; // Ensure Chart.js is loaded
     const ctx = document.getElementById('rubricasChart');
     if (!ctx) return;
-    
+
     // Destroy previous chart instance if exists
     if (window.rubricasChartInstance) {
         window.rubricasChartInstance.destroy();
@@ -2032,7 +2043,7 @@ function initFinanceiroCharts() {
                 },
                 tooltip: {
                     callbacks: {
-                        label: function(context) {
+                        label: function (context) {
                             let label = context.label || '';
                             if (label) label += ': ';
                             if (context.parsed !== null) {
@@ -2106,16 +2117,16 @@ async function fetchExtratos(projectId) {
             .select('*')
             .eq('project_id', projectId)
             .order('data_transacao', { ascending: false });
-            
+
         if (!error) state.extratos = data || [];
-    } catch(err) {
+    } catch (err) {
         console.error("Erro fetch extratos:", err);
     }
 }
 
-window.handleImportExtrato = async function(file) {
+window.handleImportExtrato = async function (file) {
     if (!file || !state.filters.project || !supabaseClient) return;
-    
+
     state.loading = true;
     render();
 
@@ -2195,7 +2206,7 @@ function extractOFXTag(text, tag) {
 function parseCSV(text) {
     const lines = text.split('\n');
     const transactions = [];
-    
+
     lines.forEach(line => {
         const cols = line.split(/[;,]/);
         if (cols.length >= 3) {
@@ -2219,7 +2230,7 @@ function parseCSV(text) {
     return transactions;
 }
 
-window.handleRunN8NReconciliation = async function() {
+window.handleRunN8NReconciliation = async function () {
     if (!state.filters.project || !CONFIG.N8N_WEBHOOK_RECONCILIATION_URL) return;
 
     state.loading = true;
@@ -2237,7 +2248,7 @@ window.handleRunN8NReconciliation = async function() {
         });
 
         if (!response.ok) throw new Error("Erro ao disparar n8n.");
-        
+
         alert("O processo de conciliação inteligente foi iniciado no n8n. Aguarde alguns instantes e atualize a página.");
     } catch (err) {
         alert("Erro ao disparar conciliação: " + err.message);
@@ -2248,5 +2259,27 @@ window.handleRunN8NReconciliation = async function() {
 };
 
 // Initial render and setup
-render();
-setupRealtime();
+async function init() {
+    if (supabaseClient) {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (session) {
+            state.user = session.user;
+            const role = session.user.user_metadata?.role;
+            state.userStatus = role || 'gestor';
+
+            // Carregar dados iniciais baseados na role, ignorando isFornecedorMode da URL se logado
+            if (role === 'fornecedor') {
+                state.currentView = 'fornecedor_dashboard';
+                await fetchFornecedorDashboard();
+            } else {
+                state.currentView = 'dashboard';
+                await fetchProjects();
+                await fetchDocuments();
+            }
+        }
+    }
+    render();
+    setupRealtime();
+}
+
+init();
