@@ -36,6 +36,7 @@ const state = {
 const STATUS_MAP = {
     'uploaded': { label: 'Enviado', class: 'status-pending' },
     'processing_ocr': { label: 'Extraindo IA', class: 'status-pending' },
+    'validating': { label: 'Validando CNAE', class: 'status-pending' },
     'validated': { label: 'Validado', class: 'status-completed' },
     'bloqueado_conformidade': { label: 'Bloqueado', class: 'status-error' },
     'aguardando_d3': { label: 'D+3 Aguardando', class: 'status-pending' },
@@ -396,7 +397,7 @@ const FornecedorDashboardView = () => `
 
 const DashboardView = () => {
     const totalAnalisadas = state.documents.length;
-    const pendentes = state.documents.filter(d => ['uploaded', 'processing_ocr', 'pendente'].includes(d.status)).length;
+    const pendentes = state.documents.filter(d => ['uploaded', 'processing_ocr', 'validating', 'pendente'].includes(d.status)).length;
     const erros = state.documents.filter(d => ['erro', 'erro_rpa'].includes(d.status)).length;
 
     // Calcular valor aprovado (se disponível no state ou se precisarmos calcular de despesas)
@@ -643,12 +644,23 @@ const DetailsView = () => {
     ];
 
     let activeIndex = 0;
+    let errorAtStep = -1;
+
     if (doc.status === 'uploaded') activeIndex = 0;
     else if (doc.status === 'processing_ocr') activeIndex = 1;
-    else if (doc.status === 'validated' || doc.status === 'aguardando_d3') activeIndex = 2;
-    else if (doc.status === 'enviado_salic') activeIndex = 3;
-    else if (doc.status === 'concluido') activeIndex = 4;
-    else if (doc.status.includes('erro') || doc.status.includes('bloqueado')) activeIndex = -1;
+    else if (doc.status === 'validating') activeIndex = 2;
+    else if (doc.status === 'validated' || doc.status === 'aguardando_d3') activeIndex = 3;
+    else if (doc.status === 'enviado_salic') activeIndex = 4;
+    else if (doc.status === 'concluido') activeIndex = 5;
+    else if (doc.status === 'bloqueado_conformidade') {
+        activeIndex = 2;
+        errorAtStep = 2;
+    } else if (doc.status === 'erro_rpa') {
+        activeIndex = 3;
+        errorAtStep = 3;
+    } else if (doc.status.includes('erro') || doc.status.includes('bloqueado')) {
+        activeIndex = -1;
+    }
 
     return `
 ${Sidebar()}
@@ -674,20 +686,47 @@ ${Sidebar()}
                 <div style="position: absolute; top: 15px; left: 40px; right: 40px; height: 2px; background: var(--border-subtle); z-index: 1;"></div>
                 ${steps.map((step, index) => {
         let statusClass = '';
-        if (activeIndex === -1) {
+        if (errorAtStep !== -1) {
+            if (index < errorAtStep) statusClass = 'completed';
+            else if (index === errorAtStep) statusClass = 'error';
+            else statusClass = '';
+        } else if (activeIndex === -1) {
             statusClass = index === 0 ? 'completed' : 'error';
         } else {
             statusClass = index === activeIndex ? 'active' : (index < activeIndex ? 'completed' : '');
         }
+
         const isActive = statusClass === 'active';
         const isCompleted = statusClass === 'completed';
+        const isError = statusClass === 'error';
+
+        let color = 'var(--text-muted)';
+        let bg = '#FFF';
+        let border = 'var(--border-light)';
+        let icon = step.icon;
+
+        if (isCompleted) {
+            color = '#FFF';
+            bg = 'var(--success)';
+            border = 'var(--success)';
+            icon = 'check';
+        } else if (isActive) {
+            color = '#FFF';
+            bg = 'var(--primary)';
+            border = 'var(--primary)';
+        } else if (isError) {
+            color = '#FFF';
+            bg = 'var(--error)';
+            border = 'var(--error)';
+            icon = 'x';
+        }
 
         return `
                 <div style="position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; flex: 1;">
-                    <div style="width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: ${isCompleted ? 'var(--success)' : (isActive ? 'var(--primary)' : '#FFF')}; border: 2px solid ${isCompleted ? 'var(--success)' : (isActive ? 'var(--primary)' : 'var(--border-light)')}; color: ${isCompleted || isActive ? '#FFF' : 'var(--text-muted)'}; transition: var(--transition);">
-                        <i data-lucide="${isCompleted ? 'check' : step.icon}" style="width: 14px;"></i>
+                    <div style="width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: ${bg}; border: 2px solid ${border}; color: ${color}; transition: var(--transition);">
+                        <i data-lucide="${icon}" style="width: 14px;"></i>
                     </div>
-                    <span style="font-size: 11px; font-weight: 600; color: ${isActive ? 'var(--primary)' : 'var(--text-secondary)'}">${step.label}</span>
+                    <span style="font-size: 11px; font-weight: 600; color: ${isError ? 'var(--error)' : (isActive ? 'var(--primary)' : 'var(--text-secondary)')}">${step.label}</span>
                 </div>
                 `;
     }).join('')}
@@ -728,7 +767,7 @@ ${Sidebar()}
                         <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
                             <select id="vincular-rubrica-select" style="flex: 1;">
                                 <option value="">Selecionar rubrica...</option>
-                                ${(state.rubricas_disponiveis || []).map(r => `<option value="${r.id}">${r.nome}</option>`).join('')}
+                                ${(state.rubricas_disponiveis || []).map(r => `<option value="${r.id}" ${doc.rubrica === r.nome ? 'selected' : ''}>${r.nome}</option>`).join('')}
                             </select>
                             <button class="btn btn-primary" onclick="window.handleVincularRubrica('${doc.id}', '${doc.project_id}', ${doc.valor || 0})">Vincular</button>
                         </div>
@@ -738,9 +777,12 @@ ${Sidebar()}
 
                 <div class="card">
                     <h3 class="h2 mb-4">Justificativa de Conformidade</h3>
-                    <div style="padding: 1rem; background: var(--bg-sidebar); border-radius: var(--radius-sm); border-left: 3px solid var(--primary);">
+                    <div style="padding: 1rem; background: ${doc.just_erro ? 'rgba(239, 68, 68, 0.05)' : 'var(--bg-sidebar)'}; border-radius: var(--radius-sm); border-left: 3px solid ${doc.just_erro ? 'var(--error)' : 'var(--primary)'};">
                         <p class="text-sm" style="line-height: 1.6; color: var(--text-primary);">
-                            ${doc.justification || 'Aguardando processamento da IA para gerar a análise de conformidade...'}
+                            ${doc.just_erro ?
+            `<strong>Erro detectado:</strong><br>${doc.just_erro}` :
+            (doc.justification || 'Aguardando processamento da IA para gerar a análise de conformidade...')
+        }
                         </p>
                     </div>
                 </div>

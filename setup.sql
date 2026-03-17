@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS public.documents (
     size TEXT,
     file_path TEXT NOT NULL,
     status TEXT DEFAULT 'uploaded' CHECK (status IN (
-        'uploaded', 'processing_ocr', 'validated', 
+        'uploaded', 'processing_ocr', 'validating', 'validated', 
         'bloqueado_conformidade', 'aguardando_d3', 
         'enviado_salic', 'erro_rpa', 'concluido'
     )),
@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS public.documents (
     data_emissao DATE,
     data_pagamento DATE,
     justification TEXT,
+    just_erro TEXT,
     protocolo_salic TEXT,
     json_extraido JSONB DEFAULT '{}',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
