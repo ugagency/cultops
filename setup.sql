@@ -99,6 +99,10 @@ CREATE TABLE IF NOT EXISTS public.rubricas (
     UNIQUE(project_id, nome)
 );
 
+-- Extensões necessárias
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 -- 5. Tabela de Despesas (Fase 2)
 CREATE TABLE IF NOT EXISTS public.despesas (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -236,6 +240,39 @@ CREATE TABLE IF NOT EXISTS public.external_credentials (
 );
 
 ALTER TABLE external_credentials ENABLE ROW LEVEL SECURITY;
+
+-- Função para salvar credenciais com criptografia PGP
+-- A chave 'sua_chave_mestra_aqui' deve ser trocada por uma variável de ambiente no n8n depois
+CREATE OR REPLACE FUNCTION upsert_external_credential(
+    p_service_name TEXT,
+    p_identifier TEXT,
+    p_secret TEXT
+) RETURNS VOID AS $$
+BEGIN
+    INSERT INTO public.external_credentials (user_id, service_name, identifier, secret, updated_at)
+    VALUES (
+        auth.uid(), 
+        p_service_name, 
+        p_identifier, 
+        encode(pgp_sym_encrypt(p_secret, 'chave_mestra_cultopps'), 'hex'), -- Criptografa e converte para HEX
+        now()
+    )
+    ON CONFLICT (user_id, service_name) 
+    DO UPDATE SET 
+        identifier = EXCLUDED.identifier,
+        secret = EXCLUDED.secret,
+        updated_at = now();
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- View para o n8n descriptografar (Protegida por RLS ou usada apenas via Service Role)
+CREATE OR REPLACE VIEW decrypted_external_credentials AS
+SELECT 
+    user_id,
+    service_name,
+    identifier,
+    pgp_sym_decrypt(decode(secret, 'hex'), 'chave_mestra_cultopps') as secret_plain
+FROM public.external_credentials;
 
 CREATE POLICY "Users can manage their own credentials" 
 ON external_credentials FOR ALL 

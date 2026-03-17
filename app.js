@@ -5,6 +5,55 @@ const supabaseClient = (window.supabase) ? window.supabase.createClient(supabase
 
 const app = document.getElementById('app');
 
+// --- Notificações Premium (Toasts) ---
+window.showToast = function (message, type = 'info') {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+
+    let icon = 'info';
+    if (type === 'success') icon = 'check-circle';
+    if (type === 'error') icon = 'alert-circle';
+    if (type === 'warning') icon = 'alert-triangle';
+
+    toast.innerHTML = `
+        <i class="toast-icon" data-lucide="${icon}"></i>
+        <div class="toast-content">
+            <div class="toast-message">${message}</div>
+        </div>
+    `;
+
+    container.appendChild(toast);
+    if (window.lucide) window.lucide.createIcons();
+
+    setTimeout(() => {
+        toast.classList.add('fade-out');
+        setTimeout(() => toast.remove(), 300);
+    }, 4000);
+};
+
+// Redireciona alerts para o toast por padrão
+const nativeAlert = window.alert;
+window.alert = (message) => {
+    // Se a mensagem contém palavras de erro comuns, usa tipo error
+    const lower = message.toLowerCase();
+    if (lower.includes('erro') || lower.includes('falhou') || lower.includes('inválido') || lower.includes('não encontrado')) {
+        window.showToast(message, 'error');
+    } else if (lower.includes('sucesso') || lower.includes('concluído') || lower.includes('criado')) {
+        window.showToast(message, 'success');
+    } else {
+        window.showToast(message, 'info');
+    }
+    console.log("Alert interceptado:", message);
+};
+
 const isFornecedorMode = window.location.pathname.includes('fornecedor') || window.location.hash.includes('fornecedor') || window.location.search.includes('fornecedor');
 
 const state = {
@@ -520,7 +569,7 @@ ${Sidebar()}
             <h1>Gestão de Projetos</h1>
             <p class="page-subtitle">Visualize e gerencie todos os seus projetos culturais.</p>
         </div>
-        <button class="btn btn-primary" onclick="window.navigate('upload')">
+        <button class="btn btn-primary" onclick="window.navigate('create_project')">
             <i data-lucide="plus"></i>
             Novo Projeto
         </button>
@@ -532,7 +581,7 @@ ${Sidebar()}
                 <div class="empty-state-icon"><i data-lucide="briefcase"></i></div>
                 <h3 class="h2">Nenhum projeto encontrado</h3>
                 <p class="text-sm">Comece criando um novo projeto para organizar suas notas fiscais.</p>
-                <button class="btn btn-primary" onclick="window.navigate('upload')">Criar Projeto</button>
+                <button class="btn btn-primary" onclick="window.navigate('create_project')">Criar Projeto</button>
             </div>
         ` : `
             <table class="data-table">
@@ -558,6 +607,9 @@ ${Sidebar()}
                                     <button class="btn btn-secondary" style="padding: 0.4rem;" title="Financeiro" onclick="state.filters.project = '${p.id}'; window.navigate('financeiro')">
                                         <i data-lucide="bar-chart-3" style="width: 16px;"></i>
                                     </button>
+                                    <button class="btn btn-secondary" style="padding: 0.4rem; color: var(--error);" title="Excluir Projeto" onclick="window.handleDeleteProject('${p.id}', '${p.nome}')">
+                                        <i data-lucide="trash-2" style="width: 16px;"></i>
+                                    </button>
                                 </div>
                             </td>
                         </tr>
@@ -570,7 +622,6 @@ ${Sidebar()}
 `;
 
 const UploadView = () => `
-
 ${Sidebar()}
     <main class="main-content view-content">
         <header class="content-header">
@@ -578,8 +629,7 @@ ${Sidebar()}
             <p class="page-subtitle">Selecione um projeto e anexe as notas fiscais para análise.</p>
         </header>
 
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; align-items: start;">
-            <!-- Coluna 1: Seleção e Upload -->
+        <div style="max-width: 600px; margin: 0 auto;">
             <div class="card">
                 <h3 class="h2 mb-4">Novo upload</h3>
 
@@ -607,29 +657,57 @@ ${Sidebar()}
 
                 ${state.loading ? `<p class="text-xs mt-4" style="color: var(--primary); text-align: center;">Enviando arquivo, aguarde...</p>` : ''}
             </div>
-
-            <!-- Coluna 2: Criar Projeto -->
-            <div class="card">
-                <h3 class="h2 mb-4">Cadastrar projeto</h3>
-                <p class="text-xs mb-4">Se o projeto não estiver na lista, cadastre-o aqui.</p>
-
-                <form onsubmit="event.preventDefault(); window.handleCreateProject();">
-                    <div class="form-group">
-                        <label>Número PRONAC</label>
-                        <input type="text" id="new-pronac" placeholder="Ex: 230561" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Nome do projeto</label>
-                        <input type="text" id="new-project-name" placeholder="Ex: Festival de Cinema" required>
-                    </div>
-                    <button class="btn btn-secondary" style="width: 100%;">
-                        ${state.loading ? 'Criando...' : 'Criar projeto'}
-                    </button>
-                </form>
-            </div>
+            
+            <p class="text-xs mt-4" style="text-align: center; color: var(--text-muted);">
+                Precisa de um novo projeto? <a href="#" onclick="window.navigate('create_project')" style="color: var(--primary); font-weight: 600;">Cadastre aqui</a>
+            </p>
         </div>
     </main>
     `;
+
+const CreateProjectView = () => `
+${Sidebar()}
+<main class="main-content view-content">
+    <header class="content-header">
+        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem;">
+            <button class="btn btn-secondary" onclick="window.navigate('projects')" style="padding: 0.5rem;">
+                <i data-lucide="arrow-left" style="width: 18px;"></i>
+            </button>
+            <h1>Cadastrar Novo Projeto</h1>
+        </div>
+        <p class="page-subtitle">Configure um novo projeto cultural buscando os dados oficiais do SALIC.</p>
+    </header>
+
+    <div style="max-width: 600px;">
+        <div class="card">
+            <h3 class="h2 mb-4">Importar Projeto do SALIC</h3>
+            
+            <form id="form-busca-salic" onsubmit="event.preventDefault(); window.handleFetchSalicProject();">
+                <div class="form-group mb-4">
+                    <label>Número PRONAC</label>
+                    <div style="display: flex; gap: 1rem;">
+                        <input type="text" id="busca-pronac" placeholder="Ex: 230561" required pattern="\\d+" title="Apenas números">
+                        <button type="submit" class="btn btn-primary" style="white-space: nowrap; min-width: 140px;" ${state.loading ? 'disabled' : ''}>
+                            ${state.loading ? 'Importando...' : '<i data-lucide="download-cloud" style="width: 18px;"></i> Importar'}
+                        </button>
+                    </div>
+                    <p class="text-xs mt-2" style="color: var(--text-muted); line-height: 1.5;">O nosso robô (via n8n) irá acessar o SALIC, buscar os dados do projeto e cadastrá-lo automaticamente na sua conta. Isso pode levar alguns segundos.</p>
+                </div>
+            </form>
+
+            ${state.error ? `
+                <div style="margin-top: 1.5rem; padding: 1rem; background: rgba(239, 68, 68, 0.1); border-radius: var(--radius-sm); border-left: 3px solid var(--error); display: flex; gap: 0.75rem; align-items: flex-start;">
+                    <i data-lucide="alert-circle" style="width: 18px; color: var(--error); flex-shrink: 0; margin-top: 2px;"></i>
+                    <div>
+                        <p class="text-sm" style="color: var(--error); font-weight: 600; margin-bottom: 2px;">Falha na importação</p>
+                        <p class="text-xs" style="color: var(--text-secondary); line-height: 1.4;">${state.error}</p>
+                    </div>
+                </div>
+            ` : ''}
+        </div>
+    </div>
+</main>
+`;
 
 const DetailsView = () => {
     const doc = state.currentDocument;
@@ -1320,6 +1398,7 @@ ${Sidebar()}
 
 window.navigate = async function (view, id = null) {
     state.currentView = view;
+    state.error = null; // Limpa erros ao navegar
 
     if (view === 'dashboard') {
         await fetchProjects(); // Sempre recarrega projetos ao voltar ao dashboard
@@ -1346,7 +1425,7 @@ window.navigate = async function (view, id = null) {
         else if (!state.filters.project && state.projects.length > 0) state.filters.project = state.projects[0].id;
 
         if (state.filters.project) await fetchExtratos(state.filters.project);
-    } else if (view === 'projects') {
+    } else if (view === 'projects' || view === 'create_project') {
         await fetchProjects();
     } else if (view === 'configuracoes') {
         await fetchSettings();
@@ -1650,47 +1729,88 @@ window.handleDeleteDocument = async function (id, filePath) {
 
         if (dbError) throw dbError;
 
-        alert("Documento excluído com sucesso.");
+        showToast("Documento excluído com sucesso.", 'success');
         await fetchDocuments();
         render();
     } catch (error) {
-        alert("Erro ao excluir: " + error.message);
+        showToast("Erro ao excluir: " + error.message, 'error');
     } finally {
         state.loading = false;
         render();
     }
 };
 
-window.handleCreateProject = async function () {
-    if (!supabaseClient || !state.user) return;
+window.handleFetchSalicProject = async function () {
+    const pronac = document.getElementById('busca-pronac').value.trim();
+    if (!pronac || !state.user) return;
 
-    const pronac = document.getElementById('new-pronac').value.trim();
-    const nome = document.getElementById('new-project-name').value.trim();
+    state.loading = true;
+    state.error = null;
+    render();
 
-    if (!pronac || !nome) return alert('Preencha PRONAC e Nome do Projeto!');
+    try {
+        if (!CONFIG.N8N_WEBHOOK_SALIC_PROJECT_URL) {
+            throw new Error("URL do Webhook do n8n não configurada.");
+        }
+
+        const response = await fetch(CONFIG.N8N_WEBHOOK_SALIC_PROJECT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pronac: pronac, user_id: state.user.id })
+        });
+
+        if (!response.ok) {
+            throw new Error(`Erro de comunicação com o webhook: ${response.status}`);
+        }
+
+        const rawData = await response.json();
+        const data = Array.isArray(rawData) ? rawData[0] : rawData;
+
+        const isNotFound =
+            (data.message && data.message.toLowerCase().includes("não encontrado")) ||
+            (data.pronac === null && data.nome === null);
+
+        if (isNotFound || data.success === false || data.error) {
+            const errorMsg = data.message || data.error || "Projeto não encontrado no SALIC. Verifique o número do PRONAC.";
+            state.error = errorMsg;
+            throw new Error(errorMsg);
+        }
+
+        showToast(data.message || `Projeto importado com sucesso do SALIC!`, 'success');
+
+        // Redireciona para a tela de projetos e força atualizar os dados
+        window.navigate('projects');
+
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
+
+window.handleDeleteProject = async function (id, nome) {
+    if (!confirm(`Tem certeza que deseja excluir o projeto "${nome}"? Esta ação excluirá todos os documentos, rubricas e despesas vinculadas a ele.`)) return;
 
     state.loading = true;
     render();
 
     try {
-        const { data: newProject, error } = await supabaseClient
+        const { error } = await supabaseClient
             .from('projects')
-            .insert({ user_id: state.user.id, pronac, nome })
-            .select()
-            .single();
+            .delete()
+            .eq('id', id);
 
         if (error) throw error;
 
-        // Adiciona imediatamente ao state sem precisar de re-fetch
-        state.projects = [...state.projects, newProject].sort((a, b) => a.nome.localeCompare(b.nome));
-        state.loading = false;
-        render(); // Renderiza imediatamente com o novo projeto na lista
+        showToast("Projeto excluído com sucesso.", 'success');
+        if (state.filters.project === id) state.filters.project = '';
 
-        alert(`Projeto "${nome}" criado com sucesso!`);
+        await fetchProjects();
+        render();
     } catch (error) {
+        showToast("Erro ao excluir projeto: " + error.message, 'error');
+    } finally {
         state.loading = false;
         render();
-        alert('Erro ao criar projeto: ' + error.message);
     }
 };
 
@@ -1708,7 +1828,7 @@ ${Sidebar()}
         <div class="card mb-4">
             <h3 class="h2 mb-4">Conexão SALIC</h3>
             <p class="text-xs mb-4">Credenciais para o robô de envio automático de comprovantes (MinC).</p>
-            
+
             <form onsubmit="event.preventDefault(); window.handleSaveSettings();">
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
                     <div class="form-group">
@@ -1737,7 +1857,7 @@ ${Sidebar()}
         <div class="card" style="border-top: 4px solid var(--error);">
             <h3 class="h2 mb-2">Zona de perigo</h3>
             <p class="text-sm mb-4">Ações irreversíveis que podem apagar seus dados permanentemente.</p>
-            
+
             <button class="btn btn-secondary" style="color: var(--error); border-color: var(--error);" onclick="alert('Funcionalidade em desenvolvimento')">
                 Excluir conta e dados
             </button>
@@ -1761,7 +1881,7 @@ async function fetchSettings() {
         if (data) {
             state.settings = {
                 salic_user: data.identifier,
-                salic_pass: data.secret
+                salic_pass: '********'
             };
         } else {
             state.settings = { salic_user: '', salic_pass: '' };
@@ -1782,21 +1902,18 @@ window.handleSaveSettings = async function () {
 
     try {
         const { error } = await supabaseClient
-            .from('external_credentials')
-            .upsert({
-                user_id: state.user.id,
-                service_name: 'salic',
-                identifier: salicUser,
-                secret: salicPass,
-                updated_at: new Date().toISOString()
-            }, { onConflict: 'user_id, service_name' });
+            .rpc('upsert_external_credential', {
+                p_service_name: 'salic',
+                p_identifier: salicUser,
+                p_secret: salicPass
+            });
 
         if (error) throw error;
 
-        state.settings = { salic_user: salicUser, salic_pass: salicPass };
-        alert("Configurações salvas com sucesso!");
+        state.settings = { salic_user: salicUser, salic_pass: '********' };
+        showToast("Configurações salvas com sucesso e criptografadas!", 'success');
     } catch (err) {
-        alert("Erro ao salvar configurações: " + err.message);
+        showToast("Erro ao salvar configurações: " + err.message, 'error');
     } finally {
         state.loading = false;
         render();
@@ -2011,6 +2128,9 @@ function render() {
             break;
         case 'projects':
             content = ProjectsView();
+            break;
+        case 'create_project':
+            content = CreateProjectView();
             break;
         case 'dashboard':
             content = DashboardView();
