@@ -4,7 +4,7 @@
 Este plano define a execução da Fase 2 do Prestaí, transformando o sistema num gerenciador financeiro completo para projetos da Lei Rouanet. Ele introduz gestão de rubricas, conciliação bancária, validações de conformidade de CNPJ/CNAE, Portal do Fornecedor e automação RPA para o SALIC.
 
 ## Tipo de Projeto
-WEB (Front-end Vanilla + Supabase) + BACKEND (n8n Webhooks + Python/Selenium RPA)
+WEB (Front-end Vanilla + Supabase) + BACKEND (n8n Webhooks + Airtop RPA)
 
 ## Critérios de Sucesso
 - Criação e RLS adequado das 5 novas tabelas no Supabase (`rubricas`, `despesas`, `fornecedores`, `extratos_bancarios`, `portal_submissions`).
@@ -17,7 +17,7 @@ WEB (Front-end Vanilla + Supabase) + BACKEND (n8n Webhooks + Python/Selenium RPA
 - **Front-end:** HTML/CSS/JS (Vanilla), Supabase JS SDK.
 - **Back-end/Automação:** n8n (Webhooks e cron jobs).
 - **Banco de Dados:** PostgreSQL (Supabase) com Row Level Security.
-- **Infra/Robô:** Servidor dedidado rodando Python 3.10+ com Selenium (Headless Chrome) + FastAPI/Flask.
+- **Infra/Robô:** Airtop integrado nativamente no n8n via API para automação web.
 
 ## Estrutura de Arquivos
 ```text
@@ -65,12 +65,13 @@ prestai/
 | 4.3 | UI Conciliação | `frontend-specialist`| `frontend-design` | P1 | INPUT: `conciliacao.html` → OUTPUT: Layout de colunas e botões de batch → VERIFY: Matching via n8n e cor verde após success |
 | 4.4 | Regra D-3 (Cron) | `backend-specialist`| `api-patterns`    | P1 | INPUT: Trigger Cron n8n → OUTPUT: Job às 8h analisando `conciliado` → VERIFY: Documentos sinalizados com `liberado_rpa` |
 
-### Sprint 5: RPA SALIC
+### Sprint 5: RPA SALIC (Airtop + n8n)
 | ID | Tarefa | Agente | Skills | Prioridade | INPUT → OUTPUT → VERIFY |
 |---|---|---|---|---|---|
-| 5.1 | Infraestrutura RPA | `devops-engineer`  | `server-management` | P2 | INPUT: Repo Python → OUTPUT: Servidor web (FastAPI/Flask) configurado → VERIFY: Recebe calls do n8n |
-| 5.2 | Script Selenium   | `backend-specialist`| `python-patterns` | P1 | INPUT: Credenciais criptografadas → OUTPUT: Navegação login e comprovante → VERIFY: Retorna protocolo do SALIC |
+| 5.1 | Setup Airtop | `backend-specialist`| `api-patterns` | P2 | INPUT: Chave API Airtop → OUTPUT: Credencial configurada no n8n → VERIFY: Conexão n8n-Airtop estabelecida |
+| 5.2 | Integração SALIC via Airtop | `backend-specialist`| `prompt-engineering` | P1 | INPUT: Credenciais do gov.br/SALIC → OUTPUT: Prompts/Instruções Web para Airtop navegar e inserir → VERIFY: Retorna protocolo do SALIC |
 | 5.3 | Cofre de Senhas   | `database-architect` | `database-design`| P0 | INPUT: Tokens → OUTPUT: Mecanismo de KMS / AWS Secrets / Criptografia Supabase → VERIFY: Senhas do projeto protegidas |
+
 
 ## Fase X: Verificações
 - [ ] Segurança: Políticas RLS validadas para não haver exclusão acidental ou acesso cross-tenant

@@ -1,7 +1,16 @@
-// --- Supabase Configuração ---
-const supabaseUrl = CONFIG.SUPABASE_URL;
-const supabaseKey = CONFIG.SUPABASE_KEY;
-const supabaseClient = (window.supabase) ? window.supabase.createClient(supabaseUrl, supabaseKey) : null;
+// --- Configuração e Inicialização ---
+// A variável CONFIG já é declarada globalmente no arquivo config.js (carregado antes no index.html)
+if (typeof CONFIG === 'undefined') {
+    window.CONFIG = {}; // Valor padrão seguro se o config.js falhar
+}
+
+const supabaseUrl = CONFIG.SUPABASE_URL || "";
+const supabaseKey = CONFIG.SUPABASE_KEY || "";
+const supabaseClient = (window.supabase && supabaseUrl) ? window.supabase.createClient(supabaseUrl, supabaseKey) : null;
+
+if (!supabaseClient && !window.location.hash.includes('login')) {
+    console.warn("AVISO: CONFIGURAÇÃO NÃO DETECTADA. Certifique-se que o config.js foi carregado ou as variáveis de ambiente foram configuradas.");
+}
 
 const app = document.getElementById('app');
 
@@ -83,15 +92,24 @@ const state = {
 };
 
 const STATUS_MAP = {
+    // Status Gerais NF
     'uploaded': { label: 'Enviado', class: 'status-pending' },
     'processing_ocr': { label: 'Extraindo IA', class: 'status-pending' },
-    'validating': { label: 'Validando CNAE', class: 'status-pending' },
-    'validated': { label: 'Validado', class: 'status-completed' },
-    'bloqueado_conformidade': { label: 'Bloqueado', class: 'status-error' },
-    'aguardando_d3': { label: 'D+3 Aguardando', class: 'status-pending' },
+    'aguardando_comprovante': { label: 'Falta Comprovante', class: 'status-warning' },
+    'aguardando_conciliacao_bancaria': { label: 'Falta Conciliação', class: 'status-warning' },
+    'aguardando_d3': { label: 'Fila D-3', class: 'status-pending' },
+    'liberado_rpa_airtop': { label: 'Pronto p/ SALIC', class: 'status-completed' },
     'enviado_salic': { label: 'Enviado SALIC', class: 'status-completed' },
+    'concluido': { label: 'Concluído', class: 'status-completed' },
+
+    // Status de Erro/Desvio NF
+    'bloqueado_conformidade': { label: 'Bloqueado IA', class: 'status-error' },
+    'revisao_manual': { label: 'Revisão Manual', class: 'status-warning' },
     'erro_rpa': { label: 'Erro RPA', class: 'status-error' },
-    'concluido': { label: 'Concluído', class: 'status-completed' }
+
+    // Status Comprovante (para referência interna)
+    'divergencia_valor': { label: 'Divergência Valor', class: 'status-error' },
+    'divergencia_beneficiario': { label: 'Divergência Favorecido', class: 'status-error' }
 };
 
 // --- Templates ---
@@ -625,13 +643,13 @@ const UploadView = () => `
 ${Sidebar()}
     <main class="main-content view-content">
         <header class="content-header">
-            <h1>Enviar documentos</h1>
-            <p class="page-subtitle">Selecione um projeto e anexe as notas fiscais para análise.</p>
+            <h1>Enviar Nota Fiscal</h1>
+            <p class="page-subtitle">Inicie a conciliação subindo a NF e selecionando a rubrica.</p>
         </header>
 
         <div style="max-width: 600px; margin: 0 auto;">
             <div class="card">
-                <h3 class="h2 mb-4">Novo upload</h3>
+                <h3 class="h2 mb-4">Novo upload de NF</h3>
 
                 <div class="form-group mb-4">
                     <label>Projeto / PRONAC</label>
@@ -642,18 +660,19 @@ ${Sidebar()}
                 </div>
 
                 <div class="form-group mb-4">
-                    <label>Rubrica orçamentária (opcional)</label>
+                    <label>Rubrica Orçamentária (Obrigatório)</label>
                     <select id="rubrica-input">
                         <option value="">Selecione o projeto primeiro...</option>
                     </select>
                 </div>
 
-                <div class="upload-area" onclick="if(document.getElementById('project-selector').value) document.getElementById('file-input').click(); else alert('Selecione um projeto primeiro!');">
-                    <input type="file" id="file-input" style="display: none;" onchange="window.handleUpload(this.files[0])" accept=".pdf">
-                        <i data-lucide="upload-cloud" style="width: 32px; color: var(--primary); margin-bottom: 1rem;"></i>
-                        <p class="text-sm" style="font-weight: 600;">Arraste um PDF ou clique para selecionar</p>
+                <div class="upload-area" onclick="if(document.getElementById('project-selector').value && document.getElementById('rubrica-input').value) document.getElementById('file-input').click(); else alert('Selecione projeto e rubrica primeiro!');">
+                    <input type="file" id="file-input" style="display: none;" onchange="window.handleUpload(this.files[0], 'nf')" accept=".pdf">
+                        <i data-lucide="file-text" style="width: 32px; color: var(--primary); margin-bottom: 1rem;"></i>
+                        <p class="text-sm" style="font-weight: 600;">Arraste a NF (PDF) ou clique para selecionar</p>
                         <p class="text-xs" style="color: var(--text-muted); margin-top: 0.5rem;">Apenas arquivos PDF são aceitos.</p>
                 </div>
+
 
                 ${state.loading ? `<p class="text-xs mt-4" style="color: var(--primary); text-align: center;">Enviando arquivo, aguarde...</p>` : ''}
             </div>
@@ -716,28 +735,37 @@ const DetailsView = () => {
     const steps = [
         { id: 'uploaded', label: 'Enviado', icon: 'upload-cloud' },
         { id: 'processing_ocr', label: 'OCR (IA)', icon: 'cpu' },
-        { id: 'validated', label: 'Validada', icon: 'shield-check' },
-        { id: 'enviado_salic', label: 'RPA Salic', icon: 'bot' },
-        { id: 'concluido', label: 'Concluído', icon: 'check-circle' }
+        { id: 'aguardando_comprovante', label: 'Documentação', icon: 'file-text' },
+        { id: 'aguardando_conciliacao_bancaria', label: 'Conciliação', icon: 'banknote' },
+        { id: 'aguardando_d3', label: 'Fila D-3', icon: 'clock' },
+        { id: 'enviado_salic', label: 'SALIC', icon: 'check-circle' }
     ];
 
     let activeIndex = 0;
     let errorAtStep = -1;
 
-    if (doc.status === 'uploaded') activeIndex = 0;
-    else if (doc.status === 'processing_ocr') activeIndex = 1;
-    else if (doc.status === 'validating') activeIndex = 2;
-    else if (doc.status === 'validated' || doc.status === 'aguardando_d3') activeIndex = 3;
-    else if (doc.status === 'enviado_salic') activeIndex = 4;
-    else if (doc.status === 'concluido') activeIndex = 5;
-    else if (doc.status === 'bloqueado_conformidade') {
-        activeIndex = 2;
-        errorAtStep = 2;
-    } else if (doc.status === 'erro_rpa') {
-        activeIndex = 3;
-        errorAtStep = 3;
-    } else if (doc.status.includes('erro') || doc.status.includes('bloqueado')) {
-        activeIndex = -1;
+    // Lógica revisada de steps baseada no novo fluxo
+    const statusOrder = [
+        'uploaded',
+        'processing_ocr',
+        'aguardando_comprovante',
+        'aguardando_conciliacao_bancaria',
+        'aguardando_d3',
+        'liberado_rpa_airtop',
+        'enviado_salic',
+        'concluido'
+    ];
+
+    activeIndex = statusOrder.indexOf(doc.status);
+    if (activeIndex === -1) {
+        // Trata desvios
+        if (doc.status === 'bloqueado_conformidade') { errorAtStep = 2; activeIndex = 2; }
+        else if (doc.status === 'revisao_manual') { errorAtStep = 1; activeIndex = 1; }
+        else if (doc.status === 'erro_rpa') { errorAtStep = 5; activeIndex = 5; }
+        else activeIndex = 0;
+    } else {
+        // Normaliza index para os 6 círculos visuais
+        if (activeIndex > 5) activeIndex = 5;
     }
 
     return `
@@ -854,11 +882,11 @@ ${Sidebar()}
                 </div>
 
                 <div class="card">
-                    <h3 class="h2 mb-4">Justificativa de Conformidade</h3>
-                    <div style="padding: 1rem; background: ${doc.just_erro ? 'rgba(239, 68, 68, 0.05)' : 'var(--bg-sidebar)'}; border-radius: var(--radius-sm); border-left: 3px solid ${doc.just_erro ? 'var(--error)' : 'var(--primary)'};">
+                    <h3 class="h2 mb-4">Análise de Conformidade</h3>
+                    <div style="padding: 1rem; background: ${doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') ? 'rgba(239, 68, 68, 0.05)' : 'var(--bg-sidebar)'}; border-radius: var(--radius-sm); border-left: 3px solid ${doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') ? 'var(--error)' : 'var(--primary)'};">
                         <p class="text-sm" style="line-height: 1.6; color: var(--text-primary);">
-                            ${doc.just_erro ?
-            `<strong>Erro detectado:</strong><br>${doc.just_erro}` :
+                            ${doc.status.includes('bloqueado') || doc.status.includes('divergencia') || doc.status === 'revisao_manual' ?
+            `<strong>Atenção:</strong><br>${doc.justification || doc.just_erro || 'Documento requer análise manual devido a divergências ou baixa confiança no OCR.'}` :
             (doc.justification || 'Aguardando processamento da IA para gerar a análise de conformidade...')
         }
                         </p>
@@ -868,7 +896,50 @@ ${Sidebar()}
 
             <div style="display: flex; flex-direction: column; gap: 1.5rem;">
                 <div class="card">
-                    <h3 class="h2 mb-4">Arquivo Original</h3>
+                    <h3 class="h2 mb-4">Fluxo de Conciliação</h3>
+                    <div style="display: flex; flex-direction: column; gap: 1rem;">
+                        
+                        <!-- Box do Comprovante -->
+                        <div style="padding: 1rem; border: 1px dashed var(--border-light); border-radius: var(--radius-sm); background: ${doc.data_pagamento || doc.status === 'aguardando_conciliacao_bancaria' || state.currentComprovante ? 'rgba(16, 185, 129, 0.05)' : 'transparent'};">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                <span class="text-xs" style="font-weight: 600; text-transform: uppercase;">1. Comprovante</span>
+                                ${doc.data_pagamento || doc.status === 'aguardando_conciliacao_bancaria' || state.currentComprovante ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>'}
+                            </div>
+                            ${(doc.data_pagamento || doc.status === 'aguardando_conciliacao_bancaria' || state.currentComprovante) ?
+            `<div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                                    <p class="text-xs" style="color: var(--text-secondary); font-weight: 500;">Comprovante recebido:</p>
+                                    ${state.currentComprovante ? `<a href="${CONFIG.SUPABASE_URL}/storage/v1/object/public/documentos/${state.currentComprovante.file_path}" target="_blank" class="text-xs" style="color: var(--primary); text-decoration: none;">📄 ${state.currentComprovante.name}</a>` : '<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Arquivo em processamento...</p>'}
+                                 </div>` :
+            (doc.status === 'aguardando_comprovante' ?
+                `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem;" onclick="document.getElementById('vincular-comprovante-input').click()">Vincular Comprovante</button>
+                                 <input type="file" id="vincular-comprovante-input" style="display: none;" onchange="window.handleVincularDocumento('${doc.id}', this.files[0], 'comprovante', { id: '${doc.id}', nome: '${doc.name.replace(/'/g, "\\'")}', valor: ${doc.valor || 0}, cnpj: '${doc.cnpj_emissor || ''}' })" accept=".pdf,image/*">` :
+                `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando etapa anterior para liberar upload...</p>`)
+        }
+                        </div>
+
+                        <!-- Box do Extrato -->
+                        <div style="padding: 1rem; border: 1px dashed var(--border-light); border-radius: var(--radius-sm); background: ${['aguardando_d3', 'liberado_rpa_airtop', 'enviado_salic', 'concluido'].includes(doc.status) ? 'rgba(37, 99, 235, 0.05)' : 'transparent'};">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                <span class="text-xs" style="font-weight: 600; text-transform: uppercase;">2. Extrato Bancário</span>
+                                ${['aguardando_d3', 'enviado_salic', 'concluido'].includes(doc.status) ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--primary);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>'}
+                            </div>
+                            ${['aguardando_d3', 'liberado_rpa_airtop', 'enviado_salic', 'concluido'].includes(doc.status) ?
+            `<p class="text-xs" style="color: var(--text-secondary);">Conciliado e validado em D-3</p>` :
+            (doc.status === 'aguardando_conciliacao_bancaria' ?
+                `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem;" onclick="document.getElementById('vincular-extrato-input').click()">
+                                    <i data-lucide="file-up" style="width: 14px;"></i>
+                                    Subir Extrato (OFX/CSV/PDF)
+                                 </button>
+                                 <input type="file" id="vincular-extrato-input" style="display: none;" onchange="window.handleUploadExtrato(this.files[0], '${doc.project_id}', '${doc.id}', '${state.currentComprovante?.id || ''}')" accept=".ofx,.csv,.pdf">` :
+                `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando comprovante para conciliar...</p>`)
+        }
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 class="h2 mb-4">Arquivo Original (NF)</h3>
                     <div style="aspect-ratio: 3/4; background: var(--bg-sidebar); border-radius: var(--radius-sm); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; border: 1px solid var(--border-light);">
                         <i data-lucide="file-text" style="width: 48px; color: var(--text-muted);"></i>
                         <p class="text-xs" style="color: var(--text-muted);">${doc.name}</p>
@@ -1007,7 +1078,8 @@ window.handleFornecedorUpload = async function (file) {
             name: file.name,
             size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
             file_path: filePath,
-            status: 'processing_ocr'
+            status: 'processing_ocr',
+            tipo_documento: 'nf'
         }).select().single();
 
         if (dbError) throw dbError;
@@ -1052,11 +1124,12 @@ async function fetchFornecedorDashboard() {
         if (projError) console.error('Erro ao buscar projetos do fornecedor:', projError);
         state.projects = (projData || []).filter(p => p.projects); // filtra registros com join válido
 
-        // Busca historico de docs
+        // Busca historico de docs (apenas NF para o fornecedor ver o status da despesa)
         const { data: docData, error: docError } = await supabaseClient
             .from('documents')
             .select('*, projects(pronac, nome)')
             .eq('fornecedor_id', state.user.id)
+            .eq('tipo_documento', 'nf')
             .order('created_at', { ascending: false });
 
         if (docError) console.error('Erro ao buscar documentos do fornecedor:', docError);
@@ -1264,23 +1337,43 @@ ${Sidebar()}
     ` : `
         <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 2rem;">
             <div class="card">
-                <h3 class="h2 mb-4">Importar Extrato</h3>
-                <div class="upload-area" style="padding: 2rem;" onclick="document.getElementById('extrato-input').click()">
-                    <i data-lucide="file-up" style="width: 24px; color: var(--primary); margin-bottom: 0.5rem;"></i>
-                    <p class="text-sm" style="font-weight: 600;">Carregar OFX ou CSV</p>
-                    <input type="file" id="extrato-input" style="display: none;" accept=".ofx,.csv" onchange="window.handleImportExtrato(this.files[0])">
+                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem;">
+                    <div style="width: 42px; height: 42px; background: #FFF100; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-sm);">
+                        <img src="https://upload.wikimedia.org/wikipedia/pt/thumb/3/3b/Logo_Banco_do_Brasil.png/300px-Logo_Banco_do_Brasil.png" style="width: 24px;" alt="BB">
+                    </div>
+                    <div>
+                        <h3 class="h2">Extrato Bancário</h3>
+                        <p class="text-xs" style="color: var(--success); font-weight: 600;">Conectado via API</p>
+                    </div>
                 </div>
-                <p class="text-xs" style="margin-top: 1rem; line-height: 1.5;">O arquivo OFX exportado do seu banco é o formato recomendado para maior precisão.</p>
+                
+                <div style="padding: 1.25rem; background: var(--bg-sidebar); border-radius: var(--radius-sm); border: 1px solid var(--border-light); margin-bottom: 1.5rem;">
+                    <p class="text-xs mb-2" style="font-weight: 600; text-transform: uppercase; color: var(--text-muted);">Status da Conta</p>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span class="text-sm">Sincronizado em:</span>
+                        <span class="text-sm" style="font-weight: 600;">${state.extSorted && state.extSorted.length > 0 ? new Date().toLocaleDateString('pt-BR') : 'Aguardando...'}</span>
+                    </div>
+                </div>
+
+                <button class="btn btn-primary" style="width: 100%; background: #0038A8;" onclick="window.handleSyncBB('${state.filters.project}')" ${state.loading ? 'disabled' : ''}>
+                    <i data-lucide="refresh-cw" class="${state.loading ? 'spin' : ''}"></i>
+                    Sincronizar BB
+                </button>
+                
+                <p class="text-xs" style="margin-top: 1rem; line-height: 1.5; color: var(--text-muted);">
+                    As transações são buscadas diretamente na API do Banco do Brasil para garantir a conformidade absoluta.
+                </p>
             </div>
 
             <div class="card">
                 <div style="display: flex; justify-content: space-between; align-items: center;" class="mb-4">
-                    <h3 class="h2">Transações</h3>
-                    <button class="btn btn-primary" onclick="window.handleRunN8NReconciliation()" ${state.loading ? 'disabled' : ''}>
-                        <i data-lucide="brain"></i>
-                        Conciliação Inteligente
+                    <h3 class="h2">Transações Bancárias</h3>
+                    <button class="btn btn-secondary" style="font-size: 12px;" onclick="window.handleRunN8NReconciliation()" ${state.loading ? 'disabled' : ''}>
+                        <i data-lucide="brain" style="width: 14px;"></i>
+                        Match Inteligente
                     </button>
                 </div>
+
                 <div class="data-table-container">
                     ${state.extSorted = [...state.extratos].sort((a, b) => new Date(b.data_transacao) - new Date(a.data_transacao)), ''}
                     ${state.extratos.length === 0 ? `<p class="text-sm" style="text-align: center; padding: 2rem; color: var(--text-muted);">Nenhuma transação importada.</p>` : `
@@ -1583,6 +1676,15 @@ async function fetchDocumentDetails(id, silent = false) {
         if (error) throw error;
         state.currentDocument = data;
 
+        // Busca comprovante vinculado se existir
+        const { data: compList } = await supabaseClient
+            .from('documents')
+            .select('*')
+            .eq('nf_vinculada_id', id)
+            .maybeSingle();
+
+        state.currentComprovante = compList;
+
         // Traz rubricas se precisar vincular
         if (data && data.project_id) {
             const { data: rubData } = await supabaseClient
@@ -1644,8 +1746,10 @@ window.handleVincularRubrica = async function (documentId, projectId, valorDespe
             fetch(CONFIG.N8N_WEBHOOK_VALIDATION_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                mode: 'cors',
                 body: JSON.stringify({ document_id: documentId, cnpj_fornecedor: doc.cnpj_emissor })
-            }).catch(e => console.error("Erro ao notificar n8n (Validation):", e));
+            }).then(r => console.log("n8n Validation Triggered:", r.status))
+                .catch(e => showToast("Erro ao notificar n8n: " + e.message, 'error'));
         }
 
         await fetchDocumentDetails(documentId);
@@ -1682,7 +1786,10 @@ async function fetchDocuments() {
 
     let query = supabaseClient.from('documents').select('*');
 
-    // Filtros
+    // Filtra apenas Notas Fiscais para o pipeline principal
+    query = query.eq('tipo_documento', 'nf');
+
+    // Filtros adicionais
     if (state.filters.project) query = query.eq('project_id', state.filters.project);
     if (state.filters.search) query = query.ilike('name', `% ${state.filters.search}% `);
     if (state.filters.startDate) query = query.gte('created_at', state.filters.startDate + 'T00:00:00');
@@ -1756,6 +1863,7 @@ window.handleFetchSalicProject = async function () {
         const response = await fetch(CONFIG.N8N_WEBHOOK_SALIC_PROJECT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            mode: 'cors',
             body: JSON.stringify({ pronac: pronac, user_id: state.user.id })
         });
 
@@ -1824,10 +1932,48 @@ ${Sidebar()}
         <p class="page-subtitle">Gerencie suas credenciais e preferências da conta.</p>
     </header>
 
-    <div style="max-width: 700px;">
+    <div style="max-width: 800px;">
+        <!-- Credenciais Banco do Brasil -->
+        <div class="card mb-4" style="border-left: 4px solid #fff100;">
+            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem;">
+                <img src="https://upload.wikimedia.org/wikipedia/pt/thumb/3/3b/Logo_Banco_do_Brasil.png/300px-Logo_Banco_do_Brasil.png" style="width: 24px;" alt="BB">
+                <h3 class="h2">Integração Banco do Brasil (API)</h3>
+            </div>
+            <p class="text-xs mb-4">Credenciais do Portal do Desenvolvedor BB para consulta automática de extratos.</p>
+
+            <form onsubmit="event.preventDefault(); window.handleSaveBBSettings();">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                    <div class="form-group">
+                        <label>Client ID</label>
+                        <input type="text" id="bb-client-id" placeholder="eyJhbGci..." value="${state.settings.bb_client_id || ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Client Secret</label>
+                        <input type="password" id="bb-client-secret" placeholder="••••••••" value="${state.settings.bb_client_secret ? '********' : ''}" required>
+                    </div>
+                </div>
+                <div class="form-group mb-4">
+                    <label>Developer Application Key (X-Developer-Key)</label>
+                    <input type="text" id="bb-developer-key" placeholder="6f8f..." value="${state.settings.bb_developer_key || ''}" required>
+                </div>
+
+                <div style="padding: 1rem; background: #fffcf0; border-radius: var(--radius-sm); margin-bottom: 1.5rem; display: flex; gap: 0.75rem; align-items: flex-start; border: 1px solid #ffeeba;">
+                    <i data-lucide="info" style="width: 18px; color: #856404; flex-shrink: 0;"></i>
+                    <p class="text-xs" style="color: #856404; line-height: 1.5;">
+                        <strong>Nota Técnica:</strong> Essa integração requer um certificado digital (.key/.pem) configurado no servidor do n8n para autenticação mTLS (Segurança Bancária).
+                    </p>
+                </div>
+
+                <button class="btn btn-primary" style="background: #0038A8;">
+                    ${state.loading ? 'Salvando...' : 'Salvar Credenciais BB'}
+                </button>
+            </form>
+        </div>
+
+        <!-- Credenciais SALIC -->
         <div class="card mb-4">
-            <h3 class="h2 mb-4">Conexão SALIC</h3>
-            <p class="text-xs mb-4">Credenciais para o robô de envio automático de comprovantes (MinC).</p>
+            <h3 class="h2 mb-4">Conexão SALIC (Gov.br)</h3>
+            <p class="text-xs mb-4">Credenciais para o robô de envio automático de comprovantes ao MinC via Airtop.</p>
 
             <form onsubmit="event.preventDefault(); window.handleSaveSettings();">
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
@@ -1837,19 +1983,19 @@ ${Sidebar()}
                     </div>
                     <div class="form-group">
                         <label>Senha</label>
-                        <input type="password" id="salic-pass" placeholder="••••••••" value="${state.settings.salic_pass || ''}" required>
+                        <input type="password" id="salic-pass" placeholder="••••••••" value="${state.settings.salic_pass ? '********' : ''}" required>
                     </div>
                 </div>
 
                 <div style="padding: 1rem; background: var(--bg-sidebar); border-radius: var(--radius-sm); margin-bottom: 1.5rem; display: flex; gap: 0.75rem; align-items: flex-start;">
                     <i data-lucide="shield-check" style="width: 18px; color: var(--success); flex-shrink: 0;"></i>
                     <p class="text-xs" style="color: var(--text-secondary); line-height: 1.5;">
-                        <strong>Seguro:</strong> Suas credenciais são criptografadas e utilizadas apenas para comunicação oficial com o sistema do Ministério da Cultura.
+                        <strong>Seguro:</strong> Suas credenciais são criptografadas e utilizadas apenas para comunicação oficial com o Ministério da Cultura.
                     </p>
                 </div>
 
                 <button class="btn btn-primary">
-                    ${state.loading ? 'Salvando...' : 'Salvar credenciais'}
+                    ${state.loading ? 'Salvando...' : 'Salvar credenciais SALIC'}
                 </button>
             </form>
         </div>
@@ -1863,6 +2009,7 @@ ${Sidebar()}
             </button>
         </div>
     </div>
+
 </main>
 `;
 
@@ -1873,23 +2020,63 @@ async function fetchSettings() {
         const { data, error } = await supabaseClient
             .from('external_credentials')
             .select('*')
-            .eq('service_name', 'salic')
-            .maybeSingle();
+            .in('service_name', ['salic', 'bb_api']);
 
         if (error) throw error;
 
+        // Reset settings
+        state.settings = { salic_user: '', bb_client_id: '', bb_developer_key: '' };
+
         if (data) {
-            state.settings = {
-                salic_user: data.identifier,
-                salic_pass: '********'
-            };
-        } else {
-            state.settings = { salic_user: '', salic_pass: '' };
+            data.forEach(cred => {
+                if (cred.service_name === 'salic') {
+                    state.settings.salic_user = cred.identifier;
+                    state.settings.salic_pass = '********';
+                } else if (cred.service_name === 'bb_api') {
+                    state.settings.bb_client_id = cred.identifier;
+                    state.settings.bb_client_secret = '********';
+                    // No BB, a application_key vai como extra ou no identifier com separador
+                    const meta = cred.metadata || {};
+                    state.settings.bb_developer_key = meta.developer_key || '';
+                }
+            });
         }
     } catch (err) {
         console.error("Erro ao buscar configurações:", err);
     }
 }
+
+window.handleSaveBBSettings = async function () {
+    if (!supabaseClient || !state.user) return;
+
+    const clientId = document.getElementById('bb-client-id').value.trim();
+    const clientSecret = document.getElementById('bb-client-secret').value.trim();
+    const devKey = document.getElementById('bb-developer-key').value.trim();
+
+    state.loading = true;
+    render();
+
+    try {
+        // Usamos a mesma RPC securizada para o BB
+        const { error } = await supabaseClient
+            .rpc('upsert_external_credential', {
+                p_service_name: 'bb_api',
+                p_identifier: clientId,
+                p_secret: clientSecret === '********' ? null : clientSecret,
+                p_metadata: { developer_key: devKey }
+            });
+
+        if (error) throw error;
+
+        showToast("Credenciais Banco do Brasil salvas com sucesso!", 'success');
+        await fetchSettings();
+    } catch (err) {
+        showToast("Erro ao salvar BB: " + err.message, 'error');
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
 
 window.handleSaveSettings = async function () {
     if (!supabaseClient || !state.user) return;
@@ -1984,6 +2171,7 @@ window.handleUpload = async function (file) {
                 size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
                 file_path: filePath,
                 status: 'processing_ocr',
+                tipo_documento: 'nf',
                 rubrica: rubrica || null
             })
             .select()
@@ -2017,6 +2205,79 @@ window.handleUpload = async function (file) {
         window.navigate('dashboard');
     } catch (error) {
         alert("Erro no upload: " + error.message);
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
+
+window.handleVincularDocumento = async function (parentDocumentId, file, tipo, lastroInfo = null) {
+    if (!file || !parentDocumentId) return;
+
+    state.loading = true;
+    render();
+
+    try {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${tipo}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+        const filePath = `${state.user.id}/${fileName}`;
+
+        // 1. Upload para o Storage (mesmo bucket 'documentos')
+        const { error: uploadError } = await supabaseClient.storage
+            .from('documentos')
+            .upload(filePath, file);
+
+        if (uploadError) throw uploadError;
+
+        // 2. Criar registro do Comprovante na tabela 'documents'
+        // Pegamos o project_id da NF mãe (que deve estar no state.currentDocument se for via Detalhes)
+        const projectId = state.currentDocument?.project_id;
+
+        const { data: comprovanteData, error: dbError } = await supabaseClient
+            .from('documents')
+            .insert({
+                user_id: state.user.id,
+                project_id: projectId,
+                name: file.name,
+                size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
+                file_path: filePath,
+                status: 'processing_ocr', // Inicia processamento
+                tipo_documento: 'comprovante',
+                nf_vinculada_id: parentDocumentId,
+                rubrica: state.currentDocument?.rubrica || null
+            })
+            .select()
+            .single();
+
+        if (dbError) throw dbError;
+
+        // 3. Notificar o n8n sobre o novo vínculo
+        // O document_id agora é o UUID do NOVO comprovante
+        // O lastro.id continua sendo o UUID da NF Mãe
+        console.log(`Vinculando Comprovante ${comprovanteData.id} à NF ${parentDocumentId}...`);
+
+        if (CONFIG.N8N_WEBHOOK_URL) {
+            await fetch(CONFIG.N8N_WEBHOOK_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                mode: 'cors',
+                body: JSON.stringify({
+                    document_id: comprovanteData.id, // UUID do novo comprovante
+                    file_path: filePath,
+                    user_id: state.user.id,
+                    tipo_vinculo: tipo, // 'comprovante'
+                    bucket: 'documentos',
+                    lastro: { ...lastroInfo, id: parentDocumentId } // UUID da NF Mãe no lastro
+                })
+            });
+        }
+
+        alert(`${tipo.charAt(0).toUpperCase() + tipo.slice(1)} enviado com sucesso! O processamento da IA foi iniciado.`);
+
+        // Recarrega os detalhes para mostrar o status atualizado
+        await fetchDocumentDetails(parentDocumentId);
+    } catch (error) {
+        alert(`Erro ao vincular ${tipo}: ` + error.message);
     } finally {
         state.loading = false;
         render();
@@ -2269,7 +2530,76 @@ function setupRealtime() {
 }
 
 
-// --- Sprint 4: Banking Logic ---
+// --- Sprint 4: Re-structured Banking Logic (Manual Upload) ---
+
+window.handleUploadExtrato = async function (file, projectId, documentId, comprovanteId) {
+    if (!file || !projectId || !documentId) return alert("Houve um erro ao processar o upload do extrato.");
+
+    const fileExt = file.name.split('.').pop().toLowerCase();
+    if (!['ofx', 'csv', 'pdf'].includes(fileExt)) {
+        return alert("Formato inválido! Por favor, use OFX, CSV ou PDF.");
+    }
+
+    state.loading = true;
+    render();
+
+    try {
+        const fileName = `extrato_${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+        const filePath = `${state.user.id}/${fileName}`;
+
+        // 1. Upload para o Storage (bucket 'documentos')
+        const { error: uploadError } = await supabaseClient.storage
+            .from('documentos')
+            .upload(filePath, file);
+
+        if (uploadError) throw uploadError;
+
+        // 2. Criar registro na nova tabela 'extratos'
+        const { data: extratoData, error: dbError } = await supabaseClient
+            .from('extratos')
+            .insert({
+                project_id: projectId,
+                user_id: state.user.id,
+                file_path: filePath,
+                formato: fileExt, // Removido toUpperCase() para bater com a constraint (ofx, csv, pdf)
+                status: 'pendente' // n8n mudará para 'processado' ou 'erro'
+            })
+            .select()
+            .single();
+
+        if (dbError) throw dbError;
+
+        // 3. Notificar o n8n sobre o novo extrato
+        console.log(`Notificando n8n sobre o novo extrato ${extratoData.id}...`);
+
+        if (CONFIG.N8N_WEBHOOK_RECONCILIATION_URL) {
+            await fetch(CONFIG.N8N_WEBHOOK_RECONCILIATION_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                mode: 'cors',
+                body: JSON.stringify({
+                    extrato_id: extratoData.id,
+                    nf_id: documentId, // Renomeado para nf_id
+                    comprovante_id: comprovanteId || null, // Renomeado para comprovante_id
+                    file_path: filePath,
+                    bucket: 'documentos',
+                    project_id: projectId
+                })
+            });
+        }
+
+        showToast("Extrato enviado com sucesso! O processamento e conciliação IA foram iniciados.", 'success');
+
+        // Recarrega os detalhes para mostrar o status (que será atualizado via Realtime/Fetch)
+        setTimeout(() => fetchDocumentDetails(documentId), 2000);
+
+    } catch (error) {
+        showToast("Erro no extrato: " + error.message, 'error');
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
 
 async function fetchExtratos(projectId) {
     if (!supabaseClient || !projectId) return;
