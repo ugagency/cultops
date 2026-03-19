@@ -88,7 +88,11 @@ const state = {
     settings: {
         salic_user: '',
         salic_pass: ''
-    }
+    },
+    importState: null, // null, 'disparando', 'navegando', 'gerando', 'ocr', 'salvando', 'concluido', 'erro'
+    importProgress: 0,
+    importResult: null,
+    showRubricaInstructions: false
 };
 
 const STATUS_MAP = {
@@ -661,9 +665,10 @@ ${Sidebar()}
 
                 <div class="form-group mb-4">
                     <label>Rubrica Orçamentária (Obrigatório)</label>
-                    <select id="rubrica-input">
+                    <input type="text" id="rubrica-input" list="rubricas-list" placeholder="Digite para buscar rubrica..." autocomplete="off" style="width: 100%;">
+                    <datalist id="rubricas-list">
                         <option value="">Selecione o projeto primeiro...</option>
-                    </select>
+                    </datalist>
                 </div>
 
                 <div class="upload-area" onclick="if(document.getElementById('project-selector').value && document.getElementById('rubrica-input').value) document.getElementById('file-input').click(); else alert('Selecione projeto e rubrica primeiro!');">
@@ -1415,78 +1420,243 @@ ${Sidebar()}
 </main>
 `;
 
-const OrcamentoView = () => `
-${Sidebar()}
-<main class="main-content view-content">
-    <header class="content-header">
+const RubricaInstructionsModal = () => `
+<div class="modal-overlay" onclick="state.showRubricaInstructions = false; render();">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <button class="modal-close" onclick="state.showRubricaInstructions = false; render();">
+            <i data-lucide="x" style="width: 18px;"></i>
+        </button>
+        <h3 class="h2 mb-4">Como obter a Planilha Orçamentária</h3>
+        <p class="text-sm text-secondary mb-6">Siga os passos abaixo no portal SALIC para gerar o arquivo correto:</p>
+        
+        <div class="steps-list">
+            <div class="step-item">
+                <div class="step-number">1</div>
+                <div class="step-text">Acesse <strong>salic.cultura.gov.br</strong> e faça login com sua conta Gov.br.</div>
+            </div>
+            <div class="step-item">
+                <div class="step-number">2</div>
+                <div class="step-text">No menu superior, vá em <strong>Projeto → Listar Projetos</strong>.</div>
+            </div>
+            <div class="step-item">
+                <div class="step-number">3</div>
+                <div class="step-text">Busque pelo <strong>PRONAC</strong> do seu projeto e localize-o na lista.</div>
+            </div>
+            <div class="step-item">
+                <div class="step-number">4</div>
+                <div class="step-text"><strong>Clique duas vezes</strong> sobre o projeto para abrir os detalhes.</div>
+            </div>
+            <div class="step-item">
+                <div class="step-number">5</div>
+                <div class="step-text">Clique no <strong>botão de ações</strong> (ícone vermelho flutuante no canto inferior direito).</div>
+            </div>
+            <div class="step-item">
+                <div class="step-number">6</div>
+                <div class="step-text">Selecione a opção <strong>"Imprimir Projeto"</strong>.</div>
+            </div>
+            <div class="step-item">
+                <div class="step-number">7</div>
+                <div class="step-text">Na tela que abrir, marque <strong>APENAS</strong> a opção <strong>"Planilha Orçamentária"</strong>.</div>
+            </div>
+            <div class="step-item">
+                <div class="step-number">8</div>
+                <div class="step-text">Clique em <strong>Imprimir</strong> e, na janela de impressão do sistema, escolha <strong>Salvar como PDF</strong>.</div>
+            </div>
+            <div class="step-item">
+                <div class="step-number">9</div>
+                <div class="step-text">Volte aqui no CultOps e faça o upload do arquivo gerado.</div>
+            </div>
+        </div>
+        
+        <button class="btn btn-primary" style="width: 100%; margin-top: 1rem;" onclick="state.showRubricaInstructions = false; render();">
+            Entendi, vou buscar o PDF
+        </button>
+    </div>
+</div>
+`;
+
+const OrcamentoView = () => {
+    const activeProject = state.projects.find(p => p.id === state.filters.project);
+
+    // Agrupar rubricas de forma segura
+    const rubricasPorEtapa = (state.rubricas || []).reduce((acc, r) => {
+        const etapa = r.etapa || 'Etapa não definida';
+        if (!acc[etapa]) acc[etapa] = {};
+        const local = r.uf_municipio || 'Local não definido';
+        if (!acc[etapa][local]) acc[etapa][local] = [];
+        acc[etapa][local].push(r);
+        return acc;
+    }, {});
+
+    const IMPORT_MESSAGES = {
+        'uploading': 'Enviando PDF...',
+        'processing': 'Lendo o documento...',
+        'extracting': 'Extraindo rubricas...',
+        'saving': 'Salvando no sistema...',
+        'concluido': 'Rubricas importadas com sucesso!',
+        'erro': 'Erro ao processar o PDF. Verifique se é a Planilha Orçamentária correta.'
+    };
+
+    const headerContent = `
         <div style="display: flex; justify-content: space-between; align-items: flex-end;">
             <div>
-                <h1>Gestão de Rubricas</h1>
-                <p class="page-subtitle">Acompanhe e configure o plano orçamentário do projeto.</p>
+                <h1>Gestão Orçamentária</h1>
+                <p class="page-subtitle">Acompanhe as rubricas importadas do SALIC para o projeto.</p>
             </div>
-            <div style="min-width: 250px;">
-                <select onchange="window.navigate('orcamento', this.value)">
-                    <option value="">Selecione o Projeto...</option>
-                    ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
-                </select>
-            </div>
-        </div>
-    </header>
-
-    ${!state.filters.project ? `
-        <div class="card" style="text-align: center; padding: 4rem;">
-            <div class="empty-state-icon" style="margin: 0 auto 1rem;"><i data-lucide="list-checks"></i></div>
-            <p style="color: var(--text-muted);">Selecione um projeto acima para gerenciar as rubricas.</p>
-        </div>
-    ` : `
-        <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 2rem;">
-            <div class="card">
-                <h3 class="h2 mb-4">Adicionar Rubrica</h3>
-                <form onsubmit="event.preventDefault(); window.handleCreateRubrica();">
-                    <div class="form-group">
-                        <label>Tipo de despesa</label>
-                        <select id="rubrica-nome" required>
-                            <option value="">Selecione do catálogo...</option>
-                            ${(state.catalogo_rubricas || []).map(c => `<option value="${c.nome}">${c.nome}</option>`).join('')}
-                        </select>
-                    </div>
-                    <button class="btn btn-primary" style="width: 100%;">Adicionar à lista</button>
-                </form>
-                <p class="text-xs" style="margin-top: 1rem; color: var(--text-muted);">A IA usará o nome da rubrica para classificar documentos automaticamente.</p>
-            </div>
-
-            <div class="card">
-                <h3 class="h2 mb-4">Rubricas Vinculadas</h3>
-                <div class="data-table-container">
-                    ${state.rubricas.length === 0 ? `<p class="text-sm" style="text-align: center; padding: 2rem; color: var(--text-muted);">Nenhuma rubrica cadastrada.</p>` : `
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>Nome</th>
-                                    <th style="text-align: right;">Total Executado</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${state.rubricas.map(r => {
-    const executado = r.despesas ? r.despesas.reduce((acc, curr) => acc + parseFloat(curr.valor), 0) : 0;
-    return `
-                                    <tr>
-                                        <td>
-                                            <div style="font-weight: 500;">${r.nome}</div>
-                                            <div class="text-xs">Cadastrada em ${new Date(r.created_at).toLocaleDateString('pt-BR')}</div>
-                                        </td>
-                                        <td style="text-align: right; font-weight: 600;">R$ ${executado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                                    </tr>
-                                    `}).join('')}
-                            </tbody>
-                        </table>
-                    `}
+            <div style="display: flex; gap: 1rem; align-items: flex-end;">
+                <div style="min-width: 250px;">
+                    <label style="font-size: 11px; color: var(--text-secondary); margin-bottom: 0.25rem; display: block;">Selecione o Projeto</label>
+                    <select onchange="window.navigate('orcamento', this.value)" style="background: white; border: 1px solid var(--border-light); padding: 0.5rem; border-radius: 6px;">
+                        <option value="">Escolha um projeto...</option>
+                        ${state.projects.map(p => `
+                            <option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>
+                                ${p.pronac} - ${p.nome}
+                            </option>
+                        `).join('')}
+                    </select>
                 </div>
             </div>
         </div>
-    `}
-</main>
-`;
+    `;
+
+    const progressContent = state.importState ? `
+        <div class="card mb-6" style="background: rgba(37, 99, 235, 0.05); border-color: var(--primary); padding: 1.5rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <i data-lucide="${state.importState === 'concluido' ? 'check-circle' : (state.importState === 'erro' ? 'alert-circle' : 'loader-2')}" 
+                       class="${['concluido', 'erro'].includes(state.importState) ? '' : 'spin'}" 
+                       style="width: 20px; color: var(--primary);"></i>
+                    <h4 class="font-bold" style="color: var(--primary); margin: 0;">${IMPORT_MESSAGES[state.importState] || 'Processando...'}</h4>
+                </div>
+                <span class="text-sm font-bold text-primary">${state.importProgress || 0}%</span>
+            </div>
+            <div style="width: 100%; height: 6px; background: var(--border-light); border-radius: 3px; overflow: hidden;">
+                <div style="width: ${state.importProgress}%; height: 100%; background: var(--primary); transition: width 0.5s ease;"></div>
+            </div>
+            ${state.importState === 'erro' ? `<p class="text-xs mt-2" style="color: var(--error);">${state.error || ''}</p>` : ''}
+        </div>
+    ` : '';
+
+    const emptyContent = `
+        <div class="card" style="text-align: center; padding: 4rem;">
+            <div class="empty-state-icon" style="margin: 0 auto 1rem;"><i data-lucide="layout-list"></i></div>
+            <p style="color: var(--text-muted);">Selecione um projeto acima para visualizar ou importar o orçamento do SALIC.</p>
+        </div>
+    `;
+
+    const instructionsAndUpload = `
+        <div class="card mb-6" style="padding: 2.5rem; border: 1px solid var(--border-light); background: #ffffff;">
+            <div style="display: flex; gap: 3rem; align-items: flex-start;">
+                <div style="flex: 1.2;">
+                    <h3 class="h2 mb-4">Importar Rubricas</h3>
+                    <p class="text-sm text-secondary mb-3">1. Acesse o SALIC e gere o PDF da Planilha Orçamentária do seu projeto.</p>
+                    <a href="#" class="help-link mb-6" onclick="state.showRubricaInstructions = true; render();">
+                        Como fazer isso? <i data-lucide="arrow-right" style="width: 14px;"></i>
+                    </a>
+                    
+                    <div style="margin-top: 2rem;">
+                         <p class="text-sm text-secondary mb-3">2. Faça o upload do PDF aqui:</p>
+                         <div class="upload-card-interactive" onclick="document.getElementById('rubrica-pdf-input').click()">
+                            <input type="file" id="rubrica-pdf-input" style="display: none;" accept=".pdf" onchange="window.handleRubricaUpload(this.files[0])">
+                            <i data-lucide="file-text" style="width: 38px; height: 38px; color: var(--primary); margin-bottom: 1rem;"></i>
+                            <p class="text-sm font-semibold">Arraste o PDF ou clique para selecionar</p>
+                            <p class="text-xs text-muted mt-2">Apenas arquivos .pdf gerados pelo SALIC</p>
+                         </div>
+                    </div>
+                    
+                    <button class="btn btn-primary" style="width: 100%; height: 48px; font-size: 16px;" onclick="document.getElementById('rubrica-pdf-input').click()" ${state.importState ? 'disabled' : ''}>
+                        <i data-lucide="upload-cloud"></i>
+                        Importar Rubricas
+                    </button>
+                    ${state.importState ? `<p class="text-xs mt-4 text-center color-primary">${IMPORT_MESSAGES[state.importState]}</p>` : ''}
+                </div>
+                
+                <div style="flex: 0.8; background: var(--bg-sidebar); border-radius: var(--radius-md); padding: 1.5rem; border: 1px solid var(--border-subtle);">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; color: var(--primary);">
+                        <i data-lucide="info" style="width: 18px;"></i>
+                        <span class="font-bold text-sm">Importante</span>
+                    </div>
+                    <p class="text-xs text-secondary" style="line-height: 1.6;">
+                        O PDF deve ter sido gerado diretamente pelo portal SALIC (Opção "Imprimir"). 
+                        O sistema utiliza OCR inteligente para ler as colunas de Etapa, Local, Nome da Rubrica e Valores.
+                    </p>
+                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-light);">
+                        <p class="text-xs font-bold mb-2">v1.0 - Upload Manual</p>
+                        <p class="text-xs text-muted">Na próxima versão a captura será 100% automática via robô direto no portal.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const rubricasContent = Object.entries(rubricasPorEtapa).length === 0 ? `
+        <div class="empty-state card">
+            <i data-lucide="folder-search" style="width: 48px; height: 48px; color: var(--text-muted); margin-bottom: 1rem;"></i>
+            <h3 class="h2">Nenhuma rubrica sincronizada</h3>
+            <p class="text-muted text-sm">Selecione o projeto e suba a planilha orçamentária do SALIC acima.</p>
+        </div>
+    ` : Object.entries(rubricasPorEtapa).map(([etapa, locais]) => `
+        <div class="etapa-section mb-6">
+            <h2 class="etapa-title">
+                ${etapa}
+            </h2>
+            ${Object.entries(locais).map(([local, rubricas]) => `
+                <div class="local-group mb-4">
+                    <h4 class="text-xs font-bold uppercase tracking-wider text-muted mb-3">📍 ${local}</h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 1rem;">
+                        ${rubricas.map(r => {
+        const aprovado = parseFloat(r.valor_aprovado || 0);
+        const utilizado = parseFloat(r.valor_utilizado || 0);
+        const percentual = aprovado > 0 ? (utilizado / aprovado) * 100 : 0;
+        const saldo = aprovado - utilizado;
+        return `
+                                <div class="card rubric-card" style="padding: 1.25rem;">
+                                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+                                        <div style="max-width: 70%;">
+                                            <h5 class="font-bold text-sm" style="line-height: 1.2;">${r.nome}</h5>
+                                            <p class="text-xs text-muted mt-1">Qtde: ${r.quantidade || 1} x R$ ${(parseFloat(r.valor_unitario || r.valor_aprovado || 0)).toLocaleString('pt-BR')}</p>
+                                        </div>
+                                        <div style="text-align: right;">
+                                            <div class="text-xs font-bold ${percentual > 90 ? 'text-error' : 'text-primary'}">${percentual.toFixed(1)}%</div>
+                                        </div>
+                                    </div>
+                                    <div style="width: 100%; height: 6px; background: var(--border-light); border-radius: 3px; overflow: hidden; margin-bottom: 0.75rem;">
+                                        <div style="width: ${Math.min(percentual, 100)}%; height: 100%; background: ${percentual > 100 ? 'var(--error)' : 'var(--primary)'}; transition: width 0.3s ease;"></div>
+                                    </div>
+                                    <div style="display: flex; justify-content: space-between; font-size: 11px;">
+                                        <div>
+                                            <span class="text-muted">Aprovado:</span>
+                                            <span class="font-semibold">R$ ${aprovado.toLocaleString('pt-BR')}</span>
+                                        </div>
+                                        <div>
+                                            <span class="text-muted">Saldo:</span>
+                                            <span class="font-bold ${saldo < 0 ? 'color-error' : 'color-success'}">R$ ${saldo.toLocaleString('pt-BR')}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+    }).join('')}
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+    `).join('');
+
+    return `
+        ${Sidebar()}
+        <main class="main-content view-content">
+            <header class="content-header">${headerContent}</header>
+            ${!state.filters.project ? emptyContent : `
+                <div class="budget-container">
+                    ${instructionsAndUpload}
+                    ${progressContent}
+                    ${rubricasContent}
+                </div>
+            `}
+            ${state.showRubricaInstructions ? RubricaInstructionsModal() : ''}
+        </main>
+    `;
+};
 
 
 window.navigate = async function (view, id = null) {
@@ -1895,6 +2065,112 @@ window.handleFetchSalicProject = async function () {
     }
 };
 
+window.handleRubricaUpload = async function (file) {
+    if (!file) return;
+    const project = state.projects.find(p => p.id === state.filters.project);
+    if (!project) return alert("Selecione um projeto primeiro!");
+
+    state.importState = 'uploading';
+    state.importProgress = 10;
+    render();
+
+    try {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `rubricas_pronac_${project.pronac}_${Date.now()}.${fileExt}`;
+        const filePath = `${state.user.id}/${fileName}`;
+
+        // 1. Upload to Supabase Storage
+        const { error: uploadError } = await supabaseClient.storage.from('documentos').upload(filePath, file);
+        if (uploadError) throw uploadError;
+
+        // 2. Salvar registro na tabela documents (tipo planilha_orcamentaria)
+        const { data: docData, error: dbError } = await supabaseClient
+            .from('documents')
+            .insert({
+                user_id: state.user.id,
+                project_id: project.id,
+                name: file.name,
+                size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
+                file_path: filePath,
+                status: 'processing_ocr',
+                tipo_documento: 'planilha_orcamentaria'
+            })
+            .select()
+            .single();
+
+        if (dbError) throw dbError;
+
+        state.importState = 'processing';
+        state.importProgress = 30;
+        render();
+
+        // 3. Notify Webhook
+        const payload = {
+            document_id: docData.id,
+            project_id: project.id,
+            user_id: state.user.id,
+            file_path: filePath,
+            bucket: 'documentos'
+        };
+
+        // Simulação de progresso enquanto espera o webhook
+        let progress = 30;
+        const interval = setInterval(() => {
+            if (progress < 90 && state.importState !== 'concluido' && state.importState !== 'erro') {
+                progress += 2;
+                state.importProgress = progress;
+                if (progress > 45) state.importState = 'processing';
+                if (progress > 60) state.importState = 'extracting';
+                if (progress > 85) state.importState = 'saving';
+                render();
+            } else {
+                clearInterval(interval);
+            }
+        }, 1500);
+
+        const response = await fetch(CONFIG.N8N_WEBHOOK_SALIC_IMPORT_RUBRICAS_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        clearInterval(interval);
+
+        if (!response.ok) throw new Error("Erro no processamento do arquivo pelo servidor.");
+
+        const rawResult = await response.json();
+        const result = Array.isArray(rawResult) ? rawResult[0] : rawResult;
+
+        if (result.success) {
+            state.importState = 'concluido';
+            state.importProgress = 100;
+            showToast(`${result.rubricas_importadas} rubricas importadas com sucesso!`, 'success');
+            await fetchRubricas(project.id);
+        } else {
+            state.importState = 'erro';
+            state.error = result.message || "O servidor não conseguiu extrair as rubricas. Verifique se o arquivo PDF é a 'Planilha Orçamentária' oficial do SALIC.";
+            console.error("Erro no processamento das rubricas:", result);
+        }
+    } catch (err) {
+        state.importState = 'erro';
+        state.error = "Erro técnico: " + err.message;
+        console.error("Falha técnica no upload de rubricas:", err);
+        showToast(err.message, 'error');
+    } finally {
+        render();
+        // Limpar estado após alguns segundos se for sucesso
+        if (state.importState === 'concluido') {
+            setTimeout(() => {
+                if (state.importState === 'concluido') {
+                    state.importState = null;
+                    state.importProgress = 0;
+                    render();
+                }
+            }, 5000);
+        }
+    }
+};
+
 window.handleDeleteProject = async function (id, nome) {
     if (!confirm(`Tem certeza que deseja excluir o projeto "${nome}"? Esta ação excluirá todos os documentos, rubricas e despesas vinculadas a ele.`)) return;
 
@@ -2109,13 +2385,15 @@ window.handleSaveSettings = async function () {
 
 
 window.handleProjectSelectChange = async function (projectId) {
-    const select = document.getElementById('rubrica-input');
-    if (!select) return;
+    const list = document.getElementById('rubricas-list');
+    const input = document.getElementById('rubrica-input');
+    if (!list || !input) return;
 
-    select.innerHTML = '<option value="">Carregando...</option>';
+    input.value = '';
+    list.innerHTML = '<option value="Carregando...">';
 
     if (!projectId || !supabaseClient) {
-        select.innerHTML = '<option value="">Selecione um projeto primeiro...</option>';
+        list.innerHTML = '<option value="Selecione um projeto primeiro...">';
         return;
     }
 
@@ -2129,14 +2407,15 @@ window.handleProjectSelectChange = async function (projectId) {
         if (error) throw error;
 
         if (data && data.length > 0) {
-            select.innerHTML = '<option value="">Selecione uma rubrica...</option>' +
-                data.map(r => `<option value="${r.nome}">${r.nome}</option>`).join('');
+            list.innerHTML = data.map(r => `<option value="${r.nome}">${r.nome}</option>`).join('');
+            input.placeholder = "Digite para buscar entre " + data.length + " rubricas...";
         } else {
-            select.innerHTML = '<option value="">Nenhuma rubrica cadastrada neste projeto.</option>';
+            list.innerHTML = '<option value="Nenhuma rubrica cadastrada neste projeto.">';
+            input.placeholder = "Sem rubricas disponíveis";
         }
     } catch (error) {
         console.error("Erro ao carregar rubricas:", error);
-        select.innerHTML = '<option value="">Erro ao carregar rubricas.</option>';
+        list.innerHTML = '<option value="Erro ao carregar rubricas.">';
     }
 };
 
