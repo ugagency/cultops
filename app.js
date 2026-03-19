@@ -92,7 +92,9 @@ const state = {
     importState: null, // null, 'disparando', 'navegando', 'gerando', 'ocr', 'salvando', 'concluido', 'erro'
     importProgress: 0,
     importResult: null,
-    showRubricaInstructions: false
+    showRubricaInstructions: false,
+    capturedProject: null,
+    showCapturedProjectModal: false
 };
 
 const STATUS_MAP = {
@@ -623,8 +625,11 @@ ${Sidebar()}
                             <td class="text-sm">${new Date(p.created_at).toLocaleDateString('pt-BR')}</td>
                             <td style="text-align: right;">
                                 <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
-                                    <button class="btn btn-secondary" style="padding: 0.4rem;" title="Ver Dashboard" onclick="state.filters.project = '${p.id}'; window.navigate('dashboard')">
+                                    <button class="btn btn-secondary" style="padding: 0.4rem;" title="Dashboard" onclick="state.filters.project = '${p.id}'; window.navigate('dashboard')">
                                         <i data-lucide="layout-dashboard" style="width: 16px;"></i>
+                                    </button>
+                                    <button class="btn btn-secondary" style="padding: 0.4rem;" title="Detalhes SALIC" onclick="window.showProjectDetails('${p.id}')">
+                                        <i data-lucide="info" style="width: 16px;"></i>
                                     </button>
                                     <button class="btn btn-secondary" style="padding: 0.4rem;" title="Financeiro" onclick="state.filters.project = '${p.id}'; window.navigate('financeiro')">
                                         <i data-lucide="bar-chart-3" style="width: 16px;"></i>
@@ -868,21 +873,11 @@ ${Sidebar()}
                     </div>
 
                     <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-subtle);">
-                        <label>Associação de Rubrica</label>
-                        ${doc.despesas && doc.despesas.length > 0 ? `
+                        <label>Rubrica Orçamentária</label>
                         <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; padding: 0.75rem; background: var(--bg-sidebar); border-radius: var(--radius-sm);">
                             <i data-lucide="tag" style="width: 16px; color: var(--primary);"></i>
-                            <span class="text-sm" style="font-weight: 600;">${state.rubricas_disponiveis.find(r => r.id === doc.despesas[0].rubrica_id)?.nome || 'Rubrica vinculada'}</span>
+                            <span class="text-sm" style="font-weight: 600;">${doc.rubrica || 'Rubrica vinculada no upload'}</span>
                         </div>
-                    ` : `
-                        <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
-                            <select id="vincular-rubrica-select" style="flex: 1;">
-                                <option value="">Selecionar rubrica...</option>
-                                ${(state.rubricas_disponiveis || []).map(r => `<option value="${r.id}" ${doc.rubrica === r.nome ? 'selected' : ''}>${r.nome}</option>`).join('')}
-                            </select>
-                            <button class="btn btn-primary" onclick="window.handleVincularRubrica('${doc.id}', '${doc.project_id}', ${doc.valor || 0})">Vincular</button>
-                        </div>
-                    `}
                     </div>
                 </div>
 
@@ -1653,8 +1648,70 @@ const OrcamentoView = () => {
                     ${rubricasContent}
                 </div>
             `}
-            ${state.showRubricaInstructions ? RubricaInstructionsModal() : ''}
         </main>
+    `;
+};
+
+const CapturedProjectModal = () => {
+    const p = state.capturedProject;
+    if (!p) return '';
+
+    return `
+    <div class="modal-overlay" onclick="state.showCapturedProjectModal = false; render();">
+        <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 700px;">
+            <button class="modal-close" onclick="state.showCapturedProjectModal = false; render();">
+                <i data-lucide="x" style="width: 18px;"></i>
+            </button>
+            <div style="display: flex; align-items: center; gap: 1.5rem; margin-bottom: 2rem;">
+                <div style="width: 56px; height: 56px; border-radius: 50%; background: var(--success); display: flex; align-items: center; justify-content: center; color: white;">
+                    <i data-lucide="check" style="width: 28px;"></i>
+                </div>
+                <div>
+                    <h3 class="h2" style="margin-bottom: 0.25rem;">Projeto Captado com Sucesso!</h3>
+                    <p class="text-sm text-secondary">Os dados integrados do SALIC já estão disponíveis.</p>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; background: var(--bg-sidebar); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle); margin-bottom: 2rem;">
+                <div class="info-item">
+                    <label>PRONAC</label>
+                    <p class="text-sm font-bold">${p.pronac || '---'}</p>
+                </div>
+                <div class="info-item">
+                    <label>Nome do Projeto</label>
+                    <p class="text-sm font-bold">${p.nome || (p.name) || '---'}</p>
+                </div>
+                <div class="info-item">
+                    <label>Proponente</label>
+                    <p class="text-sm">${p.proponente || '---'}</p>
+                </div>
+                <div class="info-item">
+                    <label>Segmento / Área</label>
+                    <p class="text-sm">${p.segmento || '---'} / ${p.area || '---'}</p>
+                </div>
+                <div class="info-item">
+                    <label>Valor Aprovado</label>
+                    <p class="text-sm font-bold" style="color: var(--primary);">R$ ${(p.valor_aprovado ? parseFloat(p.valor_aprovado) : 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                </div>
+                <div class="info-item">
+                    <label>Valor Captado</label>
+                    <p class="text-sm font-bold" style="color: var(--success);">R$ ${(p.valor_captado ? parseFloat(p.valor_captado) : 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                </div>
+                <div class="info-item">
+                    <label>UF / Município</label>
+                    <p class="text-sm">${p.uf_municipio || '---'}</p>
+                </div>
+                <div class="info-item" style="grid-column: span 2;">
+                    <label>Mecanismo</label>
+                    <p class="text-sm">${p.mecanismo || '---'}</p>
+                </div>
+            </div>
+
+            <button class="btn btn-primary" style="width: 100%; height: 48px; font-size: 16px;" onclick="state.showCapturedProjectModal = false; window.navigate('projects');">
+                Entendi, continuar
+            </button>
+        </div>
+    </div>
     `;
 };
 
@@ -2056,13 +2113,30 @@ window.handleFetchSalicProject = async function () {
 
         showToast(data.message || `Projeto importado com sucesso do SALIC!`, 'success');
 
-        // Redireciona para a tela de projetos e força atualizar os dados
-        window.navigate('projects');
+        // NOVO: Exibe o detalhamento do projeto captado
+        state.capturedProject = data;
+        state.showCapturedProjectModal = true;
 
+        // Recarrega a lista de projetos em background
+        fetchProjects();
+        render();
+
+    } catch (err) {
+        state.error = err.message;
+        showToast(err.message, 'error');
     } finally {
         state.loading = false;
         render();
     }
+};
+
+window.showProjectDetails = function (projectId) {
+    const project = state.projects.find(p => p.id === projectId);
+    if (!project) return;
+
+    state.capturedProject = project;
+    state.showCapturedProjectModal = true;
+    render();
 };
 
 window.handleRubricaUpload = async function (file) {
@@ -2701,6 +2775,9 @@ function render() {
     }
 
     app.innerHTML = content;
+    if (state.showRubricaInstructions) app.innerHTML += RubricaInstructionsModal();
+    if (state.showCapturedProjectModal) app.innerHTML += CapturedProjectModal();
+
     lucide.createIcons();
 
     if (state.currentView === 'financeiro') {
