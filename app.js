@@ -1679,15 +1679,15 @@ const CapturedProjectModal = () => {
                 </div>
                 <div class="info-item">
                     <label>Nome do Projeto</label>
-                    <p class="text-sm font-bold">${p.nome || (p.name) || '---'}</p>
+                    <p class="text-sm font-bold">${p.nome || '---'}</p>
                 </div>
                 <div class="info-item">
                     <label>Proponente</label>
-                    <p class="text-sm">${p.proponente || '---'}</p>
+                    <p class="text-sm">${p.propoente || '---'}</p>
                 </div>
                 <div class="info-item">
-                    <label>Segmento / Área</label>
-                    <p class="text-sm">${p.segmento || '---'} / ${p.area || '---'}</p>
+                    <label>UF</label>
+                    <p class="text-sm">${p.uf || '---'}</p>
                 </div>
                 <div class="info-item">
                     <label>Valor Aprovado</label>
@@ -1697,13 +1697,9 @@ const CapturedProjectModal = () => {
                     <label>Valor Captado</label>
                     <p class="text-sm font-bold" style="color: var(--success);">R$ ${(p.valor_captado ? parseFloat(p.valor_captado) : 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                 </div>
-                <div class="info-item">
-                    <label>UF / Município</label>
-                    <p class="text-sm">${p.uf_municipio || '---'}</p>
-                </div>
                 <div class="info-item" style="grid-column: span 2;">
                     <label>Mecanismo</label>
-                    <p class="text-sm">${p.mecanismo || '---'}</p>
+                    <p class="text-sm">${p.Mecanismo || p['Mecanismo'] || '---'}</p>
                 </div>
             </div>
 
