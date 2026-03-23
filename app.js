@@ -1155,7 +1155,7 @@ async function fetchFornecedorDashboard() {
             .from('documents')
             .select('*, projects(pronac, nome)')
             .eq('fornecedor_id', state.user.id)
-            .eq('tipo_documento', 'nf')
+            .or('tipo_documento.eq.nf,tipo_documento.is.null')
             .order('created_at', { ascending: false });
 
         if (docError) console.error('Erro ao buscar documentos do fornecedor:', docError);
@@ -2035,16 +2035,33 @@ async function fetchDocuments() {
 
     let query = supabaseClient.from('documents').select('*');
 
-    // Filtra apenas Notas Fiscais para o pipeline principal
-    query = query.eq('tipo_documento', 'nf');
+    // Filtra Notas Fiscais, incluindo registros sem tipo definido (legado)
+    // Usamos .or() para incluir quem não tem tipo ou é 'nf'
+    query = query.or('tipo_documento.eq.nf,tipo_documento.is.null');
 
     // Filtros adicionais
-    if (state.filters.project) query = query.eq('project_id', state.filters.project);
-    if (state.filters.search) query = query.ilike('name', `% ${state.filters.search}% `);
-    if (state.filters.startDate) query = query.gte('created_at', state.filters.startDate + 'T00:00:00');
-    if (state.filters.endDate) query = query.lte('created_at', state.filters.endDate + 'T23:59:59');
+    if (state.filters.project) {
+        query = query.eq('project_id', state.filters.project);
+    }
 
-    const { data } = await query.order('created_at', { ascending: false });
+    if (state.filters.search) {
+        const term = state.filters.search.trim();
+        query = query.ilike('name', `%${term}%`);
+    }
+
+    if (state.filters.startDate) {
+        query = query.gte('created_at', state.filters.startDate + 'T00:00:00');
+    }
+
+    if (state.filters.endDate) {
+        query = query.lte('created_at', state.filters.endDate + 'T23:59:59');
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: false });
+    if (error) {
+        console.error("Erro fetchDocuments:", error);
+        return;
+    }
     state.documents = data || [];
 }
 
@@ -2695,7 +2712,7 @@ window.handleVincularDocumento = async function (parentDocumentId, file, tipo, l
         console.log(`Vinculando Comprovante ${comprovanteData.id} à NF ${parentDocumentId}...`);
 
         if (CONFIG.N8N_WEBHOOK_URL) {
-            await fetch(CONFIG.N8N_WEBHOOK_URL, {
+            const response = await fetch(CONFIG.N8N_WEBHOOK_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 mode: 'cors',
@@ -2708,6 +2725,11 @@ window.handleVincularDocumento = async function (parentDocumentId, file, tipo, l
                     lastro: { ...lastroInfo, id: parentDocumentId } // UUID da NF Mãe no lastro
                 })
             });
+
+            if (!response.ok) {
+                console.error("Erro n8n vinculacao:", response.status);
+                throw new Error(`Erro ao notificar servidor de automação: ${response.status}`);
+            }
         }
 
         alert(`${tipo.charAt(0).toUpperCase() + tipo.slice(1)} enviado com sucesso! O processamento da IA foi iniciado.`);
@@ -3014,12 +3036,14 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
         console.log(`Notificando n8n sobre o novo extrato ${extratoData.id}...`);
 
         if (CONFIG.N8N_WEBHOOK_RECONCILIATION_URL) {
-            await fetch(CONFIG.N8N_WEBHOOK_RECONCILIATION_URL, {
+            console.log(`Disparando webhook: ${CONFIG.N8N_WEBHOOK_RECONCILIATION_URL}`);
+            const response = await fetch(CONFIG.N8N_WEBHOOK_RECONCILIATION_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 mode: 'cors',
                 body: JSON.stringify({
                     extrato_id: extratoData.id,
+                    document_id: extratoData.id, // For backward compatibility
                     nf_id: documentId, // Renomeado para nf_id
                     comprovante_id: comprovanteId || null, // Renomeado para comprovante_id
                     file_path: filePath,
@@ -3027,12 +3051,19 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
                     project_id: projectId
                 })
             });
+
+            if (!response.ok) {
+                console.error("Erro na resposta do n8n:", response.status, response.statusText);
+                throw new Error(`O servidor n8n retornou erro: ${response.status} ${response.statusText}`);
+            }
+
+            console.log("n8n reconciliation ok!");
         }
 
         showToast("Extrato enviado com sucesso! O processamento e conciliação IA foram iniciados.", 'success');
 
         // Recarrega os detalhes para mostrar o status (que será atualizado via Realtime/Fetch)
-        setTimeout(() => fetchDocumentDetails(documentId), 2000);
+        setTimeout(() => fetchDocumentDetails(documentId), 2500);
 
     } catch (error) {
         showToast("Erro no extrato: " + error.message, 'error');
