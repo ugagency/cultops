@@ -1,4 +1,4 @@
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-core');
 
 /**
  * Script de Inserção de Comprovação Financeira no SALIC
@@ -11,6 +11,7 @@ async function executarInsercaoSalic(config) {
     const browser = config.browserWSEndpoint
         ? await puppeteer.connect({ browserWSEndpoint: config.browserWSEndpoint })
         : await puppeteer.launch({
+            executablePath: process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', // Tentativa padrão Windows
             headless: false, // Mantenha false para acompanhar o robô no Windows
             slowMo: 50,
             args: ['--no-sandbox', '--disable-setuid-sandbox']
