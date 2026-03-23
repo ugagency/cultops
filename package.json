@@ -1,0 +1,22 @@
+{
+  "name": "cultopps-rpa",
+  "version": "1.0.0",
+  "description": "Automação SALIC com Puppeteer e Express para o Render",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "puppeteer": "^21.6.0",
+    "puppeteer-core": "^21.6.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

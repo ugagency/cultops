@@ -104,7 +104,7 @@ const STATUS_MAP = {
     'aguardando_comprovante': { label: 'Falta Comprovante', class: 'status-warning' },
     'aguardando_conciliacao_bancaria': { label: 'Falta Conciliação', class: 'status-warning' },
     'aguardando_d3': { label: 'Fila D-3', class: 'status-pending' },
-    'liberado_rpa_airtop': { label: 'Pronto p/ SALIC', class: 'status-completed' },
+    'liberado_rpa_airtop': { label: 'Liberado Pós D-3', class: 'status-completed' },
     'enviado_salic': { label: 'Enviado SALIC', class: 'status-completed' },
     'concluido': { label: 'Concluído', class: 'status-completed' },
 
@@ -932,6 +932,32 @@ ${Sidebar()}
                                  </button>
                                  <input type="file" id="vincular-extrato-input" style="display: none;" onchange="window.handleUploadExtrato(this.files[0], '${doc.project_id}', '${doc.id}', '${state.currentComprovante?.id || ''}')" accept=".ofx,.csv,.pdf">` :
                 `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando comprovante para conciliar...</p>`)
+        }
+                        </div>
+
+                        <!-- Box do SALIC -->
+                        <div style="padding: 1rem; border: 1px dashed var(--border-light); border-radius: var(--radius-sm); background: ${['enviado_salic', 'concluido'].includes(doc.status) ? 'rgba(5, 150, 105, 0.05)' : 'transparent'};">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                <span class="text-xs" style="font-weight: 600; text-transform: uppercase;">3. Portal SALIC</span>
+                                ${['enviado_salic', 'concluido'].includes(doc.status) ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : (doc.status === 'erro_rpa' ? '<i data-lucide="alert-circle" style="width: 16px; color: var(--error);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>')}
+                            </div>
+                            ${doc.status === 'liberado_rpa_airtop' ?
+            `<button class="btn btn-primary" style="width: 100%; font-size: 11px; padding: 0.5rem; background: linear-gradient(135deg, #059669 0%, #10b981 100%); border: none; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);" onclick="window.handleEnviarSalic('${doc.id}')" ${state.loading ? 'disabled' : ''}>
+                                    <i data-lucide="plus-circle" style="width: 14px;"></i>
+                                    Adicionar documento no SALIC
+                                 </button>` :
+            (doc.status === 'enviado_salic' || doc.status === 'concluido' ?
+                `<div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                                    <p class="text-xs" style="color: var(--success); font-weight: 600;">Comprovado com sucesso!</p>
+                                    <p class="text-xs" style="color: var(--text-muted);">Protocolo: ${doc.protocolo_salic || 'Gerando...'}</p>
+                                 </div>` :
+                (doc.status === 'erro_rpa' ?
+                    `<div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                                        <p class="text-xs" style="color: var(--error); font-weight: 500;">Falha no envio automático:</p>
+                                        <p class="text-xs" style="color: var(--text-muted); font-style: italic;">${doc.just_erro || 'Erro no robô SALIC'}</p>
+                                        <button class="btn btn-secondary" style="width: 100%; font-size: 10px; padding: 0.3rem;" onclick="window.handleEnviarSalic('${doc.id}')">Tentar Novamente</button>
+                                     </div>` :
+                    `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando liberação financeira (D+3)...</p>`))
         }
                         </div>
 
@@ -2554,6 +2580,69 @@ window.handleUpload = async function (file) {
         window.navigate('dashboard');
     } catch (error) {
         alert("Erro no upload: " + error.message);
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
+
+window.handleEnviarSalic = async function (documentId) {
+    if (!supabaseClient || !state.user) return;
+
+    state.loading = true;
+    render();
+
+    try {
+        const doc = state.currentDocument;
+        if (!doc) throw new Error("Documento não encontrado no estado.");
+
+        // Busca credenciais SALIC se existirem
+        const { data: creds, error: credError } = await supabaseClient
+            .from('decrypted_external_credentials')
+            .select('*')
+            .eq('service_name', 'salic')
+            .limit(1)
+            .maybeSingle();
+
+        if (credError) throw credError;
+        if (!creds) {
+            alert("Você precisa configurar suas credenciais SALIC em 'Configurações' antes de enviar.");
+            window.navigate('configuracoes');
+            return;
+        }
+
+        // 1. Atualizar Status para processando ou mantendo em fila
+        // (O n8n vai mudar para 'enviado_salic' ou 'erro_rpa')
+
+        // 2. Notificar API local para Inserção no SALIC
+        console.log(`[RPA] Disparando envio para o servidor local: ${CONFIG.SALIC_API_URL}...`);
+
+        if (CONFIG.SALIC_API_URL) {
+            const response = await fetch(CONFIG.SALIC_API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                mode: 'cors',
+                body: JSON.stringify({
+                    documentId: documentId,
+                    userId: state.user.id
+                })
+            });
+
+            if (!response.ok) throw new Error("O servidor do robô não respondeu corretamente.");
+            const resData = await response.json();
+
+            if (resData.success) {
+                showToast("Inserção concluída com sucesso!", 'success');
+            }
+        }
+
+        showToast("Processo de inserção no SALIC iniciado! O robô assumiu o comando.", 'success');
+
+        // Atualizar silenciosamente enquanto o n8n processa
+        setTimeout(() => fetchDocumentDetails(documentId, true), 3000);
+
+    } catch (err) {
+        showToast("Erro ao processar envio: " + err.message, 'error');
     } finally {
         state.loading = false;
         render();
