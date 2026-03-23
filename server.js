@@ -40,7 +40,16 @@ app.post('/api/salic/inserir', async (req, res) => {
             .eq('service_name', 'salic')
             .single();
 
-        if (credError || !creds) throw new Error('Credenciais SALIC não encontradas para este usuário.');
+        if (credError || !creds) {
+            console.error('[API] Erro ao buscar credenciais:', credError);
+            throw new Error('Credenciais SALIC não encontradas para este usuário no Supabase.');
+        }
+
+        console.log(`[API] Credenciais encontradas para o serviço: ${creds.service_name}`);
+
+        if (!creds.identifier || !creds.secret_plain) {
+            throw new Error('Usuário ou Senha do SALIC estão vazios no banco de dados (Verifique a criptografia ou o nome da coluna secret_plain).');
+        }
 
         // 2. Buscar Dados do Documento e do Projeto
         const { data: doc, error: docError } = await supabase
@@ -51,22 +60,23 @@ app.post('/api/salic/inserir', async (req, res) => {
 
         if (docError || !doc) throw new Error('Documento não encontrado no banco de dados.');
 
+        console.log(`[API] Documento identificado: ${doc.name} | Rubrica: ${doc.rubrica}`);
+
         // 3. Executar o Robô
         const config = {
-            usuario: creds.identifier,
-            senha: creds.secret, // Aqui virá a senha descriptografada da view
-            pronac: doc.projects.pronac,
-            rubricaNome: doc.rubrica, // Ex: "Direção Artística"
+            usuario: String(creds.identifier),
+            senha: String(creds.secret_plain),
+            pronac: String(doc.projects.pronac),
+            rubricaNome: doc.rubrica || 'Rubrica não informada',
             documento: {
                 cnpj_fornecedor: doc.cnpj_emissor,
                 valor: doc.valor,
-                numero: doc.json_extraido?.numero_nota || 'S/N', // Exemplo de metadado
+                numero: doc.json_extraido?.numero_nota || 'S/N',
                 data_emissao: doc.data_emissao,
-                nf_path: doc.file_path, // Caminho no Storage
-                // O robô vai precisar baixar o arquivo do Storage ou receber a URL pública
+                nf_path: doc.file_path,
                 nf_url: `${process.env.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.file_path}`
             },
-            browserWSEndpoint: process.env.BROWSERLESS_ENDPOINT // Opcional (para Render)
+            browserWSEndpoint: process.env.BROWSERLESS_ENDPOINT
         };
 
         // Responda imediatamente que o processo começou (Async) ou aguarde (Sync)

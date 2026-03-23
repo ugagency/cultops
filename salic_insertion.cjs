@@ -21,7 +21,16 @@ async function executarInsercaoSalic(config) {
         const page = config.browserWSEndpoint ? (await browser.pages())[0] : await browser.newPage();
         await page.setViewport({ width: 1280, height: 800 });
 
-        console.log(`[SALIC] Iniciando login para o usuário: ${usuario}`);
+        console.log(`[SALIC] Iniciando login para o usuário: ${usuario} (Tipo: ${typeof usuario})`);
+        console.log(`[SALIC] Tipo da Senha recebida: ${typeof senha}`);
+
+        if (!usuario || typeof usuario !== 'string') {
+            throw new Error(`Usuário inválido ou não informado (Tipo: ${typeof usuario})`);
+        }
+        if (!senha || typeof senha !== 'string') {
+            throw new Error(`Senha inválida ou não informada (Tipo: ${typeof senha})`);
+        }
+
         // 1. LOGIN
         await page.goto('http://salic.cultura.gov.br', { waitUntil: 'networkidle2' });
 
@@ -69,7 +78,7 @@ async function executarInsercaoSalic(config) {
         // Função auxiliar para achar o botão nos frames/side-nav
         async function encontrarBotaoNoSidenav(p) {
             return await p.evaluate(() => {
-                const spans = document.querySelectorAll('li.bold > a > span');
+                const spans = Array.from(document.querySelectorAll('li.bold > a > span'));
                 for (const span of spans) {
                     if (span.textContent.trim().includes('Comprovação Financeira')) {
                         const link = span.closest('a');
