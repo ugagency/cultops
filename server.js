@@ -17,6 +17,17 @@ const supabase = createClient(
 app.use(cors());
 app.use(express.json());
 
+// Rota para servir o config.js dinamicamente ao navegador
+app.get('/config.js', (req, res) => {
+    const publicConfig = {
+        SUPABASE_URL: process.env.SUPABASE_URL,
+        SUPABASE_KEY: process.env.SUPABASE_ANON_KEY, // Use a anon key aqui
+        SALIC_API_URL: "/api/salic/inserir"
+    };
+    res.type('application/javascript');
+    res.send(`const CONFIG = ${JSON.stringify(publicConfig, null, 2)};`);
+});
+
 // Servir arquivos estáticos (Front-end)
 app.use(express.static(path.join(__dirname, './')));
 
