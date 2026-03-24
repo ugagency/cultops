@@ -1155,7 +1155,7 @@ async function fetchFornecedorDashboard() {
             .from('documents')
             .select('*, projects(pronac, nome)')
             .eq('fornecedor_id', state.user.id)
-            .or('tipo_documento.eq.nf,tipo_documento.is.null')
+            .or('tipo_documento.eq.nf,tipo_documento.eq.comprovante,tipo_documento.is.null')
             .order('created_at', { ascending: false });
 
         if (docError) console.error('Erro ao buscar documentos do fornecedor:', docError);
@@ -2035,9 +2035,8 @@ async function fetchDocuments() {
 
     let query = supabaseClient.from('documents').select('*');
 
-    // Filtra Notas Fiscais, incluindo registros sem tipo definido (legado)
-    // Usamos .or() para incluir quem não tem tipo ou é 'nf'
-    query = query.or('tipo_documento.eq.nf,tipo_documento.is.null');
+    // Mostra Notas Fiscais, Comprovantes e registros sem tipo (legado)
+    query = query.or('tipo_documento.eq.nf,tipo_documento.eq.comprovante,tipo_documento.is.null');
 
     // Filtros adicionais
     if (state.filters.project) {
