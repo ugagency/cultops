@@ -193,7 +193,7 @@ const Sidebar = () => `
         </a>
         <a class="nav-item ${['upload', 'details'].includes(state.currentView) ? 'active' : ''}" onclick="window.navigate('upload')">
             <i data-lucide="file-text"></i>
-            <span>Notas Fiscais</span>
+            <span>Documentos</span>
         </a>
         <a class="nav-item ${['orcamento', 'rubricas'].includes(state.currentView) ? 'active' : ''}" onclick="window.navigate('orcamento')">
             <i data-lucide="list-checks"></i>
@@ -678,20 +678,20 @@ ${Sidebar()}
                             <td style="font-weight: 600; color: var(--primary);">${p.pronac}</td>
                             <td>${p.nome}</td>
                             <td class="text-sm">${new Date(p.created_at).toLocaleDateString('pt-BR')}</td>
-                            <td style="text-align: right;">
+                                <td style="text-align: right;">
                                 <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
-                                    <button class="btn btn-secondary" style="padding: 0.4rem;" title="Dashboard" onclick="state.filters.project = '${p.id}'; window.navigate('dashboard')">
-                                        <i data-lucide="layout-dashboard" style="width: 16px;"></i>
-                                    </button>
                                     <button class="btn btn-secondary" style="padding: 0.4rem;" title="Detalhes SALIC" onclick="window.showProjectDetails('${p.id}')">
                                         <i data-lucide="info" style="width: 16px;"></i>
                                     </button>
                                     <button class="btn btn-secondary" style="padding: 0.4rem;" title="Financeiro" onclick="state.filters.project = '${p.id}'; window.navigate('financeiro')">
                                         <i data-lucide="bar-chart-3" style="width: 16px;"></i>
                                     </button>
-                                    <button class="btn btn-secondary" style="padding: 0.4rem; color: var(--error);" title="Excluir Projeto" onclick="window.handleDeleteProject('${p.id}', '${p.nome}')">
-                                        <i data-lucide="trash-2" style="width: 16px;"></i>
-                                    </button>
+                                    
+                                    ${state.user?.user_metadata?.role === 'admin' ? `
+                                        <button class="btn btn-secondary" style="padding: 0.4rem; color: var(--error);" title="Excluir Projeto" onclick="window.handleDeleteProject('${p.id}', '${p.nome}')">
+                                            <i data-lucide="trash-2" style="width: 16px;"></i>
+                                        </button>
+                                    ` : ''}
                                 </div>
                             </td>
                         </tr>
@@ -775,7 +775,7 @@ ${Sidebar()}
                             ${state.loading ? 'Importando...' : '<i data-lucide="download-cloud" style="width: 18px;"></i> Importar'}
                         </button>
                     </div>
-                    <p class="text-xs mt-2" style="color: var(--text-muted); line-height: 1.5;">O nosso robô (via n8n) irá acessar o SALIC, buscar os dados do projeto e cadastrá-lo automaticamente na sua conta. Isso pode levar alguns segundos.</p>
+                    <p class="text-xs mt-2" style="color: var(--text-muted); line-height: 1.5;">O nosso robô irá acessar o SALIC, buscar os dados do projeto e cadastrá-lo automaticamente na sua conta. Isso pode levar alguns segundos.</p>
                 </div>
             </form>
 
@@ -1405,8 +1405,9 @@ ${Sidebar()}
             </div>
         </div>
         <div class="card">
-            <h3 class="h2 mb-4">Status de Conformidade</h3>
-            <div style="display: flex; flex-direction: column; gap: 1rem; padding-top: 1rem;">
+            <h3 class="h2 mb-1">Status de Conformidade</h3>
+            <p class="text-xs" style="color: var(--text-muted); margin-bottom: 1.5rem; line-height: 1.4;">Resumo da saúde jurídica e operacional do seu projeto perante o SALIC e a análise automática IA.</p>
+            <div style="display: flex; flex-direction: column; gap: 1rem; padding-top: 0.5rem;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <span class="text-sm">Documentos validados</span>
                     <span class="badge status-completed">Bom</span>
@@ -1818,8 +1819,9 @@ const CapturedProjectModal = () => {
                 </div>
             </div>
 
-            <button class="btn btn-primary" style="width: 100%; height: 48px; font-size: 16px;" onclick="state.showCapturedProjectModal = false; window.navigate('projects');">
-                Entendi, continuar
+            <button class="btn btn-primary" style="width: 100%; height: 48px; font-size: 16px;" onclick="state.showCapturedProjectModal = false; window.navigate('projects'); render();">
+                <i data-lucide="arrow-left" style="width: 18px; margin-right: 0.5rem;"></i>
+                Voltar
             </button>
         </div>
     </div>
@@ -2399,6 +2401,12 @@ window.handleRubricaUpload = async function (file) {
 };
 
 window.handleDeleteProject = async function (id, nome) {
+    // Trava de segurança: Verifica se o usuário é admin
+    if (state.user?.user_metadata?.role !== 'admin') {
+        showToast("Acesso negado: Apenas administradores podem excluir projetos.", 'error');
+        return;
+    }
+
     if (!confirm(`Tem certeza que deseja excluir o projeto "${nome}"? Esta ação excluirá todos os documentos, rubricas e despesas vinculadas a ele.`)) return;
 
     state.loading = true;
