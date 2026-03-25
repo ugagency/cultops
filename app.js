@@ -1,16 +1,31 @@
-// --- Configuração e Inicialização ---
-// A variável CONFIG já é declarada globalmente no arquivo config.js (carregado antes no index.html)
-if (typeof CONFIG === 'undefined') {
-    window.CONFIG = {}; // Valor padrão seguro se o config.js falhar
+let supabaseClient = null;
+
+// Expõe a URL publicamente para uso nos templates HTML
+let SUPABASE_URL = "";
+
+function initializeSupabase() {
+    const supabaseUrl = (typeof CONFIG !== 'undefined' ? CONFIG.SUPABASE_URL : "") || "";
+    const supabaseKey = (typeof CONFIG !== 'undefined' ? CONFIG.SUPABASE_KEY : "") || "";
+    SUPABASE_URL = supabaseUrl; // Torna disponível globalmente para templates
+
+    if (window.supabase && supabaseUrl && supabaseKey) {
+        supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
+        console.log("Supabase Client inicializado com sucesso.");
+    } else {
+        console.error("ERRO: Falha ao inicializar o Supabase.");
+        if (typeof window.showToast === 'function' && !window.location.hash.includes('login')) {
+            window.showToast("Falha na configuração do banco de dados (Supabase). Confira as chaves no arquivo .env", 'error');
+        }
+    }
 }
 
-const supabaseUrl = CONFIG.SUPABASE_URL || "";
-const supabaseKey = CONFIG.SUPABASE_KEY || "";
-const supabaseClient = (window.supabase && supabaseUrl) ? window.supabase.createClient(supabaseUrl, supabaseKey) : null;
+// Inicializa imediatamente
+initializeSupabase();
 
 if (!supabaseClient && !window.location.hash.includes('login')) {
-    console.warn("AVISO: CONFIGURAÇÃO NÃO DETECTADA. Certifique-se que o config.js foi carregado ou as variáveis de ambiente foram configuradas.");
+    console.error("ERRO: CONFIGURAÇÃO DO SUPABASE NÃO DETECTADA OU INCOMPLETA. Certifique-se que o .env ou config.js contêm SUPABASE_URL e SUPABASE_KEY.");
 }
+
 
 const app = document.getElementById('app');
 
@@ -99,23 +114,63 @@ const state = {
 
 const STATUS_MAP = {
     // Status Gerais NF
-    'uploaded': { label: 'Enviado', class: 'status-pending' },
-    'processing_ocr': { label: 'Extraindo IA', class: 'status-pending' },
-    'aguardando_comprovante': { label: 'Falta Comprovante', class: 'status-warning' },
-    'aguardando_conciliacao_bancaria': { label: 'Falta Conciliação', class: 'status-warning' },
-    'aguardando_d3': { label: 'Fila D-3', class: 'status-pending' },
-    'liberado_rpa_airtop': { label: 'Liberado Pós D-3', class: 'status-completed' },
-    'enviado_salic': { label: 'Enviado SALIC', class: 'status-completed' },
-    'concluido': { label: 'Concluído', class: 'status-completed' },
+    'uploaded': {
+        label: 'Enviado',
+        class: 'status-pending',
+        description: 'Upload realizado: O arquivo foi enviado com sucesso e aguarda o início do processamento.'
+    },
+    'processing_ocr': {
+        label: 'Em Processamento',
+        class: 'status-pending',
+        description: 'Em processamento: O documento se encontra no servidor e em análise pela IA do Prestaí.'
+    },
+    'aguardando_comprovante': {
+        label: 'Falta Comprovante',
+        class: 'status-warning',
+        description: 'Aguardando comprovante: A nota foi aceita, mas precisa do upload do comprovante de pagamento.'
+    },
+    'aguardando_conciliacao_bancaria': {
+        label: 'Falta Conciliação',
+        class: 'status-warning',
+        description: 'Aguardando extrato: O documento aguarda o upload do extrato bancário para conciliação.'
+    },
+    'aguardando_d3': {
+        label: 'Em carência (D-3)',
+        class: 'status-pending',
+        description: 'Em carência (D-3): Conciliado! O documento está cumprindo o prazo de 72h antes do envio oficial ao SALIC.'
+    },
+    'liberado_rpa_airtop': {
+        label: 'Pronto para envio',
+        class: 'status-completed',
+        description: 'Pronto para envio: Documento conferido e pronto para ser enviado automaticamente pelo Robô Prestaí ao SALIC.'
+    },
+    'enviado_salic': {
+        label: 'Enviado ao SALIC',
+        class: 'status-completed',
+        description: 'Enviado ao SALIC: Documento inserido com sucesso no sistema do Ministério da Cultura.'
+    },
+    'concluido': {
+        label: 'Concluído',
+        class: 'status-completed',
+        description: 'Concluído: O processo foi finalizado com sucesso em todas as etapas.'
+    },
 
     // Status de Erro/Desvio NF
-    'bloqueado_conformidade': { label: 'Bloqueado IA', class: 'status-error' },
-    'revisao_manual': { label: 'Revisão Manual', class: 'status-warning' },
-    'erro_rpa': { label: 'Erro RPA', class: 'status-error' },
-
-    // Status Comprovante (para referência interna)
-    'divergencia_valor': { label: 'Divergência Valor', class: 'status-error' },
-    'divergencia_beneficiario': { label: 'Divergência Favorecido', class: 'status-error' }
+    'bloqueado_conformidade': {
+        label: 'Bloqueado',
+        class: 'status-error',
+        description: 'Bloqueado: A IA detectou uma inconsistência (ex: CNAE inválido) e o documento requer correção ou justificativa.'
+    },
+    'revisao_manual': {
+        label: 'Revisão Manual',
+        class: 'status-warning',
+        description: 'Revisão manual: O sistema identificou pontos de dúvida no OCR e requer uma conferência humana.'
+    },
+    'erro_rpa': {
+        label: 'Erro no Envio',
+        class: 'status-error',
+        description: 'Erro no envio: O robô encontrou um problema ao tentar inserir no SALIC (ex: instabilidade no site do governo).'
+    }
 };
 
 // --- Templates ---
@@ -740,15 +795,36 @@ ${Sidebar()}
 
 const DetailsView = () => {
     const doc = state.currentDocument;
-    if (!doc) return `<div class="sidebar">${Sidebar()}</div><main class="main-content"><div style="padding: 4rem; text-align: center;">Carregando detalhes...</div></main>`;
+    if (!doc) {
+        const isLoading = state.loading;
+        return `
+${Sidebar()}
+<main class="main-content view-content">
+    <header class="content-header" style="display: flex; align-items: center; gap: 1rem;">
+        <button class="btn btn-secondary" onclick="window.navigate('dashboard')" style="padding: 0.5rem;">
+            <i data-lucide="arrow-left" style="width: 18px;"></i>
+        </button>
+        <h1>Detalhes da Nota</h1>
+    </header>
+    <div class="card" style="padding: 3rem; text-align: center;">
+        ${isLoading
+                ? `<i data-lucide="loader" style="width: 32px; height: 32px; color: var(--primary); animation: spin 1s linear infinite;"></i>
+               <p class="text-sm" style="margin-top: 1rem; color: var(--text-secondary);">Carregando detalhes do documento...</p>`
+                : `<i data-lucide="alert-circle" style="width: 32px; height: 32px; color: var(--error);"></i>
+               <p class="text-sm" style="margin-top: 1rem; color: var(--text-secondary);">Não foi possível carregar o documento. Verifique sua conexão ou tente novamente.</p>
+               <button class="btn btn-primary" style="margin-top: 1.5rem;" onclick="window.navigate('dashboard')">Voltar ao Dashboard</button>`
+            }
+    </div>
+</main>`;
+    }
 
     const steps = [
         { id: 'uploaded', label: 'Enviado', icon: 'upload-cloud' },
-        { id: 'processing_ocr', label: 'OCR (IA)', icon: 'cpu' },
+        { id: 'processing_ocr', label: 'Em Processamento', icon: 'cpu' },
         { id: 'aguardando_comprovante', label: 'Documentação', icon: 'file-text' },
         { id: 'aguardando_conciliacao_bancaria', label: 'Conciliação', icon: 'banknote' },
-        { id: 'aguardando_d3', label: 'Fila D-3', icon: 'clock' },
-        { id: 'enviado_salic', label: 'SALIC', icon: 'check-circle' }
+        { id: 'aguardando_d3', label: 'Carência D-3', icon: 'clock' },
+        { id: 'enviado_salic', label: 'Enviado ao SALIC', icon: 'check-circle' }
     ];
 
     let activeIndex = 0;
@@ -796,6 +872,19 @@ ${Sidebar()}
                 ${(STATUS_MAP[doc.status] || {}).label || doc.status}
             </div>
         </header>
+
+        <!-- NOVO: Descritivo de Esteira -->
+        <div class="card mb-4" style="background: rgba(37, 99, 235, 0.03); border-left: 4px solid var(--primary); padding: 1.25rem;">
+            <div style="display: flex; gap: 1rem; align-items: flex-start;">
+                <div style="background: var(--primary); color: white; padding: 0.5rem; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                    <i data-lucide="info" style="width: 18px;"></i>
+                </div>
+                <div>
+                    <h4 style="font-size: 14px; margin-bottom: 0.25rem; font-weight: 700; color: var(--text-primary);">Ponto da Esteira: ${(STATUS_MAP[doc.status] || {}).label}</h4>
+                    <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.5;">${(STATUS_MAP[doc.status] || {}).description || 'O documento está seguindo o fluxo normal de processamento.'}</p>
+                </div>
+            </div>
+        </div>
 
         <div class="card mb-4" style="padding: 2rem;">
             <div style="display: flex; justify-content: space-between; position: relative;">
@@ -969,7 +1058,7 @@ ${Sidebar()}
                     <div style="aspect-ratio: 3/4; background: var(--bg-sidebar); border-radius: var(--radius-sm); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; border: 1px solid var(--border-light);">
                         <i data-lucide="file-text" style="width: 48px; color: var(--text-muted);"></i>
                         <p class="text-xs" style="color: var(--text-muted);">${doc.name}</p>
-                        <button class="btn btn-secondary" onclick="window.open('${supabaseUrl}/storage/v1/object/public/documentos/${doc.file_path}', '_blank')">
+                        <button class="btn btn-secondary" onclick="window.open('${CONFIG.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.file_path}', '_blank')">
                             Visualizar PDF
                         </button>
                     </div>
@@ -1908,7 +1997,22 @@ window.handleCreateRubrica = async function () {
 };
 
 async function fetchDocumentDetails(id, silent = false) {
-    if (!supabaseClient || !state.user) return;
+    // Se o supabase ou o usuário não estiver pronto, aguarda até 3s e tenta de novo
+    if (!supabaseClient || !state.user) {
+        if (!silent) {
+            state.loading = true;
+            render();
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            if (!supabaseClient || !state.user) {
+                console.error("fetchDocumentDetails: Supabase ou usuário não disponível.");
+                state.loading = false;
+                render();
+                return;
+            }
+        } else {
+            return;
+        }
+    }
 
     if (!silent) {
         state.loading = true;
@@ -1916,13 +2020,27 @@ async function fetchDocumentDetails(id, silent = false) {
     }
 
     try {
-        const { data, error } = await supabaseClient
+        // Tenta buscar com join completo
+        let { data, error } = await supabaseClient
             .from('documents')
             .select('*, projects(nome, pronac), despesas(*)')
             .eq('id', id)
             .single();
 
-        if (error) throw error;
+        // Fallback: se o join falhar (ex: tabela despesas não existe ainda), busca sem o join
+        if (error && error.code === 'PGRST200') {
+            console.warn("Join com despesas falhou, tentando fallback...");
+            const { data: fallbackData, error: fallbackError } = await supabaseClient
+                .from('documents')
+                .select('*, projects(nome, pronac)')
+                .eq('id', id)
+                .single();
+            if (fallbackError) throw fallbackError;
+            data = { ...fallbackData, despesas: [] };
+        } else if (error) {
+            throw error;
+        }
+
         state.currentDocument = data;
 
         // Busca comprovante vinculado se existir
@@ -1941,20 +2059,17 @@ async function fetchDocumentDetails(id, silent = false) {
                 .select('id, nome')
                 .eq('project_id', data.project_id)
                 .order('nome');
-
             state.rubricas_disponiveis = rubData || [];
         }
 
-    } catch (error) {
-        console.error("Erro ao buscar detalhes:", error);
+    } catch (err) {
+        console.error("Erro ao buscar detalhes:", err);
+        state.currentDocument = null;
         if (!silent) {
-            alert("Erro ao carregar detalhes do documento.");
-            window.navigate('dashboard');
+            showToast("Erro ao carregar detalhes do documento: " + err.message, 'error');
         }
     } finally {
-        if (!silent) {
-            state.loading = false;
-        }
+        if (!silent) state.loading = false;
         render();
     }
 }
