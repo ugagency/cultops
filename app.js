@@ -717,7 +717,7 @@ ${Sidebar()}
 
                 <div class="form-group mb-4">
                     <label>Projeto / PRONAC</label>
-                    <select id="project-selector" onchange="window.handleProjectSelectChange(this.value)">
+                    <select id="project-selector" onchange="window.handleProjectSelectChange(this.value); state.filters.project = this.value;">
                         <option value="">Selecione um projeto...</option>
                         ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
                     </select>
@@ -730,6 +730,16 @@ ${Sidebar()}
                         <option value="">Selecione o projeto primeiro...</option>
                     </datalist>
                 </div>
+
+                <script>
+                    // Aciona o carregamento das rubricas se já houver um projeto selecionado no estado
+                    setTimeout(() => {
+                        const selector = document.getElementById('project-selector');
+                        if (selector && selector.value) {
+                            window.handleProjectSelectChange(selector.value);
+                        }
+                    }, 100);
+                </script>
 
                 <div class="upload-area" onclick="if(document.getElementById('project-selector').value && document.getElementById('rubrica-input').value) document.getElementById('file-input').click(); else alert('Selecione projeto e rubrica primeiro!');">
                     <input type="file" id="file-input" style="display: none;" onchange="window.handleUpload(this.files[0], 'nf')" accept=".pdf">
@@ -1840,6 +1850,10 @@ window.navigate = async function (view, id = null) {
         await fetchFornecedorDashboard();
     } else if (view === 'upload') {
         await fetchProjects();
+        // Dispara o carregamento das rubricas se já houver projeto selecionado
+        if (state.filters.project) {
+            setTimeout(() => window.handleProjectSelectChange(state.filters.project), 100);
+        }
     } else if (view === 'orcamento' || view === 'financeiro') {
         await fetchProjects();
         await fetchCatalogoRubricas();
