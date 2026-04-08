@@ -3,12 +3,18 @@
 -- ==========================================================
 
 -- 1. Tabela de Projetos (PRONACs)
+-- 1. Tabela de Projetos (PRONACs)
 CREATE TABLE IF NOT EXISTS public.projects (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
     pronac TEXT NOT NULL,
     nome TEXT NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    propoente TEXT,
+    "Mecanismo" TEXT,
+    uf TEXT,
+    valor_aprovado TEXT,
+    valor_captado TEXT
 );
 
 -- 2. Tabela de Documentos
@@ -132,10 +138,10 @@ CREATE POLICY "Users can access despesas of their projects"
 ON despesas FOR ALL USING (project_id IN (SELECT id FROM projects WHERE user_id = auth.uid()));
 
 -- ==========================================================
--- FASE 2: SPRINT 3 - PORTAL DO FORNECEDOR
+-- FASE 2: SPRINT 3 - PORTAL DO SOLICITANTE
 -- ==========================================================
 
--- 6. Perfis de Fornecedores (Appends over auth.users)
+-- 6. Perfis de Solicitantes (Appends over auth.users)
 CREATE TABLE IF NOT EXISTS public.fornecedores (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     cnpj TEXT UNIQUE NOT NULL,
@@ -144,7 +150,7 @@ CREATE TABLE IF NOT EXISTS public.fornecedores (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 7. Vínculo entre Fornecedor e Projeto
+-- 7. Vínculo entre Solicitante e Projeto
 -- IMPORTANTE: gestor_id armazenado diretamente para evitar recursão no RLS
 CREATE TABLE IF NOT EXISTS public.projeto_fornecedores (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -155,7 +161,7 @@ CREATE TABLE IF NOT EXISTS public.projeto_fornecedores (
     UNIQUE(project_id, fornecedor_id)
 );
 
--- Adicionar campo de fornecedor nos documentos
+-- Adicionar campo de solicitante nos documentos
 ALTER TABLE public.documents ADD COLUMN IF NOT EXISTS fornecedor_id UUID REFERENCES public.fornecedores(id) ON DELETE SET NULL;
 
 -- ============================================================
@@ -167,34 +173,34 @@ DROP POLICY IF EXISTS "Dono ve os docs pelo user_id" ON documents;
 DROP POLICY IF EXISTS "Gestor ve os docs pelo project_id" ON documents;
 DROP POLICY IF EXISTS "Fornecedor ve seus docs" ON documents;
 
--- Gestor enxerga documentos do PROJETO inteiro (incluindo do fornecedor)
+-- Gestor enxerga documentos do PROJETO inteiro (incluindo do solicitante)
 CREATE POLICY "Gestor acessa docs do projeto" ON documents FOR ALL
 USING (project_id IN (SELECT id FROM projects WHERE user_id = auth.uid()));
 
--- Fornecedor só vê os docs que ele mesmo enviou
-CREATE POLICY "Fornecedor acessa seus proprios docs" ON documents FOR SELECT
+-- Solicitante só vê os docs que ele mesmo enviou
+CREATE POLICY "Solicitante acessa seus proprios docs" ON documents FOR SELECT
 USING (auth.uid() = fornecedor_id);
 
--- Fornecedor pode inserir documentos
-CREATE POLICY "Fornecedor insere doc" ON documents FOR INSERT
+-- Solicitante pode inserir documentos
+CREATE POLICY "Solicitante insere doc" ON documents FOR INSERT
 WITH CHECK (auth.uid() = fornecedor_id);
 
 -- ============================================================
--- RLS de Fornecedores (sem ciclo)
+-- RLS de Solicitantes (sem ciclo)
 -- ============================================================
 ALTER TABLE fornecedores ENABLE ROW LEVEL SECURITY;
 ALTER TABLE projeto_fornecedores ENABLE ROW LEVEL SECURITY;
 
--- Fornecedor gerencia seu próprio perfil
-DROP POLICY IF EXISTS "Fornecedores alteram seu perfil" ON fornecedores;
-CREATE POLICY "Fornecedor gerencia seu perfil" ON fornecedores FOR ALL
+-- Solicitante gerencia seu próprio perfil
+DROP POLICY IF EXISTS "Solicitantes alteram seu perfil" ON fornecedores;
+CREATE POLICY "Solicitante gerencia seu perfil" ON fornecedores FOR ALL
 USING (auth.uid() = id);
 
--- Gestor vê todos os fornecedores para poder vinculá-los
+-- Gestor vê todos os solicitantes para poder vinculá-los
 -- Sem referenciar projects (evita ciclo)
 DROP POLICY IF EXISTS "Gestores veem todos os fornecedores para vincular" ON fornecedores;
 DROP POLICY IF EXISTS "Gestores veem fornecedores do projeto" ON fornecedores;
-CREATE POLICY "Usuario autenticado ve fornecedores" ON fornecedores FOR SELECT
+CREATE POLICY "Usuario autenticado ve solicitantes" ON fornecedores FOR SELECT
 USING (auth.role() = 'authenticated');
 
 -- ============================================================
@@ -205,8 +211,8 @@ DROP POLICY IF EXISTS "Fornecedores veem seus projetos convidados" ON projeto_fo
 DROP POLICY IF EXISTS "Fornecedores podem se vincular" ON projeto_fornecedores;
 DROP POLICY IF EXISTS "Gestores controlam seus projetos" ON projeto_fornecedores;
 
--- Fornecedor vê seus vínculos
-CREATE POLICY "Fornecedor ve seus vinculos" ON projeto_fornecedores FOR SELECT
+-- Solicitante vê seus vínculos
+CREATE POLICY "Solicitante ve seus vinculos" ON projeto_fornecedores FOR SELECT
 USING (auth.uid() = fornecedor_id);
 
 -- Gestor controla seus próprios vínculos (via gestor_id, sem referenciar projects)

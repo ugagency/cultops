@@ -78,11 +78,11 @@ window.alert = (message) => {
     console.log("Alert interceptado:", message);
 };
 
-const isFornecedorMode = window.location.pathname.includes('fornecedor') || window.location.hash.includes('fornecedor') || window.location.search.includes('fornecedor');
+const isSolicitanteMode = window.location.pathname.includes('solicitante') || window.location.hash.includes('solicitante') || window.location.search.includes('solicitante');
 
 const state = {
-    isFornecedorMode: isFornecedorMode,
-    currentView: isFornecedorMode ? 'fornecedor_login' : 'login',
+    isSolicitanteMode: isSolicitanteMode,
+    currentView: isSolicitanteMode ? 'solicitante_login' : 'login',
     user: null,
     projects: [],
     documents: [],
@@ -97,8 +97,8 @@ const state = {
         endDate: '',
         search: ''
     },
-    all_fornecedores: [],
-    vinculos_fornecedores: [],
+    all_solicitantes: [],
+    vinculos_solicitantes: [],
     extratos: [],
     settings: {
         salic_user: '',
@@ -207,9 +207,9 @@ const Sidebar = () => `
             <i data-lucide="bar-chart-3"></i>
             <span>Relatórios</span>
         </a>
-        <a class="nav-item ${state.currentView === 'admin_fornecedores' ? 'active' : ''}" onclick="window.navigate('admin_fornecedores')">
+        <a class="nav-item ${state.currentView === 'admin_solicitantes' ? 'active' : ''}" onclick="window.navigate('admin_solicitantes')">
             <i data-lucide="users"></i>
-            <span>Fornecedores</span>
+            <span>Solicitantes</span>
         </a>
         <a class="nav-item ${state.currentView === 'configuracoes' ? 'active' : ''}" onclick="window.navigate('configuracoes')">
             <i data-lucide="settings"></i>
@@ -241,16 +241,16 @@ const Sidebar = () => `
 const Header = Sidebar;
 
 
-const FornecedorHeader = () => `
+const SolicitanteHeader = () => `
 <header class="header">
     <div class="logo">
         <i data-lucide="truck"></i>
-        <span>Portal Fornecedor</span>
+        <span>Portal Solicitante</span>
     </div>
     <div style="display: flex; align-items: center; gap: 1rem;">
         <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; font-weight: 500;">
             <i data-lucide="user-circle"></i>
-            <span>${state.user ? state.user.email.split('@')[0] : 'Fornecedor'}</span>
+            <span>${state.user ? state.user.email.split('@')[0] : 'Solicitante'}</span>
         </div>
         <button class="btn btn-ghost" onclick="window.handleLogout()">
             <i data-lucide="log-out"></i>
@@ -286,7 +286,7 @@ const LoginView = () => `
                 <label style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0; cursor: pointer;">
                     <input type="checkbox"> Lembrar-me
                 </label>
-                <a href="#" style="color: var(--primary); font-weight: 500;">Esqueceu a senha?</a>
+                <a href="javascript:void(0)" onclick="window.navigate('forgot_password')" style="color: var(--primary); font-weight: 500;">Esqueceu a senha?</a>
             </div>
             
             <button class="btn btn-primary" id="login-btn" style="width: 100%;" ${state.loading ? 'disabled' : ''}>
@@ -297,10 +297,10 @@ const LoginView = () => `
         <div class="login-footer">
             <p>Não tem uma conta? <a href="#" onclick="window.navigate('register')" style="color: var(--primary); font-weight: 600;">Crie uma agora</a></p>
             <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
-                <p style="margin-bottom: 0.5rem;">É um fornecedor?</p>
-                <button class="btn btn-ghost" onclick="window.navigate('fornecedor_login')" style="width: 100%; border: 1px solid #f59e0b; color: #d97706;">
+                <p style="margin-bottom: 0.5rem;">É um solicitante?</p>
+                <button class="btn btn-ghost" onclick="window.navigate('solicitante_login')" style="width: 100%; border: 1px solid #f59e0b; color: #d97706;">
                     <i data-lucide="truck"></i>
-                    Acesso Fornecedor
+                    Acesso Solicitante
                 </button>
             </div>
         </div>
@@ -343,10 +343,10 @@ const RegisterView = () => `
         <div class="login-footer">
             <p>Já tem uma conta? <a href="#" onclick="window.navigate('login')" style="color: var(--primary); font-weight: 600;">Faça login</a></p>
             <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
-                <p style="margin-bottom: 0.5rem;">É um fornecedor?</p>
-                <button class="btn btn-ghost" onclick="window.navigate('fornecedor_login')" style="width: 100%; border: 1px solid #f59e0b; color: #d97706;">
+                <p style="margin-bottom: 0.5rem;">É um solicitante?</p>
+                <button class="btn btn-ghost" onclick="window.navigate('solicitante_login')" style="width: 100%; border: 1px solid #f59e0b; color: #d97706;">
                     <i data-lucide="truck"></i>
-                    Acesso Fornecedor
+                    Acesso Solicitante
                 </button>
             </div>
         </div>
@@ -354,35 +354,102 @@ const RegisterView = () => `
 </div>
 `;
 
-const FornecedorLoginView = () => `
+const ForgotPasswordView = () => `
+<div class="login-view view-content">
+    <div class="card login-card">
+        <div style="text-align: center; margin-bottom: 2rem;">
+            <div class="logo" style="justify-content: center; font-size: 2rem; margin-bottom: 0.5rem;">
+                <i data-lucide="shield-check" style="width: 32px; height: 32px;"></i>
+                <span>Prestaí</span>
+            </div>
+            <h3 class="h2">Recuperar Senha</h3>
+            <p style="color: var(--text-muted); font-size: 0.875rem; margin-top: 0.5rem;">Enviaremos um link para o seu e-mail</p>
+        </div>
+        
+        <form onsubmit="event.preventDefault(); window.handleForgotPassword();">
+            <div class="form-group">
+                <label for="reset-email">E-mail</label>
+                <input type="email" id="reset-email" placeholder="seu@email.com" required>
+            </div>
+            
+            <button class="btn btn-primary" id="reset-btn" style="width: 100%;" ${state.loading ? 'disabled' : ''}>
+                ${state.loading ? 'Enviando...' : 'Enviar Link de Recuperação'}
+            </button>
+        </form>
+        
+        <div class="login-footer">
+            <p><a href="#" onclick="window.navigate('login')" style="color: var(--text-secondary); font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+                <i data-lucide="arrow-left" style="width: 16px;"></i> Voltar para o login
+            </a></p>
+        </div>
+    </div>
+</div>
+`;
+
+const UpdatePasswordView = () => `
+<div class="login-view view-content">
+    <div class="card login-card">
+        <div style="text-align: center; margin-bottom: 2rem;">
+            <div class="logo" style="justify-content: center; font-size: 2rem; margin-bottom: 0.5rem;">
+                <i data-lucide="shield-check" style="width: 32px; height: 32px;"></i>
+                <span>Prestaí</span>
+            </div>
+            <h3 class="h2">Nova Senha</h3>
+            <p style="color: var(--text-muted); font-size: 0.875rem; margin-top: 0.5rem;">Defina sua nova senha de acesso</p>
+        </div>
+        
+        <form onsubmit="event.preventDefault(); window.handleUpdatePassword();">
+            <div class="form-group">
+                <label for="new-password">Nova Senha</label>
+                <input type="password" id="new-password" placeholder="••••••••" required minlength="6">
+            </div>
+
+            <div class="form-group">
+                <label for="confirm-new-password">Confirmar Nova Senha</label>
+                <input type="password" id="confirm-new-password" placeholder="••••••••" required minlength="6">
+            </div>
+            
+            <button class="btn btn-primary" id="update-btn" style="width: 100%;" ${state.loading ? 'disabled' : ''}>
+                ${state.loading ? 'Atualizando...' : 'Redefinir Senha'}
+            </button>
+        </form>
+    </div>
+</div>
+`;
+
+const SolicitanteLoginView = () => `
 <div class="login-view view-content">
     <div class="card login-card">
         <div style="text-align: center; margin-bottom: 2rem;">
             <div class="logo" style="justify-content: center; font-size: 2rem; margin-bottom: 0.5rem; color: #f59e0b;">
                 <i data-lucide="truck" style="width: 32px; height: 32px;"></i>
-                <span>Portal Fornecedor</span>
+                <span>Portal Solicitante</span>
             </div>
             <p style="color: var(--text-muted); font-size: 0.875rem;">Acesse para enviar comprovantes</p>
         </div>
         
-        <form onsubmit="event.preventDefault(); window.handleFornecedorLogin();">
+        <form onsubmit="event.preventDefault(); window.handleSolicitanteLogin();">
             <div class="form-group">
                 <label for="f-email">E-mail</label>
-                <input type="email" id="f-login-email" placeholder="fornecedor@email.com" required>
+                <input type="email" id="f-login-email" placeholder="solicitante@email.com" required>
             </div>
             
             <div class="form-group">
                 <label for="f-password">Senha</label>
                 <input type="password" id="f-login-password" placeholder="••••••••" required>
             </div>
+
+            <div style="text-align: right; margin-bottom: 1.5rem; font-size: 0.75rem;">
+                <a href="javascript:void(0)" onclick="window.navigate('forgot_password')" style="color: #d97706; font-weight: 500;">Esqueceu a senha?</a>
+            </div>
             
             <button class="btn btn-primary" id="f-login-btn" style="width: 100%; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); shadow: 0 4px 10px rgba(245, 158, 11, 0.3);" ${state.loading ? 'disabled' : ''}>
-                ${state.loading ? 'Entrando...' : 'Acessar Área do Fornecedor'}
+                ${state.loading ? 'Entrando...' : 'Acessar Área do Solicitante'}
             </button>
         </form>
         
         <div class="login-footer">
-            <p>Primeiro acesso? <a href="#" onclick="window.navigate('fornecedor_register')" style="color: #d97706; font-weight: 600;">Cadastre sua empresa</a></p>
+            <p>Primeiro acesso? <a href="#" onclick="window.navigate('solicitante_register')" style="color: #d97706; font-weight: 600;">Cadastre sua empresa</a></p>
             <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
                 <p style="margin-bottom: 0.5rem;">É um proponente/gestor?</p>
                 <button class="btn btn-ghost" onclick="window.navigate('login')" style="width: 100%; border: 1px solid var(--primary); color: var(--primary);">
@@ -395,18 +462,18 @@ const FornecedorLoginView = () => `
 </div>
 `;
 
-const FornecedorRegisterView = () => `
+const SolicitanteRegisterView = () => `
 <div class="login-view view-content">
     <div class="card login-card" style="max-width: 500px;">
         <div style="text-align: center; margin-bottom: 2rem;">
             <div class="logo" style="justify-content: center; font-size: 2rem; margin-bottom: 0.5rem; color: #f59e0b;">
                 <i data-lucide="truck" style="width: 32px; height: 32px;"></i>
-                <span>Portal Fornecedor</span>
+                <span>Portal Solicitante</span>
             </div>
             <p style="color: var(--text-muted); font-size: 0.875rem;">Cadastro Rápido de Empresa</p>
         </div>
         
-        <form onsubmit="event.preventDefault(); window.handleFornecedorRegister();">
+        <form onsubmit="event.preventDefault(); window.handleSolicitanteRegister();">
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                 <div class="form-group">
                     <label>CNPJ</label>
@@ -442,7 +509,7 @@ const FornecedorRegisterView = () => `
         </form>
         
         <div class="login-footer">
-            <p>Já tem uma conta? <a href="#" onclick="window.navigate('fornecedor_login')" style="color: #d97706; font-weight: 600;">Faça login</a></p>
+            <p>Já tem uma conta? <a href="#" onclick="window.navigate('solicitante_login')" style="color: #d97706; font-weight: 600;">Faça login</a></p>
             <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
                 <p style="margin-bottom: 0.5rem;">É um proponente/gestor?</p>
                 <button class="btn btn-ghost" onclick="window.navigate('login')" style="width: 100%; border: 1px solid var(--primary); color: var(--primary);">
@@ -455,9 +522,9 @@ const FornecedorRegisterView = () => `
 </div>
 `;
 
-const FornecedorDashboardView = () => `
+const SolicitanteDashboardView = () => `
 <div style="display: flex; flex-direction: column; flex: 1; width: 100%;">
-    ${FornecedorHeader()}
+    ${SolicitanteHeader()}
     <main class="dashboard-view view-content">
         <div class="container">
             <div class="dashboard-header mb-4">
@@ -476,7 +543,7 @@ const FornecedorDashboardView = () => `
                             <option value="">Selecione o Projeto / PRONAC...</option>
                             ${state.projects.map(p => `<option value="${p.project_id}">${p.projects.pronac} - ${p.projects.nome}</option>`).join('')}
                         </select>
-                        <input type="file" id="f-upload-file" style="display: none;" accept=".pdf" onchange="window.handleFornecedorUpload(this.files[0])">
+                        <input type="file" id="f-upload-file" style="display: none;" accept=".pdf" onchange="window.handleSolicitanteUpload(this.files[0])">
                         <button class="btn btn-primary" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);" onclick="if(document.getElementById('f-upload-project').value) document.getElementById('f-upload-file').click(); else alert('Selecione primeiro o PRONAC!');">
                             <i data-lucide="upload-cloud"></i> Enviar Arquivo
                         </button>
@@ -671,8 +738,10 @@ ${Sidebar()}
                 <thead>
                     <tr>
                         <th>PRONAC</th>
-                        <th>Nome do Projeto</th>
-                        <th>Data de Criação</th>
+                        <th>Projeto / Proponente</th>
+                        <th>UF</th>
+                        <th>Vr. Arrecadado</th>
+                        <th>Data Criação</th>
                         <th style="text-align: right;">Ações</th>
                     </tr>
                 </thead>
@@ -680,9 +749,16 @@ ${Sidebar()}
                     ${state.projects.map(p => `
                         <tr>
                             <td style="font-weight: 600; color: var(--primary);">${p.pronac}</td>
-                            <td>${p.nome}</td>
+                            <td>
+                                <div style="font-weight: 500;">${p.nome}</div>
+                                <div class="text-xs" style="color: var(--text-muted);">${p.propoente || '---'}</div>
+                            </td>
+                            <td class="text-sm">${p.uf || '---'}</td>
+                            <td class="text-sm" style="font-weight: 600; color: var(--success);">
+                                R$ ${(p.valor_captado ? parseFloat(p.valor_captado) : 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </td>
                             <td class="text-sm">${new Date(p.created_at).toLocaleDateString('pt-BR')}</td>
-                                <td style="text-align: right;">
+                            <td style="text-align: right;">
                                 <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
                                     <button class="btn btn-secondary" style="padding: 0.4rem;" title="Detalhes SALIC" onclick="window.showProjectDetails('${p.id}')">
                                         <i data-lucide="info" style="width: 16px;"></i>
@@ -959,7 +1035,7 @@ ${Sidebar()}
                     <h3 class="h2 mb-4">Dados Extraídos</h3>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
                         <div class="info-item">
-                            <label>Fornecedor (CNPJ)</label>
+                            <label>Solicitante (CNPJ)</label>
                             <p class="text-sm" style="font-weight: 600;">${doc.cnpj_emissor || '---'}</p>
                         </div>
                         <div class="info-item">
@@ -1118,7 +1194,7 @@ ${Sidebar()}
 
 // --- Handlers & API ---
 
-window.handleFornecedorLogin = async function () {
+window.handleSolicitanteLogin = async function () {
     if (!supabaseClient) return alert("Erro ao carregar o Supabase Client.");
 
     const email = document.getElementById('f-login-email').value;
@@ -1136,20 +1212,20 @@ window.handleFornecedorLogin = async function () {
 
         if (role !== 'fornecedor') {
             await supabaseClient.auth.signOut();
-            throw new Error("Esta conta não possui permissão de Fornecedor. Use o Portal do Gestor.");
+            throw new Error("Esta conta não possui permissão de Solicitante. Use o Portal do Gestor.");
         }
 
         state.user = data.user;
-        window.navigate('fornecedor_dashboard');
+        window.navigate('solicitante_dashboard');
     } catch (error) {
-        alert("Erro no login Fornecedor: " + error.message);
+        alert("Erro no login Solicitante: " + error.message);
     } finally {
         state.loading = false;
         render();
     }
 };
 
-window.handleFornecedorRegister = async function () {
+window.handleSolicitanteRegister = async function () {
     if (!supabaseClient) return alert("Erro ao carregar o Supabase Client.");
 
     const email = document.getElementById('f-reg-email').value;
@@ -1194,11 +1270,11 @@ window.handleFornecedorRegister = async function () {
                 alert("Erro ao salvar dados da empresa. Entre em contato com o suporte.");
             }
 
-            // 3. Importante: Limpar estado e navegar para o login do fornecedor para garantir a validação do perfil
-            alert("Conta de fornecedor criada com sucesso! Faça login para acessar o portal.");
+            // 3. Importante: Limpar estado e navegar para o login do solicitante para garantir a validação do perfil
+            alert("Conta de solicitante criada com sucesso! Faça login para acessar o portal.");
             await supabaseClient.auth.signOut();
             state.user = null;
-            window.navigate('fornecedor_login');
+            window.navigate('solicitante_login');
         }
     } catch (error) {
         alert("Erro ao cadastrar: " + error.message);
@@ -1208,7 +1284,7 @@ window.handleFornecedorRegister = async function () {
     }
 };
 
-window.handleFornecedorUpload = async function (file) {
+window.handleSolicitanteUpload = async function (file) {
     const projectId = document.getElementById('f-upload-project').value;
     if (!file || !projectId) return alert("Selecione um projeto e um arquivo!");
 
@@ -1258,7 +1334,7 @@ window.handleFornecedorUpload = async function (file) {
         }
 
         alert("Upload concluído! Gestor notificado.");
-        await fetchFornecedorDashboard(); // recarrega a grid
+        await fetchSolicitanteDashboard(); // recarrega a grid
     } catch (error) {
         alert("Erro no upload: " + error.message);
     } finally {
@@ -1267,7 +1343,7 @@ window.handleFornecedorUpload = async function (file) {
     }
 };
 
-async function fetchFornecedorDashboard() {
+async function fetchSolicitanteDashboard() {
     if (!supabaseClient || !state.user) return;
     try {
         // Busca projetos vinculados ao fornecedor
@@ -1289,7 +1365,7 @@ async function fetchFornecedorDashboard() {
         if (docError) console.error('Erro ao buscar documentos do fornecedor:', docError);
         state.documents = docData || [];
     } catch (err) {
-        console.error("Erro dashboard fornecedor", err);
+        console.error("Erro dashboard solicitante", err);
     }
 }
 
@@ -1313,7 +1389,7 @@ window.handleLogin = async function () {
         // Se não tiver role ou for diferente de gestor, bloqueia (trata usuários antigos como gestores se necessário)
         if (role === 'fornecedor') {
             await supabaseClient.auth.signOut();
-            throw new Error("Esta é uma conta de Fornecedor. Use o Portal do Fornecedor.");
+            throw new Error("Esta é uma conta de Solicitante. Use o Portal do Solicitante.");
         }
 
         state.user = data.user;
@@ -1374,7 +1450,60 @@ window.handleLogout = async function () {
     await supabaseClient.auth.signOut();
     state.user = null;
     state.userStatus = null;
-    window.navigate(wasFornecedor ? 'fornecedor_login' : 'login');
+    window.navigate(wasFornecedor ? 'solicitante_login' : 'login');
+};
+
+window.handleForgotPassword = async function () {
+    if (!supabaseClient) return;
+
+    const email = document.getElementById('reset-email').value;
+    if (!email) return;
+
+    state.loading = true;
+    render();
+
+    try {
+        const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+            redirectTo: window.location.origin + '?recovery=true',
+        });
+
+        if (error) throw error;
+
+        showToast("Link de recuperação enviado para o seu e-mail!", 'success');
+        setTimeout(() => window.navigate('login'), 3000);
+    } catch (error) {
+        showToast("Erro ao enviar e-mail: " + error.message, 'error');
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
+
+window.handleUpdatePassword = async function () {
+    if (!supabaseClient) return;
+
+    const password = document.getElementById('new-password').value;
+    const confirm = document.getElementById('confirm-new-password').value;
+
+    if (password !== confirm) {
+        return showToast("As senhas não coincidem!", 'error');
+    }
+
+    state.loading = true;
+    render();
+
+    try {
+        const { error } = await supabaseClient.auth.updateUser({ password });
+        if (error) throw error;
+
+        showToast("Senha redefinida com sucesso! Faça login agora.", 'success');
+        setTimeout(() => window.navigate('login'), 3000);
+    } catch (error) {
+        showToast("Erro ao atualizar senha: " + error.message, 'error');
+    } finally {
+        state.loading = false;
+        render();
+    }
 };
 
 
@@ -1822,7 +1951,7 @@ const CapturedProjectModal = () => {
                     <i data-lucide="check" style="width: 28px;"></i>
                 </div>
                 <div>
-                    <h3 class="h2" style="margin-bottom: 0.25rem;">Projeto Captado com Sucesso!</h3>
+                    <h3 class="h2" style="margin-bottom: 0.25rem;">Projeto Importado com Sucesso!</h3>
                     <p class="text-sm text-secondary">Os dados integrados do SALIC já estão disponíveis.</p>
                 </div>
             </div>
@@ -1849,7 +1978,7 @@ const CapturedProjectModal = () => {
                     <p class="text-sm font-bold" style="color: var(--primary);">R$ ${(p.valor_aprovado ? parseFloat(p.valor_aprovado) : 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                 </div>
                 <div class="info-item">
-                    <label>Valor Captado</label>
+                    <label>Valor Arrecadado</label>
                     <p class="text-sm font-bold" style="color: var(--success);">R$ ${(p.valor_captado ? parseFloat(p.valor_captado) : 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                 </div>
                 <div class="info-item" style="grid-column: span 2;">
@@ -1892,9 +2021,9 @@ window.navigate = async function (view, id = null) {
         if (state.filters.project) await fetchRubricas(state.filters.project);
     } else if (view === 'details' && id) {
         await fetchDocumentDetails(id);
-    } else if (view === 'admin_fornecedores') {
+    } else if (view === 'admin_solicitantes') {
         await fetchProjects();
-        await fetchFornecedoresAdmin();
+        await fetchSolicitantesAdmin();
     } else if (view === 'conciliacao') {
         await fetchProjects();
         if (id) state.filters.project = id;
@@ -1921,16 +2050,16 @@ async function fetchCatalogoRubricas() {
     }
 }
 
-async function fetchFornecedoresAdmin() {
+async function fetchSolicitantesAdmin() {
     if (!supabaseClient) return;
     try {
-        // 1. Pegar todos os fornecedores (para o select)
+        // 1. Pegar todos os solicitantes (para o select)
         const { data: allF } = await supabaseClient.from('fornecedores').select('*').order('razao_social');
-        state.all_fornecedores = allF || [];
+        state.all_solicitantes = allF || [];
 
         // 2. Pegar vínculos dos projetos que o gestor é dono
         if (state.projects.length === 0) {
-            state.vinculos_fornecedores = [];
+            state.vinculos_solicitantes = [];
             return;
         }
 
@@ -1940,17 +2069,17 @@ async function fetchFornecedoresAdmin() {
             .select('*, fornecedores(*), projects(*)')
             .in('project_id', projectIds);
 
-        state.vinculos_fornecedores = vinculos || [];
+        state.vinculos_solicitantes = vinculos || [];
     } catch (err) {
-        console.error("Erro fetch admin fornecedores:", err);
+        console.error("Erro fetch admin solicitantes:", err);
     }
 }
 
-window.handleInviteFornecedor = async function () {
-    const fornecedorId = document.getElementById('invite-fornecedor-id').value;
+window.handleInviteSolicitante = async function () {
+    const fornecedorId = document.getElementById('invite-solicitante-id').value;
     const projectId = document.getElementById('invite-project-id').value;
 
-    if (!fornecedorId || !projectId) return alert('Selecione fornecedor e projeto!');
+    if (!fornecedorId || !projectId) return alert('Selecione solicitante e projeto!');
 
     state.loading = true;
     render();
@@ -1965,10 +2094,10 @@ window.handleInviteFornecedor = async function () {
             });
 
         if (error) throw error;
-        alert("Fornecedor vinculado com sucesso!");
-        await fetchFornecedoresAdmin();
+        alert("Solicitante vinculado com sucesso!");
+        await fetchSolicitantesAdmin();
     } catch (err) {
-        alert("Erro ao vincular: " + (err.code === '23505' ? "Este fornecedor já está vinculado a este projeto." : err.message));
+        alert("Erro ao vincular: " + (err.code === '23505' ? "Este solicitante já está vinculado a este projeto." : err.message));
     } finally {
         state.loading = false;
         render();
@@ -1985,7 +2114,7 @@ window.handleRemoveVinculo = async function (vinculoId) {
             .eq('id', vinculoId);
 
         if (error) throw error;
-        await fetchFornecedoresAdmin();
+        await fetchSolicitantesAdmin();
         render();
     } catch (err) {
         alert("Erro ao remover: " + err.message);
@@ -2909,23 +3038,23 @@ window.handleVincularDocumento = async function (parentDocumentId, file, tipo, l
     }
 };
 
-const FornecedoresAdminView = () => `
+const SolicitantesAdminView = () => `
 ${Sidebar()}
 <main class="main-content view-content">
     <header class="content-header">
-        <h1>Gestão de Fornecedores</h1>
-        <p class="page-subtitle">Autorize fornecedores a enviar documentos diretamente para seus projetos.</p>
+        <h1>Gestão de Solicitantes</h1>
+        <p class="page-subtitle">Autorize solicitantes a enviar documentos diretamente para seus projetos.</p>
     </header>
 
     <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 2rem;">
         <div class="card">
             <h3 class="h2 mb-4">Novo acesso</h3>
-            <form onsubmit="event.preventDefault(); window.handleInviteFornecedor();">
+            <form onsubmit="event.preventDefault(); window.handleInviteSolicitante();">
                 <div class="form-group">
-                    <label>Fornecedor</label>
-                    <select id="invite-fornecedor-id" required>
-                        <option value="">Selecione o fornecedor...</option>
-                        ${(state.all_fornecedores || []).map(f => `<option value="${f.id}">${f.razao_social}</option>`).join('')}
+                    <label>Solicitante</label>
+                    <select id="invite-solicitante-id" required>
+                        <option value="">Selecione o solicitante...</option>
+                        ${(state.all_solicitantes || []).map(f => `<option value="${f.id}">${f.razao_social}</option>`).join('')}
                     </select>
                 </div>
                 <div class="form-group">
@@ -2938,9 +3067,9 @@ ${Sidebar()}
                 <button class="btn btn-primary" style="width: 100%;">Liberar acesso</button>
             </form>
             <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-subtle);">
-                <p class="text-xs mb-2" style="font-weight: 600;">O fornecedor não aparece na lista?</p>
+                <p class="text-xs mb-2" style="font-weight: 600;">O solicitante não aparece na lista?</p>
                 <p class="text-xs mb-3" style="color: var(--text-muted);">Envie este link para que ele se cadastre na plataforma:</p>
-                <button class="btn btn-secondary" style="width: 100%; font-size: 11px;" onclick="const link = window.location.origin + '?fornecedor=true'; navigator.clipboard.writeText(link); alert('Link de cadastro copiado!');">
+                <button class="btn btn-secondary" style="width: 100%; font-size: 11px;" onclick="const link = window.location.origin + '?solicitante=true'; navigator.clipboard.writeText(link); alert('Link de cadastro copiado!');">
                     <i data-lucide="copy" style="width: 12px;"></i>
                     Copiar link de cadastro
                 </button>
@@ -2950,18 +3079,18 @@ ${Sidebar()}
         <div class="card">
             <h3 class="h2 mb-4">Acessos ativos</h3>
             <div class="data-table-container">
-                ${(state.vinculos_fornecedores || []).length === 0 ?
-        `<p class="text-sm" style="text-align: center; padding: 2rem; color: var(--text-muted);">Nenhum fornecedor vinculado ainda.</p>` : `
+                ${(state.vinculos_solicitantes || []).length === 0 ?
+        `<p class="text-sm" style="text-align: center; padding: 2rem; color: var(--text-muted);">Nenhum solicitante vinculado ainda.</p>` : `
                     <table class="data-table">
                         <thead>
                             <tr>
-                                <th>Fornecedor</th>
+                                <th>Solicitante</th>
                                 <th>Projeto</th>
                                 <th style="text-align: right;">Ação</th>
                             </tr>
                         </thead>
                         <tbody>
-                            ${(state.vinculos_fornecedores || []).map(v => `
+                            ${(state.vinculos_solicitantes || []).map(v => `
                                 <tr>
                                     <td>
                                         <div style="font-weight: 500;">${v.fornecedores.razao_social}</div>
@@ -2986,16 +3115,16 @@ ${Sidebar()}
 function render() {
     let content = '';
 
-    if (!state.user && !['login', 'register', 'fornecedor_login', 'fornecedor_register'].includes(state.currentView)) {
-        state.currentView = state.isFornecedorMode ? 'fornecedor_login' : 'login';
+    if (!state.user && !['login', 'register', 'solicitante_login', 'solicitante_register', 'forgot_password', 'update_password'].includes(state.currentView)) {
+        state.currentView = state.isSolicitanteMode ? 'solicitante_login' : 'login';
     }
 
-    // Segurança: Bloquear fornecedor de acessar rotas de gestor
-    const isGestorView = !['login', 'register', 'fornecedor_login', 'fornecedor_register', 'fornecedor_dashboard'].includes(state.currentView);
+    // Segurança: Bloquear solicitante de acessar rotas de gestor
+    const isGestorView = !['login', 'register', 'solicitante_login', 'solicitante_register', 'solicitante_dashboard'].includes(state.currentView);
     if (state.user && state.user.user_metadata?.role === 'fornecedor' && isGestorView) {
-        state.currentView = 'fornecedor_dashboard';
+        state.currentView = 'solicitante_dashboard';
     }
-
+    
     switch (state.currentView) {
         case 'login':
             content = LoginView();
@@ -3003,14 +3132,20 @@ function render() {
         case 'register':
             content = RegisterView();
             break;
-        case 'fornecedor_login':
-            content = FornecedorLoginView();
+        case 'solicitante_login':
+            content = SolicitanteLoginView();
             break;
-        case 'fornecedor_register':
-            content = FornecedorRegisterView();
+        case 'solicitante_register':
+            content = SolicitanteRegisterView();
             break;
-        case 'fornecedor_dashboard':
-            content = FornecedorDashboardView();
+        case 'forgot_password':
+            content = ForgotPasswordView();
+            break;
+        case 'update_password':
+            content = UpdatePasswordView();
+            break;
+        case 'solicitante_dashboard':
+            content = SolicitanteDashboardView();
             break;
         case 'projects':
             content = ProjectsView();
@@ -3036,8 +3171,8 @@ function render() {
         case 'conciliacao':
             content = ConciliacaoView();
             break;
-        case 'admin_fornecedores':
-            content = FornecedoresAdminView();
+        case 'admin_solicitantes':
+            content = SolicitantesAdminView();
             break;
         case 'configuracoes':
             content = ConfiguracoesView();
@@ -3390,16 +3525,25 @@ window.handleRunN8NReconciliation = async function () {
 // Initial render and setup
 async function init() {
     if (supabaseClient) {
+        // Verifica se é um fluxo de recuperação de senha pelo hash da URL ou query ?recovery=true
+        const isRecovery = window.location.search.includes('recovery=true') || window.location.hash.includes('type=recovery');
+
+        if (isRecovery) {
+            state.currentView = 'update_password';
+            render();
+            return; // Interrompe o init normal para focar na troca de senha
+        }
+
         const { data: { session } } = await supabaseClient.auth.getSession();
         if (session) {
             state.user = session.user;
             const role = session.user.user_metadata?.role;
             state.userStatus = role || 'gestor';
 
-            // Carregar dados iniciais baseados na role, ignorando isFornecedorMode da URL se logado
+            // Carregar dados iniciais baseados na role, ignorando isSolicitanteMode da URL se logado
             if (role === 'fornecedor') {
-                state.currentView = 'fornecedor_dashboard';
-                await fetchFornecedorDashboard();
+                state.currentView = 'solicitante_dashboard';
+                await fetchSolicitanteDashboard();
             } else {
                 state.currentView = 'dashboard';
                 await fetchProjects();
