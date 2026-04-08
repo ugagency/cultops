@@ -155,7 +155,11 @@ const STATUS_MAP = {
         description: 'Concluído: O processo foi finalizado com sucesso em todas as etapas.'
     },
 
-    // Status de Erro/Desvio NF
+    'aguardando_conformidade': {
+        label: 'Em Auditoria IA',
+        class: 'status-processing',
+        description: 'Em Auditoria IA: A inteligência artificial está validando o CNAE do fornecedor contra as regras da rubrica orçamentária.'
+    },
     'bloqueado_conformidade': {
         label: 'Bloqueado',
         class: 'status-error',
@@ -830,11 +834,11 @@ ${Sidebar()}
 
     const steps = [
         { id: 'uploaded', label: 'Enviado', icon: 'upload-cloud' },
-        { id: 'processing_ocr', label: 'Em Processamento', icon: 'cpu' },
+        { id: 'processing_ocr', label: 'OCR', icon: 'cpu' },
+        { id: 'aguardando_conformidade', label: 'Auditoria', icon: 'shield' },
         { id: 'aguardando_comprovante', label: 'Documentação', icon: 'file-text' },
         { id: 'aguardando_conciliacao_bancaria', label: 'Conciliação', icon: 'banknote' },
-        { id: 'aguardando_d3', label: 'Carência D-3', icon: 'clock' },
-        { id: 'enviado_salic', label: 'Enviado ao SALIC', icon: 'check-circle' }
+        { id: 'enviado_salic', label: 'SALIC', icon: 'check-circle' }
     ];
 
     let activeIndex = 0;
@@ -844,6 +848,7 @@ ${Sidebar()}
     const statusOrder = [
         'uploaded',
         'processing_ocr',
+        'aguardando_conformidade',
         'aguardando_comprovante',
         'aguardando_conciliacao_bancaria',
         'aguardando_d3',
@@ -973,9 +978,33 @@ ${Sidebar()}
 
                     <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-subtle);">
                         <label>Rubrica Orçamentária</label>
-                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; padding: 0.75rem; background: var(--bg-sidebar); border-radius: var(--radius-sm);">
-                            <i data-lucide="tag" style="width: 16px; color: var(--primary);"></i>
-                            <span class="text-sm" style="font-weight: 600;">${doc.rubrica || 'Rubrica vinculada no upload'}</span>
+                        <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem; padding: 1rem; background: var(--bg-sidebar); border-radius: var(--radius-sm); border: 1px solid var(--border-light);">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                                <i data-lucide="tag" style="width: 16px; color: var(--primary);"></i>
+                                <span class="text-sm" style="font-weight: 600;">${doc.rubrica || '<span style="color: var(--primary); font-weight: 500;">Identificada pela IA</span>'}</span>
+                            </div>
+                            
+                            <!-- Só permite vincular/alterar se houver bloqueio -->
+                            ${doc.status === 'bloqueado_conformidade' ? `
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <div style="flex: 1;">
+                                        <select id="vincular-rubrica-select" style="width: 100%; padding: 0.5rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: 4px; background: white;">
+                                            <option value="">Selecione a rubrica para corrigir...</option>
+                                            ${(state.rubricas_disponiveis || []).map((r, idx) => `
+                                                <option value="${r.id}" ${doc.rubrica === r.nome || (!doc.rubrica && idx === 0) ? 'selected' : ''}>
+                                                    ${r.nome}
+                                                </option>
+                                            `).join('')}
+                                        </select>
+                                    </div>
+                                    <button class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 12px;" onclick="window.handleVincularRubrica('${doc.id}', '${doc.project_id}', ${doc.valor})">
+                                        Corrigir Vínculo
+                                    </button>
+                                </div>
+                                <p class="text-xs" style="color: var(--error); margin-top: 0.25rem;">Documento bloqueado por conformidade. Por favor, revise a rubrica vinculada.</p>
+                            ` : `
+                                <p class="text-xs" style="color: var(--text-muted); margin-top: 0.25rem;">Vínculo de rubrica validado automaticamente para conformidade fiscal.</p>
+                            `}
                         </div>
                     </div>
                 </div>
@@ -2043,17 +2072,8 @@ async function fetchDocumentDetails(id, silent = false) {
             .eq('id', id)
             .single();
 
-        // Fallback: se o join falhar (ex: tabela despesas não existe ainda), busca sem o join
+        // 2. Fallback: se o join falhar, tenta sem despesas
         if (error && error.code === 'PGRST200') {
-            console.warn("Join com despesas falhou, tentando fallback...");
-            const { data: fallbackData, error: fallbackError } = await supabaseClient
-                .from('documents')
-                .select('*, projects(nome, pronac)')
-                .eq('id', id)
-                .single();
-            if (fallbackError) throw fallbackError;
-            data = { ...fallbackData, despesas: [] };
-        } else if (error) {
             throw error;
         }
 
@@ -2771,7 +2791,12 @@ window.handleEnviarSalic = async function (documentId) {
         console.log(`[RPA] Disparando envio para o servidor local: ${CONFIG.SALIC_API_URL}...`);
 
         if (CONFIG.SALIC_API_URL) {
-            const response = await fetch(CONFIG.SALIC_API_URL, {
+            // Se a URL começar com "/", concatena com a origem atual para evitar erros de fetch relativo em ambientes SPA
+            const fullUrl = CONFIG.SALIC_API_URL.startsWith('/') 
+                ? window.location.origin + CONFIG.SALIC_API_URL 
+                : CONFIG.SALIC_API_URL;
+
+            const response = await fetch(fullUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 mode: 'cors',
@@ -2781,7 +2806,11 @@ window.handleEnviarSalic = async function (documentId) {
                 })
             });
 
-            if (!response.ok) throw new Error("O servidor do robô não respondeu corretamente.");
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || "O servidor do robô não respondeu corretamente.");
+            }
+            
             const resData = await response.json();
 
             if (resData.success) {

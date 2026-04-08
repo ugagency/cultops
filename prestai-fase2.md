@@ -41,13 +41,13 @@ prestai/
 |---|---|---|---|---|---|
 | 1.1 | Tabelas e RLS | `database-architect` | `database-design` | P0 | INPUT: Esquema da DB → OUTPUT: Migração `rubricas` e `despesas` no Supabase → VERIFY: SQL RLS previne acesso indevido |
 | 1.2 | UI Orçamento | `frontend-specialist`| `frontend-design` | P1 | INPUT: `orcamento.html` → OUTPUT: UI de cadastro e lista com barras de progresso → VERIFY: Cálculo de saldo em tempo real |
-| 1.3 | Vínculo Despesa | `frontend-specialist`| `clean-code`      | P1 | INPUT: Workflow OCR → OUTPUT: Dropdown de vínculo documento/rubrica → VERIFY: Saldo não pode ficar negativo |
+| 1.3 | Vínculo Despesa | `frontend-specialist`| `clean-code`      | P1 | [x] INPUT: Workflow OCR → OUTPUT: UI de vínculo condicional (apenas em bloqueio) → VERIFY: Evita erro humano em fluxos automáticos |
 
 ### Sprint 2: Validação e Conformidade
 | ID | Tarefa | Agente | Skills | Prioridade | INPUT → OUTPUT → VERIFY |
 |---|---|---|---|---|---|
 | 2.1 | Tabelas Fornecedores | `database-architect` | `database-design` | P0 | INPUT: Nova tabela → OUTPUT: `fornecedores` e caching → VERIFY: RLS público para selects |
-| 2.2 | n8n Consulta & Lock | `backend-specialist`| `api-patterns`    | P1 | INPUT: Webhooks `document_id` → OUTPUT: Consulta BrasilAPI e bloqueio CNAE → VERIFY: Despesas incompatíveis são bloqueadas |
+| 2.2 | n8n Consulta & Lock | `backend-specialist`| `api-patterns`    | P1 | [x] INPUT: Webhooks `document_id` → OUTPUT: Auditoria automática para NF avulsa e Misto → VERIFY: Status `aguardando_conformidade` validado |
 | 2.3 | UI Conformidade | `frontend-specialist`| `clean-code`      | P2 | INPUT: `conformidade.html` → OUTPUT: Painel de bloqueios e flags IA → VERIFY: Alertas visíveis por projeto |
 
 ### Sprint 3: Portal do Fornecedor
