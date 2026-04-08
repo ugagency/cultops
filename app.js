@@ -109,7 +109,8 @@ const state = {
     importResult: null,
     showRubricaInstructions: false,
     capturedProject: null,
-    showCapturedProjectModal: false
+    showCapturedProjectModal: false,
+    isUploadingComprovante: false
 };
 
 const STATUS_MAP = {
@@ -1068,7 +1069,7 @@ ${Sidebar()}
                                             <option value="">Selecione a rubrica para corrigir...</option>
                                             ${(state.rubricas_disponiveis || []).map((r, idx) => `
                                                 <option value="${r.id}" ${doc.rubrica === r.nome || (!doc.rubrica && idx === 0) ? 'selected' : ''}>
-                                                    ${r.nome}
+                                                    ${r.rubrica_id ? r.rubrica_id + ' - ' : ''}${r.nome}
                                                 </option>
                                             `).join('')}
                                         </select>
@@ -1103,21 +1104,30 @@ ${Sidebar()}
                     <h3 class="h2 mb-4">Fluxo de Conciliação</h3>
                     <div style="display: flex; flex-direction: column; gap: 1rem;">
                         
+                        
                         <!-- Box do Comprovante -->
                         <div style="padding: 1rem; border: 1px dashed var(--border-light); border-radius: var(--radius-sm); background: ${doc.data_pagamento || doc.status === 'aguardando_conciliacao_bancaria' || state.currentComprovante ? 'rgba(16, 185, 129, 0.05)' : 'transparent'};">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                                 <span class="text-xs" style="font-weight: 600; text-transform: uppercase;">1. Comprovante</span>
-                                ${doc.data_pagamento || doc.status === 'aguardando_conciliacao_bancaria' || state.currentComprovante ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>'}
+                                ${doc.data_pagamento || doc.status === 'aguardando_conciliacao_bancaria' || state.currentComprovante ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : (state.isUploadingComprovante ? '<i data-lucide="loader" class="spin" style="width: 16px; color: var(--primary);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>')}
                             </div>
                             ${(doc.data_pagamento || doc.status === 'aguardando_conciliacao_bancaria' || state.currentComprovante) ?
             `<div style="display: flex; flex-direction: column; gap: 0.25rem;">
                                     <p class="text-xs" style="color: var(--text-secondary); font-weight: 500;">Comprovante recebido:</p>
                                     ${state.currentComprovante ? `<a href="${CONFIG.SUPABASE_URL}/storage/v1/object/public/documentos/${state.currentComprovante.file_path}" target="_blank" class="text-xs" style="color: var(--primary); text-decoration: none;">📄 ${state.currentComprovante.name}</a>` : '<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Arquivo em processamento...</p>'}
+                                    <div class="badge status-completed" style="margin-top: 0.5rem; width: fit-content; font-size: 10px;">Upload Concluído</div>
                                  </div>` :
-            (doc.status === 'aguardando_comprovante' ?
-                `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem;" onclick="document.getElementById('vincular-comprovante-input').click()">Vincular Comprovante</button>
+            (state.isUploadingComprovante ?
+                `<div style="padding: 0.5rem; text-align: center;">
+                                    <div style="width: 100%; height: 6px; background: var(--bg-sidebar); border-radius: 3px; overflow: hidden; margin-bottom: 0.5rem;">
+                                        <div style="width: 60%; height: 100%; background: var(--primary); animation: loading 2s infinite ease-in-out;"></div>
+                                    </div>
+                                    <p class="text-xs" style="color: var(--primary); font-weight: 600;">Enviando comprovante...</p>
+                                 </div>` :
+                (doc.status === 'aguardando_comprovante' ?
+                    `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem;" onclick="document.getElementById('vincular-comprovante-input').click()">Vincular Comprovante</button>
                                  <input type="file" id="vincular-comprovante-input" style="display: none;" onchange="window.handleVincularDocumento('${doc.id}', this.files[0], 'comprovante', { id: '${doc.id}', nome: '${doc.name.replace(/'/g, "\\'")}', valor: ${doc.valor || 0}, cnpj: '${doc.cnpj_emissor || ''}' })" accept=".pdf,image/*">` :
-                `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando etapa anterior para liberar upload...</p>`)
+                    `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando etapa anterior para liberar upload...</p>`))
         }
                         </div>
 
@@ -1711,7 +1721,7 @@ const RubricaInstructionsModal = () => `
         <div class="steps-list">
             <div class="step-item">
                 <div class="step-number">1</div>
-                <div class="step-text">Acesse <strong>salic.cultura.gov.br</strong> e faça login com sua conta Gov.br.</div>
+                <div class="step-text">Acesse <strong>salic.cultura.gov.br</strong> e faça login com suas crednciais ou com sua conta Gov.br.</div>
             </div>
             <div class="step-item">
                 <div class="step-number">2</div>
@@ -1892,7 +1902,9 @@ const OrcamentoView = () => {
                                 <div class="card rubric-card" style="padding: 1.25rem;">
                                     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
                                         <div style="max-width: 70%;">
-                                            <h5 class="font-bold text-sm" style="line-height: 1.2;">${r.nome}</h5>
+                                            <h5 class="font-bold text-sm" style="line-height: 1.2;">
+                                                <span style="color: var(--primary); font-family: monospace;">[${r.rubrica_id || '---'}]</span> ${r.nome}
+                                            </h5>
                                             <p class="text-xs text-muted mt-1">Qtde: ${r.quantidade || 1} x R$ ${(parseFloat(r.valor_unitario || r.valor_aprovado || 0)).toLocaleString('pt-BR')}</p>
                                         </div>
                                         <div style="text-align: right;">
@@ -2221,7 +2233,7 @@ async function fetchDocumentDetails(id, silent = false) {
         if (data && data.project_id) {
             const { data: rubData } = await supabaseClient
                 .from('rubricas')
-                .select('id, nome')
+                .select('id, nome, rubrica_id')
                 .eq('project_id', data.project_id)
                 .order('nome');
             state.rubricas_disponiveis = rubData || [];
@@ -2798,14 +2810,14 @@ window.handleProjectSelectChange = async function (projectId) {
     try {
         const { data, error } = await supabaseClient
             .from('rubricas')
-            .select('id, nome')
+            .select('id, nome, rubrica_id')
             .eq('project_id', projectId)
             .order('nome');
 
         if (error) throw error;
 
         if (data && data.length > 0) {
-            list.innerHTML = data.map(r => `<option value="${r.nome}">${r.nome}</option>`).join('');
+            list.innerHTML = data.map(r => `<option value="${r.rubrica_id ? r.rubrica_id + ' - ' : ''}${r.nome}">${r.rubrica_id ? r.rubrica_id + ' - ' : ''}${r.nome}</option>`).join('');
             input.placeholder = "Digite para buscar entre " + data.length + " rubricas...";
         } else {
             list.innerHTML = '<option value="Nenhuma rubrica cadastrada neste projeto.">';
@@ -2921,8 +2933,8 @@ window.handleEnviarSalic = async function (documentId) {
 
         if (CONFIG.SALIC_API_URL) {
             // Se a URL começar com "/", concatena com a origem atual para evitar erros de fetch relativo em ambientes SPA
-            const fullUrl = CONFIG.SALIC_API_URL.startsWith('/') 
-                ? window.location.origin + CONFIG.SALIC_API_URL 
+            const fullUrl = CONFIG.SALIC_API_URL.startsWith('/')
+                ? window.location.origin + CONFIG.SALIC_API_URL
                 : CONFIG.SALIC_API_URL;
 
             const response = await fetch(fullUrl, {
@@ -2939,7 +2951,7 @@ window.handleEnviarSalic = async function (documentId) {
                 const errorData = await response.json().catch(() => ({}));
                 throw new Error(errorData.error || "O servidor do robô não respondeu corretamente.");
             }
-            
+
             const resData = await response.json();
 
             if (resData.success) {
@@ -2963,7 +2975,7 @@ window.handleEnviarSalic = async function (documentId) {
 window.handleVincularDocumento = async function (parentDocumentId, file, tipo, lastroInfo = null) {
     if (!file || !parentDocumentId) return;
 
-    state.loading = true;
+    state.isUploadingComprovante = true;
     render();
 
     try {
@@ -3033,7 +3045,7 @@ window.handleVincularDocumento = async function (parentDocumentId, file, tipo, l
     } catch (error) {
         alert(`Erro ao vincular ${tipo}: ` + error.message);
     } finally {
-        state.loading = false;
+        state.isUploadingComprovante = false;
         render();
     }
 };
@@ -3124,7 +3136,7 @@ function render() {
     if (state.user && state.user.user_metadata?.role === 'fornecedor' && isGestorView) {
         state.currentView = 'solicitante_dashboard';
     }
-    
+
     switch (state.currentView) {
         case 'login':
             content = LoginView();
