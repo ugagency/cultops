@@ -110,7 +110,8 @@ const state = {
     showRubricaInstructions: false,
     capturedProject: null,
     showCapturedProjectModal: false,
-    isUploadingComprovante: false
+    isUploadingComprovante: false,
+    rubrica_versions: []
 };
 
 const STATUS_MAP = {
@@ -1869,9 +1870,28 @@ const OrcamentoView = () => {
                         O PDF deve ter sido gerado diretamente pelo portal SALIC (Opção "Imprimir"). 
                         O sistema utiliza OCR inteligente para ler as colunas de Etapa, Local, Nome da Rubrica e Valores.
                     </p>
-                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-light);">
-                        <p class="text-xs font-bold mb-2">v1.0 - Upload Manual</p>
-                        <p class="text-xs text-muted">Na próxima versão a captura será 100% automática via robô direto no portal.</p>
+                    <div style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border-light);">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; color: var(--text-secondary);">
+                            <i data-lucide="history" style="width: 18px;"></i>
+                            <span class="font-bold text-sm">Versões Anterior (Backups)</span>
+                        </div>
+                        ${state.rubrica_versions.length === 0 ? `
+                            <p class="text-xs text-muted italic">Nenhum backup de versão anterior encontrado.</p>
+                        ` : `
+                            <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                                ${state.rubrica_versions.map(v => `
+                                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: white; border: 1px solid var(--border-light); border-radius: 4px;">
+                                        <div>
+                                            <p class="text-xs font-bold" style="margin: 0;">${v.version_name}</p>
+                                            <p class="text-xs text-muted" style="margin: 0;">${new Date(v.created_at).toLocaleDateString('pt-BR')} • ${v.total_rubricas} rubricas</p>
+                                        </div>
+                                        <a href="${v.file_path}" target="_blank" class="btn btn-secondary" style="padding: 4px 8px; font-size: 10px;">
+                                            <i data-lucide="download" style="width: 12px;"></i> Baixar
+                                        </a>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `}
                     </div>
                 </div>
             </div>
@@ -2030,7 +2050,10 @@ window.navigate = async function (view, id = null) {
         if (id) state.filters.project = id;
         else if (!state.filters.project && state.projects.length > 0) state.filters.project = state.projects[0].id;
 
-        if (state.filters.project) await fetchRubricas(state.filters.project);
+        if (state.filters.project) {
+            await fetchRubricas(state.filters.project);
+            await fetchRubricaVersions(state.filters.project);
+        }
     } else if (view === 'details' && id) {
         await fetchDocumentDetails(id);
     } else if (view === 'admin_solicitantes') {
@@ -2152,6 +2175,21 @@ async function fetchRubricas(projectId) {
         state.rubricas = data || [];
     } catch (err) {
         console.error("Erro fetch rubricas:", err);
+    }
+}
+
+async function fetchRubricaVersions(projectId) {
+    if (!supabaseClient || !projectId) return;
+    try {
+        const { data, error } = await supabaseClient
+            .from('rubricas_versions')
+            .select('*')
+            .eq('project_id', projectId)
+            .order('created_at', { ascending: false });
+
+        if (!error && data) state.rubrica_versions = data;
+    } catch (err) {
+        console.error("Erro fetch rubrica versions:", err);
     }
 }
 
