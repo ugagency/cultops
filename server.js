@@ -85,12 +85,21 @@ app.post('/api/salic/inserir', async (req, res) => {
             pronac: String(doc.projects.pronac),
             rubricaNome: doc.rubrica || 'Rubrica não informada',
             documento: {
+                // Dados obrigatórios (já existiam)
                 cnpj_fornecedor: doc.cnpj_emissor,
                 valor: doc.valor,
                 numero: doc.json_extraido?.numero_nota || 'S/N',
                 data_emissao: doc.data_emissao,
                 nf_path: doc.file_path,
-                nf_url: `${process.env.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.file_path}`
+                nf_url: `${process.env.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.file_path}`,
+                // Dados adicionais para o formulário SALIC (preencher quando tiver mapeamento)
+                nome_fornecedor: doc.json_extraido?.razao_social || '',
+                serie: doc.json_extraido?.serie || '',
+                valor_unitario: doc.json_extraido?.valor_unitario || doc.valor,
+                quantidade: doc.json_extraido?.quantidade || '1',
+                tipo_documento: doc.json_extraido?.tipo_documento || 'Nota Fiscal',
+                tipo_comprovante: doc.json_extraido?.tipo_comprovante || '',
+                comprovante_path: doc.comprovante_path || '',
             },
             browserWSEndpoint: process.env.BROWSERLESS_ENDPOINT
         };
@@ -122,6 +131,58 @@ app.post('/api/salic/inserir', async (req, res) => {
 
         res.status(500).json({ error: error.message });
     }
+});
+
+// ==========================================
+// ROTAS MÓDULO II (Prestação de Contas)
+// ==========================================
+
+/**
+ * Listar contratos de um projeto
+ */
+app.get('/api/m2/contracts/:project_id', async (req, res) => {
+    const { project_id } = req.params;
+    try {
+        const { data, error } = await supabase
+            .from('contracts')
+            .select(`
+                *,
+                fornecedores(cnpj, razao_social),
+                rubricas(nome)
+            `)
+            .eq('project_id', project_id);
+            
+        if (error) throw error;
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Salvar novo contrato
+ */
+app.post('/api/m2/contracts', async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('contracts')
+            .insert([req.body])
+            .select();
+            
+        if (error) throw error;
+        res.json(data[0]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Endpoint para encerramento SALIC (RPA M2)
+ * Nota: Implementação do robô será feita no arquivo salic_encerramento.cjs
+ */
+app.post('/api/m2/salic/encerrar', async (req, res) => {
+    const { project_id, userId } = req.body;
+    res.json({ success: true, message: "Fluxo de encerramento iniciado (Simulado). Mapeamento SALIC pendente." });
 });
 
 app.listen(PORT, () => {

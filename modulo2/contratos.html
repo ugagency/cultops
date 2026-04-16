@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Gestão de Contratos</title>
+    
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Supabase JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m2-shared.css">
+    
+    <style>
+        .contracts-container {
+            margin-top: 2rem;
+        }
+        
+        .contract-row {
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <main class="main-content">
+        <header class="page-header">
+            <div>
+                <h1>Gestão de Contratos</h1>
+                <p style="color: var(--text-secondary);">Gerencie contratos de fornecedores, parcelas e aditivos vinculados às rubricas.</p>
+            </div>
+            
+            <div style="display: flex; gap: 1rem; align-items: center;">
+                <div class="project-selector-container">
+                    <i data-lucide="briefcase" style="width: 18px; color: var(--text-secondary);"></i>
+                    <select id="project-select" onchange="handleProjectChange(this.value)">
+                        <option value="">Selecione um Projeto (PRONAC)...</option>
+                    </select>
+                </div>
+                
+                <button class="btn-m2 btn-m2-primary" onclick="alert('Cadastro de contrato em breve!')">
+                    <i data-lucide="plus"></i>
+                    Novo Contrato
+                </button>
+            </div>
+        </header>
+
+        <div class="glass-card">
+            <table class="m2-table">
+                <thead>
+                    <tr>
+                        <th>Nº Contrato</th>
+                        <th>Fornecedor</th>
+                        <th>Objeto</th>
+                        <th>Vigência</th>
+                        <th>Valor Total</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="contracts-list">
+                    <!-- Data will be injected here -->
+                    <tr>
+                        <td colspan="6" style="text-align: center; padding: 3rem; color: var(--text-muted);">
+                            Selecione um projeto para listar os contratos.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </main>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper.js"></script>
+    <script>
+        let currentProjectId = ProjectManager.getSelected();
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            renderSidebar('contratos.html');
+            await initSupabase();
+            await populateProjectSelect();
+            
+            if (currentProjectId) {
+                document.getElementById('project-select').value = currentProjectId;
+                loadContracts();
+            }
+        });
+
+        async function populateProjectSelect() {
+            const projects = await loadProjects();
+            const select = document.getElementById('project-select');
+            projects.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.textContent = `${p.pronac} - ${p.nome}`;
+                select.appendChild(opt);
+            });
+        }
+
+        function handleProjectChange(id) {
+            currentProjectId = id;
+            ProjectManager.setSelected(id);
+            loadContracts();
+        }
+
+        async function loadContracts() {
+            if (!currentProjectId) return;
+            
+            // Usando a rota do backend que criamos no server.js
+            try {
+                const response = await fetch(`/api/m2/contracts/${currentProjectId}`);
+                const data = await response.json();
+                renderContracts(data);
+            } catch (error) {
+                console.error("Erro ao carregar contratos:", error);
+                
+                // Fallback para Supabase direto se o backend falhar ou ainda não tiver subido
+                const sb = await initSupabase();
+                const { data, error: sbError } = await sb
+                    .from('contracts')
+                    .select('*, fornecedores(razao_social)')
+                    .eq('project_id', currentProjectId);
+                
+                if (!sbError) renderContracts(data);
+            }
+        }
+
+        function renderContracts(contracts) {
+            const container = document.getElementById('contracts-list');
+            if (!contracts || contracts.length === 0) {
+                container.innerHTML = `
+                    <tr>
+                        <td colspan="6" style="text-align: center; padding: 3rem; color: var(--text-muted);">
+                            Nenhum contrato encontrado para este projeto.
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            container.innerHTML = contracts.map(c => `
+                <tr class="contract-row" onclick="alert('Detalhes do contrato: ' + '${c.numero}')">
+                    <td style="font-weight: 700;">${c.numero || 'S/N'}</td>
+                    <td>${c.fornecedores ? c.fornecedores.razao_social : 'Não informado'}</td>
+                    <td style="max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${c.objeto}">${c.objeto}</td>
+                    <td>${formatDate(c.data_inicio)} - ${formatDate(c.data_fim)}</td>
+                    <td style="font-weight: 700; color: var(--m2-accent);">${formatCurrency(c.valor_total)}</td>
+                    <td>
+                        <span class="badge-m2 badge-${c.status || 'ativo'}">${c.status || 'ativo'}</span>
+                    </td>
+                </tr>
+            `).join('');
+            
+            if (window.lucide) window.lucide.createIcons();
+        }
+    </script>
+</body>
+</html>

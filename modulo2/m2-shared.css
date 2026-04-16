@@ -1,0 +1,148 @@
+:root {
+    /* M2 specific colors - deeper and more vibrant */
+    --m2-accent: #6366f1;
+    --m2-accent-hover: #4f46e5;
+    --glass-bg: rgba(255, 255, 255, 0.7);
+    --glass-border: rgba(255, 255, 255, 0.5);
+    --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
+}
+
+/* Base styles inherited from style.css logic */
+body {
+    background: radial-gradient(circle at top left, #f8fafc, #eff6ff);
+    min-height: 100vh;
+}
+
+.main-content {
+    margin-left: var(--sidebar-width);
+    padding: 2rem;
+    transition: var(--transition);
+}
+
+/* Glassmorphism Cards */
+.glass-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--glass-shadow);
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+/* Premium Typography */
+h1 {
+    font-size: 2rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--text-primary) 0%, var(--m2-accent) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 0.5rem;
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+}
+
+/* Project Selector Styling */
+.project-selector-container {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    background: var(--glass-bg);
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-light);
+}
+
+.project-selector-container select {
+    border: none;
+    background: transparent;
+    font-weight: 600;
+    color: var(--primary);
+    cursor: pointer;
+    outline: none;
+}
+
+/* Status Badges for M2 */
+.badge-m2 {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
+.badge-pendente { background: #fef3c7; color: #92400e; }
+.badge-paga { background: #d1fae5; color: #065f46; }
+.badge-atrasada { background: #fee2e2; color: #991b1b; }
+.badge-cancelada { background: #f3f4f6; color: #374151; }
+
+/* Tables Premium */
+.m2-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0 0.5rem;
+}
+
+.m2-table th {
+    padding: 1rem;
+    text-align: left;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.m2-table tr {
+    background: white;
+    box-shadow: var(--shadow-sm);
+    transition: var(--transition);
+}
+
+.m2-table tr:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+.m2-table td {
+    padding: 1.25rem 1rem;
+    border-top: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.m2-table td:first-child { border-left: 1px solid var(--border-subtle); border-radius: var(--radius-md) 0 0 var(--radius-md); }
+.m2-table td:last-child { border-right: 1px solid var(--border-subtle); border-radius: 0 var(--radius-md) var(--radius-md) 0; }
+
+/* Buttons Premium */
+.btn-m2 {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1.25rem;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+}
+
+.btn-m2-primary {
+    background: linear-gradient(135deg, var(--m2-accent) 0%, var(--m2-accent-hover) 100%);
+    color: white;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+.btn-m2-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
+}

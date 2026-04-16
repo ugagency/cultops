@@ -328,17 +328,41 @@ const RegisterView = () => `
             </div>
             
             <div class="form-group">
-                <label for="reg-password">Senha</label>
-                <input type="password" id="reg-password" placeholder="••••••••" required minlength="6">
+                <label for="reg-org-name">Nome da Organização</label>
+                <input type="text" id="reg-org-name" placeholder="Sua Produtora ou Entidade" required>
             </div>
- 
+
             <div class="form-group">
-                <label for="reg-password-confirm">Confirmar Senha</label>
-                <input type="password" id="reg-password-confirm" placeholder="••••••••" required minlength="6">
+                <label>Módulos de Interesse</label>
+                <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; padding: 0.5rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm); font-size: 0.875rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" name="reg-modules" value="modulo_1" checked> 
+                        <span>Módulo I (Comprovação Financeira RPA)</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" name="reg-modules" value="modulo_2"> 
+                        <span>Módulo II (Prestação de Contas & Contratos)</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: not-allowed; color: var(--text-muted);">
+                        <input type="checkbox" name="reg-modules" value="modulo_3" disabled> 
+                        <span>Módulo III (Contrapartidas - Em breve)</span>
+                    </label>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group">
+                    <label for="reg-password">Senha</label>
+                    <input type="password" id="reg-password" placeholder="••••••••" required minlength="6">
+                </div>
+                <div class="form-group">
+                    <label for="reg-password-confirm">Confirmar Senha</label>
+                    <input type="password" id="reg-password-confirm" placeholder="••••••••" required minlength="6">
+                </div>
             </div>
             
-            <button class="btn btn-primary" id="register-btn" style="width: 100%;" ${state.loading ? 'disabled' : ''}>
-                ${state.loading ? 'Criando conta...' : 'Cadastrar'}
+            <button class="btn btn-primary" id="register-btn" style="width: 100%; margin-top: 0.5rem;" ${state.loading ? 'disabled' : ''}>
+                ${state.loading ? 'Criando conta...' : 'Cadastrar e Acessar'}
             </button>
         </form>
         
@@ -1405,7 +1429,7 @@ window.handleLogin = async function () {
 
         state.user = data.user;
         state.userStatus = 'gestor';
-        window.navigate('dashboard');
+        window.location.href = 'module-selector.html';
     } catch (error) {
         alert("Erro no login: " + error.message);
     } finally {
@@ -1420,9 +1444,21 @@ window.handleRegister = async function () {
     const email = document.getElementById('reg-email').value;
     const password = document.getElementById('reg-password').value;
     const confirmPassword = document.getElementById('reg-password-confirm').value;
+    const orgName = document.getElementById('reg-org-name').value;
+    
+    const checkboxes = document.querySelectorAll('input[name="reg-modules"]:checked');
+    const selectedModules = Array.from(checkboxes).map(cb => cb.value);
 
     if (password !== confirmPassword) {
         return alert("As senhas não coincidem!");
+    }
+    
+    if (!orgName) {
+        return alert("O nome da organização é obrigatório!");
+    }
+
+    if (selectedModules.length === 0) {
+        return alert("Selecione pelo menos um módulo de interesse!");
     }
 
     state.loading = true;
@@ -1439,11 +1475,44 @@ window.handleRegister = async function () {
             }
         });
         if (error) throw error;
+        
+        if (data.user) {
+            // 1. Criar a Organização no BD
+            const { data: orgData, error: orgError } = await supabaseClient
+                .from('organizations')
+                .insert([{ 
+                    nome: orgName, 
+                    slug: orgName.toLowerCase().replace(/[^a-z0-9]+/g, '-'), 
+                    modulos: selectedModules, 
+                    ativo: true 
+                }])
+                .select()
+                .single();
+                
+            if (orgError) {
+                console.error("Erro ao criar organização:", orgError);
+                throw new Error("Erro ao criar estrutura da organização no banco.");
+            }
+            
+            // 2. Vincular usuário à organização
+            const { error: linkError } = await supabaseClient
+                .from('organization_users')
+                .insert([{
+                    organization_id: orgData.id,
+                    user_id: data.user.id,
+                    role: 'admin'
+                }]);
+                
+            if (linkError) {
+                console.error("Erro ao vincular permissões:", linkError);
+                throw new Error("Erro ao vincular sua conta à organização.");
+            }
+        }
 
         if (data.user && data.session) {
             state.user = data.user;
             alert("Conta criada com sucesso!");
-            window.navigate('dashboard');
+            window.location.href = 'module-selector.html';
         } else {
             alert("Conta criada! Verifique seu e-mail para confirmar o cadastro.");
             window.navigate('login');
@@ -3595,7 +3664,12 @@ async function init() {
                 state.currentView = 'solicitante_dashboard';
                 await fetchSolicitanteDashboard();
             } else {
-                state.currentView = 'dashboard';
+                const hash = window.location.hash.replace('#', '');
+                if (!hash || hash === 'login' || hash === 'register') {
+                    window.location.href = 'module-selector.html';
+                    return;
+                }
+                state.currentView = hash || 'dashboard';
                 await fetchProjects();
                 await fetchDocuments();
             }

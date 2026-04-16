@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Comprovação Física (Evidências)</title>
+    
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Supabase JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m2-shared.css">
+    
+    <style>
+        .evidence-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+        
+        .evidence-card {
+            position: relative;
+            cursor: pointer;
+            overflow: hidden;
+        }
+        
+        .evidence-preview {
+            width: 100%;
+            height: 160px;
+            background: #f1f5f9;
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1rem;
+            color: var(--text-muted);
+            background-size: cover;
+            background-position: center;
+        }
+        
+        .ia-score-badge {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.75rem;
+            font-weight: 700;
+            backdrop-filter: blur(4px);
+        }
+        
+        .score-high { color: #10b981; }
+        .score-mid { color: #f59e0b; }
+        .score-low { color: #ef4444; }
+
+        .upload-zone {
+            border: 2px dashed var(--border-light);
+            border-radius: var(--radius-lg);
+            padding: 3rem;
+            text-align: center;
+            background: var(--glass-bg);
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        
+        .upload-zone:hover {
+            border-color: var(--m2-accent);
+            background: rgba(99, 102, 241, 0.05);
+        }
+    </style>
+</head>
+<body>
+    <main class="main-content">
+        <header class="page-header">
+            <div>
+                <h1>Comprovação Física</h1>
+                <p style="color: var(--text-secondary);">Gestão de fotos, clipagem e relatórios de execução do objeto.</p>
+            </div>
+            
+            <div style="display: flex; gap: 1rem; align-items: center;">
+                <div class="project-selector-container">
+                    <i data-lucide="briefcase" style="width: 18px; color: var(--text-secondary);"></i>
+                    <select id="project-select" onchange="handleProjectChange(this.value)">
+                        <option value="">Selecione um Projeto (PRONAC)...</option>
+                    </select>
+                </div>
+            </div>
+        </header>
+
+        <div class="glass-card mb-4">
+            <div class="upload-zone" onclick="document.getElementById('file-input').click()">
+                <i data-lucide="image-plus" style="width: 48px; height: 48px; color: var(--m2-accent); margin-bottom: 1rem;"></i>
+                <h3 class="h3">Clique ou arraste evidências para upload</h3>
+                <p class="text-sm color-muted">PDF, JPG, PNG ou MP4 (Máx 50MB)</p>
+                <input type="file" id="file-input" style="display: none;" multiple onchange="handleFileUpload(this.files)">
+            </div>
+        </div>
+
+        <div id="evidence-list" class="evidence-grid">
+            <!-- Evidence cards will be injected here -->
+        </div>
+    </main>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper.js"></script>
+    <script>
+        let currentProjectId = ProjectManager.getSelected();
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            renderSidebar('comprovacao-fisica.html');
+            await initSupabase();
+            await populateProjectSelect();
+            
+            if (currentProjectId) {
+                document.getElementById('project-select').value = currentProjectId;
+                loadEvidences();
+            }
+        });
+
+        async function populateProjectSelect() {
+            const projects = await loadProjects();
+            const select = document.getElementById('project-select');
+            projects.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.textContent = `${p.pronac} - ${p.nome}`;
+                select.appendChild(opt);
+            });
+        }
+
+        function handleProjectChange(id) {
+            currentProjectId = id;
+            ProjectManager.setSelected(id);
+            loadEvidences();
+        }
+
+        async function loadEvidences() {
+            if (!currentProjectId) return;
+            
+            const sb = await initSupabase();
+            const { data, error } = await sb
+                .from('physical_evidences')
+                .select('*')
+                .eq('project_id', currentProjectId)
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                console.error("Erro ao carregar evidências:", error);
+                return;
+            }
+
+            renderEvidences(data);
+        }
+
+        function renderEvidences(evidences) {
+            const container = document.getElementById('evidence-list');
+            if (!evidences || evidences.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1/-1;">
+                        <i data-lucide="image" style="width: 48px; height: 48px; color: var(--text-muted); margin-bottom: 1rem;"></i>
+                        <h3>Sem evidências cadastradas</h3>
+                        <p>Faça o upload da primeira comprovação de execução deste projeto.</p>
+                    </div>
+                `;
+                if (window.lucide) window.lucide.createIcons();
+                return;
+            }
+
+            container.innerHTML = evidences.map(ev => {
+                const scoreClass = ev.ia_score >= 80 ? 'score-high' : (ev.ia_score >= 50 ? 'score-mid' : 'score-low');
+                const isImage = ev.file_path && (ev.file_path.endsWith('.jpg') || ev.file_path.endsWith('.png') || ev.file_path.endsWith('.jpeg'));
+                const previewStyle = isImage ? `background-image: url('${CONFIG.SUPABASE_URL}/storage/v1/object/public/physical-evidences/${ev.file_path}')` : '';
+
+                return `
+                    <div class="glass-card evidence-card">
+                        ${ev.ia_score ? `<div class="ia-score-badge">IA Score: <span class="${scoreClass}">${ev.ia_score}%</span></div>` : ''}
+                        
+                        <div class="evidence-preview" style="${previewStyle}">
+                            ${!isImage ? `<i data-lucide="file-text" style="width: 40px; height: 40px;"></i>` : ''}
+                        </div>
+                        
+                        <div style="font-weight: 700; font-size: 0.875rem; color: var(--text-primary); margin-bottom: 0.25rem;">
+                            ${ev.tipo_evidencia.replace('_', ' ').toUpperCase()}
+                        </div>
+                        <div class="text-xs" style="color: var(--text-secondary); margin-bottom: 1rem;">
+                            Enviado em ${formatDate(ev.created_at)}
+                        </div>
+                        
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span class="badge-m2 badge-${ev.status_validacao || 'pendente'}">${ev.status_validacao || 'pendente'}</span>
+                            <div style="display: flex; gap: 0.25rem;">
+                                <button class="btn-m2" style="padding: 0.4rem;" title="Abrir"><i data-lucide="external-link" style="width: 14px;"></i></button>
+                                <button class="btn-m2" style="padding: 0.4rem; color: var(--error);" title="Excluir"><i data-lucide="trash-2" style="width: 14px;"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        async function handleFileUpload(files) {
+            if (!currentProjectId) {
+                alert("Selecione um projeto primeiro!");
+                return;
+            }
+
+            const sb = await initSupabase();
+            
+            for (const file of files) {
+                const fileExt = file.name.split('.').pop();
+                const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
+                const filePath = `${currentProjectId}/${fileName}`;
+
+                // 1. Upload para o Storage
+                const { error: uploadError } = await sb.storage
+                    .from('physical-evidences')
+                    .upload(filePath, file);
+
+                if (uploadError) {
+                    alert("Erro no upload: " + uploadError.message);
+                    continue;
+                }
+
+                // 2. Registrar no Banco
+                const { error: dbError } = await sb.from('physical_evidences').insert([{
+                    project_id: currentProjectId,
+                    tipo_evidencia: 'foto_evento', // Default, permitiria troca depois
+                    file_path: filePath,
+                    status_validacao: 'pendente',
+                    ia_score: Math.floor(Math.random() * 40) + 60 // Simulação de IA score por enquanto
+                }]);
+
+                if (dbError) {
+                    console.error("Erro ao registrar no banco:", dbError);
+                }
+            }
+            
+            loadEvidences();
+        }
+    </script>
+</body>
+</html>

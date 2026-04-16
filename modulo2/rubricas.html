@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Gestão Avançada de Rubricas</title>
+    
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Supabase JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m2-shared.css">
+    
+    <style>
+        .rubrica-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+        
+        .rubrica-card {
+            display: grid;
+            grid-template-columns: 80px 2fr 1.5fr 1fr;
+            align-items: center;
+            padding: 1.25rem 1.5rem;
+        }
+        
+        .progress-container {
+            width: 100%;
+            height: 8px;
+            background: #e2e8f0;
+            border-radius: 99px;
+            overflow: hidden;
+            margin-top: 0.5rem;
+        }
+        
+        .progress-bar {
+            height: 100%;
+            border-radius: 99px;
+            transition: width 0.5s ease;
+        }
+        
+        .alerta-container {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        
+        .config-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0.25rem;
+            transition: color 0.2s;
+        }
+        
+        .config-btn:hover { color: var(--m2-accent); }
+        
+        .alert-active { color: var(--warning); filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.2)); }
+    </style>
+</head>
+<body>
+    <main class="main-content">
+        <header class="page-header">
+            <div>
+                <h1>Gestão Avançada de Rubricas</h1>
+                <p style="color: var(--text-secondary);">Controle orçamentário, alertas de limite e histórico de readequações.</p>
+            </div>
+            
+            <div style="display: flex; gap: 1rem; align-items: center;">
+                <div class="project-selector-container">
+                    <i data-lucide="briefcase" style="width: 18px; color: var(--text-secondary);"></i>
+                    <select id="project-select" onchange="handleProjectChange(this.value)">
+                        <option value="">Selecione um Projeto (PRONAC)...</option>
+                    </select>
+                </div>
+            </div>
+        </header>
+
+        <div class="rubrica-list" id="rubrica-list">
+            <!-- Rubricas summary table headers -->
+            <div class="glass-card" style="margin-bottom: 0; padding: 0.75rem 1.5rem; background: var(--bg-sidebar); border-radius: var(--radius-md) var(--radius-md) 0 0; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--text-secondary);">
+                <div style="display: grid; grid-template-columns: 80px 2fr 1.5fr 1fr; gap: 1rem;">
+                    <div>Cód</div>
+                    <div>Rubrica / Nome</div>
+                    <div>Execução Orçamentária</div>
+                    <div style="text-align: right;">Alertas / Ações</div>
+                </div>
+            </div>
+            
+            <div id="rubricas-container">
+                <!-- Data will be injected here -->
+            </div>
+        </div>
+    </main>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper.js"></script>
+    <script>
+        let currentProjectId = ProjectManager.getSelected();
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            renderSidebar('rubricas.html');
+            await initSupabase();
+            await populateProjectSelect();
+            
+            if (currentProjectId) {
+                document.getElementById('project-select').value = currentProjectId;
+                loadRubricas();
+            }
+        });
+
+        async function populateProjectSelect() {
+            const projects = await loadProjects();
+            const select = document.getElementById('project-select');
+            projects.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.textContent = `${p.pronac} - ${p.nome}`;
+                select.appendChild(opt);
+            });
+        }
+
+        function handleProjectChange(id) {
+            currentProjectId = id;
+            ProjectManager.setSelected(id);
+            loadRubricas();
+        }
+
+        async function loadRubricas() {
+            if (!currentProjectId) return;
+            
+            const sb = await initSupabase();
+            const { data, error } = await sb
+                .from('rubricas')
+                .select('*')
+                .eq('project_id', currentProjectId)
+                .order('codigo');
+
+            if (error) {
+                console.error("Erro ao carregar rubricas:", error);
+                return;
+            }
+
+            renderRubricas(data);
+        }
+
+        function renderRubricas(rubricas) {
+            const container = document.getElementById('rubricas-container');
+            if (!rubricas || rubricas.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <i data-lucide="list" style="width: 48px; height: 48px; color: var(--text-muted); margin-bottom: 1rem;"></i>
+                        <h3>Nenhuma rubrica encontrada</h3>
+                        <p>Importe o orçamento do projeto do SALIC ou cadastre manualmente.</p>
+                    </div>
+                `;
+                if (window.lucide) window.lucide.createIcons();
+                return;
+            }
+
+            container.innerHTML = rubricas.map(r => {
+                const approved = parseFloat(r.valor_aprovado || 0);
+                const used = parseFloat(r.valor_utilizado || 0);
+                const percent = approved > 0 ? (used / approved) * 100 : 0;
+                
+                // Alerta em 90% (RN-II-05)
+                const isNearingLimit = percent >= (r.percentual_alerta || 90);
+                const isAlertActive = r.alerta_limite_ativo !== false;
+                
+                let progressColor = 'var(--m2-accent)';
+                if (percent >= 100) progressColor = 'var(--error)';
+                else if (isNearingLimit) progressColor = 'var(--warning)';
+
+                return `
+                    <div class="glass-card rubrica-card">
+                        <div style="font-weight: 700; color: var(--text-secondary);">${r.codigo || '---'}</div>
+                        
+                        <div>
+                            <div style="font-weight: 700; color: var(--text-primary);">${r.nome}</div>
+                            <div class="text-xs" style="color: var(--text-muted);">${r.etapa || 'Fase de Execução'}</div>
+                        </div>
+                        
+                        <div style="padding-right: 2rem;">
+                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; font-weight: 600;">
+                                <span>${formatCurrency(used)}</span>
+                                <span style="color: var(--text-muted);">/ ${formatCurrency(approved)}</span>
+                            </div>
+                            <div class="progress-container">
+                                <div class="progress-bar" style="width: ${Math.min(percent, 100)}%; background: ${progressColor};"></div>
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; justify-content: flex-end; align-items: center; gap: 1rem;">
+                            <div class="alerta-container ${isAlertActive && isNearingLimit ? 'alert-active' : ''}">
+                                <i data-lucide="${isAlertActive ? 'bell' : 'bell-off'}" style="width: 16px;"></i>
+                                <span>${percent.toFixed(1)}%</span>
+                            </div>
+                            
+                            <button class="config-btn" title="Configurar Alertas e Readequação" onclick="handleConfigRubrica('${r.id}')">
+                                <i data-lucide="settings-2" style="width: 18px;"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        async function handleConfigRubrica(rubricaId) {
+            // No futuro abriria um modal de readequação/configuração
+            alert("Em breve: Módulo de Readequação Orçamentária e Histórico de Versões.");
+        }
+    </script>
+</body>
+</html>

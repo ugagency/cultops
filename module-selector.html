@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Seleção de Módulo</title>
+    
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Supabase JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="style.css">
+    
+    <style>
+        :root {
+            --m2-accent: #6366f1;
+            --m2-accent-hover: #4f46e5;
+            --glass-bg: rgba(255, 255, 255, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.5);
+            --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: radial-gradient(circle at top left, #f8fafc, #eff6ff);
+            margin: 0;
+            padding: 2rem;
+        }
+
+        .header-top {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            padding: 1.5rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-sizing: border-box;
+        }
+
+        .header-logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+        }
+
+        .user-details {
+            text-align: right;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .user-name {
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: 0.875rem;
+        }
+
+        .org-name {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .logout-btn {
+            background: none;
+            border: none;
+            color: var(--error);
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+            transition: opacity 0.2s;
+        }
+
+        .logout-btn:hover {
+            opacity: 0.8;
+        }
+
+        .selector-container {
+            max-width: 1000px;
+            width: 100%;
+            text-align: center;
+        }
+
+        .selector-container h1 {
+            margin-bottom: 0.5rem;
+            font-size: 2rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--text-primary) 0%, var(--primary) 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .selector-subtitle {
+            color: var(--text-secondary);
+            margin-bottom: 3rem;
+        }
+
+        .modules-grid {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .module-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--glass-shadow);
+            padding: 2.5rem 2rem;
+            width: 300px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .module-card:hover:not(.disabled) {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 35px rgba(31, 38, 135, 0.15);
+            border-color: var(--primary);
+        }
+
+        .module-icon {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, rgba(37, 99, 235, 0.1) 0%, rgba(37, 99, 235, 0.2) 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+            transition: all 0.3s;
+        }
+
+        .module-card:hover:not(.disabled) .module-icon {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
+            color: white;
+            box-shadow: 0 8px 20px rgba(37, 99, 235, 0.4);
+        }
+
+        .module-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .module-desc {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        .module-card.disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            filter: grayscale(100%);
+        }
+
+        .badge-soon {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: var(--text-muted);
+            color: white;
+            font-size: 0.65rem;
+            font-weight: 700;
+            padding: 0.25rem 0.5rem;
+            border-radius: 999px;
+            text-transform: uppercase;
+        }
+
+        #loading-state, #error-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+            color: var(--text-secondary);
+        }
+
+        .spinner {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <header class="header-top">
+        <div class="header-logo">
+            <i data-lucide="shield-check"></i>
+            <span>PrestAI</span>
+        </div>
+        <div class="user-info">
+            <div class="user-details" id="user-details" style="display: none;">
+                <span class="user-name" id="user-name">Carregando...</span>
+                <span class="org-name" id="org-name">Carregando...</span>
+            </div>
+            <button class="logout-btn" onclick="handleLogout()">
+                <i data-lucide="log-out"></i>
+                Sair
+            </button>
+        </div>
+    </header>
+
+    <div class="selector-container">
+        <div id="loading-state">
+            <i data-lucide="loader-2" class="spinner" style="width: 48px; height: 48px; color: var(--primary);"></i>
+            <p>Carregando seus módulos...</p>
+        </div>
+
+        <div id="error-state" style="display: none;">
+            <i data-lucide="alert-circle" style="width: 48px; height: 48px; color: var(--error);"></i>
+            <h2 class="h2">Acesso Restrito</h2>
+            <p id="error-message">Nenhum módulo disponível. Entre em contato com o suporte.</p>
+        </div>
+
+        <div id="content-state" style="display: none;">
+            <h1>Selecione o Módulo</h1>
+            <p class="selector-subtitle">Escolha qual área do sistema você deseja acessar agora.</p>
+            
+            <div class="modules-grid" id="modules-grid">
+                <!-- Modules will be injected here -->
+            </div>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script>
+        const MODULE_DEFS = {
+            'modulo_1': {
+                id: 'modulo_1',
+                title: 'Comprovação Financeira',
+                desc: 'Processamento de documentos fiscais, OCR, auditoria IA e injeção no SALIC',
+                icon: 'receipt'
+            },
+            'modulo_2': {
+                id: 'modulo_2',
+                title: 'Prestação de Contas',
+                desc: 'Gestão de rubricas, contratos, comprovação física e relatório final para o MinC',
+                icon: 'clipboard-check'
+            },
+            'modulo_3': {
+                id: 'modulo_3',
+                title: 'Gestão de Contrapartidas',
+                desc: 'Check-in em eventos, registro de beneficiários e relatório de democratização',
+                icon: 'users',
+                disabled: true
+            }
+        };
+
+        let supabase = null;
+
+        async function initSupabase() {
+            if (supabase) return supabase;
+            const url = typeof CONFIG !== 'undefined' ? CONFIG.SUPABASE_URL : null;
+            const key = typeof CONFIG !== 'undefined' ? CONFIG.SUPABASE_KEY : null;
+            supabase = window.supabase.createClient(url, key);
+            return supabase;
+        }
+
+        async function getUserModules() {
+            const sb = await initSupabase();
+            const { data: { user } } = await sb.auth.getUser();
+            
+            if (!user) return null;
+
+            const { data: orgUser, error: orgUserError } = await sb
+                .from('organization_users')
+                .select('organization_id')
+                .eq('user_id', user.id)
+                .limit(1)
+                .single();
+
+            if (orgUserError || !orgUser) return null;
+
+            const { data: org, error: orgError } = await sb
+                .from('organizations')
+                .select('nome, modulos')
+                .eq('id', orgUser.organization_id)
+                .single();
+
+            if (orgError || !org) return null;
+
+            return { params: org, user: user };
+        }
+
+        function setModuloAtivo(modulo) {
+            localStorage.setItem('prestai_modulo_ativo', modulo);
+            
+            if (modulo === 'modulo_1') {
+                window.location.href = 'index.html#dashboard';
+            } else if (modulo === 'modulo_2') {
+                window.location.href = 'modulo2/financeiro.html';
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            if (window.lucide) window.lucide.createIcons();
+            
+            try {
+                const sb = await initSupabase();
+                const session = await sb.auth.getSession();
+                
+                if (!session.data.session) {
+                    window.location.href = 'index.html#login';
+                    return;
+                }
+
+                const orgData = await getUserModules();
+                document.getElementById('loading-state').style.display = 'none';
+
+                if (!orgData || !orgData.params.modulos || orgData.params.modulos.length === 0) {
+                    document.getElementById('error-state').style.display = 'flex';
+                    if (orgData && orgData.user) {
+                        renderUserInfo(orgData.user, { nome: 'Sem Organização' });
+                    }
+                    return;
+                }
+
+                renderUserInfo(orgData.user, orgData.params);
+
+                const activeModules = orgData.params.modulos;
+                const availableClickableModules = activeModules.filter(m => MODULE_DEFS[m] && !MODULE_DEFS[m].disabled);
+                
+                // Redirecionamento automático
+                if (availableClickableModules.length === 1 && activeModules.length === 1) {
+                    setModuloAtivo(availableClickableModules[0]);
+                    return;
+                }
+
+                renderModules(activeModules);
+                document.getElementById('content-state').style.display = 'block';
+
+            } catch (err) {
+                console.error("Erro na inicialização:", err);
+                document.getElementById('loading-state').style.display = 'none';
+                document.getElementById('error-state').style.display = 'flex';
+            }
+        });
+
+        function renderUserInfo(user, org) {
+            document.getElementById('user-details').style.display = 'flex';
+            document.getElementById('user-name').textContent = user.email.split('@')[0];
+            document.getElementById('org-name').textContent = org.nome;
+        }
+
+        function renderModules(userModules) {
+            const grid = document.getElementById('modules-grid');
+            grid.innerHTML = '';
+
+            Object.keys(MODULE_DEFS).forEach(modKey => {
+                const modDef = MODULE_DEFS[modKey];
+                
+                if (userModules.includes(modKey)) {
+                    const isDisabled = modDef.disabled === true;
+                    
+                    const card = document.createElement('div');
+                    card.className = `module-card ${isDisabled ? 'disabled' : ''}`;
+                    
+                    if (!isDisabled) {
+                        card.onclick = () => setModuloAtivo(modKey);
+                    }
+                    
+                    card.innerHTML = `
+                        ${isDisabled ? '<span class="badge-soon">Em breve</span>' : ''}
+                        <div class="module-icon">
+                            <i data-lucide="${modDef.icon}" style="width: 32px; height: 32px;"></i>
+                        </div>
+                        <div class="module-title">${modDef.title}</div>
+                        <div class="module-desc">${modDef.desc}</div>
+                    `;
+                    grid.appendChild(card);
+                }
+            });
+            
+            if (window.lucide) window.lucide.createIcons();
+        }
+    </script>
+    <script>
+        async function handleLogout() {
+            if (typeof window.supabase === 'undefined') {
+                window.location.href = 'index.html#login';
+                return;
+            }
+            try {
+                const sb = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+                await sb.auth.signOut();
+            } catch(e) {}
+            localStorage.removeItem('prestai_modulo_ativo');
+            window.location.href = 'index.html#login';
+        }
+        window.handleLogout = handleLogout;
+    </script>
+</body>
+</html>
