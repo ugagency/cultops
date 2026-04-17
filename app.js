@@ -231,6 +231,10 @@ const Sidebar = () => `
                 <p style="font-size: 11px; color: var(--text-secondary);">Gestor</p>
             </div>
         </div>
+        <a class="nav-item" href="module-selector.html" style="color: var(--text-secondary); margin-bottom: 0.25rem;">
+            <i data-lucide="arrow-left-right"></i>
+            <span>Trocar Módulo</span>
+        </a>
         <a class="nav-item" onclick="window.handleLogout()" style="color: var(--error);">
             <i data-lucide="log-out"></i>
             <span>Sair</span>
@@ -254,6 +258,10 @@ const SolicitanteHeader = () => `
             <i data-lucide="user-circle"></i>
             <span>${state.user ? state.user.email.split('@')[0] : 'Solicitante'}</span>
         </div>
+        <a href="module-selector.html" class="btn btn-ghost" style="color: var(--text-secondary); border: 1px solid var(--border-light);">
+            <i data-lucide="arrow-left-right"></i>
+            Trocar Módulo
+        </a>
         <button class="btn btn-ghost" onclick="window.handleLogout()">
             <i data-lucide="log-out"></i>
             Sair

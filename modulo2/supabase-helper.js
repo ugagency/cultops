@@ -1,12 +1,12 @@
 // modulo2/supabase-helper.js
 
-let supabase = null;
+let sbClient = null;
 
 /**
  * Inicializa o cliente Supabase
  */
 async function initSupabase() {
-    if (supabase) return supabase;
+    if (sbClient) return sbClient;
 
     // CONFIG deve estar disponível globalmente via <script src="../config.js">
     const url = typeof CONFIG !== 'undefined' ? CONFIG.SUPABASE_URL : null;
@@ -17,8 +17,8 @@ async function initSupabase() {
         return null;
     }
 
-    supabase = window.supabase.createClient(url, key);
-    return supabase;
+    sbClient = window.supabase.createClient(url, key);
+    return sbClient;
 }
 
 /**
@@ -47,56 +47,122 @@ async function loadProjects() {
  */
 const ProjectManager = {
     getSelected() {
-        return localStorage.getItem('m2_selected_project_id');
+        return localStorage.getItem('prestai_project_id');
     },
     setSelected(id) {
-        localStorage.setItem('m2_selected_project_id', id);
+        localStorage.setItem('prestai_project_id', id);
         window.dispatchEvent(new CustomEvent('projectChanged', { detail: { id } }));
     }
 };
 
 /**
+ * Retorna o ID do projeto atual (não redireciona mais de forma forçada).
+ */
+function checkProjectSetup() {
+    return ProjectManager.getSelected();
+}
+
+/**
  * Renderiza o Sidebar consistente com o M1 mas incluindo links do M2
  */
-function renderSidebar(currentPath) {
+function renderSidebar() {
+    // Remove sidebar anterior se existir para evitar duplicação em SPAs/navegação manual
+    const existingSidebar = document.querySelector('.sidebar');
+    if (existingSidebar) existingSidebar.remove();
+
     const sidebar = document.createElement('aside');
     sidebar.className = 'sidebar';
+    sidebar.style.cssText = `
+        position: fixed; 
+        left: 0; 
+        top: 0; 
+        height: 100vh; 
+        width: 260px; /* Fallback em caso de falha na variável */
+        width: var(--sidebar-width, 260px); 
+        background: white; 
+        border-right: 1px solid var(--glass-border, #e2e8f0); 
+        padding: 1.5rem; 
+        display: flex; 
+        flex-direction: column; 
+        gap: 2rem;
+        z-index: 1000;
+        box-shadow: 4px 0 24px rgba(0,0,0,0.02);
+    `;
     
+    // Lista de itens de navegação interna do M2
     const navItems = [
-        { label: 'Dashboard', icon: 'layout-dashboard', path: '../index.html#dashboard' },
-        { label: 'Projetos', icon: 'briefcase', path: '../index.html#projects' },
-        { label: 'Contratos', icon: 'file-signature', path: 'contratos.html' },
-        { label: 'Rubricas', icon: 'list-checks', path: 'rubricas.html' },
-        { label: 'DARF / Impostos', icon: 'landmark', path: 'impostos.html' },
-        { label: 'Comprovação Física', icon: 'image', path: 'comprovacao-fisica.html' },
-        { label: 'Financeiro M2', icon: 'bar-chart-3', path: 'financeiro.html' },
-        { label: 'Prestação de Contas', icon: 'clipboard-check', path: 'prestacao-contas.html' },
-        { label: 'Configurações', icon: 'settings', path: '../index.html#configuracoes' },
+        { label: 'Projetos', icon: 'folder-kanban', path: 'projeto-setup.html' },
+        { label: 'Dashboard', icon: 'layout-dashboard', path: 'financeiro.html' },
+        { label: 'Rubricas', icon: 'pie-chart', path: 'rubricas.html' },
+        { label: 'Contratos', icon: 'file-text', path: 'contratos.html' },
+        { label: 'Impostos', icon: 'landmark', path: 'impostos.html' },
+        { label: 'Evidências', icon: 'camera', path: 'comprovacao-fisica.html' },
     ];
 
+    const currentFile = window.location.pathname.split('/').pop();
+
     sidebar.innerHTML = `
-        <div class="sidebar-logo">
-            <i data-lucide="shield-check"></i>
-            <span>Prestaí M2</span>
+        <div class="logo" style="display: flex; align-items: center; gap: 0.75rem; font-weight: 800; color: var(--m2-accent); font-size: 1.25rem; padding-bottom: 0.5rem; margin-bottom: 1rem;">
+            <i data-lucide="shield-check"></i> 
+            <span>PrestAI M2</span>
         </div>
-        <nav class="sidebar-nav">
-            ${navItems.map(item => `
-                <a href="${item.path}" class="nav-item ${currentPath.includes(item.path) ? 'active' : ''}">
-                    <i data-lucide="${item.icon}"></i>
-                    <span>${item.label}</span>
-                </a>
-            `).join('')}
+        <nav style="display: flex; flex-direction: column; gap: 0.5rem; flex: 1;">
+            ${navItems.map(item => {
+                const active = currentFile === item.path;
+                return `
+                    <a href="${item.path}" class="nav-link ${active ? 'active' : ''}" style="
+                        display: flex; 
+                        align-items: center; 
+                        gap: 0.75rem; 
+                        padding: 0.75rem 1rem; 
+                        border-radius: 12px; 
+                        text-decoration: none; 
+                        color: ${active ? 'var(--m2-accent)' : '#64748b'}; 
+                        background: ${active ? 'rgba(99, 102, 241, 0.08)' : 'transparent'}; 
+                        font-weight: ${active ? '700' : '500'};
+                        transition: all 0.2s;
+                    ">
+                        <i data-lucide="${item.icon}" style="width: 20px; height: 20px;"></i> 
+                        <span>${item.label}</span>
+                    </a>
+                `;
+            }).join('')}
         </nav>
-        <div class="sidebar-footer">
-            <a class="nav-item" onclick="handleLogout()" style="color: var(--error);">
-                <i data-lucide="log-out"></i>
+        <div style="border-top: 1px solid #f1f5f9; padding-top: 1.5rem; display: flex; flex-direction: column; gap: 0.5rem;">
+            <a href="../module-selector.html" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; text-decoration: none; color: #64748b; font-size: 0.875rem; font-weight: 500;">
+                <i data-lucide="arrow-left-right" style="width: 18px;"></i> 
+                <span>Trocar Módulo</span>
+            </a>
+            <a href="#" onclick="handleLogout()" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; text-decoration: none; color: #ef4444; font-size: 0.875rem; font-weight: 500;">
+                <i data-lucide="log-out" style="width: 18px;"></i> 
                 <span>Sair</span>
             </a>
         </div>
     `;
 
     document.body.prepend(sidebar);
-    if (window.lucide) window.lucide.createIcons();
+    
+    // Inicia ícones do Lucide após inserir no DOM
+    if (window.lucide) {
+        window.lucide.createIcons();
+    } else {
+        // Fallback caso Lucide ainda esteja carregando
+        setTimeout(() => { if (window.lucide) window.lucide.createIcons(); }, 500);
+    }
+
+    // Define handleLogout globalmente se ainda não existir
+    if (!window.handleLogout) {
+        window.handleLogout = async function(e) {
+            if(e) e.preventDefault();
+            const config = window.CONFIG;
+            if (window.supabase && config) {
+                const sb = window.supabase.createClient(config.SUPABASE_URL, config.SUPABASE_KEY);
+                await sb.auth.signOut();
+            }
+            localStorage.removeItem('prestai_modulo_ativo');
+            window.location.href = '../index.html#login';
+        };
+    }
 }
 
 /**
@@ -117,6 +183,7 @@ function formatDate(dateString) {
 window.initSupabase = initSupabase;
 window.loadProjects = loadProjects;
 window.ProjectManager = ProjectManager;
+window.checkProjectSetup = checkProjectSetup;
 window.renderSidebar = renderSidebar;
 window.formatCurrency = formatCurrency;
 window.formatDate = formatDate;

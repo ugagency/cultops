@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Dashboard Financeiro (Módulo II)</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m2-shared.css">
+    
+    <style>
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .stat-label {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .stat-value {
+            font-size: 1.75rem;
+            font-weight: 800;
+            color: var(--text-primary);
+        }
+
+        .stat-sub {
+            font-size: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .stat-positive { color: #10b981; }
+        .stat-warning { color: #f59e0b; }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 1.5rem;
+        }
+
+        .progress-container {
+            margin-top: 1rem;
+        }
+
+        .progress-bar-bg {
+            height: 8px;
+            background: #e2e8f0;
+            border-radius: 999px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--m2-accent) 0%, var(--m2-accent-hover) 100%);
+            transition: width 1s ease-out;
+        }
+
+        .quick-nav {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1rem;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1.25rem;
+            background: white;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            text-decoration: none;
+            color: inherit;
+            transition: all 0.2s;
+        }
+
+        .nav-item:hover {
+            border-color: var(--m2-accent);
+            transform: translateX(5px);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .nav-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            background: rgba(99, 102, 241, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--m2-accent);
+        }
+    </style>
+</head>
+<body>
+    <main class="main-content">
+        <header class="page-header">
+            <div>
+                <h1>Dashboard Financeiro</h1>
+                <p class="text-secondary">Visão geral da prestação de contas e conformidade.</p>
+            </div>
+            
+            <div class="project-selector-container">
+                <i data-lucide="folder-kanban" style="width: 18px; color: var(--text-secondary);"></i>
+                <select id="project-selector">
+                    <option value="">Carregando projetos...</option>
+                </select>
+            </div>
+        </header>
+
+        <section class="stats-grid">
+            <div class="glass-card stat-card">
+                <span class="stat-label">Orçamento Total</span>
+                <span class="stat-value" id="total-budget">R$ 0,00</span>
+                <span class="stat-sub stat-positive">
+                    <i data-lucide="trending-up" style="width: 14px;"></i>
+                    100% captado
+                </span>
+            </div>
+            <div class="glass-card stat-card">
+                <span class="stat-label">Execução Financeira</span>
+                <span class="stat-value" id="execution-percent">0%</span>
+                <div class="progress-container">
+                    <div class="progress-bar-bg">
+                        <div class="progress-bar-fill" id="execution-bar" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="glass-card stat-card">
+                <span class="stat-label">Impostos Provisionados</span>
+                <span class="stat-value" id="total-taxes">R$ 0,00</span>
+                <span class="stat-sub stat-warning">
+                    <i data-lucide="alert-circle" style="width: 14px;"></i>
+                    3 guias vencendo hoje
+                </span>
+            </div>
+            <div class="glass-card stat-card">
+                <span class="stat-label">Checklist MinC</span>
+                <span class="stat-value" id="checklist-percent">0%</span>
+                <span class="stat-sub">Apto para envio ao atingir 100%</span>
+            </div>
+        </section>
+
+        <div class="dashboard-grid">
+            <section class="glass-card">
+                <h3 class="h3" style="margin-bottom: 1.5rem;">Alertas de Rubricas (Próximas ao Limite)</h3>
+                <div id="rubric-alerts">
+                    <p class="text-muted">Nenhum alerta crítico no momento.</p>
+                </div>
+            </section>
+
+            <aside class="quick-nav">
+                <h3 class="h3" style="margin-bottom: 0.5rem; padding-left: 0.5rem;">Acesso Rápido</h3>
+                <a href="rubricas.html" class="nav-item">
+                    <div class="nav-icon"><i data-lucide="pie-chart"></i></div>
+                    <div>
+                        <div style="font-weight: 700;">Gestão de Rubricas</div>
+                        <div style="font-size: 0.75rem; color: var(--text-secondary);">Controle orçamentário</div>
+                    </div>
+                </a>
+                <a href="contratos.html" class="nav-item">
+                    <div class="nav-icon"><i data-lucide="file-text"></i></div>
+                    <div>
+                        <div style="font-weight: 700;">Contratos & Terceiros</div>
+                        <div style="font-size: 0.75rem; color: var(--text-secondary);">Jurídico e pagamentos</div>
+                    </div>
+                </a>
+                <a href="impostos.html" class="nav-item">
+                    <div class="nav-icon"><i data-lucide="landmark"></i></div>
+                    <div>
+                        <div style="font-weight: 700;">Gestão de Impostos</div>
+                        <div style="font-size: 0.75rem; color: var(--text-secondary);">Retenções e guias DARF</div>
+                    </div>
+                </a>
+                <a href="comprovacao-fisica.html" class="nav-item">
+                    <div class="nav-icon"><i data-lucide="camera"></i></div>
+                    <div>
+                        <div style="font-weight: 700;">Comprovação Física</div>
+                        <div style="font-size: 0.75rem; color: var(--text-secondary);">Fotos e evidências IA</div>
+                    </div>
+                </a>
+            </aside>
+        </div>
+    </main>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            renderSidebar();
+            
+            if (window.lucide) window.lucide.createIcons();
+            
+            try {
+                const sb = await initSupabase();
+                const session = await sb.auth.getSession();
+                if (!session.data.session) {
+                    window.location.href = '../index.html#login';
+                    return;
+                }
+
+                // Carregar projetos
+                const { data: projects } = await sb.from('projects').select('*').order('nome');
+                const selector = document.getElementById('project-selector');
+                
+                if (projects && projects.length > 0) {
+                    selector.innerHTML = projects.map(p => `<option value="${p.id}">${p.nome}</option>`).join('');
+                    loadDashboardData(projects[0].id);
+                } else {
+                    selector.innerHTML = '<option value="">Nenhum projeto encontrado</option>';
+                }
+
+                selector.onchange = (e) => loadDashboardData(e.target.value);
+
+            } catch (err) {
+                console.error("Erro ao carregar dashboard:", err);
+            }
+        });
+
+        async function loadDashboardData(projectId) {
+            const sb = await initSupabase();
+            
+            // Simulação de dados para o dashboard (Em produção viria de views agregadas do Supabase)
+            document.getElementById('total-budget').textContent = 'R$ 450.000,00';
+            document.getElementById('execution-percent').textContent = '42%';
+            document.getElementById('execution-bar').style.width = '42%';
+            document.getElementById('total-taxes').textContent = 'R$ 12.450,80';
+            document.getElementById('checklist-percent').textContent = '15%';
+
+            // Buscar rubricas com alerta (>90%)
+            const { data: rubrics } = await sb.from('rubricas')
+                .select('*')
+                .eq('project_id', projectId)
+                .gte('percentual_executado', 90);
+
+            const alertContainer = document.getElementById('rubric-alerts');
+            if (rubrics && rubrics.length > 0) {
+                alertContainer.innerHTML = rubrics.map(r => `
+                    <div style="padding: 1rem; border-left: 4px solid #ef4444; background: #fef2f2; border-radius: 4px; margin-bottom: 0.75rem;">
+                        <div style="display: flex; justify-content: space-between; font-weight: 600;">
+                            <span>${r.nome}</span>
+                            <span class="text-error">${r.percentual_executado}%</span>
+                        </div>
+                        <div style="font-size: 0.75rem; color: var(--text-secondary);">Atenção: Rubrica atingindo o limite orçamentário.</div>
+                    </div>
+                `).join('');
+            } else {
+                alertContainer.innerHTML = '<p class="text-muted">Todas as rubricas estão dentro dos limites.</p>';
+            }
+        }
+
+    </script>
+</body>
+</html>

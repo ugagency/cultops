@@ -1,10 +1,11 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PrestAI — Seleção de Módulo</title>
-    
+
     <!-- Google Fonts: Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,12 +13,12 @@
 
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
-    
+
     <!-- Supabase JS -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <link rel="stylesheet" href="style.css">
-    
+
     <style>
         :root {
             --m2-accent: #6366f1;
@@ -204,7 +205,8 @@
             text-transform: uppercase;
         }
 
-        #loading-state, #error-state {
+        #loading-state,
+        #error-state {
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -217,11 +219,17 @@
         }
 
         @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
         }
     </style>
 </head>
+
 <body>
     <header class="header-top">
         <div class="header-logo">
@@ -255,7 +263,7 @@
         <div id="content-state" style="display: none;">
             <h1>Selecione o Módulo</h1>
             <p class="selector-subtitle">Escolha qual área do sistema você deseja acessar agora.</p>
-            
+
             <div class="modules-grid" id="modules-grid">
                 <!-- Modules will be injected here -->
             </div>
@@ -286,20 +294,20 @@
             }
         };
 
-        let supabase = null;
+        let sbClient = null;
 
         async function initSupabase() {
-            if (supabase) return supabase;
+            if (sbClient) return sbClient;
             const url = typeof CONFIG !== 'undefined' ? CONFIG.SUPABASE_URL : null;
             const key = typeof CONFIG !== 'undefined' ? CONFIG.SUPABASE_KEY : null;
-            supabase = window.supabase.createClient(url, key);
-            return supabase;
+            sbClient = window.supabase.createClient(url, key);
+            return sbClient;
         }
 
         async function getUserModules() {
             const sb = await initSupabase();
             const { data: { user } } = await sb.auth.getUser();
-            
+
             if (!user) return null;
 
             const { data: orgUser, error: orgUserError } = await sb
@@ -324,7 +332,7 @@
 
         function setModuloAtivo(modulo) {
             localStorage.setItem('prestai_modulo_ativo', modulo);
-            
+
             if (modulo === 'modulo_1') {
                 window.location.href = 'index.html#dashboard';
             } else if (modulo === 'modulo_2') {
@@ -334,11 +342,11 @@
 
         document.addEventListener('DOMContentLoaded', async () => {
             if (window.lucide) window.lucide.createIcons();
-            
+
             try {
                 const sb = await initSupabase();
                 const session = await sb.auth.getSession();
-                
+
                 if (!session.data.session) {
                     window.location.href = 'index.html#login';
                     return;
@@ -359,7 +367,7 @@
 
                 const activeModules = orgData.params.modulos;
                 const availableClickableModules = activeModules.filter(m => MODULE_DEFS[m] && !MODULE_DEFS[m].disabled);
-                
+
                 // Redirecionamento automático
                 if (availableClickableModules.length === 1 && activeModules.length === 1) {
                     setModuloAtivo(availableClickableModules[0]);
@@ -388,17 +396,17 @@
 
             Object.keys(MODULE_DEFS).forEach(modKey => {
                 const modDef = MODULE_DEFS[modKey];
-                
+
                 if (userModules.includes(modKey)) {
                     const isDisabled = modDef.disabled === true;
-                    
+
                     const card = document.createElement('div');
                     card.className = `module-card ${isDisabled ? 'disabled' : ''}`;
-                    
+
                     if (!isDisabled) {
                         card.onclick = () => setModuloAtivo(modKey);
                     }
-                    
+
                     card.innerHTML = `
                         ${isDisabled ? '<span class="badge-soon">Em breve</span>' : ''}
                         <div class="module-icon">
@@ -410,7 +418,7 @@
                     grid.appendChild(card);
                 }
             });
-            
+
             if (window.lucide) window.lucide.createIcons();
         }
     </script>
@@ -423,11 +431,12 @@
             try {
                 const sb = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
                 await sb.auth.signOut();
-            } catch(e) {}
+            } catch (e) { }
             localStorage.removeItem('prestai_modulo_ativo');
             window.location.href = 'index.html#login';
         }
         window.handleLogout = handleLogout;
     </script>
 </body>
+
 </html>

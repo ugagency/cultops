@@ -112,7 +112,7 @@
         let currentProjectId = ProjectManager.getSelected();
 
         document.addEventListener('DOMContentLoaded', async () => {
-            renderSidebar('rubricas.html');
+            renderSidebar();
             await initSupabase();
             await populateProjectSelect();
             

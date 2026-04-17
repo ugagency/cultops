@@ -82,7 +82,7 @@
         let currentProjectId = ProjectManager.getSelected();
 
         document.addEventListener('DOMContentLoaded', async () => {
-            renderSidebar('contratos.html');
+            renderSidebar();
             await initSupabase();
             await populateProjectSelect();
             
