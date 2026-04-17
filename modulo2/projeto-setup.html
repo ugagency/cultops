@@ -263,51 +263,20 @@
             html += `
                 <div class="option-card">
                     <div class="card-icon icon-indigo">
-                        <i data-lucide="folder-plus"></i>
+                        <i data-lucide="folder-search"></i>
                     </div>
-                    <h3>Criar Projeto do Zero</h3>
+                    <h3>Importar do Salic</h3>
                     <p class="text-secondary" style="font-size: 0.875rem; margin-top: 0.5rem; margin-bottom: 1.5rem;">
-                        Cadastre manualmente os dados de um novo projeto para prestação de contas.
+                        Busque os dados automaticamente através da automação do portal Salic.
                     </p>
                     
-                    <form id="form-novo-projeto" onsubmit="handleCreateProject(event)">
+                    <form id="form-novo-projeto" onsubmit="handleSalicImport(event)">
                         <div class="form-group">
-                            <label class="form-label">PRONAC</label>
+                            <label class="form-label">Número do PRONAC</label>
                             <input type="text" id="p-pronac" class="form-control" required placeholder="Ex: 231456">
                         </div>
-                        <div class="form-group">
-                            <label class="form-label">Nome do Projeto</label>
-                            <input type="text" id="p-nome" class="form-control" required placeholder="Nome oficial aprovado">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Proponente / Titular</label>
-                            <input type="text" id="p-proponente" class="form-control" required>
-                        </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                            <div class="form-group">
-                                <label class="form-label">Mecanismo</label>
-                                <select id="p-mecanismo" class="form-control" required>
-                                    <option value="Incentivo Fiscal">Incentivo Fiscal (Rouanet)</option>
-                                    <option value="FNC">FNC</option>
-                                    <option value="Fundo Setorial">Fundo Setorial</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">UF</label>
-                                <select id="p-uf" class="form-control" required>
-                                    <option value="SP">SP</option>
-                                    <option value="RJ">RJ</option>
-                                    <option value="MG">MG</option>
-                                    <option value="RS">RS</option>
-                                    <option value="BA">BA</option>
-                                    <option value="PR">PR</option>
-                                    <option value="DF">DF</option>
-                                    <option value="Outro">Outro</option>
-                                </select>
-                            </div>
-                        </div>
                         <button type="submit" class="btn-m2" style="width: 100%; margin-top: 1rem; justify-content: center;">
-                            Criar e Prosseguir
+                            Importar Projeto
                         </button>
                     </form>
                 </div>
@@ -377,41 +346,85 @@
             }
         }
 
-        // Fluxo B: Criar do zero
-        async function handleCreateProject(e) {
+        // Fluxo B: Importar do Salic (Webhook M1)
+        async function handleSalicImport(e) {
             e.preventDefault();
             
             const btn = e.target.querySelector('button');
             const oldText = btn.innerHTML;
-            btn.innerHTML = '<i data-lucide="loader" class="spin"></i> Criando...';
+            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width: 16px;"></i> Importando...';
             btn.disabled = true;
 
+            const pronacNum = document.getElementById('p-pronac').value.trim();
+
             try {
+                if (!CONFIG.N8N_WEBHOOK_SALIC_PROJECT_URL) {
+                    throw new Error("URL do Webhook do n8n não configurada no config.js.");
+                }
+
+                // 1. Aciona o Webhook n8n para importar
+                const response = await fetch(CONFIG.N8N_WEBHOOK_SALIC_PROJECT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    mode: 'cors',
+                    body: JSON.stringify({ pronac: pronacNum, user_id: currentUserContext.user.id })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Erro no webhook interno: ${response.status}`);
+                }
+
+                const rawData = await response.json();
+                const data = Array.isArray(rawData) ? rawData[0] : rawData;
+
+                const isNotFound =
+                    (data.message && data.message.toLowerCase().includes("não encontrado")) ||
+                    (data.pronac === null && data.nome === null);
+
+                if (isNotFound || data.success === false || data.error) {
+                    throw new Error(data.message || data.error || "Projeto não encontrado no SALIC. Verifique o número.");
+                }
+
+                // 2. Busca o projeto na tabela (o n8n já gravou) para atrelar organization_id e context M2
                 const sb = await window.initSupabase();
-                const { data: orgUser } = await sb.from('organization_users').select('organization_id').eq('user_id', currentUserContext.user.id).single();
-
-                const newProject = {
-                    pronac: document.getElementById('p-pronac').value,
-                    nome: document.getElementById('p-nome').value,
-                    proponente: document.getElementById('p-proponente').value,
-                    mecanismo: document.getElementById('p-mecanismo').value,
-                    uf: document.getElementById('p-uf').value,
-                    user_id: currentUserContext.user.id,
-                    organization_id: orgUser ? orgUser.organization_id : null
-                };
-
-                const { data, error } = await sb.from('projects').insert([newProject]).select('id').single();
-
-                if (error) throw error;
-
-                pendingProjectId = data.id;
-                ProjectManager.setSelected(data.id);
                 
-                // Abre modal para convidar upload rubricas
+                // Dar tempo para o banco persistir... O retorno do webhook M1 costuma ser imediato (JSON já salvo)
+                const { data: proj, error } = await sb.from('projects').select('id')
+                    .eq('pronac', pronacNum)
+                    .eq('user_id', currentUserContext.user.id)
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .single();
+                
+                if (error || !proj) {
+                    throw new Error("Sucesso no Salic, mas erro ao encontrar o projeto no banco de dados local.");
+                }
+
+                const { data: orgUser } = await sb.from('organization_users')
+                    .select('organization_id')
+                    .eq('user_id', currentUserContext.user.id)
+                    .single();
+
+                if (orgUser && orgUser.organization_id) {
+                    await sb.from('projects')
+                        .update({ organization_id: orgUser.organization_id })
+                        .eq('id', proj.id);
+                }
+
+                pendingProjectId = proj.id;
+                ProjectManager.setSelected(proj.id);
+                
+                // Abre modal para convidar upload rubricas (que o Salic não puxa)
                 document.getElementById('rubricasModal').style.display = 'flex';
 
             } catch (err) {
-                alert("Erro ao criar projeto: " + err.message);
+                if (err.message.includes("Crendenciais do salic não encontradas") || err.message.includes("credenciais SALIC")) {
+                    if (confirm("Você precisa configurar suas credenciais SALIC antes de importar. Deseja ir para as configurações agora?")) {
+                        window.location.href = 'configuracoes.html';
+                    }
+                } else {
+                    alert("Erro: " + err.message);
+                }
             } finally {
                 btn.innerHTML = oldText;
                 btn.disabled = false;

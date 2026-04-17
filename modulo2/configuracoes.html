@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI M2 — Configurações</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m2-shared.css">
+    
+    <style>
+        .settings-container { max-width: 800px; margin-top: 1rem; }
+
+        .settings-card {
+            background: white;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-md);
+            padding: 2.5rem;
+            margin-bottom: 2rem;
+            border: 1px solid var(--border-light);
+            position: relative;
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .card-header h3 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .form-group { margin-bottom: 1.5rem; }
+        .form-group label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 0.6rem;
+            color: var(--text-primary);
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 0.875rem 1.25rem;
+            border: 1.5px solid var(--border-light);
+            border-radius: var(--radius-md);
+            font-family: inherit;
+            font-size: 0.95rem;
+        }
+
+        .status-badge {
+            margin-left: auto;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 1rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 700;
+        }
+
+        .status-badge.connected { background: #dcfce7; color: #15803d; }
+        .status-badge.disconnected { background: #fee2e2; color: #b91c1c; }
+
+        .toast-notification {
+            position: fixed;
+            bottom: 2.5rem;
+            right: 2.5rem;
+            padding: 1.25rem 2rem;
+            border-radius: var(--radius-md);
+            color: white;
+            font-weight: 700;
+            z-index: 99999;
+            transform: translateY(200%);
+            transition: transform 0.3s ease;
+        }
+
+        .toast-notification.show { transform: translateY(0); }
+        .toast-notification.success { background: #10b981; }
+        .toast-notification.error { background: #ef4444; }
+        
+        .sidebar { z-index: 10000 !important; } /* Garantir que a sidebar fique no topo */
+    </style>
+</head>
+<body>
+    <main class="main-content">
+        <div class="dashboard-header" style="margin-bottom: 3rem;">
+            <h1 style="font-size: 2.5rem; font-weight: 800;">Configurações</h1>
+            <p style="color: var(--text-secondary); font-size: 1.125rem;">Gerencie suas credenciais e integrações do Módulo II.</p>
+        </div>
+
+        <div class="settings-container">
+            <!-- Credenciais SALIC -->
+            <section class="settings-card" style="border-top: 5px solid var(--m2-accent);">
+                <div class="card-header">
+                    <i data-lucide="key-round" style="color: var(--m2-accent);"></i>
+                    <h3>Conexão SALIC (Gov.br)</h3>
+                    <div class="status-badge disconnected" id="salic-status">Desconectado</div>
+                </div>
+                
+                <form id="salic-form">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
+                        <div class="form-group">
+                            <label>Usuário / CPF</label>
+                            <input type="text" id="salic-user" placeholder="000.000.000-00" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Senha</label>
+                            <input type="password" id="salic-pass" placeholder="••••••••" required>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-m2 btn-m2-primary" id="btn-save-salic" style="width: 100%; justify-content: center; height: 50px;">
+                        Salvar Credenciais SALIC
+                    </button>
+                </form>
+            </section>
+
+            <!-- Credenciais BB -->
+            <section class="settings-card" style="border-top: 5px solid #f7c948;">
+                <div class="card-header">
+                    <img src="https://upload.wikimedia.org/wikipedia/pt/thumb/3/3b/Logo_Banco_do_Brasil.png/300px-Logo_Banco_do_Brasil.png" style="width: 28px;">
+                    <h3>Integração Banco do Brasil (API)</h3>
+                    <div class="status-badge disconnected" id="bb-status">Desconectado</div>
+                </div>
+                
+                <form id="bb-form">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
+                        <div class="form-group">
+                            <label>Client ID</label>
+                            <input type="text" id="bb-client-id" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Client Secret</label>
+                            <input type="password" id="bb-client-secret" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Developer Application Key (X-Developer-Key)</label>
+                        <input type="text" id="bb-developer-key" required>
+                    </div>
+                    <button type="submit" class="btn-m2 btn-m2-primary" id="btn-save-bb" style="width: 100%; justify-content: center; background: #0038A8; height: 50px;">
+                        Salvar Credenciais BB
+                    </button>
+                </form>
+            </section>
+        </div>
+    </main>
+
+    <div class="toast-notification" id="toast"></div>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper.js"></script>
+    <script>
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            console.log("Configurações M2: Iniciando...");
+            
+            // 1. Sidebar
+            if (window.renderSidebar) {
+                window.renderSidebar();
+            }
+
+            // 2. Supabase
+            try {
+                sbClient = await window.initSupabase();
+                const { data: { user } } = await sbClient.auth.getUser();
+                if (!user) {
+                    window.location.href = '../index.html#login';
+                    return;
+                }
+                await loadCredentials();
+            } catch (err) {
+                console.error("Erro no carregamento:", err);
+            }
+
+            // 3. Listeners (Explicitamente anexados)
+            document.getElementById('salic-form').onsubmit = handleSaveSalic;
+            document.getElementById('bb-form').onsubmit = handleSaveBB;
+
+            if (window.lucide) window.lucide.createIcons();
+        });
+
+        async function loadCredentials() {
+            const { data, error } = await sbClient.from('external_credentials').select('*').in('service_name', ['salic', 'bb_api']);
+            if (data) {
+                data.forEach(cred => {
+                    if (cred.service_name === 'salic') {
+                        document.getElementById('salic-user').value = cred.identifier || '';
+                        document.getElementById('salic-pass').value = '********';
+                        document.getElementById('salic-status').className = 'status-badge connected';
+                        document.getElementById('salic-status').innerText = 'Conectado';
+                    } else if (cred.service_name === 'bb_api') {
+                        document.getElementById('bb-client-id').value = cred.identifier || '';
+                        document.getElementById('bb-client-secret').value = '********';
+                        document.getElementById('bb-developer-key').value = cred.metadata?.developer_key || '';
+                        document.getElementById('bb-status').className = 'status-badge connected';
+                        document.getElementById('bb-status').innerText = 'Conectado';
+                    }
+                });
+                if (window.lucide) window.lucide.createIcons();
+            }
+        }
+
+        async function handleSaveSalic(e) {
+            e.preventDefault();
+            console.log("Tentando salvar SALIC...");
+            const btn = document.getElementById('btn-save-salic');
+            btn.disabled = true;
+            btn.innerText = 'SALVANDO...';
+
+            try {
+                const user = document.getElementById('salic-user').value.trim();
+                const pass = document.getElementById('salic-pass').value.trim();
+
+                const { error } = await sbClient.rpc('upsert_external_credential', {
+                    p_service_name: 'salic',
+                    p_identifier: user,
+                    p_secret: pass === '********' ? null : pass
+                });
+
+                if (error) throw error;
+                showToast("Credenciais SALIC salvas!", "success");
+                await loadCredentials();
+            } catch (err) {
+                showToast("Erro: " + err.message, "error");
+            } finally {
+                btn.disabled = false;
+                btn.innerText = 'Salvar Credenciais SALIC';
+            }
+        }
+
+        async function handleSaveBB(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btn-save-bb');
+            btn.disabled = true;
+            btn.innerText = 'SALVANDO...';
+
+            try {
+                const clientId = document.getElementById('bb-client-id').value.trim();
+                const secret = document.getElementById('bb-client-secret').value.trim();
+                const devKey = document.getElementById('bb-developer-key').value.trim();
+
+                const { error } = await sbClient.rpc('upsert_external_credential', {
+                    p_service_name: 'bb_api',
+                    p_identifier: clientId,
+                    p_secret: secret === '********' ? null : secret,
+                    p_metadata: { developer_key: devKey }
+                });
+
+                if (error) throw error;
+                showToast("Credenciais BB salvas!", "success");
+                await loadCredentials();
+            } catch (err) {
+                showToast("Erro: " + err.message, "error");
+            } finally {
+                btn.disabled = false;
+                btn.innerText = 'Salvar Credenciais BB';
+            }
+        }
+
+        function showToast(msg, type) {
+            const t = document.getElementById('toast');
+            t.innerText = msg;
+            t.className = `toast-notification ${type} show`;
+            setTimeout(() => t.classList.remove('show'), 3000);
+        }
+    </script>
+</body>
+</html>

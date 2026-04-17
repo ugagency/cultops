@@ -97,6 +97,7 @@ function renderSidebar() {
         { label: 'Contratos', icon: 'file-text', path: 'contratos.html' },
         { label: 'Impostos', icon: 'landmark', path: 'impostos.html' },
         { label: 'Evidências', icon: 'camera', path: 'comprovacao-fisica.html' },
+        { label: 'Configurações', icon: 'settings', path: 'configuracoes.html' },
     ];
 
     const currentFile = window.location.pathname.split('/').pop();
