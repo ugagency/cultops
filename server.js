@@ -25,8 +25,9 @@ app.get('/config.js', (req, res) => {
         N8N_WEBHOOK_URL: "https://automacoes-n8n.infrassys.com/webhook/cultops-ocr",
         N8N_WEBHOOK_RECONCILIATION_URL: "https://automacoes-n8n.infrassys.com/webhook/prestai-conciliation",
         N8N_WEBHOOK_VALIDATION_URL: "https://automacoes-n8n.infrassys.com/webhook/cultopsvalidation",
-        N8N_WEBHOOK_SALIC_PROJECT_URL: "https://automacoes-n8n.infrassys.com/webhook-test/cultops-projeto",
-        N8N_WEBHOOK_SALIC_IMPORT_RUBRICAS_URL: "https://automacoes-n8n.infrassys.com/webhook-test/uploadrubricas",
+        N8N_WEBHOOK_SALIC_PROJECT_URL: "https://automacoes-n8n.infrassys.com/webhook/cultops-projeto",
+        N8N_WEBHOOK_SALIC_IMPORT_RUBRICAS_URL: "/api/rubricas/importar",
+        N8N_WEBHOOK_CRIAR_PDF_URL: "https://automacoes-n8n.infrassys.com/webhook/relatorio",
         SALIC_API_URL: "/api/salic/inserir"
     };
     res.type('application/javascript');
@@ -183,6 +184,99 @@ app.post('/api/m2/contracts', async (req, res) => {
 app.post('/api/m2/salic/encerrar', async (req, res) => {
     const { project_id, userId } = req.body;
     res.json({ success: true, message: "Fluxo de encerramento iniciado (Simulado). Mapeamento SALIC pendente." });
+});
+
+/**
+ * Proxy para importação de rubricas via n8n (Evita CORS)
+ */
+app.post('/api/rubricas/importar', async (req, res) => {
+    try {
+        const https = require('https');
+        const dataStr = JSON.stringify(req.body);
+        
+        const options = {
+            hostname: 'automacoes-n8n.infrassys.com',
+            port: 443,
+            path: '/webhook/uploadrubricas',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': dataStr.length
+            }
+        };
+
+        const n8nReq = https.request(options, (n8nRes) => {
+            let responseData = '';
+            n8nRes.on('data', (chunk) => { responseData += chunk; });
+            n8nRes.on('end', () => {
+                try {
+                    if (!responseData) {
+                        return res.status(n8nRes.statusCode).json({ success: n8nRes.statusCode < 400, message: "OK" });
+                    }
+                    const json = JSON.parse(responseData);
+                    res.status(n8nRes.statusCode).json(json);
+                } catch (e) {
+                    // Se o n8n retornar um texto (ex: "Workflow got started"), empacotamos em um JSON
+                    res.status(n8nRes.statusCode).json({ 
+                        success: n8nRes.statusCode < 400, 
+                        message: responseData || "Resposta não pôde ser lida." 
+                    });
+                }
+            });
+        });
+
+        n8nReq.on('error', (error) => {
+            throw error;
+        });
+
+        n8nReq.write(dataStr);
+        n8nReq.end();
+    } catch (error) {
+        console.error('[PROXY ERROR]', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+/**
+ * Proxy para geração de relatório via n8n
+ */
+app.post('/api/m2/gerar-relatorio', async (req, res) => {
+    try {
+        const https = require('https');
+        const dataStr = JSON.stringify(req.body);
+        
+        const options = {
+            hostname: 'automacoes-n8n.infrassys.com',
+            port: 443,
+            path: '/webhook-test/relatorio',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': dataStr.length
+            }
+        };
+
+        const n8nReq = https.request(options, (n8nRes) => {
+            let responseData = '';
+            n8nRes.on('data', (chunk) => { responseData += chunk; });
+            n8nRes.on('end', () => {
+                try {
+                    if (!responseData) return res.json({ success: true, message: "Workflow iniciado" });
+                    const json = JSON.parse(responseData);
+                    res.status(n8nRes.statusCode).json(json);
+                } catch (e) {
+                    res.status(n8nRes.statusCode).json({ success: n8nRes.statusCode < 400, message: responseData });
+                }
+            });
+        });
+
+        n8nReq.on('error', (error) => { throw error; });
+        n8nReq.write(dataStr);
+        n8nReq.end();
+    } catch (error) {
+        console.error('[REPORT PROXY ERROR]', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
 });
 
 app.listen(PORT, () => {

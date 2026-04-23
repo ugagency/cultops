@@ -331,6 +331,15 @@
         </header>
 
         <div class="glass-card mb-4">
+            <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem;">
+                <label style="font-weight: 600; font-size: 0.9rem; white-space: nowrap;">Tipo:</label>
+                <select id="gestor-tipo-evidencia" style="flex: 1; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white;">
+                    <option value="foto_evento">Foto do Evento</option>
+                    <option value="relatorio_objeto">Relatório de Cumprimento do Objeto</option>
+                    <option value="peca_marketing">Peça de Marketing / Clipagem</option>
+                    <option value="outros">Outros</option>
+                </select>
+            </div>
             <div class="upload-zone" onclick="document.getElementById('file-input').click()">
                 <i data-lucide="image-plus" style="width: 48px; height: 48px; color: var(--m2-accent); margin-bottom: 1rem;"></i>
                 <h3 class="h3">Clique ou arraste evidências para upload</h3>
@@ -692,6 +701,7 @@
             const sb = await initSupabase();
             const { data: { user } } = await sb.auth.getUser();
             const project = allProjects.find(p => p.id === currentProjectId);
+            const tipoSelecionado = document.getElementById('gestor-tipo-evidencia').value;
             
             for (const file of files) {
                 const fileUuid = crypto.randomUUID();
@@ -715,7 +725,7 @@
                     project_id: currentProjectId,
                     organization_id: project?.organization_id || null,
                     enviado_por: user?.id || null,
-                    tipo_evidencia: 'foto_evento',
+                    tipo_evidencia: tipoSelecionado,
                     file_path: filePath,
                     file_name: file.name,
                     file_size: file.size,

@@ -98,6 +98,7 @@ function renderSidebar() {
         { label: 'Impostos', icon: 'landmark', path: 'impostos.html' },
         { label: 'Evidências', icon: 'camera', path: 'comprovacao-fisica.html' },
         { label: 'Solicitantes', icon: 'users', path: 'gestao-solicitantes.html' },
+        { label: 'Prestação de Contas', icon: 'file-check-2', path: 'prestacao-contas.html' },
         { label: 'Configurações', icon: 'settings', path: 'configuracoes.html' },
     ];
 

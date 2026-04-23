@@ -69,6 +69,52 @@
         .config-btn:hover { color: var(--m2-accent); }
         
         .alert-active { color: var(--warning); filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.2)); }
+
+        .upload-progress-container {
+            margin-top: 1.5rem;
+            background: white;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-light);
+            padding: 1.5rem;
+            display: none;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .upload-progress-bar-bg {
+            width: 100%;
+            height: 8px;
+            background: #e2e8f0;
+            border-radius: 99px;
+            overflow: hidden;
+            margin-top: 1rem;
+        }
+
+        .upload-progress-bar-fill {
+            height: 100%;
+            background: var(--m2-accent);
+            border-radius: 99px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+        
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.875rem;
+        }
+        .history-table th {
+            text-align: left; padding: 1rem; background: #f8fafc; color: var(--text-secondary);
+            font-weight: 700; border-bottom: 2px solid var(--border-light);
+        }
+        .history-table td {
+            padding: 1rem; border-bottom: 1px solid var(--border-light); color: var(--text-primary);
+        }
+        .status-badge {
+            padding: 0.25rem 0.75rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+        }
+        .status-success { background: #d1fae5; color: #065f46; }
+        .status-processing { background: #dbeafe; color: #1e40af; }
+        .status-error { background: #fee2e2; color: #991b1b; }
     </style>
 </head>
 <body>
@@ -86,8 +132,49 @@
                         <option value="">Selecione um Projeto (PRONAC)...</option>
                     </select>
                 </div>
+                <button onclick="document.getElementById('file-upload-rubricas').click()" style="height: 42px; display: flex; align-items: center; gap: 0.5rem; padding: 0 1rem; border-radius: var(--radius-md); background: var(--m2-accent); color: white; border: none; font-weight: 600; cursor: pointer; transition: all 0.2s;">
+                    <i data-lucide="upload" style="width: 18px; height: 18px;"></i>
+                    Importar Planilha
+                </button>
+                <input type="file" id="file-upload-rubricas" accept=".pdf" style="display: none;" onchange="handleRubricaUpload(this.files[0])">
             </div>
         </header>
+        
+        <div class="toast-notification" id="toast" style="position: fixed; bottom: 2.5rem; right: 2.5rem; padding: 1.25rem 2rem; border-radius: var(--radius-md); color: white; font-weight: 700; font-size: 0.95rem; z-index: 10000; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); transform: translateY(150%); transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);"></div>
+
+        <div class="upload-progress-container" id="upload-progress-container">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <i data-lucide="file-text" style="color: var(--m2-accent);"></i>
+                    <span style="font-weight: 600;" id="upload-filename">Arquivo.pdf</span>
+                </div>
+                <span id="upload-status" style="font-size: 0.875rem; color: var(--text-secondary); font-weight: 500;">Iniciando...</span>
+            </div>
+            <div class="upload-progress-bar-bg">
+                <div class="upload-progress-bar-fill" id="upload-progress-fill"></div>
+            </div>
+        </div>
+
+        <div class="glass-card" style="margin-top: 1.5rem; padding: 0;">
+            <div style="padding: 1.5rem; border-bottom: 1px solid var(--border-light); display: flex; align-items: center; gap: 0.5rem;">
+                <i data-lucide="history" style="color: var(--text-secondary);"></i>
+                <h3 style="font-size: 1.1rem; margin: 0;">Histórico de Importações</h3>
+            </div>
+            <div style="overflow-x: auto; max-height: 200px;">
+                <table class="history-table">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Arquivo</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-tbody">
+                        <tr><td colspan="3" style="text-align: center; color: var(--text-muted);">Selecione um projeto para ver o histórico.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
 
         <div class="rubrica-list" id="rubrica-list">
             <!-- Rubricas summary table headers -->
@@ -110,6 +197,7 @@
     <script src="supabase-helper.js"></script>
     <script>
         let currentProjectId = ProjectManager.getSelected();
+        let uploadInterval = null;
 
         document.addEventListener('DOMContentLoaded', async () => {
             renderSidebar();
@@ -119,6 +207,7 @@
             if (currentProjectId) {
                 document.getElementById('project-select').value = currentProjectId;
                 loadRubricas();
+                loadHistory();
             }
         });
 
@@ -137,6 +226,45 @@
             currentProjectId = id;
             ProjectManager.setSelected(id);
             loadRubricas();
+            loadHistory();
+        }
+
+        async function loadHistory() {
+            if (!currentProjectId) return;
+            const sb = await initSupabase();
+            const { data, error } = await sb
+                .from('documents')
+                .select('id, name, status, created_at')
+                .eq('project_id', currentProjectId)
+                .eq('tipo_documento', 'planilha_orcamentaria')
+                .order('created_at', { ascending: false });
+
+            const tbody = document.getElementById('history-tbody');
+            if (error || !data || data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: var(--text-muted);">Nenhuma importação encontrada.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = data.map(doc => {
+                let badgeClass = 'status-processing';
+                let statusLabel = 'Processando';
+                
+                if (doc.status === 'concluido' || doc.status === 'success' || doc.status === 'aguardando_conformidade' || doc.status === 'revisao_manual') {
+                    badgeClass = 'status-success';
+                    statusLabel = 'Concluído';
+                } else if (doc.status === 'erro_rpa' || doc.status === 'erro') {
+                    badgeClass = 'status-error';
+                    statusLabel = 'Erro';
+                }
+
+                return `
+                    <tr>
+                        <td>${new Date(doc.created_at).toLocaleString('pt-BR')}</td>
+                        <td style="font-weight: 500;">${doc.name}</td>
+                        <td><span class="status-badge ${badgeClass}">${statusLabel}</span></td>
+                    </tr>
+                `;
+            }).join('');
         }
 
         async function loadRubricas() {
@@ -224,6 +352,129 @@
             // No futuro abriria um modal de readequação/configuração
             alert("Em breve: Módulo de Readequação Orçamentária e Histórico de Versões.");
         }
+
+        function showToast(msg, type = 'success') {
+            const t = document.getElementById('toast');
+            t.innerText = msg;
+            t.style.background = type === 'success' ? '#10b981' : (type === 'error' ? '#ef4444' : '#3b82f6');
+            t.style.transform = 'translateY(0)';
+            setTimeout(() => t.style.transform = 'translateY(150%)', 4000);
+        }
+
+        function setUploadProgress(percent, text) {
+            document.getElementById('upload-progress-fill').style.width = `${percent}%`;
+            document.getElementById('upload-status').textContent = text;
+        }
+
+        window.handleRubricaUpload = async function(file) {
+            if (!file) return;
+            if (!currentProjectId) {
+                showToast("Selecione um projeto primeiro!", "error");
+                return;
+            }
+
+            const project = document.getElementById('project-select').options[document.getElementById('project-select').selectedIndex].text;
+            const pronac = project.split(' - ')[0];
+
+            // Setup UI for upload
+            const container = document.getElementById('upload-progress-container');
+            container.style.display = 'block';
+            document.getElementById('upload-filename').textContent = file.name;
+            setUploadProgress(10, 'Iniciando upload...');
+
+            try {
+                const sb = await initSupabase();
+                const { data: { user } } = await sb.auth.getUser();
+
+                const fileExt = file.name.split('.').pop();
+                const fileName = `rubricas_pronac_${pronac}_${Date.now()}.${fileExt}`;
+                const filePath = `${user.id}/${fileName}`;
+
+                // 1. Upload to Supabase Storage
+                setUploadProgress(30, 'Enviando arquivo...');
+                const { error: uploadError } = await sb.storage.from('documentos').upload(filePath, file);
+                if (uploadError) throw uploadError;
+
+                // 2. Salvar registro na tabela documents (tipo planilha_orcamentaria)
+                setUploadProgress(50, 'Registrando no banco...');
+                const { data: docData, error: dbError } = await sb
+                    .from('documents')
+                    .insert({
+                        user_id: user.id,
+                        project_id: currentProjectId,
+                        name: file.name,
+                        size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
+                        file_path: filePath,
+                        status: 'processing_ocr',
+                        tipo_documento: 'planilha_orcamentaria'
+                    })
+                    .select()
+                    .single();
+
+                if (dbError) throw dbError;
+
+                // Simulate progress during webhook wait
+                let simProgress = 50;
+                uploadInterval = setInterval(() => {
+                    if (simProgress < 90) {
+                        simProgress += 2;
+                        setUploadProgress(simProgress, 'Extraindo rubricas via OCR...');
+                    }
+                }, 1000);
+
+                // 3. Notify Webhook
+                const payload = {
+                    document_id: docData.id,
+                    project_id: currentProjectId,
+                    user_id: user.id,
+                    file_path: filePath,
+                    bucket: 'documentos'
+                };
+
+                const N8N_URL = CONFIG.N8N_WEBHOOK_SALIC_IMPORT_RUBRICAS_URL || "https://automacoes-n8n.infrassys.com/webhook/uploadrubricas";
+                const response = await fetch(N8N_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                clearInterval(uploadInterval);
+
+                if (!response.ok) throw new Error("Erro no processamento do arquivo pelo servidor.");
+
+                const rawResult = await response.json();
+                const result = Array.isArray(rawResult) ? rawResult[0] : rawResult;
+
+                if (result.success || result.rubricas_importadas !== undefined) {
+                    setUploadProgress(100, 'Concluído!');
+                    
+                    // Atualiza status no banco para concluído
+                    await sb.from('documents').update({ status: 'concluido' }).eq('id', docData.id);
+                    
+                    showToast(`${result.rubricas_importadas || 'Várias'} rubricas importadas com sucesso!`, 'success');
+                    await loadRubricas();
+                    await loadHistory();
+                    
+                    setTimeout(() => { container.style.display = 'none'; }, 3000);
+                } else {
+                    await sb.from('documents').update({ status: 'erro' }).eq('id', docData.id);
+                    setUploadProgress(100, 'Erro no processamento.');
+                    document.getElementById('upload-progress-fill').style.background = 'var(--error)';
+                    console.error("Erro no processamento das rubricas:", result);
+                    showToast(result.message || "Falha ao extrair rubricas. Verifique se o PDF é a planilha do SALIC.", 'error');
+                    await loadHistory();
+                }
+            } catch (err) {
+                if (uploadInterval) clearInterval(uploadInterval);
+                setUploadProgress(100, 'Falha no upload.');
+                document.getElementById('upload-progress-fill').style.background = 'var(--error)';
+                console.error("Falha técnica no upload de rubricas:", err);
+                showToast("Erro: " + err.message, 'error');
+            } finally {
+                // Limpa o input de arquivo
+                document.getElementById('file-upload-rubricas').value = '';
+            }
+        };
     </script>
 </body>
 </html>
