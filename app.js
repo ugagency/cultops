@@ -1450,11 +1450,16 @@ window.selectUnifiedType = function(type) {
 window.submitUnifiedFile = async function() {
     const type = document.getElementById('btn-submit-unified').getAttribute('data-type');
     
+    // CRÍTICO: Captura o projectId ANTES de fechar o modal ou chamar render(),
+    // pois o render() reconstrói o DOM e o select perde o valor selecionado.
+    const projectId = document.getElementById('f-upload-project').value;
+    if (!projectId) return alert("Selecione um projeto primeiro!");
+    
     if (type === 'nf') {
         const fileInput = document.getElementById('f-upload-nf');
         if (!fileInput.files || fileInput.files.length === 0) return alert("Selecione o arquivo da Nota Fiscal.");
         document.getElementById('modal-upload-unified').style.display = 'none';
-        await handleSolicitanteUpload(fileInput.files[0]);
+        await handleSolicitanteUpload(fileInput.files[0], projectId);
     } else if (type === 'm2') {
         const fileInput = document.getElementById('m2-file-upload');
         if (!fileInput.files || fileInput.files.length === 0) return alert("Selecione o arquivo de comprovação.");
@@ -1463,21 +1468,25 @@ window.submitUnifiedFile = async function() {
         if (!tipoSelect.value) return alert("Selecione o tipo de evidência.");
         
         document.getElementById('modal-upload-unified').style.display = 'none';
-        await submitM2Evidencia(fileInput.files[0], tipoSelect.value, document.getElementById('m2-descricao').value);
+        await submitM2Evidencia(fileInput.files[0], tipoSelect.value, document.getElementById('m2-descricao').value, projectId);
     }
 };
 
-window.submitM2Evidencia = async function(file, tipo, descricao) {
+window.submitM2Evidencia = async function(file, tipo, descricao, projectId) {
     state.loading = true;
     render();
 
     try {
-        const select = document.getElementById('f-upload-project');
-        const projectId = select.value;
-        const selectedProject = state.projects.find(p => p.project_id === projectId);
+        // projectId é passado como parâmetro por submitUnifiedFile (capturado antes do render)
+        const selectedProject = state.projects.find(p => (p.project_id === projectId) || (p.id === projectId));
         
         if (!projectId || !selectedProject) {
-            throw new Error("Projeto inválido.");
+            console.error("ERRO: Projeto não encontrado no estado.", {
+                projetoProcurado: projectId,
+                listaProjetos: state.projects,
+                currentView: state.currentView
+            });
+            throw new Error(`Projeto inválido ou não vinculado à sua conta (ID: ${projectId}).`);
         }
 
         const fileExt = file.name.split('.').pop();
@@ -1523,14 +1532,16 @@ window.submitM2Evidencia = async function(file, tipo, descricao) {
     }
 };
 
-window.handleSolicitanteUpload = async function (file) {
-    const projectId = document.getElementById('f-upload-project').value;
+window.handleSolicitanteUpload = async function (file, projectId) {
+    // projectId é passado como parâmetro por submitUnifiedFile (capturado antes do render)
     if (!file || !projectId) return alert("Selecione um projeto e um arquivo!");
 
     state.loading = true;
     render();
 
     try {
+        const selectedProject = state.projects.find(p => (p.project_id === projectId) || (p.id === projectId));
+        
         const fileExt = file.name.split('.').pop();
         const fileName = `${Math.random()}.${fileExt} `;
         const filePath = `${state.user.id}/${fileName}`;
@@ -1548,7 +1559,8 @@ window.handleSolicitanteUpload = async function (file) {
             size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
             file_path: filePath,
             status: 'processing_ocr',
-            tipo_documento: 'nf'
+            tipo_documento: 'nf',
+            organization_id: selectedProject?.organization_id || null
         }).select().single();
 
         if (dbError) throw dbError;
@@ -1597,6 +1609,9 @@ async function fetchSolicitanteDashboard() {
         const gestorIds = [...new Set(activeProjects.map(p => p.gestor_id))];
         if (gestorIds.length > 0) {
             const { data: orgUsers } = await supabaseClient.from('organization_users').select('user_id, organization_id').in('user_id', gestorIds);
+            console.log("DEBUG: Projetos (projData):", projData);
+            console.log("DEBUG: orgUsers:", orgUsers);
+            
             if (orgUsers && orgUsers.length > 0) {
                 const orgIds = [...new Set(orgUsers.map(ou => ou.organization_id))];
                 const { data: orgs } = await supabaseClient.from('organizations').select('id, modulos').in('id', orgIds);
@@ -2355,8 +2370,8 @@ window.navigate = async function (view, id = null) {
     if (view === 'dashboard') {
         await fetchProjects(); // Sempre recarrega projetos ao voltar ao dashboard
         await fetchDocuments();
-    } else if (view === 'fornecedor_dashboard') {
-        await fetchFornecedorDashboard();
+    } else if (view === 'solicitante_dashboard') {
+        await fetchSolicitanteDashboard();
     } else if (view === 'upload') {
         await fetchProjects();
         // Dispara o carregamento das rubricas se já houver projeto selecionado

@@ -22,7 +22,7 @@
     <style>
         .evidence-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
             gap: 1.5rem;
             margin-top: 2rem;
         }
@@ -31,11 +31,17 @@
             position: relative;
             cursor: pointer;
             overflow: hidden;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .evidence-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 32px rgba(0,0,0,0.1);
         }
         
         .evidence-preview {
             width: 100%;
-            height: 160px;
+            height: 180px;
             background: #f1f5f9;
             border-radius: var(--radius-md);
             display: flex;
@@ -45,12 +51,43 @@
             color: var(--text-muted);
             background-size: cover;
             background-position: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .evidence-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: var(--radius-md);
+        }
+
+        .preview-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(0,0,0,0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.2s;
+            border-radius: var(--radius-md);
+        }
+
+        .evidence-card:hover .preview-overlay {
+            opacity: 1;
+        }
+
+        .preview-overlay i {
+            color: white;
+            width: 32px;
+            height: 32px;
         }
         
         .ia-score-badge {
             position: absolute;
-            top: 1rem;
-            right: 1rem;
+            top: 0.75rem;
+            right: 0.75rem;
             background: rgba(0,0,0,0.7);
             color: white;
             padding: 0.25rem 0.5rem;
@@ -58,6 +95,7 @@
             font-size: 0.75rem;
             font-weight: 700;
             backdrop-filter: blur(4px);
+            z-index: 2;
         }
         
         .score-high { color: #10b981; }
@@ -77,6 +115,200 @@
         .upload-zone:hover {
             border-color: var(--m2-accent);
             background: rgba(99, 102, 241, 0.05);
+        }
+
+        /* Status badges */
+        .status-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+        .status-badge::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+        .status-pendente { background: #fef3c7; color: #92400e; }
+        .status-pendente::before { background: #f59e0b; }
+        .status-aprovada { background: #d1fae5; color: #065f46; }
+        .status-aprovada::before { background: #10b981; }
+        .status-reprovada { background: #fee2e2; color: #991b1b; }
+        .status-reprovada::before { background: #ef4444; }
+
+        /* Action buttons on cards */
+        .card-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid #f1f5f9;
+        }
+
+        .btn-approve {
+            flex: 1;
+            padding: 0.5rem;
+            border: none;
+            border-radius: var(--radius-sm);
+            background: #d1fae5;
+            color: #065f46;
+            font-weight: 600;
+            font-size: 0.8rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.3rem;
+            transition: all 0.2s;
+        }
+        .btn-approve:hover { background: #a7f3d0; }
+
+        .btn-reject {
+            flex: 1;
+            padding: 0.5rem;
+            border: none;
+            border-radius: var(--radius-sm);
+            background: #fee2e2;
+            color: #991b1b;
+            font-weight: 600;
+            font-size: 0.8rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.3rem;
+            transition: all 0.2s;
+        }
+        .btn-reject:hover { background: #fecaca; }
+
+        /* Fullscreen Modal */
+        .modal-fullscreen {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(8px);
+            z-index: 10000;
+            display: none;
+            flex-direction: column;
+        }
+
+        .modal-fullscreen.active {
+            display: flex;
+        }
+
+        .modal-fs-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.5rem;
+            background: rgba(0,0,0,0.5);
+            color: white;
+        }
+
+        .modal-fs-header h3 {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .modal-fs-body {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            overflow: auto;
+        }
+
+        .modal-fs-body img {
+            max-width: 95%;
+            max-height: 85vh;
+            border-radius: 8px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+
+        .modal-fs-body iframe,
+        .modal-fs-body embed {
+            width: 80%;
+            height: 85vh;
+            border: none;
+            border-radius: 8px;
+        }
+
+        .modal-fs-footer {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            padding: 1rem 1.5rem;
+            background: rgba(0,0,0,0.5);
+        }
+
+        .modal-fs-footer .btn-action {
+            padding: 0.65rem 1.5rem;
+            border: none;
+            border-radius: var(--radius-sm);
+            font-weight: 700;
+            font-size: 0.875rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            transition: all 0.2s;
+        }
+
+        .btn-fs-approve { background: #10b981; color: white; }
+        .btn-fs-approve:hover { background: #059669; }
+        .btn-fs-reject { background: #ef4444; color: white; }
+        .btn-fs-reject:hover { background: #dc2626; }
+        .btn-fs-close { background: rgba(255,255,255,0.15); color: white; }
+        .btn-fs-close:hover { background: rgba(255,255,255,0.25); }
+
+        .modal-fs-info {
+            color: rgba(255,255,255,0.7);
+            font-size: 0.8rem;
+        }
+
+        /* Reject reason modal */
+        .modal-reject-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(4px);
+            z-index: 10001;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-reject-overlay.active {
+            display: flex;
+        }
+
+        .modal-reject-content {
+            background: white;
+            padding: 2rem;
+            border-radius: var(--radius-lg);
+            width: 100%;
+            max-width: 450px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        .evidence-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .meta-tag {
+            font-size: 0.7rem;
+            padding: 0.15rem 0.5rem;
+            background: #f1f5f9;
+            border-radius: 999px;
+            color: var(--text-secondary);
         }
     </style>
 </head>
@@ -103,7 +335,7 @@
                 <i data-lucide="image-plus" style="width: 48px; height: 48px; color: var(--m2-accent); margin-bottom: 1rem;"></i>
                 <h3 class="h3">Clique ou arraste evidências para upload</h3>
                 <p class="text-sm color-muted">PDF, JPG, PNG ou MP4 (Máx 50MB)</p>
-                <input type="file" id="file-input" style="display: none;" multiple onchange="handleFileUpload(this.files)">
+                <input type="file" id="file-input" style="display: none;" multiple accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.mp4" onchange="handleFileUpload(this.files)">
             </div>
         </div>
 
@@ -112,10 +344,52 @@
         </div>
     </main>
 
+    <!-- Modal Fullscreen -->
+    <div class="modal-fullscreen" id="modal-fullscreen">
+        <div class="modal-fs-header">
+            <div>
+                <h3 id="fs-title">Evidência</h3>
+                <div class="modal-fs-info" id="fs-info"></div>
+            </div>
+            <button class="btn-action btn-fs-close" onclick="closeFullscreen()" style="border: none;">
+                <i data-lucide="x" style="width: 18px; height: 18px;"></i> Fechar
+            </button>
+        </div>
+        <div class="modal-fs-body" id="fs-body">
+            <!-- Content injected dynamically -->
+        </div>
+        <div class="modal-fs-footer" id="fs-footer">
+            <!-- Action buttons injected dynamically -->
+        </div>
+    </div>
+
+    <!-- Modal Motivo de Reprovação -->
+    <div class="modal-reject-overlay" id="modal-reject">
+        <div class="modal-reject-content">
+            <h3 style="margin-bottom: 0.5rem; color: #991b1b;">
+                <i data-lucide="alert-triangle" style="width: 20px; height: 20px; vertical-align: middle;"></i>
+                Reprovar Evidência
+            </h3>
+            <p style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                Informe o motivo da reprovação. O solicitante receberá esta mensagem.
+            </p>
+            <textarea id="reject-reason" rows="3" placeholder="Ex: Imagem desfocada, conteúdo ilegível, não corresponde ao projeto..."
+                style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-family: inherit; resize: vertical; margin-bottom: 1rem;"></textarea>
+            <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+                <button onclick="closeRejectModal()" style="padding: 0.5rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: white; cursor: pointer; font-weight: 500;">Cancelar</button>
+                <button onclick="confirmReject()" style="padding: 0.5rem 1rem; border: none; border-radius: var(--radius-sm); background: #ef4444; color: white; cursor: pointer; font-weight: 600;">Confirmar Reprovação</button>
+            </div>
+        </div>
+    </div>
+
     <script src="../config.js"></script>
     <script src="supabase-helper.js"></script>
     <script>
         let currentProjectId = ProjectManager.getSelected();
+        let allProjects = [];
+        let allEvidences = [];
+        let signedUrls = {};
+        let pendingRejectId = null;
 
         document.addEventListener('DOMContentLoaded', async () => {
             renderSidebar();
@@ -128,8 +402,17 @@
             }
         });
 
+        // Keyboard shortcut: ESC to close modals
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeFullscreen();
+                closeRejectModal();
+            }
+        });
+
         async function populateProjectSelect() {
             const projects = await loadProjects();
+            allProjects = projects;
             const select = document.getElementById('project-select');
             projects.forEach(p => {
                 const opt = document.createElement('option');
@@ -153,14 +436,53 @@
                 .from('physical_evidences')
                 .select('*')
                 .eq('project_id', currentProjectId)
-                .order('created_at', { ascending: false });
+                .order('criado_em', { ascending: false });
 
             if (error) {
                 console.error("Erro ao carregar evidências:", error);
                 return;
             }
 
-            renderEvidences(data);
+            allEvidences = data || [];
+            
+            // Generate signed URLs for all file paths
+            await generateSignedUrls(sb, allEvidences);
+
+            renderEvidences(allEvidences);
+        }
+
+        async function generateSignedUrls(sb, evidences) {
+            signedUrls = {};
+            const paths = evidences.map(ev => ev.file_path).filter(Boolean);
+            
+            if (paths.length === 0) return;
+
+            // Batch create signed URLs (valid for 1 hour)
+            const { data, error } = await sb.storage
+                .from('physical-evidences')
+                .createSignedUrls(paths, 3600);
+
+            if (error) {
+                console.error("Erro ao gerar URLs assinadas:", error);
+                return;
+            }
+
+            (data || []).forEach(item => {
+                if (item.signedUrl) {
+                    signedUrls[item.path] = item.signedUrl;
+                }
+            });
+        }
+
+        function isImageFile(filePath) {
+            if (!filePath) return false;
+            const ext = filePath.split('.').pop().toLowerCase();
+            return ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
+        }
+
+        function isPdfFile(filePath) {
+            if (!filePath) return false;
+            return filePath.split('.').pop().toLowerCase() === 'pdf';
         }
 
         function renderEvidences(evidences) {
@@ -177,39 +499,189 @@
                 return;
             }
 
-            container.innerHTML = evidences.map(ev => {
+            container.innerHTML = evidences.map((ev, idx) => {
                 const scoreClass = ev.ia_score >= 80 ? 'score-high' : (ev.ia_score >= 50 ? 'score-mid' : 'score-low');
-                const isImage = ev.file_path && (ev.file_path.endsWith('.jpg') || ev.file_path.endsWith('.png') || ev.file_path.endsWith('.jpeg'));
-                const previewStyle = isImage ? `background-image: url('${CONFIG.SUPABASE_URL}/storage/v1/object/public/physical-evidences/${ev.file_path}')` : '';
+                const isImage = isImageFile(ev.file_path);
+                const url = signedUrls[ev.file_path] || '';
+                const statusLabel = ev.status_validacao === 'aprovada' ? 'Aprovada' : ev.status_validacao === 'reprovada' ? 'Reprovada' : 'Pendente';
+                const isPending = ev.status_validacao === 'pendente';
 
                 return `
-                    <div class="glass-card evidence-card">
-                        ${ev.ia_score ? `<div class="ia-score-badge">IA Score: <span class="${scoreClass}">${ev.ia_score}%</span></div>` : ''}
+                    <div class="glass-card evidence-card" onclick="openFullscreen('${ev.id}')">
+                        ${ev.ia_score ? `<div class="ia-score-badge">IA: <span class="${scoreClass}">${ev.ia_score}%</span></div>` : ''}
                         
-                        <div class="evidence-preview" style="${previewStyle}">
-                            ${!isImage ? `<i data-lucide="file-text" style="width: 40px; height: 40px;"></i>` : ''}
-                        </div>
-                        
-                        <div style="font-weight: 700; font-size: 0.875rem; color: var(--text-primary); margin-bottom: 0.25rem;">
-                            ${ev.tipo_evidencia.replace('_', ' ').toUpperCase()}
-                        </div>
-                        <div class="text-xs" style="color: var(--text-secondary); margin-bottom: 1rem;">
-                            Enviado em ${formatDate(ev.created_at)}
-                        </div>
-                        
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span class="badge-m2 badge-${ev.status_validacao || 'pendente'}">${ev.status_validacao || 'pendente'}</span>
-                            <div style="display: flex; gap: 0.25rem;">
-                                <button class="btn-m2" style="padding: 0.4rem;" title="Abrir"><i data-lucide="external-link" style="width: 14px;"></i></button>
-                                <button class="btn-m2" style="padding: 0.4rem; color: var(--error);" title="Excluir"><i data-lucide="trash-2" style="width: 14px;"></i></button>
+                        <div class="evidence-preview">
+                            ${isImage && url
+                                ? `<img src="${url}" alt="${ev.file_name || 'Evidência'}" loading="lazy">`
+                                : `<i data-lucide="${isPdfFile(ev.file_path) ? 'file-text' : 'file'}" style="width: 40px; height: 40px;"></i>`
+                            }
+                            <div class="preview-overlay">
+                                <i data-lucide="maximize-2"></i>
                             </div>
                         </div>
+                        
+                        <div class="evidence-meta">
+                            <span class="meta-tag">${(ev.tipo_evidencia || 'outros').replace('_', ' ')}</span>
+                            ${ev.file_name ? `<span class="meta-tag">${ev.file_name}</span>` : ''}
+                        </div>
+
+                        <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                            ${ev.descricao || ''}
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span class="status-badge status-${ev.status_validacao || 'pendente'}">${statusLabel}</span>
+                            <span style="font-size: 0.7rem; color: var(--text-muted);">${formatDate(ev.criado_em)}</span>
+                        </div>
+
+                        ${ev.status_validacao === 'reprovada' && ev.motivo_reprovacao ? `
+                            <div style="margin-top: 0.5rem; padding: 0.5rem; background: #fef2f2; border-radius: var(--radius-sm); font-size: 0.75rem; color: #991b1b;">
+                                <strong>Motivo:</strong> ${ev.motivo_reprovacao}
+                            </div>
+                        ` : ''}
+
+                        ${isPending ? `
+                            <div class="card-actions" onclick="event.stopPropagation()">
+                                <button class="btn-approve" onclick="approveEvidence('${ev.id}')">
+                                    <i data-lucide="check" style="width: 14px; height: 14px;"></i> Aprovar
+                                </button>
+                                <button class="btn-reject" onclick="openRejectModal('${ev.id}')">
+                                    <i data-lucide="x" style="width: 14px; height: 14px;"></i> Reprovar
+                                </button>
+                            </div>
+                        ` : ''}
                     </div>
                 `;
             }).join('');
             
             if (window.lucide) window.lucide.createIcons();
         }
+
+        // ============ FULLSCREEN MODAL ============
+
+        function openFullscreen(evidenceId) {
+            const ev = allEvidences.find(e => e.id === evidenceId);
+            if (!ev) return;
+
+            const url = signedUrls[ev.file_path] || '';
+            const isImage = isImageFile(ev.file_path);
+            const isPdf = isPdfFile(ev.file_path);
+            const isPending = ev.status_validacao === 'pendente';
+
+            // Title
+            document.getElementById('fs-title').textContent = ev.file_name || ev.tipo_evidencia || 'Evidência';
+            document.getElementById('fs-info').textContent = `${(ev.tipo_evidencia || '').replace('_', ' ')} · ${formatDate(ev.criado_em)} · ${ev.status_validacao}`;
+
+            // Body content
+            const body = document.getElementById('fs-body');
+            if (isImage && url) {
+                body.innerHTML = `<img src="${url}" alt="${ev.file_name || 'Evidência'}">`;
+            } else if (isPdf && url) {
+                body.innerHTML = `<embed src="${url}" type="application/pdf">`;
+            } else if (url) {
+                body.innerHTML = `
+                    <div style="text-align: center; color: white;">
+                        <i data-lucide="file" style="width: 64px; height: 64px; margin-bottom: 1rem;"></i>
+                        <p>Pré-visualização indisponível.</p>
+                        <a href="${url}" target="_blank" style="color: #818cf8; margin-top: 0.5rem; display: inline-block;">Abrir em nova aba</a>
+                    </div>
+                `;
+            } else {
+                body.innerHTML = `<div style="color: white; text-align: center;"><p>Arquivo não disponível.</p></div>`;
+            }
+
+            // Footer actions
+            const footer = document.getElementById('fs-footer');
+            if (isPending) {
+                footer.innerHTML = `
+                    <button class="btn-action btn-fs-approve" onclick="approveEvidence('${ev.id}'); closeFullscreen();">
+                        <i data-lucide="check-circle" style="width: 16px;"></i> Aprovar
+                    </button>
+                    <button class="btn-action btn-fs-reject" onclick="closeFullscreen(); openRejectModal('${ev.id}');">
+                        <i data-lucide="x-circle" style="width: 16px;"></i> Reprovar
+                    </button>
+                    <a href="${url}" target="_blank" class="btn-action btn-fs-close" style="text-decoration: none;">
+                        <i data-lucide="external-link" style="width: 16px;"></i> Abrir original
+                    </a>
+                `;
+            } else {
+                footer.innerHTML = `
+                    <a href="${url}" target="_blank" class="btn-action btn-fs-close" style="text-decoration: none;">
+                        <i data-lucide="external-link" style="width: 16px;"></i> Abrir original
+                    </a>
+                `;
+            }
+
+            document.getElementById('modal-fullscreen').classList.add('active');
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        function closeFullscreen() {
+            document.getElementById('modal-fullscreen').classList.remove('active');
+        }
+
+        // ============ APPROVE / REJECT ============
+
+        async function approveEvidence(evidenceId) {
+            const sb = await initSupabase();
+            const { data: { user } } = await sb.auth.getUser();
+
+            const { error } = await sb.from('physical_evidences').update({
+                status_validacao: 'aprovada',
+                validado_por: user?.id || null,
+                validado_em: new Date().toISOString()
+            }).eq('id', evidenceId);
+
+            if (error) {
+                alert("Erro ao aprovar: " + error.message);
+                return;
+            }
+
+            alert("Evidência aprovada com sucesso!");
+            await loadEvidences();
+        }
+
+        function openRejectModal(evidenceId) {
+            pendingRejectId = evidenceId;
+            document.getElementById('reject-reason').value = '';
+            document.getElementById('modal-reject').classList.add('active');
+        }
+
+        function closeRejectModal() {
+            pendingRejectId = null;
+            document.getElementById('modal-reject').classList.remove('active');
+        }
+
+        async function confirmReject() {
+            if (!pendingRejectId) return;
+
+            const motivo = document.getElementById('reject-reason').value.trim();
+            if (!motivo) {
+                alert("Informe o motivo da reprovação.");
+                return;
+            }
+
+            const sb = await initSupabase();
+            const { data: { user } } = await sb.auth.getUser();
+
+            const { error } = await sb.from('physical_evidences').update({
+                status_validacao: 'reprovada',
+                motivo_reprovacao: motivo,
+                validado_por: user?.id || null,
+                validado_em: new Date().toISOString()
+            }).eq('id', pendingRejectId);
+
+            if (error) {
+                alert("Erro ao reprovar: " + error.message);
+                return;
+            }
+
+            closeRejectModal();
+            alert("Evidência reprovada.");
+            await loadEvidences();
+        }
+
+        // ============ FILE UPLOAD ============
 
         async function handleFileUpload(files) {
             if (!currentProjectId) {
@@ -218,10 +690,13 @@
             }
 
             const sb = await initSupabase();
+            const { data: { user } } = await sb.auth.getUser();
+            const project = allProjects.find(p => p.id === currentProjectId);
             
             for (const file of files) {
+                const fileUuid = crypto.randomUUID();
                 const fileExt = file.name.split('.').pop();
-                const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
+                const fileName = `${fileUuid}.${fileExt}`;
                 const filePath = `${currentProjectId}/${fileName}`;
 
                 // 1. Upload para o Storage
@@ -236,11 +711,16 @@
 
                 // 2. Registrar no Banco
                 const { error: dbError } = await sb.from('physical_evidences').insert([{
+                    id: fileUuid,
                     project_id: currentProjectId,
-                    tipo_evidencia: 'foto_evento', // Default, permitiria troca depois
+                    organization_id: project?.organization_id || null,
+                    enviado_por: user?.id || null,
+                    tipo_evidencia: 'foto_evento',
                     file_path: filePath,
-                    status_validacao: 'pendente',
-                    ia_score: Math.floor(Math.random() * 40) + 60 // Simulação de IA score por enquanto
+                    file_name: file.name,
+                    file_size: file.size,
+                    mime_type: file.type,
+                    status_validacao: 'pendente'
                 }]);
 
                 if (dbError) {
@@ -248,7 +728,9 @@
                 }
             }
             
-            loadEvidences();
+            // Reset file input
+            document.getElementById('file-input').value = '';
+            await loadEvidences();
         }
     </script>
 </body>
