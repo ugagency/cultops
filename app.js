@@ -572,15 +572,18 @@ const SolicitanteDashboardView = () => `
                         <h3 class="mb-2">Enviar Novo Documento</h3>
                         <p style="color: var(--text-muted); font-size: 0.875rem;">Escolha o PRONAC solicitante e anexe seu PDF.</p>
                     </div>
-                    <div style="display: flex; gap: 1rem;">
-                        <select id="f-upload-project" style="min-width: 250px; padding: 0.625rem; border-radius: var(--radius-sm); border: 1px solid var(--border-light);">
+                    <div style="display: flex; flex-direction: column; gap: 1rem;">
+                        <select id="f-upload-project" style="min-width: 250px; padding: 0.625rem; border-radius: var(--radius-sm); border: 1px solid var(--border-light);" onchange="window.updateSolicitanteUploadButtons()">
                             <option value="">Selecione o Projeto / PRONAC...</option>
-                            ${state.projects.map(p => `<option value="${p.project_id}">${p.projects.pronac} - ${p.projects.nome}</option>`).join('')}
+                            ${state.projects.map(p => `<option value="${p.project_id}" data-modulos='${JSON.stringify(p.modulos || [])}'>${p.projects.pronac} - ${p.projects.nome}</option>`).join('')}
                         </select>
-                        <input type="file" id="f-upload-file" style="display: none;" accept=".pdf" onchange="window.handleSolicitanteUpload(this.files[0])">
-                        <button class="btn btn-primary" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);" onclick="if(document.getElementById('f-upload-project').value) document.getElementById('f-upload-file').click(); else alert('Selecione primeiro o PRONAC!');">
-                            <i data-lucide="upload-cloud"></i> Enviar Arquivo
-                        </button>
+                        
+                        <div id="upload-buttons-area" style="display: none; gap: 1rem;">
+                            <button class="btn btn-primary" style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); width: 100%; justify-content: center; font-size: 1rem; padding: 1rem;" onclick="window.openUnifiedUploadModal()">
+                                <i data-lucide="plus-circle" style="width: 20px; height: 20px;"></i> Adicionar Novo Documento
+                            </button>
+                        </div>
+                        <p id="upload-hint" style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.5rem;">Selecione um projeto acima para ver as opções de envio.</p>
                     </div>
                 </div>
             </div>
@@ -610,9 +613,9 @@ const SolicitanteDashboardView = () => `
                                     </td>
                                     <td style="font-size: 0.875rem;">${doc.projects ? doc.projects.pronac : '---'}</td>
                                     <td>
-                                        <span class="badge ${(STATUS_MAP[doc.status] || {}).class || 'status-pending'}">
+                                        <span class="badge ${(STATUS_MAP[doc.status] || {}).class || (doc.is_m2 ? (doc.status === 'aprovada' ? 'status-success' : doc.status === 'reprovada' ? 'status-error' : 'status-pending') : 'status-pending')}">
                                             <span class="badge-dot"></span>
-                                            ${(STATUS_MAP[doc.status] || {}).label || doc.status}
+                                            ${(STATUS_MAP[doc.status] || {}).label || (doc.is_m2 ? (doc.status.charAt(0).toUpperCase() + doc.status.slice(1)) : doc.status)}
                                         </span>
                                     </td>
                                     <td style="color: var(--text-muted); font-size: 0.75rem;">${new Date(doc.created_at).toLocaleString('pt-BR')}</td>
@@ -625,6 +628,65 @@ const SolicitanteDashboardView = () => `
             </div>
         </div>
     </main>
+
+    <!-- Modal Unificado Upload -->
+    <div id="modal-upload-unified" class="modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9999; align-items: center; justify-content: center;">
+        <div style="background: white; border-radius: var(--radius-lg); width: 100%; max-width: 500px; padding: 2rem; box-shadow: var(--shadow-lg); max-height: 90vh; overflow-y: auto;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h3 style="font-size: 1.25rem;">Enviar Arquivo</h3>
+                <button class="btn btn-ghost" onclick="document.getElementById('modal-upload-unified').style.display='none'" style="padding: 0.5rem;"><i data-lucide="x"></i></button>
+            </div>
+            
+            <div style="margin-bottom: 1.5rem;">
+                <label style="font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; display: block;">O que você deseja enviar?</label>
+                <div style="display: flex; gap: 1rem;">
+                    <label style="flex: 1; border: 2px solid var(--border-light); padding: 1.5rem 1rem; border-radius: 8px; cursor: pointer; text-align: center; transition: all 0.2s;" id="label-tipo-nf" onclick="window.selectUnifiedType('nf')">
+                        <input type="radio" name="unified_type" value="nf" style="display:none;">
+                        <i data-lucide="file-text" style="margin: 0 auto 0.75rem; color: #f59e0b; width: 32px; height: 32px;"></i>
+                        <div style="font-weight: 600; font-size: 0.875rem;">Nota Fiscal<br>Recibo</div>
+                    </label>
+                    <label style="flex: 1; border: 2px solid var(--border-light); padding: 1.5rem 1rem; border-radius: 8px; cursor: pointer; text-align: center; transition: all 0.2s;" id="label-tipo-m2" onclick="window.selectUnifiedType('m2')">
+                        <input type="radio" name="unified_type" value="m2" style="display:none;">
+                        <i data-lucide="camera" style="margin: 0 auto 0.75rem; color: #4f46e5; width: 32px; height: 32px;"></i>
+                        <div style="font-weight: 600; font-size: 0.875rem;">Comprovação<br>Física</div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Campos NF -->
+            <div id="unified-fields-nf" style="display: none; margin-bottom: 1.5rem;">
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">Anexe a nota fiscal e nossa inteligência artificial fará a leitura e o processamento automático do pagamento.</p>
+                <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">Arquivo PDF / Imagem *</label>
+                <input type="file" id="f-upload-nf" accept=".pdf,.png,.jpg,.jpeg" style="width: 100%; padding: 0.75rem; border: 1px dashed var(--border-light); border-radius: 6px;">
+            </div>
+
+            <!-- Campos M2 -->
+            <div id="unified-fields-m2" style="display: none; margin-bottom: 1.5rem;">
+                <div style="margin-bottom: 1rem;">
+                    <label style="font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; display: block;">Tipo de Evidência *</label>
+                    <select id="m2-tipo-evidencia" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-light); border-radius: 6px;">
+                        <option value="">Selecione...</option>
+                        <option value="foto_evento">Foto do Evento</option>
+                        <option value="relatorio_objeto">Relatório Fotográfico/Objeto</option>
+                        <option value="peca_marketing">Peça de Marketing/Divulgação</option>
+                        <option value="outros">Outros</option>
+                    </select>
+                </div>
+                <div style="margin-bottom: 1rem;">
+                    <label style="font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; display: block;">Descrição (Opcional)</label>
+                    <textarea id="m2-descricao" rows="2" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-light); border-radius: 6px;" placeholder="Detalhes do arquivo..."></textarea>
+                </div>
+                <div>
+                    <label style="font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; display: block;">Arquivo / Mídia *</label>
+                    <input type="file" id="m2-file-upload" accept=".pdf,.png,.jpg,.jpeg,.mp4" style="width: 100%; padding: 0.75rem; border: 1px dashed var(--border-light); border-radius: 6px;">
+                </div>
+            </div>
+
+            <button class="btn btn-primary" id="btn-submit-unified" style="width: 100%; justify-content: center; display: none; padding: 1rem;" onclick="window.submitUnifiedFile()">
+                Confirmar Envio
+            </button>
+        </div>
+    </div>
 </div>
 `;
 
@@ -1327,6 +1389,140 @@ window.handleSolicitanteRegister = async function () {
     }
 };
 
+window.updateSolicitanteUploadButtons = function () {
+    const select = document.getElementById('f-upload-project');
+    const btnArea = document.getElementById('upload-buttons-area');
+    const hint = document.getElementById('upload-hint');
+
+    if (!select.value) {
+        btnArea.style.display = 'none';
+        hint.style.display = 'block';
+        return;
+    }
+
+    hint.style.display = 'none';
+    btnArea.style.display = 'flex';
+};
+
+window.openUnifiedUploadModal = function() {
+    const projectId = document.getElementById('f-upload-project').value;
+    if (!projectId) return alert("Selecione um projeto primeiro!");
+    
+    // Reset modal state
+    document.getElementById('unified-fields-nf').style.display = 'none';
+    document.getElementById('unified-fields-m2').style.display = 'none';
+    document.getElementById('btn-submit-unified').style.display = 'none';
+    
+    document.getElementById('label-tipo-nf').style.borderColor = 'var(--border-light)';
+    document.getElementById('label-tipo-nf').style.background = '#fff';
+    document.getElementById('label-tipo-m2').style.borderColor = 'var(--border-light)';
+    document.getElementById('label-tipo-m2').style.background = '#fff';
+    
+    document.getElementById('f-upload-nf').value = '';
+    document.getElementById('m2-file-upload').value = '';
+    document.getElementById('m2-tipo-evidencia').value = '';
+    document.getElementById('m2-descricao').value = '';
+
+    document.getElementById('modal-upload-unified').style.display = 'flex';
+};
+
+window.selectUnifiedType = function(type) {
+    document.getElementById('label-tipo-nf').style.borderColor = type === 'nf' ? '#f59e0b' : 'var(--border-light)';
+    document.getElementById('label-tipo-nf').style.background = type === 'nf' ? '#fffbeb' : '#fff';
+    
+    document.getElementById('label-tipo-m2').style.borderColor = type === 'm2' ? '#4f46e5' : 'var(--border-light)';
+    document.getElementById('label-tipo-m2').style.background = type === 'm2' ? '#eef2ff' : '#fff';
+
+    document.getElementById('unified-fields-nf').style.display = type === 'nf' ? 'block' : 'none';
+    document.getElementById('unified-fields-m2').style.display = type === 'm2' ? 'block' : 'none';
+    
+    const btn = document.getElementById('btn-submit-unified');
+    btn.style.display = 'flex';
+    btn.setAttribute('data-type', type);
+    
+    if (type === 'nf') {
+        btn.style.background = 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)';
+    } else {
+        btn.style.background = 'linear-gradient(135deg, #4f46e5 0%, #3730a3 100%)';
+    }
+};
+
+window.submitUnifiedFile = async function() {
+    const type = document.getElementById('btn-submit-unified').getAttribute('data-type');
+    
+    if (type === 'nf') {
+        const fileInput = document.getElementById('f-upload-nf');
+        if (!fileInput.files || fileInput.files.length === 0) return alert("Selecione o arquivo da Nota Fiscal.");
+        document.getElementById('modal-upload-unified').style.display = 'none';
+        await handleSolicitanteUpload(fileInput.files[0]);
+    } else if (type === 'm2') {
+        const fileInput = document.getElementById('m2-file-upload');
+        if (!fileInput.files || fileInput.files.length === 0) return alert("Selecione o arquivo de comprovação.");
+        
+        const tipoSelect = document.getElementById('m2-tipo-evidencia');
+        if (!tipoSelect.value) return alert("Selecione o tipo de evidência.");
+        
+        document.getElementById('modal-upload-unified').style.display = 'none';
+        await submitM2Evidencia(fileInput.files[0], tipoSelect.value, document.getElementById('m2-descricao').value);
+    }
+};
+
+window.submitM2Evidencia = async function(file, tipo, descricao) {
+    state.loading = true;
+    render();
+
+    try {
+        const select = document.getElementById('f-upload-project');
+        const projectId = select.value;
+        const selectedProject = state.projects.find(p => p.project_id === projectId);
+        
+        if (!projectId || !selectedProject) {
+            throw new Error("Projeto inválido.");
+        }
+
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${crypto.randomUUID()}.${fileExt}`;
+        const filePath = `${projectId}/${fileName}`;
+
+        // 1. Upload Storage
+        const { error: uploadError } = await supabaseClient.storage
+            .from('physical-evidences')
+            .upload(filePath, file);
+
+        if (uploadError) throw uploadError;
+
+        const insertPayload = {
+            project_id: projectId,
+            tipo_evidencia: tipo,
+            descricao: descricao,
+            file_path: filePath,
+            file_name: file.name,
+            file_size: file.size,
+            mime_type: file.type,
+            enviado_por: state.user.id,
+            enviado_via_token: false,
+            status_validacao: 'pendente'
+        };
+
+        if (selectedProject.organization_id) {
+            insertPayload.organization_id = selectedProject.organization_id;
+        }
+
+        // 2. Insert into physical_evidences table
+        const { error: dbError } = await supabaseClient.from('physical_evidences').insert(insertPayload);
+
+        if (dbError) throw dbError;
+
+        await fetchSolicitanteDashboard(); // recarrega a grid
+    } catch (err) {
+        console.error(err);
+        alert("Erro ao enviar evidência: " + err.message);
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
+
 window.handleSolicitanteUpload = async function (file) {
     const projectId = document.getElementById('f-upload-project').value;
     if (!file || !projectId) return alert("Selecione um projeto e um arquivo!");
@@ -1389,13 +1585,38 @@ window.handleSolicitanteUpload = async function (file) {
 async function fetchSolicitanteDashboard() {
     if (!supabaseClient || !state.user) return;
     try {
-        // Busca projetos vinculados ao fornecedor
+        // Busca projetos vinculados ao fornecedor, incluindo o gestor_id
         const { data: projData, error: projError } = await supabaseClient
             .from('projeto_fornecedores')
-            .select('project_id, projects(id, pronac, nome)');
+            .select('project_id, gestor_id, projects(id, pronac, nome)');
 
         if (projError) console.error('Erro ao buscar projetos do fornecedor:', projError);
-        state.projects = (projData || []).filter(p => p.projects); // filtra registros com join válido
+        let activeProjects = (projData || []).filter(p => p.projects); // filtra registros com join válido
+
+        // Agora busca os módulos de cada gestor (para saber se é M1 ou M2)
+        const gestorIds = [...new Set(activeProjects.map(p => p.gestor_id))];
+        if (gestorIds.length > 0) {
+            const { data: orgUsers } = await supabaseClient.from('organization_users').select('user_id, organization_id').in('user_id', gestorIds);
+            if (orgUsers && orgUsers.length > 0) {
+                const orgIds = [...new Set(orgUsers.map(ou => ou.organization_id))];
+                const { data: orgs } = await supabaseClient.from('organizations').select('id, modulos').in('id', orgIds);
+                
+                // Mapeia gestor -> modulos
+                const gestorOrgs = {};
+                orgUsers.forEach(ou => {
+                    const org = orgs?.find(o => o.id === ou.organization_id);
+                    if (org) gestorOrgs[ou.user_id] = { modulos: org.modulos || [], id: org.id };
+                });
+
+                // Anexa os modulos ao projeto
+                activeProjects = activeProjects.map(p => ({
+                    ...p,
+                    modulos: gestorOrgs[p.gestor_id]?.modulos || [],
+                    organization_id: gestorOrgs[p.gestor_id]?.id
+                }));
+            }
+        }
+        state.projects = activeProjects;
 
         // Busca historico de docs (apenas NF para o fornecedor ver o status da despesa)
         const { data: docData, error: docError } = await supabaseClient
@@ -1406,7 +1627,28 @@ async function fetchSolicitanteDashboard() {
             .order('created_at', { ascending: false });
 
         if (docError) console.error('Erro ao buscar documentos do fornecedor:', docError);
-        state.documents = docData || [];
+        
+        // Busca historico de evidencias (Módulo 2)
+        const { data: evData, error: evError } = await supabaseClient
+            .from('physical_evidences')
+            .select('*, projects(pronac, nome)')
+            .eq('enviado_por', state.user.id)
+            .order('criado_em', { ascending: false });
+
+        if (evError) console.error('Erro ao buscar evidências do fornecedor:', evError);
+
+        const mappedEvData = (evData || []).map(ev => ({
+            id: ev.id,
+            name: ev.file_name,
+            size: (ev.file_size ? (ev.file_size / 1024 / 1024).toFixed(2) + ' MB' : '---'),
+            status: ev.status_validacao,
+            created_at: ev.criado_em,
+            projects: ev.projects,
+            is_m2: true
+        }));
+
+        // Junta os dois e ordena por data
+        state.documents = [...(docData || []), ...mappedEvData].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     } catch (err) {
         console.error("Erro dashboard solicitante", err);
     }

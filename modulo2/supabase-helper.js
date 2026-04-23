@@ -97,6 +97,7 @@ function renderSidebar() {
         { label: 'Contratos', icon: 'file-text', path: 'contratos.html' },
         { label: 'Impostos', icon: 'landmark', path: 'impostos.html' },
         { label: 'Evidências', icon: 'camera', path: 'comprovacao-fisica.html' },
+        { label: 'Solicitantes', icon: 'users', path: 'gestao-solicitantes.html' },
         { label: 'Configurações', icon: 'settings', path: 'configuracoes.html' },
     ];
 
@@ -203,18 +204,23 @@ async function getUserModules() {
         .select('organization_id')
         .eq('user_id', user.id)
         .limit(1)
-        .single();
+        .maybeSingle();
 
-    if (orgUserError || !orgUser) {
+    if (orgUserError) {
         console.error("Erro ao buscar organization_users:", orgUserError);
         return null;
+    }
+    
+    if (!orgUser) {
+        // Se o usuário não estiver em nenhuma organização (pode ser um Solicitante ou bug de cadastro)
+        return { params: { modulos: [] }, user: user };
     }
 
     const { data: org, error: orgError } = await sb
         .from('organizations')
         .select('nome, modulos')
         .eq('id', orgUser.organization_id)
-        .single();
+        .maybeSingle();
 
     if (orgError || !org) {
         console.error("Erro ao buscar organizations:", orgError);

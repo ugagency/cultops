@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI M2 — Gestão de Solicitantes</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m2-shared.css">
+    
+    <style>
+        .gestao-container {
+            max-width: 1100px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .dashboard-header {
+            margin-bottom: 2rem;
+        }
+
+        .glass-card {
+            background: white;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-md);
+            padding: 2rem;
+            border: 1px solid var(--border-light);
+            transition: var(--transition);
+        }
+
+        .glass-card:hover {
+            box-shadow: var(--shadow-lg);
+            border-color: var(--m2-accent);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr auto;
+            gap: 1.5rem;
+            align-items: end;
+            margin-bottom: 1.5rem;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 0.6rem;
+            color: var(--text-primary);
+        }
+
+        .form-control, .form-select {
+            width: 100%;
+            padding: 0.875rem 1.25rem;
+            border: 1.5px solid var(--border-light);
+            border-radius: var(--radius-md);
+            font-family: inherit;
+            font-size: 0.95rem;
+            transition: all 0.2s ease;
+            background: #fff;
+        }
+
+        .form-control:focus, .form-select:focus {
+            outline: none;
+            border-color: var(--m2-accent);
+            box-shadow: 0 0 0 4px rgba(99,102,241,0.1);
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+            margin-top: 1rem;
+        }
+
+        .data-table th {
+            text-align: left;
+            padding: 1rem;
+            background: #f8fafc;
+            color: var(--text-secondary);
+            font-weight: 700;
+            border-bottom: 2px solid var(--border-light);
+        }
+
+        .data-table td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-light);
+            color: var(--text-primary);
+            vertical-align: middle;
+        }
+
+        .data-table tr:hover td {
+            background: #f8fafc;
+        }
+
+        .btn-remove {
+            background: #fee2e2;
+            color: #dc2626;
+            border: none;
+            padding: 0.5rem;
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btn-remove:hover {
+            background: #f87171;
+            color: white;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: var(--text-muted);
+        }
+
+        .toast-notification {
+            position: fixed; bottom: 2.5rem; right: 2.5rem;
+            padding: 1.25rem 2rem; border-radius: var(--radius-md);
+            color: white; font-weight: 700; font-size: 0.95rem;
+            z-index: 10000; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+            transform: translateY(150%); transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .toast-notification.show { transform: translateY(0); }
+        .toast-notification.success { background: #10b981; }
+        .toast-notification.error { background: #ef4444; }
+    </style>
+</head>
+<body>
+    <main class="main-content">
+        <div class="gestao-container">
+            
+            <div class="dashboard-header">
+                <h1 style="font-size: 2.5rem; font-weight: 800; color: var(--text-primary); margin-bottom: 0.5rem;">Gestão de Solicitantes</h1>
+                <p style="color: var(--text-secondary); font-size: 1.125rem;">Autorize fornecedores e parceiros a enviar comprovantes e evidências diretamente para seus projetos.</p>
+            </div>
+
+            <!-- Vincular Novo Solicitante -->
+            <section class="glass-card" style="border-top: 5px solid var(--m2-accent);">
+                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem;">
+                    <i data-lucide="user-plus" style="color: var(--m2-accent); width: 24px; height: 24px;"></i>
+                    <h3 style="font-size: 1.25rem; font-weight: 700;">Vincular Solicitante</h3>
+                </div>
+
+                <form id="vincular-form">
+                    <div class="form-row">
+                        <div class="form-group" style="margin: 0;">
+                            <label>Selecione o Projeto</label>
+                            <select id="select-projeto" class="form-select" required>
+                                <option value="">Carregando projetos...</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin: 0;">
+                            <label>Selecione o Solicitante</label>
+                            <select id="select-fornecedor" class="form-select" required>
+                                <option value="">Carregando solicitantes...</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn-m2 btn-m2-primary" id="btn-vincular" style="height: 52px; min-width: 140px; justify-content: center;">
+                            Vincular
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- Lista de Solicitantes Vinculados -->
+            <section class="glass-card">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <i data-lucide="users" style="color: var(--text-primary); width: 24px; height: 24px;"></i>
+                        <h3 style="font-size: 1.25rem; font-weight: 700;">Solicitantes Ativos</h3>
+                    </div>
+                </div>
+
+                <div style="overflow-x: auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Solicitante (Razão Social / CNPJ)</th>
+                                <th>Projeto Vinculado</th>
+                                <th style="text-align: center;">Data de Vínculo</th>
+                                <th style="text-align: center;">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="vinculos-tbody">
+                            <tr><td colspan="4" class="empty-state"><i data-lucide="loader" class="spin"></i> Carregando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+        </div>
+    </main>
+
+    <div class="toast-notification" id="toast"></div>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper.js"></script>
+    <script>
+        let currentUser = null;
+        document.addEventListener('DOMContentLoaded', async () => {
+            if (window.renderSidebar) {
+                // Adicionar o link de Solicitantes na Sidebar dinamicamente se não existir
+                const sidebarExists = document.querySelector('.sidebar');
+                if(!sidebarExists) window.renderSidebar();
+            }
+
+            try {
+                sbClient = await window.initSupabase();
+                const { data: { user } } = await sbClient.auth.getUser();
+                if (!user) {
+                    window.location.href = '../index.html#login';
+                    return;
+                }
+                currentUser = user;
+
+                await carregarProjetos();
+                await carregarFornecedores();
+                await carregarVinculos();
+
+                document.getElementById('vincular-form').addEventListener('submit', handleVincular);
+
+            } catch (err) {
+                console.error("Erro na inicialização:", err);
+                showToast("Erro ao carregar os dados.", "error");
+            }
+
+            if (window.lucide) window.lucide.createIcons();
+        });
+
+        async function carregarProjetos() {
+            const select = document.getElementById('select-projeto');
+            const { data, error } = await sbClient.from('projects')
+                .select('id, nome, pronac')
+                .eq('user_id', currentUser.id)
+                .order('created_at', { ascending: false });
+
+            if (error || !data || data.length === 0) {
+                select.innerHTML = '<option value="">Nenhum projeto encontrado.</option>';
+                return;
+            }
+
+            select.innerHTML = '<option value="">Selecione um projeto...</option>' + 
+                data.map(p => `<option value="${p.id}">${p.nome} (PRONAC: ${p.pronac})</option>`).join('');
+        }
+
+        async function carregarFornecedores() {
+            const select = document.getElementById('select-fornecedor');
+            const { data, error } = await sbClient.from('fornecedores')
+                .select('id, razao_social, cnpj')
+                .order('razao_social');
+
+            if (error || !data || data.length === 0) {
+                select.innerHTML = '<option value="">Nenhum solicitante cadastrado na plataforma.</option>';
+                return;
+            }
+
+            select.innerHTML = '<option value="">Selecione um solicitante...</option>' + 
+                data.map(f => `<option value="${f.id}">${f.razao_social} (${f.cnpj})</option>`).join('');
+        }
+
+        async function carregarVinculos() {
+            const tbody = document.getElementById('vinculos-tbody');
+            
+            // Buscar apenas vínculos onde o gestor_id é o usuário atual
+            const { data: vinculos, error } = await sbClient.from('projeto_fornecedores')
+                .select('*, fornecedores(razao_social, cnpj), projects(nome)')
+                .eq('gestor_id', currentUser.id)
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                tbody.innerHTML = `<tr><td colspan="4" class="empty-state" style="color:var(--error);">Erro ao carregar vínculos.</td></tr>`;
+                return;
+            }
+
+            if (!vinculos || vinculos.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="4" class="empty-state">Nenhum solicitante vinculado aos seus projetos ainda.</td></tr>`;
+                return;
+            }
+
+
+            tbody.innerHTML = vinculos.map(v => `
+                <tr>
+                    <td>
+                        <div style="font-weight: 600;">${v.fornecedores?.razao_social || 'Desconhecido'}</div>
+                        <div style="font-size: 0.8rem; color: var(--text-muted);">${v.fornecedores?.cnpj || ''}</div>
+                    </td>
+                    <td style="font-weight: 500;">${v.projects?.nome || 'Desconhecido'}</td>
+                    <td style="text-align: center;">${new Date(v.created_at).toLocaleDateString('pt-BR')}</td>
+                    <td style="text-align: center;">
+                        <button class="btn-remove" onclick="removerVinculo('${v.id}')" title="Remover Vínculo">
+                            <i data-lucide="trash-2" style="width: 18px; height: 18px;"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        async function handleVincular(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btn-vincular');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<i data-lucide="loader" class="spin"></i>';
+            btn.disabled = true;
+
+            try {
+                const projectId = document.getElementById('select-projeto').value;
+                const fornecedorId = document.getElementById('select-fornecedor').value;
+
+                if (!projectId || !fornecedorId) throw new Error("Selecione o projeto e o solicitante.");
+
+                const { error } = await sbClient.from('projeto_fornecedores').insert({
+                    project_id: projectId,
+                    fornecedor_id: fornecedorId,
+                    gestor_id: currentUser.id
+                });
+
+                if (error) {
+                    if (error.code === '23505') throw new Error("Este solicitante já está vinculado a este projeto.");
+                    throw error;
+                }
+
+                showToast("Solicitante vinculado com sucesso!", "success");
+                document.getElementById('vincular-form').reset();
+                await carregarVinculos();
+
+            } catch (err) {
+                showToast(err.message, "error");
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+                if (window.lucide) window.lucide.createIcons();
+            }
+        }
+
+        window.removerVinculo = async function(id) {
+            if (!confirm("Tem certeza que deseja remover o acesso deste solicitante a este projeto?")) return;
+
+            try {
+                const { error } = await sbClient.from('projeto_fornecedores').delete().eq('id', id);
+                if (error) throw error;
+                
+                showToast("Vínculo removido com sucesso.", "success");
+                await carregarVinculos();
+            } catch (err) {
+                showToast("Erro ao remover: " + err.message, "error");
+            }
+        };
+
+        function showToast(msg, type) {
+            const t = document.getElementById('toast');
+            t.innerText = msg;
+            t.className = `toast-notification ${type} show`;
+            setTimeout(() => t.classList.remove('show'), 3000);
+        }
+    </script>
+</body>
+</html>

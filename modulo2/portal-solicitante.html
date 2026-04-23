@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI M2 — Portal do Solicitante (Evidências Físicas)</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m2-shared.css">
+    
+    <style>
+        .portal-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+        }
+        .breadcrumb a { color: var(--text-secondary); text-decoration: none; }
+        .breadcrumb a:hover { color: var(--m2-accent); }
+
+        .header-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .admin-link {
+            display: none;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: #eef2ff;
+            color: var(--m2-accent);
+            border-radius: var(--radius-md);
+            font-weight: 600;
+            font-size: 0.875rem;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+        .admin-link:hover { background: #e0e7ff; }
+
+        .upload-card, .list-card {
+            background: white;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-md);
+            padding: 2rem;
+            border: 1px solid var(--border-light);
+        }
+
+        .form-group { margin-bottom: 1.5rem; }
+        .form-label {
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+        }
+        .form-control, .form-select {
+            width: 100%;
+            padding: 0.875rem 1rem;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            font-family: inherit;
+            font-size: 0.95rem;
+            transition: all 0.2s;
+            background: #fff;
+        }
+        .form-control:focus, .form-select:focus {
+            outline: none;
+            border-color: var(--m2-accent);
+            box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
+        }
+
+        .file-upload-zone {
+            border: 2px dashed var(--border-light);
+            border-radius: var(--radius-md);
+            padding: 2.5rem 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: #f8fafc;
+        }
+        .file-upload-zone:hover, .file-upload-zone.dragover {
+            border-color: var(--m2-accent);
+            background: #eff6ff;
+        }
+
+        .file-list {
+            margin-top: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .file-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1rem;
+            background: #f1f5f9;
+            border-radius: var(--radius-sm);
+            font-size: 0.875rem;
+        }
+        .file-item .remove-btn {
+            color: var(--error);
+            cursor: pointer;
+            padding: 0.25rem;
+            border-radius: 4px;
+        }
+        .file-item .remove-btn:hover { background: #fee2e2; }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.875rem;
+        }
+        .data-table th {
+            text-align: left;
+            padding: 1rem;
+            background: #f8fafc;
+            color: var(--text-secondary);
+            font-weight: 600;
+            border-bottom: 2px solid var(--border-light);
+        }
+        .data-table td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-light);
+            color: var(--text-primary);
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 700;
+        }
+        .badge-pendente { background: #fef3c7; color: #b45309; }
+        .badge-aprovada { background: #dcfce7; color: #15803d; }
+        .badge-reprovada { background: #fee2e2; color: #b91c1c; }
+        .badge-pendente_complemento { background: #ffedd5; color: #c2410c; }
+
+        .rejection-reason {
+            display: block;
+            margin-top: 0.25rem;
+            font-size: 0.75rem;
+            color: #b91c1c;
+        }
+
+        .block-message {
+            background: #fee2e2;
+            border: 1px solid #f87171;
+            color: #b91c1c;
+            padding: 1rem;
+            border-radius: var(--radius-md);
+            margin-bottom: 1.5rem;
+            display: none;
+            align-items: center;
+            gap: 0.75rem;
+            font-weight: 500;
+        }
+
+        /* Toast */
+        .toast-notification {
+            position: fixed; bottom: 2rem; right: 2rem;
+            padding: 1rem 1.5rem; border-radius: var(--radius-md);
+            color: white; font-weight: 600; z-index: 99999;
+            transform: translateY(150%); transition: transform 0.3s ease;
+        }
+        .toast-notification.show { transform: translateY(0); }
+        .toast-notification.success { background: #10b981; }
+        .toast-notification.error { background: #ef4444; }
+
+        /* Protocol Modal */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(4px);
+            display: none; align-items: center; justify-content: center; z-index: 9999;
+        }
+        .modal-content {
+            background: white; padding: 2rem; border-radius: var(--radius-lg);
+            max-width: 500px; width: 100%; text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <main class="main-content">
+        <div class="portal-container">
+            <!-- Header & Breadcrumb -->
+            <div>
+                <div class="breadcrumb">
+                    <i data-lucide="home" style="width: 14px;"></i>
+                    <span>Portal</span>
+                    <i data-lucide="chevron-right" style="width: 14px;"></i>
+                    <span style="color: var(--text-primary); font-weight: 500;">Evidências Físicas</span>
+                </div>
+                <div class="header-actions">
+                    <div>
+                        <h1 style="font-size: 2rem; font-weight: 800; color: var(--text-primary); margin-bottom: 0.25rem;">Envio de Evidências</h1>
+                        <p style="color: var(--text-secondary);">Faça o upload de fotos, relatórios e peças de marketing do seu projeto.</p>
+                    </div>
+                    <a href="comprovacao-fisica.html" id="admin-link" class="admin-link">
+                        <i data-lucide="check-square"></i> Ver validações pendentes
+                    </a>
+                </div>
+            </div>
+
+            <!-- Project Selector -->
+            <div class="upload-card">
+                <div class="form-group" style="margin: 0;">
+                    <label class="form-label">Selecione o Projeto</label>
+                    <select id="project-select" class="form-select" onchange="handleProjectChange()">
+                        <option value="">Carregando projetos...</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="block-message" class="block-message">
+                <i data-lucide="lock"></i>
+                <span>Este projeto já foi enviado ao MinC. Novos uploads não são permitidos.</span>
+            </div>
+
+            <!-- Upload Area -->
+            <div class="upload-card" id="upload-section">
+                <h3 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 1.5rem;">Nova Evidência</h3>
+                
+                <form id="upload-form">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Tipo de Evidência *</label>
+                            <select id="tipo-evidencia" class="form-select" required>
+                                <option value="">Selecione um tipo...</option>
+                                <option value="foto_evento">Foto do Evento</option>
+                                <option value="relatorio_objeto">Relatório de Cumprimento do Objeto</option>
+                                <option value="peca_marketing">Peça de Marketing / Clipping</option>
+                                <option value="outros">Outros</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Descrição / Observações (Opcional)</label>
+                        <textarea id="descricao-evidencia" class="form-control" rows="3" placeholder="Descreva o que este arquivo comprova..."></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Arquivos (Máx 50MB, JPG/PNG/PDF/PPT/MP4) *</label>
+                        <div class="file-upload-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+                            <i data-lucide="upload-cloud" style="width: 32px; height: 32px; color: var(--text-muted); margin-bottom: 1rem;"></i>
+                            <div style="font-weight: 600; color: var(--text-primary);">Clique ou arraste arquivos aqui</div>
+                            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Múltiplos arquivos permitidos</div>
+                        </div>
+                        <input type="file" id="file-input" multiple style="display: none;" accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.ppt,.pptx,.mp4">
+                        <div class="file-list" id="selected-files"></div>
+                    </div>
+
+                    <div style="display: flex; justify-content: flex-end; margin-top: 2rem;">
+                        <button type="submit" class="btn-m2 btn-m2-primary" id="btn-submit" style="min-width: 150px; justify-content: center;" disabled>
+                            Enviar Evidência
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Upload History -->
+            <div class="list-card">
+                <h3 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 1.5rem;">Histórico de Envios</h3>
+                <div style="overflow-x: auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Arquivo / Tipo</th>
+                                <th>Descrição</th>
+                                <th>Data de Envio</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-tbody">
+                            <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Selecione um projeto para ver o histórico.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Protocol Modal -->
+    <div class="modal-overlay" id="protocol-modal">
+        <div class="modal-content">
+            <div style="width: 64px; height: 64px; background: #dcfce7; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem;">
+                <i data-lucide="check" style="width: 32px; height: 32px; color: #16a34a;"></i>
+            </div>
+            <h2 style="font-size: 1.5rem; font-weight: 800; margin-bottom: 0.5rem;">Evidência Enviada!</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">Sua evidência foi registrada com sucesso.</p>
+            
+            <div style="background: #f8fafc; padding: 1.5rem; border-radius: var(--radius-md); border: 1px dashed var(--border-light); margin-bottom: 2rem;">
+                <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700; margin-bottom: 0.5rem;">Protocolos Gerados</div>
+                <div id="protocol-list" style="font-family: monospace; font-size: 0.875rem; font-weight: 600; word-break: break-all; display: flex; flex-direction: column; gap: 0.5rem;"></div>
+            </div>
+
+            <button class="btn-m2 btn-m2-primary" style="width: 100%; justify-content: center;" onclick="document.getElementById('protocol-modal').style.display='none'">
+                Fechar
+            </button>
+        </div>
+    </div>
+
+    <div class="toast-notification" id="toast"></div>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper.js"></script>
+    <script>
+        let currentUser = null;
+        let userProjects = [];
+        let currentProject = null;
+        let selectedFiles = [];
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            if (window.renderSidebar) window.renderSidebar();
+            
+            try {
+                sbClient = await window.initSupabase();
+                const { data: { user }, error: authError } = await sbClient.auth.getUser();
+                if (authError || !user) {
+                    window.location.href = '../index.html#login';
+                    return;
+                }
+                currentUser = user;
+
+                // Destacar Evidências na sidebar
+                setTimeout(() => {
+                    document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+                    const evLink = Array.from(document.querySelectorAll('.nav-link')).find(l => l.getAttribute('href') === 'comprovacao-fisica.html');
+                    if (evLink) {
+                        evLink.classList.add('active');
+                        evLink.style.color = 'var(--m2-accent)';
+                        evLink.style.background = 'rgba(99, 102, 241, 0.08)';
+                        evLink.style.fontWeight = '700';
+                    }
+                }, 100);
+
+                await checkAdminAccess();
+                await loadProjects();
+                setupDragAndDrop();
+
+                document.getElementById('file-input').addEventListener('change', handleFileSelect);
+                document.getElementById('upload-form').addEventListener('submit', handleUpload);
+
+            } catch (err) {
+                console.error("Erro na inicialização:", err);
+            }
+
+            if (window.lucide) window.lucide.createIcons();
+        });
+
+        async function checkAdminAccess() {
+            const { data } = await sbClient.from('organization_users')
+                .select('role')
+                .eq('user_id', currentUser.id)
+                .in('role', ['admin', 'owner'])
+                .limit(1);
+            if (data && data.length > 0) {
+                document.getElementById('admin-link').style.display = 'flex';
+            }
+        }
+
+        async function loadProjects() {
+            const { data, error } = await sbClient.from('projects')
+                .select('*, organizations(id, nome)')
+                .eq('user_id', currentUser.id)
+                .order('created_at', { ascending: false });
+
+            const select = document.getElementById('project-select');
+            
+            if (error || !data || data.length === 0) {
+                select.innerHTML = '<option value="">Nenhum projeto encontrado.</option>';
+                return;
+            }
+
+            userProjects = data;
+            select.innerHTML = '<option value="">Selecione um projeto...</option>' + 
+                data.map(p => `<option value="${p.id}">${p.nome} (PRONAC: ${p.pronac})</option>`).join('');
+
+            // Se tiver no localStorage, seleciona
+            const savedProj = ProjectManager.getSelected();
+            if (savedProj && data.find(p => p.id === savedProj)) {
+                select.value = savedProj;
+                handleProjectChange();
+            }
+        }
+
+        function handleProjectChange() {
+            const projectId = document.getElementById('project-select').value;
+            currentProject = userProjects.find(p => p.id === projectId);
+            
+            if (currentProject) {
+                ProjectManager.setSelected(projectId);
+                checkProjectStatus();
+                loadHistory();
+            } else {
+                document.getElementById('history-tbody').innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Selecione um projeto para ver o histórico.</td></tr>';
+                document.getElementById('upload-section').style.opacity = '0.5';
+                document.getElementById('upload-section').style.pointerEvents = 'none';
+            }
+        }
+
+        function checkProjectStatus() {
+            const blockMsg = document.getElementById('block-message');
+            const uploadSec = document.getElementById('upload-section');
+            
+            if (currentProject.status_prestacao === 'enviado_minc') {
+                blockMsg.style.display = 'flex';
+                uploadSec.style.opacity = '0.5';
+                uploadSec.style.pointerEvents = 'none';
+            } else {
+                blockMsg.style.display = 'none';
+                uploadSec.style.opacity = '1';
+                uploadSec.style.pointerEvents = 'auto';
+            }
+        }
+
+        // ── Drag & Drop & File Selection ──
+        function setupDragAndDrop() {
+            const dropZone = document.getElementById('drop-zone');
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dropZone.addEventListener(eventName, preventDefaults, false);
+            });
+            function preventDefaults(e) { e.preventDefault(); e.stopPropagation(); }
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropZone.addEventListener(eventName, () => dropZone.classList.add('dragover'), false);
+            });
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropZone.addEventListener(eventName, () => dropZone.classList.remove('dragover'), false);
+            });
+            dropZone.addEventListener('drop', (e) => {
+                const dt = e.dataTransfer;
+                addFiles(dt.files);
+            }, false);
+        }
+
+        function handleFileSelect(e) { addFiles(e.target.files); }
+
+        function addFiles(files) {
+            const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf', 'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation', 'video/mp4'];
+            const maxSize = 50 * 1024 * 1024; // 50MB
+
+            for(let file of files) {
+                if (!allowedTypes.includes(file.type)) {
+                    showToast(`Tipo não permitido: ${file.name}`, 'error');
+                    continue;
+                }
+                if (file.size > maxSize) {
+                    showToast(`Arquivo muito grande (Máx 50MB): ${file.name}`, 'error');
+                    continue;
+                }
+                // Evita duplicados
+                if (!selectedFiles.find(f => f.name === file.name && f.size === file.size)) {
+                    selectedFiles.push(file);
+                }
+            }
+            renderFileList();
+        }
+
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            renderFileList();
+        }
+
+        function renderFileList() {
+            const list = document.getElementById('selected-files');
+            const btn = document.getElementById('btn-submit');
+            
+            list.innerHTML = selectedFiles.map((f, i) => `
+                <div class="file-item">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; overflow: hidden;">
+                        <i data-lucide="file" style="width: 16px; color: var(--text-muted);"></i>
+                        <span style="white-space: nowrap; text-overflow: ellipsis; overflow: hidden; max-width: 200px;" title="${f.name}">${f.name}</span>
+                        <span style="color: var(--text-muted); font-size: 0.75rem;">(${(f.size/1024/1024).toFixed(2)} MB)</span>
+                    </div>
+                    <i data-lucide="x" class="remove-btn" onclick="removeFile(${i})"></i>
+                </div>
+            `).join('');
+            
+            if (window.lucide) window.lucide.createIcons();
+            btn.disabled = selectedFiles.length === 0;
+            document.getElementById('file-input').value = ''; // reseta input
+        }
+
+        // ── Upload ──
+        async function handleUpload(e) {
+            e.preventDefault();
+            if (!currentProject || selectedFiles.length === 0) return;
+
+            const btn = document.getElementById('btn-submit');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<i data-lucide="loader" class="spin"></i> Enviando...';
+            btn.disabled = true;
+
+            const tipo = document.getElementById('tipo-evidencia').value;
+            const desc = document.getElementById('descricao-evidencia').value.trim();
+            const orgId = currentProject.organization_id;
+
+            const protocolos = [];
+
+            try {
+                for (const file of selectedFiles) {
+                    const fileUuid = crypto.randomUUID();
+                    const ext = file.name.split('.').pop();
+                    const fileNameSafe = `${fileUuid}.${ext}`;
+                    const filePath = `${currentProject.id}/${fileUuid}/${fileNameSafe}`;
+
+                    // 1. Storage Upload
+                    const { error: uploadError } = await sbClient.storage
+                        .from('physical-evidences')
+                        .upload(filePath, file, { cacheControl: '3600', upsert: false });
+
+                    if (uploadError) throw new Error(`Falha no upload de ${file.name}: ${uploadError.message}`);
+
+                    // 2. Database Insert
+                    const insertData = {
+                        id: fileUuid,
+                        project_id: currentProject.id,
+                        organization_id: orgId,
+                        tipo_evidencia: tipo,
+                        descricao: desc,
+                        file_path: filePath,
+                        file_name: file.name,
+                        file_size: file.size,
+                        mime_type: file.type,
+                        enviado_por: currentUser.id,
+                        enviado_via_token: false,
+                        status_validacao: 'pendente'
+                    };
+
+                    const { error: dbError } = await sbClient.from('physical_evidences').insert([insertData]);
+                    
+                    if (dbError) {
+                        // Tentar remover arquivo órfão
+                        await sbClient.storage.from('physical-evidences').remove([filePath]);
+                        throw new Error(`Falha ao registrar ${file.name} no banco: ${dbError.message}`);
+                    }
+
+                    protocolos.push(fileUuid);
+                }
+
+                // Sucesso Total
+                selectedFiles = [];
+                renderFileList();
+                document.getElementById('upload-form').reset();
+                loadHistory();
+
+                // Mostrar Modal de Protocolo
+                const pList = document.getElementById('protocol-list');
+                pList.innerHTML = protocolos.map(p => `<div>${p}</div>`).join('');
+                document.getElementById('protocol-modal').style.display = 'flex';
+
+            } catch (err) {
+                console.error(err);
+                showToast(err.message, 'error');
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = selectedFiles.length === 0;
+                if (window.lucide) window.lucide.createIcons();
+            }
+        }
+
+        // ── Histórico ──
+        async function loadHistory() {
+            if (!currentProject) return;
+            const tbody = document.getElementById('history-tbody');
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;"><i data-lucide="loader" class="spin"></i> Carregando...</td></tr>';
+            if (window.lucide) window.lucide.createIcons();
+
+            const { data, error } = await sbClient.from('physical_evidences')
+                .select('*')
+                .eq('project_id', currentProject.id)
+                .eq('enviado_por', currentUser.id)
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--error);">Erro ao carregar histórico.</td></tr>`;
+                return;
+            }
+
+            if (!data || data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Nenhuma evidência enviada ainda.</td></tr>`;
+                return;
+            }
+
+            const formatTipo = {
+                'foto_evento': 'Foto do Evento',
+                'relatorio_objeto': 'Relatório do Objeto',
+                'peca_marketing': 'Marketing / Clipping',
+                'outros': 'Outros'
+            };
+
+            tbody.innerHTML = data.map(item => {
+                let badgeClass = 'badge-pendente';
+                let badgeText = 'Pendente';
+                if (item.status_validacao === 'aprovada') { badgeClass = 'badge-aprovada'; badgeText = 'Aprovada'; }
+                if (item.status_validacao === 'reprovada') { badgeClass = 'badge-reprovada'; badgeText = 'Reprovada'; }
+                if (item.status_validacao === 'pendente_complemento') { badgeClass = 'badge-pendente_complemento'; badgeText = 'Compl. Pendente'; }
+
+                let reasonHtml = item.status_validacao === 'reprovada' && item.motivo_reprovacao ? 
+                    `<div class="rejection-reason"><i data-lucide="alert-circle" style="width: 12px; display:inline;"></i> ${item.motivo_reprovacao}</div>` : '';
+
+                return `
+                    <tr>
+                        <td>
+                            <div style="font-weight: 600;">${item.file_name}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-muted);">${formatTipo[item.tipo_evidencia] || item.tipo_evidencia}</div>
+                        </td>
+                        <td>${item.descricao || '<span style="color:var(--text-muted); font-style:italic;">Sem descrição</span>'}</td>
+                        <td style="white-space: nowrap;">${new Date(item.created_at).toLocaleString('pt-BR')}</td>
+                        <td>
+                            <span class="badge ${badgeClass}">${badgeText}</span>
+                            ${reasonHtml}
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        function showToast(msg, type) {
+            const t = document.getElementById('toast');
+            t.innerText = msg;
+            t.className = `toast-notification ${type} show`;
+            setTimeout(() => t.classList.remove('show'), 3000);
+        }
+    </script>
+</body>
+</html>
