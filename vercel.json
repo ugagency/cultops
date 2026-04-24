@@ -1,9 +1,13 @@
 {
   "version": 2,
+  "builds": [
+    { "src": "server.js", "use": "@vercel/node" },
+    { "src": "index.html", "use": "@vercel/static" },
+    { "src": "style.css", "use": "@vercel/static" },
+    { "src": "app.js", "use": "@vercel/static" }
+  ],
   "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/server.js"
-    }
+    { "source": "/api/:path*", "destination": "/server.js" },
+    { "source": "/config.js", "destination": "/server.js" }
   ]
 }
