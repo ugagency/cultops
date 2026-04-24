@@ -3,7 +3,6 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
-const { executarInsercaoSalic } = require('./salic_insertion.cjs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -50,6 +49,9 @@ app.use(express.static(staticPath));
  * Endpoint para disparar o robô do SALIC
  */
 app.post('/api/salic/inserir', async (req, res) => {
+    // Carregamento "Lazy" do robô para economizar memória na Vercel
+    const { executarInsercaoSalic } = require('./salic_insertion.cjs');
+    
     const { documentId, userId } = req.body;
 
     if (!documentId) return res.status(400).json({ error: 'ID do documento não fornecido.' });
@@ -132,6 +134,12 @@ app.post('/api/salic/inserir', async (req, res) => {
 
         res.status(500).json({ error: error.message });
     }
+});
+
+// Tratamento de erros global para evitar crash do processo
+app.use((err, req, res, next) => {
+    console.error('[GLOBAL ERROR]', err);
+    res.status(500).json({ error: 'Erro interno no servidor', details: err.message });
 });
 
 if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
