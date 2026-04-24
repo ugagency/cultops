@@ -279,6 +279,10 @@ app.post('/api/m2/gerar-relatorio', async (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`[SERVER] Rodando em http://localhost:${PORT}`);
-});
+if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+    app.listen(PORT, () => {
+        console.log(`[SERVER] Rodando em http://localhost:${PORT}`);
+    });
+}
+
+module.exports = app;
