@@ -685,9 +685,23 @@
         }
 
         async function downloadReport(filePath) {
-            const { data, error } = await sbClient.storage.from('physical-evidences').createSignedUrl(filePath, 3600);
+            if (!filePath) return;
+            
+            // Se o n8n salvou a URL completa em vez do path, extraímos apenas o path
+            let cleanPath = filePath;
+            if (filePath.includes('/storage/v1/object/public/')) {
+                cleanPath = filePath.split('/public/')[1].split('/').slice(1).join('/');
+            } else if (filePath.includes('/storage/v1/object/authenticated/')) {
+                cleanPath = filePath.split('/authenticated/')[1].split('/').slice(1).join('/');
+            }
+
+            console.log("[STORAGE] Tentando download de:", cleanPath);
+            
+            const { data, error } = await sbClient.storage.from('reports').createSignedUrl(cleanPath, 3600);
+            
             if (error) {
-                alert("Erro ao gerar link de download.");
+                console.error("[STORAGE ERROR]", error);
+                alert("Erro ao gerar link de download: " + (error.message || "Verifique o console"));
                 return;
             }
             window.open(data.signedUrl, '_blank');
