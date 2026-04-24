@@ -33,8 +33,18 @@ app.get('/config.js', (req, res) => {
     res.send(`const CONFIG = ${JSON.stringify(publicConfig, null, 2)};`);
 });
 
+// Rota de Health Check para diagnóstico
+app.get('/api/health', (req, res) => {
+    res.json({ 
+        status: 'ok', 
+        env: process.env.NODE_ENV,
+        hasSupabase: !!process.env.SUPABASE_URL 
+    });
+});
+
 // Servir arquivos estáticos (Front-end)
-app.use(express.static(path.join(__dirname, './')));
+const staticPath = path.resolve(__dirname);
+app.use(express.static(staticPath));
 
 /**
  * Endpoint para disparar o robô do SALIC
