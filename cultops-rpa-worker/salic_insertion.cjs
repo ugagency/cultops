@@ -39,6 +39,7 @@ async function executarInsercaoSalic(config) {
     const launchOptions = {
         headless: isWindows ? false : 'new',
         slowMo: isWindows ? 50 : 0,
+        ignoreHTTPSErrors: true,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -72,8 +73,10 @@ async function executarInsercaoSalic(config) {
     const browser = await puppeteer.launch(launchOptions);
 
     let targetPage;
+    let page;
     try {
-        const page = await browser.newPage();
+        page = await browser.newPage();
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
         await page.setViewport({ width: 1280, height: 800 });
 
         console.log(`[SALIC] Iniciando login para o usuario: ${usuario} (Tipo: ${typeof usuario})`);
@@ -315,11 +318,17 @@ async function executarInsercaoSalic(config) {
         return { sucesso: true, mensagem: 'Formulario preenchido e salvo com sucesso!' };
 
     } catch (error) {
-        console.error('[SALIC] ERRO DURANTE A EXECUCAO:', error.message);
-        if (targetPage) {
-            const fileName = `erro_salic_${Date.now()}.png`;
-            await targetPage.screenshot({ path: fileName }).catch(() => { });
-        }
+        console.error('[SALIC] ERRO DURANTE A EXECUÇÃO:', error.message);
+        try {
+            // Tenta pegar o HTML da página para debugar se fomos bloqueados (ex: Cloudflare)
+            const erroPage = targetPage || page;
+            if (erroPage) {
+                const html = await erroPage.evaluate(() => document.body.innerText.substring(0, 500));
+                console.error('[SALIC] Conteúdo da página no momento do erro:', html);
+                const fileName = `erro_salic_${Date.now()}.png`;
+                await erroPage.screenshot({ path: fileName }).catch(() => { });
+            }
+        } catch(e) {}
         return { sucesso: false, erro: error.message };
     } finally {
         if (browser) await browser.close();
