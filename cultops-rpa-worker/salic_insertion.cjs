@@ -1,4 +1,8 @@
 const puppeteer = require('puppeteer-core');
+const fs = require('fs');
+const https = require('https');
+const path = require('path');
+const os = require('os');
 
 /**
  * Script de Inserção de Comprovação Financeira no SALIC
@@ -6,7 +10,29 @@ const puppeteer = require('puppeteer-core');
  */
 async function executarInsercaoSalic(config) {
     const { usuario, senha, pronac, rubricaNome, documento } = config;
+
+    // Helper para pausas
     const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+    // Helper para baixar o PDF do Supabase para o Railway
+    function downloadFile(url, dest) {
+        return new Promise((resolve, reject) => {
+            const file = fs.createWriteStream(dest);
+            https.get(url, response => {
+                if (response.statusCode === 301 || response.statusCode === 302) {
+                    return downloadFile(response.headers.location, dest).then(resolve).catch(reject);
+                }
+                response.pipe(file);
+                file.on('finish', () => {
+                    file.close();
+                    resolve();
+                });
+            }).on('error', err => {
+                fs.unlink(dest, () => {});
+                reject(err);
+            });
+        });
+    }
 
     const browser = config.browserWSEndpoint
         ? await puppeteer.connect({ browserWSEndpoint: config.browserWSEndpoint })
@@ -118,7 +144,7 @@ async function executarInsercaoSalic(config) {
                 const h1 = document.querySelector('h1');
                 const table = document.querySelector('table');
                 return (h1 && h1.innerText.includes('Comprovação')) || (table && document.body.innerText.includes('Rubrica'));
-            }, { timeout: 45000 });
+            }, { timeout: 10000 });
             console.log('[SALIC] Tela de Comprovação detectada!');
         } catch (e) {
             console.log('[SALIC] Aviso: Timeout na detecção automática. Tentando prosseguir com busca da rubrica...');
@@ -128,29 +154,117 @@ async function executarInsercaoSalic(config) {
 
         // --- FLUXO DE INSERÇÃO ---
         console.log(`[SALIC] Localizando a rubrica: ${rubricaNome}`);
-        const resultInsercao = await targetPage.evaluate((nome) => {
-            const rows = Array.from(document.querySelectorAll('tr'));
+        const linkComprovacao = await targetPage.evaluate((nome) => {
+            // Busca todas as linhas das tabelas
+            const rows = Array.from(document.querySelectorAll('table.bordered tbody tr'));
+            // Encontra a linha que tem o texto da rubrica
             const row = rows.find(r => r.innerText.includes(nome));
             if (row) {
-                // Procura o botão de ação (ícone de + ou texto Inserir)
-                const btn = row.querySelector('button[title*="Inserir"], .btn-inserir, .fa-plus');
-                if (btn) {
-                    btn.click();
-                    return { success: true };
-                }
+                // Encontra o link de "Comprovar item" (sinal de dinheiro)
+                const btn = row.querySelector('a[title="Comprovar item"]');
+                if (btn) return btn.href;
             }
-            return { success: false, error: 'Rubrica não encontrada ou sem botão de inserção' };
+            return null;
         }, rubricaNome);
 
-        if (!resultInsercao.success) throw new Error(resultInsercao.error);
+        if (!linkComprovacao) {
+            throw new Error('Rubrica não encontrada ou sem link de comprovação ("sinal de dinheiro")');
+        }
 
-        console.log('[SALIC] Formulário de inserção aberto! Preenchendo dados...');
-        // IMPORTANTE: Aqui entram os seletores reais do formulário que você mapeará
-        // Ex:
-        // await targetPage.waitForSelector('#cnpj_fornecedor');
-        // await targetPage.type('#cnpj_fornecedor', documento.cnpj);
+        console.log(`[SALIC] Sinal de dinheiro encontrado! Redirecionando...`);
+        await targetPage.goto(linkComprovacao, { waitUntil: 'networkidle2' });
 
-        return { sucesso: true, mensagem: 'Chegamos ao formulário de inserção!' };
+        console.log('[SALIC] Tela da rubrica carregada! Procurando botão flutuante (+)...');
+        await wait(2000); // Aguarda renderização do Materialize
+
+        await targetPage.evaluate(() => {
+            // No Materialize, botões flutuantes costumam ter a classe .btn-floating
+            const fab = document.querySelector('.fixed-action-btn a.btn-floating, a.btn-floating i.fa-plus, a[title*="Inserir"]');
+            if (fab) {
+                fab.click();
+            } else {
+                console.log("Botão flutuante não achado automaticamente, tente achar pelo F12");
+            }
+        });
+
+        console.log('[SALIC] Botão (+) clicado. Formulário de inserção aberto! Preenchendo dados...');
+        await targetPage.waitForSelector('#modal1.open', { timeout: 10000 });
+        await wait(1000); // Aguarda animação de abertura do modal
+
+        // 1. Seleciona Tipo Pessoa (CNPJ = 2)
+        await targetPage.evaluate(() => {
+            const radioCNPJ = document.querySelector('input[name="tipoPessoa"][value="2"]');
+            if (radioCNPJ && radioCNPJ.nextElementSibling) radioCNPJ.nextElementSibling.click();
+        });
+        await wait(500);
+
+        // 2. Preenche o CNPJ e clica na Lupa
+        await targetPage.evaluate((cnpj) => {
+             const label = document.querySelector('label[for="CNPJCPF"]');
+             if (label && label.previousElementSibling) {
+                 label.previousElementSibling.value = cnpj;
+                 label.previousElementSibling.dispatchEvent(new Event('input', { bubbles: true }));
+             }
+        }, documento.cnpj_fornecedor);
+
+        await targetPage.evaluate(() => {
+            const btns = document.querySelectorAll('button.btn i.material-icons');
+            for(let i of btns) { 
+                if(i.innerText === 'search') i.parentElement.click(); 
+            }
+        });
+        console.log('[SALIC] Buscando fornecedor pelo CNPJ...');
+        await wait(3000);
+
+        // 3. Formatar data (De YYYY-MM-DD para DD/MM/YYYY)
+        let dataFormatada = documento.data_emissao;
+        if (dataFormatada && dataFormatada.includes('-')) {
+            const parts = dataFormatada.split('-');
+            dataFormatada = `${parts[2]}/${parts[1]}/${parts[0]}`;
+        }
+
+        // 4. Preenche Dados do Comprovante
+        await targetPage.select('#tpDocumento', '3'); // Nota Fiscal/Fatura
+        await targetPage.type('#dataEmissao', dataFormatada);
+        await targetPage.type('#nrComprovante', String(documento.numero));
+
+        // 5. Upload do Arquivo (PDF)
+        if (documento.nf_url) {
+            console.log('[SALIC] Baixando arquivo da Nota Fiscal: ', documento.nf_url);
+            const localFilePath = path.join(os.tmpdir(), `nf_${Date.now()}.pdf`);
+            await downloadFile(documento.nf_url, localFilePath);
+            
+            const fileInput = await targetPage.$('#arquivo');
+            if (fileInput) {
+                await fileInput.uploadFile(localFilePath);
+                console.log('[SALIC] Upload do arquivo realizado no formulário.');
+            }
+        }
+
+        // 6. Dados de Pagamento
+        await targetPage.select('#tpFormaDePagamento', '2'); // Transferência Bancária
+        await targetPage.type('#dtPagamento', dataFormatada); // Assume a mesma data por padrão
+        await targetPage.type('#nrDocumentoDePagamento', String(documento.numero));
+        await targetPage.type('#vlComprovado', String(documento.valor));
+        await targetPage.type('#dsJustificativa', 'Inserção automatizada via Sistema Cultops');
+
+        console.log('[SALIC] Formulário preenchido! Clicando em Salvar...');
+        
+        // 7. Clicar no botão Salvar
+        await targetPage.evaluate(() => {
+            const btns = document.querySelectorAll('button.btn');
+            for(let b of btns) {
+                if(b.innerText.toLowerCase().includes('salvar')) {
+                    b.click();
+                    break;
+                }
+            }
+        });
+
+        // Aguarda um momento após salvar para garantir o envio
+        await wait(3000);
+
+        return { sucesso: true, mensagem: 'Formulário preenchido e salvo com sucesso!' };
 
     } catch (error) {
         console.error('[SALIC] ERRO DURANTE A EXECUÇÃO:', error.message);
@@ -171,10 +285,10 @@ if (require.main === module) {
     (async () => {
         // Substitua pelos seus dados de teste:
         await executarInsercaoSalic({
-            usuario: '91685010644',
-            senha: '916850',
-            pronac: '248870',
-            rubricaNome: 'NOME-DA-RUBRICA-AQUI',
+            usuario: '24454621187',
+            senha: 'artecidadania',
+            pronac: '258740',
+            rubricaNome: 'Passagens Aéreas',
             documento: {
                 cnpj: '...',
                 valor: '...',
