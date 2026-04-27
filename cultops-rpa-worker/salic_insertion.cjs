@@ -207,40 +207,40 @@ async function executarInsercaoSalic(config) {
 
         // --- FLUXO DE INSERCAO ---
         console.log(`[SALIC] Localizando a rubrica: ${rubricaNome}`);
-        const linkComprovacao = await targetPage.evaluate((nome, valorAprovado, valorNota) => {
-            // Busca todas as linhas das tabelas
+        const linkComprovacao = await targetPage.evaluate((nome, valorAprovado) => {
             const rows = Array.from(document.querySelectorAll('table.bordered tbody tr'));
             
-            // Limpa o nome (ex: "14 - Passagens Aereas" -> "passagens aereas")
-            const nomeLimpo = nome.replace(/^\d+\s*-\s*/, '').trim().toLowerCase();
+            // Limpa o nome (ex: "147 - Passagens Aereas (...)" -> "passagens")
+            const nomeLimpo = nome.replace(/^\d+\s*-\s*/, '').replace(/\(.*\)/, '').trim().toLowerCase();
+            
+            let melhorMatch = null;
             
             for (const row of rows) {
                 const colunas = row.querySelectorAll('td');
-                // A tabela do SALIC tem 5 colunas: Nome, Aprovado, Comprovado, A Comprovar, Botoes
                 if (colunas.length >= 5) {
                     const nomeTabela = colunas[0].innerText.toLowerCase();
                     
                     if (nomeTabela.includes(nomeLimpo)) {
-                        // Logica A: Se o DB mandou o Valor Aprovado Total, cruzamos com a Coluna 1
+                        // Compara SEMPRE pelo Valor Aprovado (Coluna 1)
                         if (valorAprovado) {
-                            const strTotal = colunas[1].innerText.replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
-                            if (Math.abs(parseFloat(strTotal) - parseFloat(valorAprovado)) < 0.01) {
+                            const strAprovado = colunas[1].innerText.replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
+                            const valAprovadoTabela = parseFloat(strAprovado);
+                            if (Math.abs(valAprovadoTabela - parseFloat(valorAprovado)) < 0.01) {
                                 const btn = row.querySelector('a[title="Comprovar item"]');
                                 if (btn) return btn.href;
                             }
                         } else {
-                            // Logica B: Se nao temos o total, cruzamos com a Coluna 3 (Saldo / A Comprovar)
-                            const strSaldo = colunas[3].innerText.replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
-                            if (parseFloat(strSaldo) >= parseFloat(valorNota)) {
+                            // Se nao temos valor_aprovado do DB, pega a primeira rubrica com o nome correto
+                            if (!melhorMatch) {
                                 const btn = row.querySelector('a[title="Comprovar item"]');
-                                if (btn) return btn.href;
+                                if (btn) melhorMatch = btn.href;
                             }
                         }
                     }
                 }
             }
-            return null;
-        }, rubricaNome, config.rubricaValorAprovado, documento.valor);
+            return melhorMatch;
+        }, rubricaNome, config.rubricaValorAprovado);
 
         if (!linkComprovacao) {
             throw new Error('Rubrica nao encontrada ou sem link de comprovacao ("sinal de dinheiro")');

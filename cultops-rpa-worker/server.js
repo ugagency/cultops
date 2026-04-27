@@ -51,21 +51,29 @@ app.post('/api/salic/inserir', async (req, res) => {
 
         console.log(`[API] Documento: ${doc.name} | Rubrica: ${doc.rubrica}`);
 
-        // Busca o valor aprovado da rubrica para desempate de rubricas com mesmo nome
+        // Busca o valor aprovado da rubrica para identificar a rubrica correta no SALIC
         let rubricaValorAprovado = null;
         if (doc.rubrica) {
+            // Limpa: "147 - Passagens Aéreas (Descrever os trechos...)" -> "Passagens Aéreas"
+            const nomeParaBusca = doc.rubrica
+                .replace(/^\d+\s*-\s*/, '')  // Remove prefixo numerico
+                .replace(/\(.*\)/, '')         // Remove texto entre parenteses
+                .trim();
+            
+            console.log(`[API] Buscando rubrica no DB com nome: "${nomeParaBusca}" | project_id: ${doc.project_id}`);
+            
             const { data: rubricaData } = await supabase
                 .from('rubricas')
-                .select('valor_aprovado')
+                .select('valor_aprovado, nome')
                 .eq('project_id', doc.project_id)
-                .ilike('nome', `%${doc.rubrica.replace(/^\d+\s*-\s*/, '').trim()}%`)
+                .ilike('nome', `%${nomeParaBusca}%`)
                 .maybeSingle();
 
             if (rubricaData && rubricaData.valor_aprovado) {
                 rubricaValorAprovado = rubricaData.valor_aprovado;
-                console.log(`[API] Valor Aprovado da Rubrica: ${rubricaValorAprovado}`);
+                console.log(`[API] Rubrica encontrada: "${rubricaData.nome}" | Valor Aprovado: R$ ${rubricaValorAprovado}`);
             } else {
-                console.log(`[API] Aviso: Valor aprovado não encontrado. Fallback por saldo.`);
+                console.log(`[API] AVISO: Rubrica nao encontrada no DB. A selecao no SALIC pode falhar.`);
             }
         }
 
