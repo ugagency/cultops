@@ -97,8 +97,9 @@ async function executarInsercaoSalic(config) {
         await page.type('#Senha', senha);
         await page.click('button[type="submit"]');
         
-        // Aguarda a navegação após clicar em entrar
-        await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+        console.log('[SALIC] Autenticando... aguardando processamento do servidor.');
+        // Aguarda 5 segundos para garantir que o SALIC processe o login e crie a sessão
+        await wait(5000);
 
         console.log(`[SALIC] Navegando para a lista de projetos...`);
         // 2. IR PARA A LISTAGEM
