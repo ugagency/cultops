@@ -1,4 +1,4 @@
-const puppeteer = require('puppeteer-core');
+const puppeteer = require('puppeteer');
 const fs = require('fs');
 const https = require('https');
 const path = require('path');
@@ -34,11 +34,11 @@ async function executarInsercaoSalic(config) {
         });
     }
 
-    // Detecta ambiente: Railway (Linux) = headless | Windows local = visível
-    const isProduction = process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production';
+    // Detecta ambiente pela plataforma: se NAO e Windows, e Railway/Linux
+    const isWindows = process.platform === 'win32';
     const launchOptions = {
-        headless: isProduction ? 'new' : false,
-        slowMo: isProduction ? 0 : 50,
+        headless: isWindows ? false : 'new',
+        slowMo: isWindows ? 50 : 0,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -48,17 +48,27 @@ async function executarInsercaoSalic(config) {
         ]
     };
 
-    // No Windows local, usa o Chrome instalado
-    if (!isProduction && process.platform === 'win32') {
+    if (isWindows) {
+        // Windows local: usa o Chrome instalado na maquina
         launchOptions.executablePath = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+    } else {
+        // Linux/Railway: tenta achar o Chromium do sistema (instalado pelo Dockerfile)
+        const chromiumPaths = [
+            process.env.PUPPETEER_EXECUTABLE_PATH,
+            '/usr/bin/chromium',
+            '/usr/bin/chromium-browser',
+            '/usr/bin/google-chrome'
+        ].filter(Boolean);
+
+        for (const p of chromiumPaths) {
+            if (fs.existsSync(p)) {
+                launchOptions.executablePath = p;
+                break;
+            }
+        }
     }
 
-    // No Railway (Linux), usa o Chromium do sistema instalado pelo Dockerfile
-    if (isProduction && process.env.PUPPETEER_EXECUTABLE_PATH) {
-        launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
-    }
-
-    console.log('[SALIC] Ambiente:', isProduction ? 'RAILWAY' : 'LOCAL');
+    console.log('[SALIC] Plataforma:', process.platform, '| Chrome:', launchOptions.executablePath || 'bundled');
     const browser = await puppeteer.launch(launchOptions);
 
     let targetPage;
@@ -66,14 +76,14 @@ async function executarInsercaoSalic(config) {
         const page = await browser.newPage();
         await page.setViewport({ width: 1280, height: 800 });
 
-        console.log(`[SALIC] Iniciando login para o usuário: ${usuario} (Tipo: ${typeof usuario})`);
+        console.log(`[SALIC] Iniciando login para o usuario: ${usuario} (Tipo: ${typeof usuario})`);
         console.log(`[SALIC] Tipo da Senha recebida: ${typeof senha}`);
 
         if (!usuario || typeof usuario !== 'string') {
-            throw new Error(`Usuário inválido ou não informado (Tipo: ${typeof usuario})`);
+            throw new Error(`Usuario invalido ou nao informado (Tipo: ${typeof usuario})`);
         }
         if (!senha || typeof senha !== 'string') {
-            throw new Error(`Senha inválida ou não informada (Tipo: ${typeof senha})`);
+            throw new Error(`Senha invalida ou nao informada (Tipo: ${typeof senha})`);
         }
 
         // 1. LOGIN
@@ -99,7 +109,7 @@ async function executarInsercaoSalic(config) {
         await wait(3000); // Espera a busca processar
 
         console.log('[SALIC] Clicando no PRONAC para abrir detalhes...');
-        // Tenta encontrar o link que contém o número do PRONAC
+        // Tenta encontrar o link que contém o numero do PRONAC
         const linkSelector = `table tbody tr td a ::-p-text(${pronac})`;
 
         try {
@@ -114,18 +124,18 @@ async function executarInsercaoSalic(config) {
         }
 
         // --- Gerenciamento da Nova Aba ---
-        console.log('[SALIC] Aguardando abertura da página de detalhes...');
+        console.log('[SALIC] Aguardando abertura da pagina de detalhes...');
         const newTarget = await browser.waitForTarget(target => target.opener() === page.target(), { timeout: 15000 });
-        const targetPage = await newTarget.page();
+        targetPage = await newTarget.page();
         await targetPage.bringToFront();
         await targetPage.setViewport({ width: 1280, height: 800 });
 
-        // Função auxiliar para achar o botão nos frames/side-nav
+        // Funcao auxiliar para achar o botao nos frames/side-nav
         async function encontrarBotaoNoSidenav(p) {
             return await p.evaluate(() => {
                 const spans = Array.from(document.querySelectorAll('li.bold > a > span'));
                 for (const span of spans) {
-                    if (span.textContent.trim().includes('Comprovação Financeira')) {
+                    if (span.textContent.trim().includes('Comprovacao Financeira')) {
                         const link = span.closest('a');
                         if (link) { link.click(); return true; }
                     }
@@ -134,8 +144,8 @@ async function executarInsercaoSalic(config) {
             });
         }
 
-        // --- Abrir Comprovação Financeira ---
-        console.log('[SALIC] Acessando aba Comprovação Financeira...');
+        // --- Abrir Comprovacao Financeira ---
+        console.log('[SALIC] Acessando aba Comprovacao Financeira...');
         let clicou = false;
         for (let i = 0; i < 15; i++) {
             clicou = await encontrarBotaoNoSidenav(targetPage);
@@ -146,47 +156,45 @@ async function executarInsercaoSalic(config) {
                     if (clicou) break;
                 }
             }
-            if (clicou) { console.log('[SALIC] Botão clicado!'); break; }
+            if (clicou) { console.log('[SALIC] Botao clicado!'); break; }
             await wait(2000);
         }
 
-        if (!clicou) throw new Error('Não consegui encontrar o botão Comprovação Financeira.');
+        if (!clicou) throw new Error('Nao consegui encontrar o botao Comprovacao Financeira.');
 
-        // 3. Aguarda o título específico da página de Comprovação
-        console.log('[SALIC] Botão acionado. Aguardando carregamento da tela de Comprovação...');
+        // 3. Aguarda o titulo especifico da pagina de Comprovacao
+        console.log('[SALIC] Botao acionado. Aguardando carregamento da tela de Comprovacao...');
 
-        // 3. Aguarda qualquer sinal de que a página de Comprovação carregou
-        // Usamos uma combinação de H1 e a presença de tabelas para ser mais robusto
         try {
             await targetPage.waitForFunction(() => {
                 const h1 = document.querySelector('h1');
                 const table = document.querySelector('table');
-                return (h1 && h1.innerText.includes('Comprovação')) || (table && document.body.innerText.includes('Rubrica'));
+                return (h1 && h1.innerText.includes('Comprovacao')) || (table && document.body.innerText.includes('Rubrica'));
             }, { timeout: 10000 });
-            console.log('[SALIC] Tela de Comprovação detectada!');
+            console.log('[SALIC] Tela de Comprovacao detectada!');
         } catch (e) {
-            console.log('[SALIC] Aviso: Timeout na detecção automática. Tentando prosseguir com busca da rubrica...');
+            console.log('[SALIC] Aviso: Timeout na deteccao automatica. Tentando prosseguir com busca da rubrica...');
         }
 
-        await wait(2000); // Garante que a tabela dinâmica se estabilizou
+        await wait(2000); // Garante que a tabela dinamica se estabilizou
 
-        // --- FLUXO DE INSERÇÃO ---
+        // --- FLUXO DE INSERCAO ---
         console.log(`[SALIC] Localizando a rubrica: ${rubricaNome}`);
         const linkComprovacao = await targetPage.evaluate((nome, valorAprovado, valorNota) => {
             // Busca todas as linhas das tabelas
             const rows = Array.from(document.querySelectorAll('table.bordered tbody tr'));
             
-            // Limpa o nome (ex: "14 - Passagens Aéreas" -> "passagens aéreas")
+            // Limpa o nome (ex: "14 - Passagens Aereas" -> "passagens aereas")
             const nomeLimpo = nome.replace(/^\d+\s*-\s*/, '').trim().toLowerCase();
             
             for (const row of rows) {
                 const colunas = row.querySelectorAll('td');
-                // A tabela do SALIC tem 5 colunas: Nome, Aprovado, Comprovado, A Comprovar, Botões
+                // A tabela do SALIC tem 5 colunas: Nome, Aprovado, Comprovado, A Comprovar, Botoes
                 if (colunas.length >= 5) {
                     const nomeTabela = colunas[0].innerText.toLowerCase();
                     
                     if (nomeTabela.includes(nomeLimpo)) {
-                        // Lógica A: Se o DB mandou o Valor Aprovado Total, cruzamos com a Coluna 1
+                        // Logica A: Se o DB mandou o Valor Aprovado Total, cruzamos com a Coluna 1
                         if (valorAprovado) {
                             const strTotal = colunas[1].innerText.replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
                             if (Math.abs(parseFloat(strTotal) - parseFloat(valorAprovado)) < 0.01) {
@@ -194,7 +202,7 @@ async function executarInsercaoSalic(config) {
                                 if (btn) return btn.href;
                             }
                         } else {
-                            // Lógica B: Se não temos o total, cruzamos com a Coluna 3 (Saldo / A Comprovar)
+                            // Logica B: Se nao temos o total, cruzamos com a Coluna 3 (Saldo / A Comprovar)
                             const strSaldo = colunas[3].innerText.replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
                             if (parseFloat(strSaldo) >= parseFloat(valorNota)) {
                                 const btn = row.querySelector('a[title="Comprovar item"]');
@@ -208,28 +216,28 @@ async function executarInsercaoSalic(config) {
         }, rubricaNome, config.rubricaValorAprovado, documento.valor);
 
         if (!linkComprovacao) {
-            throw new Error('Rubrica não encontrada ou sem link de comprovação ("sinal de dinheiro")');
+            throw new Error('Rubrica nao encontrada ou sem link de comprovacao ("sinal de dinheiro")');
         }
 
         console.log(`[SALIC] Sinal de dinheiro encontrado! Redirecionando...`);
         await targetPage.goto(linkComprovacao, { waitUntil: 'networkidle2' });
 
-        console.log('[SALIC] Tela da rubrica carregada! Procurando botão flutuante (+)...');
-        await wait(2000); // Aguarda renderização do Materialize
+        console.log('[SALIC] Tela da rubrica carregada! Procurando botao flutuante (+)...');
+        await wait(2000); // Aguarda renderizacao do Materialize
 
         await targetPage.evaluate(() => {
-            // No Materialize, botões flutuantes costumam ter a classe .btn-floating
+            // No Materialize, botoes flutuantes costumam ter a classe .btn-floating
             const fab = document.querySelector('.fixed-action-btn a.btn-floating, a.btn-floating i.fa-plus, a[title*="Inserir"]');
             if (fab) {
                 fab.click();
             } else {
-                console.log("Botão flutuante não achado automaticamente, tente achar pelo F12");
+                console.log("Botao flutuante nao achado automaticamente, tente achar pelo F12");
             }
         });
 
-        console.log('[SALIC] Botão (+) clicado. Formulário de inserção aberto! Preenchendo dados...');
+        console.log('[SALIC] Botao (+) clicado. Formulario de insercao aberto! Preenchendo dados...');
         await targetPage.waitForSelector('#modal1.open', { timeout: 10000 });
-        await wait(1000); // Aguarda animação de abertura do modal
+        await wait(1000); // Aguarda animacao de abertura do modal
 
         // 1. Seleciona Tipo Pessoa (CNPJ = 2)
         await targetPage.evaluate(() => {
@@ -277,20 +285,20 @@ async function executarInsercaoSalic(config) {
             const fileInput = await targetPage.$('#arquivo');
             if (fileInput) {
                 await fileInput.uploadFile(localFilePath);
-                console.log('[SALIC] Upload do arquivo realizado no formulário.');
+                console.log('[SALIC] Upload do arquivo realizado no formulario.');
             }
         }
 
         // 6. Dados de Pagamento
-        await targetPage.select('#tpFormaDePagamento', '2'); // Transferência Bancária
-        await targetPage.type('#dtPagamento', dataFormatada); // Assume a mesma data por padrão
+        await targetPage.select('#tpFormaDePagamento', '2'); // Transferencia Bancaria
+        await targetPage.type('#dtPagamento', dataFormatada); // Assume a mesma data por padrao
         await targetPage.type('#nrDocumentoDePagamento', String(documento.numero));
         await targetPage.type('#vlComprovado', String(documento.valor));
-        await targetPage.type('#dsJustificativa', 'Inserção automatizada via Sistema Cultops');
+        await targetPage.type('#dsJustificativa', 'Insercao automatizada via Sistema Cultops');
 
-        console.log('[SALIC] Formulário preenchido! Clicando em Salvar...');
+        console.log('[SALIC] Formulario preenchido! Clicando em Salvar...');
         
-        // 7. Clicar no botão Salvar
+        // 7. Clicar no botao Salvar
         await targetPage.evaluate(() => {
             const btns = document.querySelectorAll('button.btn');
             for(let b of btns) {
@@ -301,13 +309,13 @@ async function executarInsercaoSalic(config) {
             }
         });
 
-        // Aguarda um momento após salvar para garantir o envio
+        // Aguarda um momento apos salvar para garantir o envio
         await wait(3000);
 
-        return { sucesso: true, mensagem: 'Formulário preenchido e salvo com sucesso!' };
+        return { sucesso: true, mensagem: 'Formulario preenchido e salvo com sucesso!' };
 
     } catch (error) {
-        console.error('[SALIC] ERRO DURANTE A EXECUÇÃO:', error.message);
+        console.error('[SALIC] ERRO DURANTE A EXECUCAO:', error.message);
         if (targetPage) {
             const fileName = `erro_salic_${Date.now()}.png`;
             await targetPage.screenshot({ path: fileName }).catch(() => { });
@@ -320,7 +328,7 @@ async function executarInsercaoSalic(config) {
 
 module.exports = { executarInsercaoSalic };
 
-// --- ÁREA DE TESTE (Para rodar direto no terminal) ---
+// --- AREA DE TESTE (Para rodar direto no terminal) ---
 if (require.main === module) {
     (async () => {
         // Substitua pelos seus dados de teste:
@@ -328,12 +336,13 @@ if (require.main === module) {
             usuario: '24454621187',
             senha: 'artecidadania',
             pronac: '258740',
-            rubricaNome: 'Passagens Aéreas',
+            rubricaNome: 'Passagens Aereas',
             documento: {
-                cnpj: '...',
+                cnpj_fornecedor: '...',
                 valor: '...',
-                nf_path: '...',
-                comprovante_path: '...'
+                numero: '...',
+                data_emissao: '2026-03-17',
+                nf_url: ''
             }
         });
     })();
