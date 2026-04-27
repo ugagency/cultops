@@ -146,10 +146,12 @@ async function executarInsercaoSalic(config) {
         // Funcao auxiliar para achar o botao nos frames/side-nav
         async function encontrarBotaoNoSidenav(p) {
             return await p.evaluate(() => {
-                const spans = Array.from(document.querySelectorAll('li.bold > a > span'));
-                for (const span of spans) {
-                    if (span.textContent.trim().includes('Comprovacao Financeira')) {
-                        const link = span.closest('a');
+                // Busca por qualquer elemento que contenha "omprova" (match parcial que funciona com ou sem acento)
+                const allElements = Array.from(document.querySelectorAll('a, span, li'));
+                for (const el of allElements) {
+                    const text = el.textContent.trim().toLowerCase();
+                    if (text.includes('omprova') && text.includes('financeira')) {
+                        const link = el.tagName === 'A' ? el : el.closest('a');
                         if (link) { link.click(); return true; }
                     }
                 }
@@ -159,8 +161,20 @@ async function executarInsercaoSalic(config) {
 
         // --- Abrir Comprovacao Financeira ---
         console.log('[SALIC] Acessando aba Comprovacao Financeira...');
+        
+        // Espera a sidebar carregar (pode demorar em SPAs)
+        await wait(3000);
+        
         let clicou = false;
         for (let i = 0; i < 15; i++) {
+            // Log dos itens do menu para debug
+            if (i === 0) {
+                const menuItems = await targetPage.evaluate(() => {
+                    return Array.from(document.querySelectorAll('a')).map(a => a.textContent.trim()).filter(t => t.length > 2 && t.length < 50).slice(0, 20);
+                });
+                console.log('[SALIC] Itens de menu encontrados:', JSON.stringify(menuItems));
+            }
+            
             clicou = await encontrarBotaoNoSidenav(targetPage);
             if (!clicou) {
                 const frames = targetPage.frames();
