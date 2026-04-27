@@ -91,16 +91,35 @@ app.post('/api/salic/inserir', async (req, res) => {
 
         console.log(`[API] Documento identificado: ${doc.name} | Rubrica: ${doc.rubrica}`);
 
+        // Busca o valor aprovado da rubrica na tabela `rubricas` usando o project_id e o texto da rubrica
+        let rubricaValorAprovado = null;
+        if (doc.rubrica) {
+            const { data: rubricaData } = await supabase
+                .from('rubricas')
+                .select('valor_aprovado')
+                .eq('project_id', doc.project_id)
+                .eq('nome', doc.rubrica) // Assumindo que a coluna de nome da rubrica seja 'nome'
+                .maybeSingle();
+                
+            if (rubricaData && rubricaData.valor_aprovado) {
+                rubricaValorAprovado = rubricaData.valor_aprovado;
+                console.log(`[API] Valor Aprovado da Rubrica encontrado: ${rubricaValorAprovado}`);
+            } else {
+                console.log(`[API] Aviso: Valor aprovado não encontrado para a rubrica ${doc.rubrica}. O robô usará fallback por saldo.`);
+            }
+        }
+
         // 3. Executar o Robô
         const config = {
             usuario: String(creds.identifier),
             senha: String(creds.secret_plain),
             pronac: String(doc.projects.pronac),
             rubricaNome: doc.rubrica || 'Rubrica não informada',
+            rubricaValorAprovado: rubricaValorAprovado,
             documento: {
                 cnpj_fornecedor: doc.cnpj_emissor,
                 valor: doc.valor,
-                numero: doc.json_extraido?.numero_nota || 'S/N',
+                numero: doc.numero_nf || doc.json_extraido?.numero_nota || 'S/N',
                 data_emissao: doc.data_emissao,
                 nf_path: doc.file_path,
                 nf_url: `${process.env.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.file_path}`

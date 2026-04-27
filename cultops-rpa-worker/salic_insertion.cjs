@@ -34,18 +34,36 @@ async function executarInsercaoSalic(config) {
         });
     }
 
-    const browser = config.browserWSEndpoint
-        ? await puppeteer.connect({ browserWSEndpoint: config.browserWSEndpoint })
-        : await puppeteer.launch({
-            executablePath: process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', // Tentativa padrão Windows
-            headless: false, // Mantenha false para acompanhar o robô no Windows
-            slowMo: 50,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
-        });
+    // Detecta ambiente: Railway (Linux) = headless | Windows local = visível
+    const isProduction = process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production';
+    const launchOptions = {
+        headless: isProduction ? 'new' : false,
+        slowMo: isProduction ? 0 : 50,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--single-process'
+        ]
+    };
+
+    // No Windows local, usa o Chrome instalado
+    if (!isProduction && process.platform === 'win32') {
+        launchOptions.executablePath = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+    }
+
+    // No Railway (Linux), usa o Chromium do sistema instalado pelo Dockerfile
+    if (isProduction && process.env.PUPPETEER_EXECUTABLE_PATH) {
+        launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    }
+
+    console.log('[SALIC] Ambiente:', isProduction ? 'RAILWAY' : 'LOCAL');
+    const browser = await puppeteer.launch(launchOptions);
 
     let targetPage;
     try {
-        const page = config.browserWSEndpoint ? (await browser.pages())[0] : await browser.newPage();
+        const page = await browser.newPage();
         await page.setViewport({ width: 1280, height: 800 });
 
         console.log(`[SALIC] Iniciando login para o usuário: ${usuario} (Tipo: ${typeof usuario})`);
