@@ -90,18 +90,20 @@ async function executarInsercaoSalic(config) {
         }
 
         // 1. LOGIN
-        await page.goto('http://salic.cultura.gov.br', { waitUntil: 'networkidle2' });
+        await page.goto('http://salic.cultura.gov.br', { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-        await page.waitForSelector('#Login');
+        await page.waitForSelector('#Login', { timeout: 30000 });
         await page.type('#Login', usuario);
         await page.type('#Senha', senha);
         await page.click('button[type="submit"]');
-        await page.waitForNavigation({ waitUntil: 'networkidle2' });
+        
+        // Aguarda a navegação após clicar em entrar
+        await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
 
         console.log(`[SALIC] Navegando para a lista de projetos...`);
         // 2. IR PARA A LISTAGEM
         await page.goto('https://salic.cultura.gov.br/projeto/#/listar-projetos-proponente', {
-            waitUntil: 'networkidle2'
+            waitUntil: 'domcontentloaded', timeout: 60000
         });
 
         // Aguarda e clica no campo de busca
@@ -223,7 +225,7 @@ async function executarInsercaoSalic(config) {
         }
 
         console.log(`[SALIC] Sinal de dinheiro encontrado! Redirecionando...`);
-        await targetPage.goto(linkComprovacao, { waitUntil: 'networkidle2' });
+        await targetPage.goto(linkComprovacao, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
         console.log('[SALIC] Tela da rubrica carregada! Procurando botao flutuante (+)...');
         await wait(2000); // Aguarda renderizacao do Materialize
