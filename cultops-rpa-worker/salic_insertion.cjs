@@ -93,13 +93,26 @@ async function executarInsercaoSalic(config) {
         await page.goto('http://salic.cultura.gov.br', { waitUntil: 'domcontentloaded', timeout: 60000 });
 
         await page.waitForSelector('#Login', { timeout: 30000 });
-        await page.type('#Login', usuario);
-        await page.type('#Senha', senha);
-        await page.click('button[type="submit"]');
+        await page.type('#Login', usuario, { delay: 50 });
+        await wait(500);
+        await page.type('#Senha', senha, { delay: 50 });
+        await wait(500);
         
-        console.log('[SALIC] Autenticando... aguardando processamento do servidor.');
-        // Aguarda 5 segundos para garantir que o SALIC processe o login e crie a sessão
-        await wait(5000);
+        // Clica especificamente no botão "ENTRAR" e não no Gov.br
+        await page.evaluate(() => {
+            const botoes = Array.from(document.querySelectorAll('button'));
+            const btnEntrar = botoes.find(b => b.innerText.trim().toUpperCase() === 'ENTRAR');
+            if (btnEntrar) {
+                btnEntrar.click();
+            } else {
+                // Tenta o antigo form submission se não achar o botão por texto
+                document.querySelector('button[type="submit"]').click();
+            }
+        });
+        
+        console.log('[SALIC] Botão Entrar clicado... aguardando processamento do servidor.');
+        // Aguarda 8 segundos para garantir que o SALIC processe o login e crie a sessão
+        await wait(8000);
 
         console.log(`[SALIC] Navegando para a lista de projetos...`);
         // 2. IR PARA A LISTAGEM
