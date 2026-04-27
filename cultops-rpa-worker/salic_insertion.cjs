@@ -154,18 +154,40 @@ async function executarInsercaoSalic(config) {
 
         // --- FLUXO DE INSERÇÃO ---
         console.log(`[SALIC] Localizando a rubrica: ${rubricaNome}`);
-        const linkComprovacao = await targetPage.evaluate((nome) => {
+        const linkComprovacao = await targetPage.evaluate((nome, valorAprovado, valorNota) => {
             // Busca todas as linhas das tabelas
             const rows = Array.from(document.querySelectorAll('table.bordered tbody tr'));
-            // Encontra a linha que tem o texto da rubrica
-            const row = rows.find(r => r.innerText.includes(nome));
-            if (row) {
-                // Encontra o link de "Comprovar item" (sinal de dinheiro)
-                const btn = row.querySelector('a[title="Comprovar item"]');
-                if (btn) return btn.href;
+            
+            // Limpa o nome (ex: "14 - Passagens Aéreas" -> "passagens aéreas")
+            const nomeLimpo = nome.replace(/^\d+\s*-\s*/, '').trim().toLowerCase();
+            
+            for (const row of rows) {
+                const colunas = row.querySelectorAll('td');
+                // A tabela do SALIC tem 5 colunas: Nome, Aprovado, Comprovado, A Comprovar, Botões
+                if (colunas.length >= 5) {
+                    const nomeTabela = colunas[0].innerText.toLowerCase();
+                    
+                    if (nomeTabela.includes(nomeLimpo)) {
+                        // Lógica A: Se o DB mandou o Valor Aprovado Total, cruzamos com a Coluna 1
+                        if (valorAprovado) {
+                            const strTotal = colunas[1].innerText.replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
+                            if (Math.abs(parseFloat(strTotal) - parseFloat(valorAprovado)) < 0.01) {
+                                const btn = row.querySelector('a[title="Comprovar item"]');
+                                if (btn) return btn.href;
+                            }
+                        } else {
+                            // Lógica B: Se não temos o total, cruzamos com a Coluna 3 (Saldo / A Comprovar)
+                            const strSaldo = colunas[3].innerText.replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
+                            if (parseFloat(strSaldo) >= parseFloat(valorNota)) {
+                                const btn = row.querySelector('a[title="Comprovar item"]');
+                                if (btn) return btn.href;
+                            }
+                        }
+                    }
+                }
             }
             return null;
-        }, rubricaNome);
+        }, rubricaNome, config.rubricaValorAprovado, documento.valor);
 
         if (!linkComprovacao) {
             throw new Error('Rubrica não encontrada ou sem link de comprovação ("sinal de dinheiro")');
