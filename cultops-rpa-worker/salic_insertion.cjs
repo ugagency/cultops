@@ -128,26 +128,20 @@ async function executarInsercaoSalic(config) {
         await wait(3000); // Espera a busca processar
 
         console.log('[SALIC] Clicando no PRONAC para abrir detalhes...');
-        // Tenta encontrar o link que contém o numero do PRONAC
-        const linkSelector = `table tbody tr td a ::-p-text(${pronac})`;
+        console.log('[SALIC] Extraindo o link do PRONAC...');
+        const urlProjeto = await page.evaluate((p) => {
+            const links = Array.from(document.querySelectorAll('table tbody tr td a'));
+            const alvo = links.find(a => a.innerText.includes(p));
+            return alvo ? alvo.href : null;
+        }, pronac);
 
-        try {
-            await page.waitForSelector(linkSelector, { timeout: 10000 });
-            await page.click(linkSelector);
-        } catch (e) {
-            console.log('[SALIC] Tentativa alternativa de clique no link...');
-            await page.evaluate((p) => {
-                const target = Array.from(document.querySelectorAll('table tbody tr td a')).find(a => a.innerText.includes(p));
-                if (target) target.click();
-            }, pronac);
-        }
+        if (!urlProjeto) throw new Error('Link do PRONAC nao encontrado na tabela.');
+        
+        console.log('[SALIC] Navegando para os detalhes do projeto na mesma aba...');
+        await page.goto(urlProjeto, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-        // --- Gerenciamento da Nova Aba ---
-        console.log('[SALIC] Aguardando abertura da pagina de detalhes...');
-        const newTarget = await browser.waitForTarget(target => target.opener() === page.target(), { timeout: 15000 });
-        targetPage = await newTarget.page();
-        await targetPage.bringToFront();
-        await targetPage.setViewport({ width: 1280, height: 800 });
+        // A partir de agora, o targetPage é a própria página (não abrimos nova aba)
+        targetPage = page;
 
         // Funcao auxiliar para achar o botao nos frames/side-nav
         async function encontrarBotaoNoSidenav(p) {
