@@ -33,6 +33,6 @@ RUN npm install --production
 
 COPY . .
 
-EXPOSE 3001
+# Railway fornece a porta via env var PORT
 
 CMD ["node", "server.js"]
