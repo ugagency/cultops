@@ -49,20 +49,40 @@ app.post('/api/salic/inserir', async (req, res) => {
 
         if (docError || !doc) throw new Error('Documento não encontrado no banco de dados.');
 
+        console.log(`[API] Documento: ${doc.name} | Rubrica: ${doc.rubrica}`);
+
+        // Busca o valor aprovado da rubrica para desempate de rubricas com mesmo nome
+        let rubricaValorAprovado = null;
+        if (doc.rubrica) {
+            const { data: rubricaData } = await supabase
+                .from('rubricas')
+                .select('valor_aprovado')
+                .eq('project_id', doc.project_id)
+                .ilike('nome', `%${doc.rubrica.replace(/^\d+\s*-\s*/, '').trim()}%`)
+                .maybeSingle();
+
+            if (rubricaData && rubricaData.valor_aprovado) {
+                rubricaValorAprovado = rubricaData.valor_aprovado;
+                console.log(`[API] Valor Aprovado da Rubrica: ${rubricaValorAprovado}`);
+            } else {
+                console.log(`[API] Aviso: Valor aprovado não encontrado. Fallback por saldo.`);
+            }
+        }
+
         const config = {
             usuario: String(creds.identifier),
             senha: String(creds.secret_plain),
             pronac: String(doc.projects.pronac),
             rubricaNome: doc.rubrica || 'Rubrica não informada',
+            rubricaValorAprovado: rubricaValorAprovado,
             documento: {
                 cnpj_fornecedor: doc.cnpj_emissor,
                 valor: doc.valor,
-                numero: doc.json_extraido?.numero_nota || 'S/N',
+                numero: doc.numero_nf || doc.json_extraido?.numero_nota || 'S/N',
                 data_emissao: doc.data_emissao,
                 nf_path: doc.file_path,
                 nf_url: `${process.env.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.file_path}`
-            },
-            browserWSEndpoint: process.env.BROWSERLESS_ENDPOINT
+            }
         };
 
         const resultado = await executarInsercaoSalic(config);
