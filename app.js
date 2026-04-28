@@ -111,6 +111,10 @@ const state = {
     capturedProject: null,
     showCapturedProjectModal: false,
     isUploadingComprovante: false,
+    isUploadingExtrato: false,
+    uploadConcluidoComprovante: false,
+    uploadConcluidoExtrato: false,
+    isSalicRunning: false,
     rubrica_versions: []
 };
 
@@ -1126,9 +1130,11 @@ ${Sidebar()}
                                     <p class="text-xs" style="color: var(--primary); font-weight: 600;">Enviando comprovante...</p>
                                  </div>` :
                 (doc.status === 'aguardando_comprovante' ?
-                    `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem;" onclick="document.getElementById('vincular-comprovante-input').click()">Anexar Comprovante</button>
+                    (state.uploadConcluidoComprovante ? 
+                        `<p class="text-xs mt-2" style="color: var(--success); font-weight: bold; text-align: center;">✓ Upload do comprovante já foi realizado.</p>` :
+                        `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem;" onclick="document.getElementById('vincular-comprovante-input').click()">Anexar Comprovante</button>
                                  <input type="file" id="vincular-comprovante-input" style="display: none;" onchange="window.handleVincularDocumento('${doc.id}', this.files[0], 'comprovante', { id: '${doc.id}', nome: '${doc.name.replace(/'/g, "\\'")}', valor: ${doc.valor || 0}, cnpj: '${doc.cnpj_emissor || ''}' })" accept=".pdf,image/*">
-                                 <p class="text-xs" style="color: var(--text-muted); font-style: italic; margin-top: 0.5rem; text-align: center;">Você pode pular direto para o Extrato</p>` :
+                                 <p class="text-xs" style="color: var(--text-muted); font-style: italic; margin-top: 0.5rem; text-align: center;">Você pode pular direto para o Extrato</p>`) :
                     `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando etapa anterior para liberar upload...</p>`))
         }
                         </div>
@@ -1140,13 +1146,23 @@ ${Sidebar()}
                                 ${['aguardando_d3', 'enviado_salic', 'concluido'].includes(doc.status) ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--primary);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>'}
                             </div>
                             ${['aguardando_d3', 'liberado_rpa_airtop', 'enviado_salic', 'concluido'].includes(doc.status) ?
-            `<p class="text-xs" style="color: var(--text-secondary);">Conciliado e validado em D-3</p>` :
+            `<p class="text-xs" style="color: var(--text-secondary);">Conciliado e validado em D-3</p>
+             <p class="text-xs mt-2" style="color: var(--success); font-weight: bold;">✓ Upload do extrato já foi realizado.</p>` :
             (doc.status === 'aguardando_conciliacao_bancaria' || doc.status === 'aguardando_comprovante' ?
-                `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem;" onclick="document.getElementById('vincular-extrato-input').click()">
-                                    <i data-lucide="file-up" style="width: 14px;"></i>
-                                    Subir Extrato (OFX/CSV/PDF)
-                                 </button>
-                                 <input type="file" id="vincular-extrato-input" style="display: none;" onchange="window.handleUploadExtrato(this.files[0], '${doc.project_id}', '${doc.id}', '${state.currentComprovante?.id || ''}')" accept=".ofx,.csv,.pdf">` :
+                (state.isUploadingExtrato ?
+                    `<div style="padding: 0.5rem; text-align: center;">
+                        <div style="width: 100%; height: 6px; background: var(--bg-sidebar); border-radius: 3px; overflow: hidden; margin-bottom: 0.5rem;">
+                            <div style="width: 60%; height: 100%; background: var(--primary); animation: loading 2s infinite ease-in-out;"></div>
+                        </div>
+                        <p class="text-xs" style="color: var(--primary); font-weight: 600;">Enviando extrato...</p>
+                     </div>` :
+                (state.uploadConcluidoExtrato ? 
+                    `<p class="text-xs mt-2" style="color: var(--success); font-weight: bold; text-align: center;">✓ Upload do extrato já foi realizado.</p>` :
+                    `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem;" onclick="document.getElementById('vincular-extrato-input').click()">
+                                        <i data-lucide="file-up" style="width: 14px;"></i>
+                                        Subir Extrato (OFX/CSV/PDF)
+                                     </button>
+                                     <input type="file" id="vincular-extrato-input" style="display: none;" onchange="window.handleUploadExtrato(this.files[0], '${doc.project_id}', '${doc.id}', '${state.currentComprovante?.id || ''}')" accept=".ofx,.csv,.pdf">`)) :
                 `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando liberação...</p>`)
         }
                         </div>
@@ -1158,21 +1174,35 @@ ${Sidebar()}
                                 ${['enviado_salic', 'concluido'].includes(doc.status) ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : (doc.status === 'erro_rpa' ? '<i data-lucide="alert-circle" style="width: 16px; color: var(--error);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>')}
                             </div>
                             ${doc.status === 'liberado_rpa_airtop' ?
-            `<button class="btn btn-primary" style="width: 100%; font-size: 11px; padding: 0.5rem; background: linear-gradient(135deg, #059669 0%, #10b981 100%); border: none; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);" onclick="window.handleEnviarSalic('${doc.id}')" ${state.loading ? 'disabled' : ''}>
-                                    <i data-lucide="plus-circle" style="width: 14px;"></i>
-                                    Adicionar documento no SALIC
-                                 </button>` :
+            (state.isSalicRunning ? 
+                `<div style="padding: 0.5rem; text-align: center;">
+                    <div style="width: 100%; height: 6px; background: var(--bg-sidebar); border-radius: 3px; overflow: hidden; margin-bottom: 0.5rem;">
+                        <div style="width: 60%; height: 100%; background: var(--primary); animation: loading 2s infinite ease-in-out;"></div>
+                    </div>
+                    <p class="text-xs" style="color: var(--primary); font-weight: 600;">Robô em processo...</p>
+                 </div>` :
+                `<button class="btn btn-primary" style="width: 100%; font-size: 11px; padding: 0.5rem; background: linear-gradient(135deg, #059669 0%, #10b981 100%); border: none; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);" onclick="window.handleEnviarSalic('${doc.id}')" ${state.loading ? 'disabled' : ''}>
+                                        <i data-lucide="plus-circle" style="width: 14px;"></i>
+                                        Adicionar documento no SALIC
+                                     </button>`) :
             (doc.status === 'enviado_salic' || doc.status === 'concluido' ?
                 `<div style="display: flex; flex-direction: column; gap: 0.25rem;">
                                     <p class="text-xs" style="color: var(--success); font-weight: 600;">Comprovado com sucesso!</p>
                                     <p class="text-xs" style="color: var(--text-muted);">Protocolo: ${doc.protocolo_salic || 'Gerando...'}</p>
                                  </div>` :
                 (doc.status === 'erro_rpa' ?
-                    `<div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                                        <p class="text-xs" style="color: var(--error); font-weight: 500;">Falha no envio automático:</p>
-                                        <p class="text-xs" style="color: var(--text-muted); font-style: italic;">${doc.just_erro || 'Erro no robô SALIC'}</p>
-                                        <button class="btn btn-secondary" style="width: 100%; font-size: 10px; padding: 0.3rem;" onclick="window.handleEnviarSalic('${doc.id}')">Tentar Novamente</button>
-                                     </div>` :
+                    (state.isSalicRunning ? 
+                        `<div style="padding: 0.5rem; text-align: center;">
+                            <div style="width: 100%; height: 6px; background: var(--bg-sidebar); border-radius: 3px; overflow: hidden; margin-bottom: 0.5rem;">
+                                <div style="width: 60%; height: 100%; background: var(--primary); animation: loading 2s infinite ease-in-out;"></div>
+                            </div>
+                            <p class="text-xs" style="color: var(--primary); font-weight: 600;">Robô em processo...</p>
+                         </div>` :
+                        `<div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                                            <p class="text-xs" style="color: var(--error); font-weight: 500;">Falha no envio automático:</p>
+                                            <p class="text-xs" style="color: var(--text-muted); font-style: italic;">${doc.just_erro || 'Erro no robô SALIC'}</p>
+                                            <button class="btn btn-secondary" style="width: 100%; font-size: 10px; padding: 0.3rem;" onclick="window.handleEnviarSalic('${doc.id}')">Tentar Novamente</button>
+                                         </div>`) :
                     `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando liberação financeira (D+3)...</p>`))
         }
                         </div>
@@ -2222,6 +2252,13 @@ window.handleCreateRubrica = async function () {
 };
 
 async function fetchDocumentDetails(id, silent = false) {
+    if (state.currentDocument?.id !== id) {
+        state.uploadConcluidoComprovante = false;
+        state.uploadConcluidoExtrato = false;
+        state.isSalicRunning = false;
+        state.isUploadingExtrato = false;
+    }
+
     // Se o supabase ou o usuário não estiver pronto, aguarda até 3s e tenta de novo
     if (!supabaseClient || !state.user) {
         if (!silent) {
@@ -2943,6 +2980,7 @@ window.handleEnviarSalic = async function (documentId) {
     if (!supabaseClient || !state.user) return;
 
     state.loading = true;
+    state.isSalicRunning = true;
     render();
 
     try {
@@ -3004,6 +3042,7 @@ window.handleEnviarSalic = async function (documentId) {
         setTimeout(() => fetchDocumentDetails(documentId, true), 3000);
 
     } catch (err) {
+        state.isSalicRunning = false;
         showToast("Erro ao processar envio: " + err.message, 'error');
     } finally {
         state.loading = false;
@@ -3078,6 +3117,7 @@ window.handleVincularDocumento = async function (parentDocumentId, file, tipo, l
         }
 
         alert(`${tipo.charAt(0).toUpperCase() + tipo.slice(1)} enviado com sucesso! O processamento da IA foi iniciado.`);
+        state.uploadConcluidoComprovante = true;
 
         // Recarrega os detalhes para mostrar o status atualizado
         await fetchDocumentDetails(parentDocumentId);
@@ -3355,6 +3395,7 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
     }
 
     state.loading = true;
+    state.isUploadingExtrato = true;
     render();
 
     try {
@@ -3412,6 +3453,7 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
         }
 
         showToast("Extrato enviado com sucesso! O processamento e conciliação IA foram iniciados.", 'success');
+        state.uploadConcluidoExtrato = true;
 
         // Recarrega os detalhes para mostrar o status (que será atualizado via Realtime/Fetch)
         setTimeout(() => fetchDocumentDetails(documentId), 2500);
@@ -3420,6 +3462,7 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
         showToast("Erro no extrato: " + error.message, 'error');
     } finally {
         state.loading = false;
+        state.isUploadingExtrato = false;
         render();
     }
 };
