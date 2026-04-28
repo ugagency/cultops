@@ -329,12 +329,35 @@ async function executarInsercaoSalic(config) {
                 console.log('[RPA] Tipo Pessoa CNPJ selecionado');
             }
         });
-        await wait(1000);
+        await wait(1500); // Espera a mascara trocar de CPF para CNPJ
 
-        // 2. Preenche o CNPJ com disparo completo de eventos
+        // 2. O <input> do CNPJ NAO tem atributo id no HTML do SALIC!
+        //    Precisamos encontrar pelo label e injetar o id para o Puppeteer conseguir achar.
         console.log(`[SALIC] Preenchendo CNPJ: ${documento.cnpj_fornecedor}`);
         
-        // Limpa o campo primeiro e digita caractere por caractere para ativar a mascara
+        await targetPage.evaluate(() => {
+            // Encontra o input pela relacao com o label (previousElementSibling)
+            const label = document.querySelector('label[for="CNPJCPF"]');
+            if (label && label.previousElementSibling && label.previousElementSibling.tagName === 'INPUT') {
+                label.previousElementSibling.id = 'CNPJCPF';
+                console.log('[RPA] ID "CNPJCPF" injetado no input. Mask atual:', label.previousElementSibling.getAttribute('data-mask'));
+            } else {
+                console.warn('[RPA] AVISO: Nao encontrou input do CNPJ pelo label!');
+                // Fallback: tenta encontrar pelo data-mask de CNPJ
+                const inputs = document.querySelectorAll('#modal1 input[data-mask]');
+                for (const inp of inputs) {
+                    const mask = inp.getAttribute('data-mask');
+                    if (mask && (mask.includes('/') || mask.includes('###.###.###'))) {
+                        inp.id = 'CNPJCPF';
+                        console.log('[RPA] ID "CNPJCPF" injetado via fallback (data-mask):', mask);
+                        break;
+                    }
+                }
+            }
+        });
+        await wait(500);
+
+        // Agora o input tem id, podemos usar o Puppeteer normalmente
         const cnpjInput = await targetPage.$('#CNPJCPF');
         if (cnpjInput) {
             await cnpjInput.click({ clickCount: 3 }); // Seleciona tudo
@@ -342,19 +365,40 @@ async function executarInsercaoSalic(config) {
             await wait(300);
             // Digita somente os numeros do CNPJ (a mascara formata sozinha)
             const cnpjSoNumeros = documento.cnpj_fornecedor.replace(/\D/g, '');
-            await cnpjInput.type(cnpjSoNumeros, { delay: 80 });
+            await cnpjInput.type(cnpjSoNumeros, { delay: 100 });
             console.log('[SALIC] CNPJ digitado no campo');
+            
+            // Verifica o que ficou no campo apos a mascara formatar
+            const cnpjPreenchido = await targetPage.evaluate(() => {
+                const el = document.querySelector('#CNPJCPF');
+                return el ? el.value : null;
+            });
+            console.log(`[SALIC] CNPJ no campo apos mascara: ${cnpjPreenchido}`);
         } else {
-            // Fallback: busca pelo label
-            await setMaterializeField(targetPage, '#CNPJCPF, input[name="CNPJCPF"]', documento.cnpj_fornecedor.replace(/\D/g, ''));
+            console.error('[SALIC] ERRO CRITICO: Input do CNPJ nao encontrado mesmo apos injecao de ID!');
+            // Ultima tentativa: digita via evaluate diretamente
+            await targetPage.evaluate((cnpj) => {
+                const label = document.querySelector('label[for="CNPJCPF"]');
+                const input = label ? label.previousElementSibling : null;
+                if (input) {
+                    input.value = cnpj;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                    input.dispatchEvent(new Event('blur', { bubbles: true }));
+                    console.log('[RPA] CNPJ inserido via fallback direto');
+                }
+            }, documento.cnpj_fornecedor.replace(/\D/g, ''));
         }
         await wait(500);
 
         // Clica na Lupa para buscar o fornecedor
         await targetPage.evaluate(() => {
-            const btns = document.querySelectorAll('button.btn i.material-icons');
+            // Busca todos os botoes com icone search dentro do modal
+            const modal = document.querySelector('#modal1');
+            const container = modal || document;
+            const btns = container.querySelectorAll('button.btn i.material-icons');
             for (let i of btns) { 
-                if (i.innerText === 'search') {
+                if (i.innerText.trim() === 'search') {
                     i.parentElement.click();
                     console.log('[RPA] Botao buscar (lupa) clicado');
                     break;
@@ -362,14 +406,19 @@ async function executarInsercaoSalic(config) {
             }
         });
         console.log('[SALIC] Buscando fornecedor pelo CNPJ...');
-        await wait(4000); // Espera extra para a busca do fornecedor completar
+        await wait(5000); // Espera mais para a busca do fornecedor completar no servidor
 
-        // Verifica se o fornecedor foi encontrado (checa se apareceu nome/razao social)
+        // Verifica se o fornecedor foi encontrado
         const fornecedorEncontrado = await targetPage.evaluate(() => {
-            const nomeEl = document.querySelector('#nmFornecedor, #razaoSocial, .fornecedor-nome');
-            return nomeEl ? nomeEl.value || nomeEl.innerText : null;
+            // Tenta varios seletores possiveis para o nome do fornecedor
+            const candidatos = ['#Descricao', '#nmFornecedor', '#razaoSocial', 'input[name="Descricao"]'];
+            for (const sel of candidatos) {
+                const el = document.querySelector(sel);
+                if (el && el.value) return el.value;
+            }
+            return null;
         });
-        console.log(`[SALIC] Fornecedor encontrado: ${fornecedorEncontrado || 'NAO DETECTADO (pode estar ok)'}`);
+        console.log(`[SALIC] Fornecedor encontrado: ${fornecedorEncontrado || 'NAO DETECTADO (verifique CNPJ)'}`);
 
         // 3. Formatar data (De YYYY-MM-DD para DD/MM/YYYY)
         let dataFormatada = documento.data_emissao;
