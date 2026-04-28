@@ -428,13 +428,12 @@ async function executarInsercaoSalic(config) {
         }
         console.log(`[SALIC] Data formatada: ${dataFormatada}`);
 
-        // 4. Formatar valor para formato brasileiro (1500.50 -> 1500,50)
-        let valorFormatado = String(documento.valor);
-        if (valorFormatado.includes('.')) {
-            // Converte de formato US (1500.50) para BR (1500,50)
-            valorFormatado = valorFormatado.replace('.', ',');
-        }
-        console.log(`[SALIC] Valor formatado: ${valorFormatado} (original: ${documento.valor})`);
+        // 4. Converter valor para centavos (mascara de moeda do SALIC trata digitos como centavos)
+        //    Ex: R$4.100,00 -> digitar "410000" -> mascara exibe "4.100,00"
+        //    Ex: R$14.600,00 -> digitar "1460000" -> mascara exibe "14.600,00"
+        const valorNum = parseFloat(documento.valor);
+        const valorEmCentavos = String(Math.round(valorNum * 100));
+        console.log(`[SALIC] Valor: R$ ${documento.valor} -> centavos para digitar: ${valorEmCentavos}`);
 
         // 5. Preenche Dados do Comprovante com eventos Materialize
         await setMaterializeSelect(targetPage, '#tpDocumento', '3'); // Nota Fiscal/Fatura
@@ -466,8 +465,25 @@ async function executarInsercaoSalic(config) {
         await wait(300);
         await setMaterializeField(targetPage, '#nrDocumentoDePagamento', String(documento.numero));
         await wait(300);
-        await setMaterializeField(targetPage, '#vlComprovado', valorFormatado);
+
+        // 8. Valor: digitar caractere por caractere para a mascara de moeda funcionar
+        const vlInput = await targetPage.$('#vlComprovado');
+        if (vlInput) {
+            await vlInput.click({ clickCount: 3 });
+            await vlInput.press('Backspace');
+            await wait(200);
+            await vlInput.type(valorEmCentavos, { delay: 60 });
+            // Verifica o que a mascara exibiu
+            const valorExibido = await targetPage.evaluate(() => {
+                const el = document.querySelector('#vlComprovado');
+                return el ? el.value : null;
+            });
+            console.log(`[SALIC] Valor exibido no campo apos mascara: ${valorExibido}`);
+        } else {
+            console.error('[SALIC] ERRO: Campo #vlComprovado nao encontrado!');
+        }
         await wait(300);
+
         await setMaterializeField(targetPage, '#dsJustificativa', 'Insercao automatizada via Sistema Cultops');
         await wait(300);
 
