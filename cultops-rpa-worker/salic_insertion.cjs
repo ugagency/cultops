@@ -418,7 +418,11 @@ async function executarInsercaoSalic(config) {
             }
             return null;
         });
-        console.log(`[SALIC] Fornecedor encontrado: ${fornecedorEncontrado || 'NAO DETECTADO (verifique CNPJ)'}`);
+        if (!fornecedorEncontrado) {
+            console.error(`[SALIC] Fornecedor nao encontrado para o CNPJ: ${documento.cnpj_fornecedor}`);
+            throw new Error(`Fornecedor não encontrado no SALIC para o CNPJ ${documento.cnpj_fornecedor}. Favor cadastrá-lo no portal antes de enviar a comprovação.`);
+        }
+        console.log(`[SALIC] Fornecedor encontrado: ${fornecedorEncontrado}`);
 
         // 3. Formatar data (De YYYY-MM-DD para DD/MM/YYYY)
         let dataFormatada = documento.data_emissao;
