@@ -267,32 +267,109 @@ async function executarInsercaoSalic(config) {
 
         console.log('[SALIC] Botao (+) clicado. Formulario de insercao aberto! Preenchendo dados...');
         await targetPage.waitForSelector('#modal1.open', { timeout: 10000 });
-        await wait(1000); // Aguarda animacao de abertura do modal
+        await wait(1500); // Aguarda animacao de abertura do modal
+
+        // Helper: dispara TODOS os eventos que o Materialize CSS precisa para reconhecer um campo
+        async function setMaterializeField(pageRef, selector, value) {
+            await pageRef.evaluate((sel, val) => {
+                const el = document.querySelector(sel);
+                if (!el) { console.warn('[RPA] Campo nao encontrado:', sel); return; }
+                
+                // Foca o campo (ativa o label do Materialize)
+                el.focus();
+                el.dispatchEvent(new Event('focus', { bubbles: true }));
+                
+                // Limpa valor anterior
+                el.value = '';
+                
+                // Define o novo valor
+                el.value = val;
+                
+                // Dispara toda a cadeia de eventos que o Materialize/jQuery escutam
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+                el.dispatchEvent(new Event('keyup', { bubbles: true }));
+                el.dispatchEvent(new Event('blur', { bubbles: true }));
+                
+                // Ativa o label do Materialize (evita sobreposicao de texto)
+                const label = document.querySelector('label[for="' + el.id + '"]');
+                if (label) label.classList.add('active');
+                
+                console.log('[RPA] Campo preenchido:', sel, '=', val);
+            }, selector, value);
+        }
+
+        // Helper: seleciona opcao em <select> compativel com Materialize
+        async function setMaterializeSelect(pageRef, selector, value) {
+            await pageRef.evaluate((sel, val) => {
+                const el = document.querySelector(sel);
+                if (!el) { console.warn('[RPA] Select nao encontrado:', sel); return; }
+                el.value = val;
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+                
+                // Se for Materialize com select customizado, atualiza visualmente
+                if (typeof M !== 'undefined' && M.FormSelect) {
+                    M.FormSelect.init(el);
+                } else if (typeof $ !== 'undefined') {
+                    $(el).material_select?.();
+                }
+                console.log('[RPA] Select definido:', sel, '=', val);
+            }, selector, value);
+        }
 
         // 1. Seleciona Tipo Pessoa (CNPJ = 2)
         await targetPage.evaluate(() => {
             const radioCNPJ = document.querySelector('input[name="tipoPessoa"][value="2"]');
-            if (radioCNPJ && radioCNPJ.nextElementSibling) radioCNPJ.nextElementSibling.click();
+            if (radioCNPJ) {
+                radioCNPJ.checked = true;
+                radioCNPJ.dispatchEvent(new Event('change', { bubbles: true }));
+                radioCNPJ.dispatchEvent(new Event('click', { bubbles: true }));
+                // Tambem clica no label (Materialize usa labels clicaveis)
+                if (radioCNPJ.nextElementSibling) radioCNPJ.nextElementSibling.click();
+                console.log('[RPA] Tipo Pessoa CNPJ selecionado');
+            }
         });
+        await wait(1000);
+
+        // 2. Preenche o CNPJ com disparo completo de eventos
+        console.log(`[SALIC] Preenchendo CNPJ: ${documento.cnpj_fornecedor}`);
+        
+        // Limpa o campo primeiro e digita caractere por caractere para ativar a mascara
+        const cnpjInput = await targetPage.$('#CNPJCPF');
+        if (cnpjInput) {
+            await cnpjInput.click({ clickCount: 3 }); // Seleciona tudo
+            await cnpjInput.press('Backspace');
+            await wait(300);
+            // Digita somente os numeros do CNPJ (a mascara formata sozinha)
+            const cnpjSoNumeros = documento.cnpj_fornecedor.replace(/\D/g, '');
+            await cnpjInput.type(cnpjSoNumeros, { delay: 80 });
+            console.log('[SALIC] CNPJ digitado no campo');
+        } else {
+            // Fallback: busca pelo label
+            await setMaterializeField(targetPage, '#CNPJCPF, input[name="CNPJCPF"]', documento.cnpj_fornecedor.replace(/\D/g, ''));
+        }
         await wait(500);
 
-        // 2. Preenche o CNPJ e clica na Lupa
-        await targetPage.evaluate((cnpj) => {
-             const label = document.querySelector('label[for="CNPJCPF"]');
-             if (label && label.previousElementSibling) {
-                 label.previousElementSibling.value = cnpj;
-                 label.previousElementSibling.dispatchEvent(new Event('input', { bubbles: true }));
-             }
-        }, documento.cnpj_fornecedor);
-
+        // Clica na Lupa para buscar o fornecedor
         await targetPage.evaluate(() => {
             const btns = document.querySelectorAll('button.btn i.material-icons');
-            for(let i of btns) { 
-                if(i.innerText === 'search') i.parentElement.click(); 
+            for (let i of btns) { 
+                if (i.innerText === 'search') {
+                    i.parentElement.click();
+                    console.log('[RPA] Botao buscar (lupa) clicado');
+                    break;
+                }
             }
         });
         console.log('[SALIC] Buscando fornecedor pelo CNPJ...');
-        await wait(3000);
+        await wait(4000); // Espera extra para a busca do fornecedor completar
+
+        // Verifica se o fornecedor foi encontrado (checa se apareceu nome/razao social)
+        const fornecedorEncontrado = await targetPage.evaluate(() => {
+            const nomeEl = document.querySelector('#nmFornecedor, #razaoSocial, .fornecedor-nome');
+            return nomeEl ? nomeEl.value || nomeEl.innerText : null;
+        });
+        console.log(`[SALIC] Fornecedor encontrado: ${fornecedorEncontrado || 'NAO DETECTADO (pode estar ok)'}`);
 
         // 3. Formatar data (De YYYY-MM-DD para DD/MM/YYYY)
         let dataFormatada = documento.data_emissao;
@@ -300,13 +377,25 @@ async function executarInsercaoSalic(config) {
             const parts = dataFormatada.split('-');
             dataFormatada = `${parts[2]}/${parts[1]}/${parts[0]}`;
         }
+        console.log(`[SALIC] Data formatada: ${dataFormatada}`);
 
-        // 4. Preenche Dados do Comprovante
-        await targetPage.select('#tpDocumento', '3'); // Nota Fiscal/Fatura
-        await targetPage.type('#dataEmissao', dataFormatada);
-        await targetPage.type('#nrComprovante', String(documento.numero));
+        // 4. Formatar valor para formato brasileiro (1500.50 -> 1500,50)
+        let valorFormatado = String(documento.valor);
+        if (valorFormatado.includes('.')) {
+            // Converte de formato US (1500.50) para BR (1500,50)
+            valorFormatado = valorFormatado.replace('.', ',');
+        }
+        console.log(`[SALIC] Valor formatado: ${valorFormatado} (original: ${documento.valor})`);
 
-        // 5. Upload do Arquivo (PDF)
+        // 5. Preenche Dados do Comprovante com eventos Materialize
+        await setMaterializeSelect(targetPage, '#tpDocumento', '3'); // Nota Fiscal/Fatura
+        await wait(500);
+        await setMaterializeField(targetPage, '#dataEmissao', dataFormatada);
+        await wait(300);
+        await setMaterializeField(targetPage, '#nrComprovante', String(documento.numero));
+        await wait(300);
+
+        // 6. Upload do Arquivo (PDF)
         if (documento.nf_url) {
             console.log('[SALIC] Baixando arquivo da Nota Fiscal: ', documento.nf_url);
             const localFilePath = path.join(os.tmpdir(), `nf_${Date.now()}.pdf`);
@@ -316,33 +405,134 @@ async function executarInsercaoSalic(config) {
             if (fileInput) {
                 await fileInput.uploadFile(localFilePath);
                 console.log('[SALIC] Upload do arquivo realizado no formulario.');
+            } else {
+                console.warn('[SALIC] AVISO: Campo de upload (#arquivo) nao encontrado!');
             }
         }
 
-        // 6. Dados de Pagamento
-        await targetPage.select('#tpFormaDePagamento', '2'); // Transferencia Bancaria
-        await targetPage.type('#dtPagamento', dataFormatada); // Assume a mesma data por padrao
-        await targetPage.type('#nrDocumentoDePagamento', String(documento.numero));
-        await targetPage.type('#vlComprovado', String(documento.valor));
-        await targetPage.type('#dsJustificativa', 'Insercao automatizada via Sistema Cultops');
+        // 7. Dados de Pagamento com eventos Materialize
+        await setMaterializeSelect(targetPage, '#tpFormaDePagamento', '2'); // Transferencia Bancaria
+        await wait(500);
+        await setMaterializeField(targetPage, '#dtPagamento', dataFormatada);
+        await wait(300);
+        await setMaterializeField(targetPage, '#nrDocumentoDePagamento', String(documento.numero));
+        await wait(300);
+        await setMaterializeField(targetPage, '#vlComprovado', valorFormatado);
+        await wait(300);
+        await setMaterializeField(targetPage, '#dsJustificativa', 'Insercao automatizada via Sistema Cultops');
+        await wait(300);
+
+        // Log de auditoria: mostra o estado de todos os campos antes de salvar
+        const estadoCampos = await targetPage.evaluate(() => {
+            const campos = ['#tpDocumento', '#dataEmissao', '#nrComprovante', '#tpFormaDePagamento', '#dtPagamento', '#nrDocumentoDePagamento', '#vlComprovado', '#dsJustificativa', '#CNPJCPF'];
+            const resultado = {};
+            for (const sel of campos) {
+                const el = document.querySelector(sel);
+                resultado[sel] = el ? (el.value || '(vazio)') : '(NAO ENCONTRADO)';
+            }
+            return resultado;
+        });
+        console.log('[SALIC] AUDITORIA - Estado dos campos antes de salvar:', JSON.stringify(estadoCampos, null, 2));
 
         console.log('[SALIC] Formulario preenchido! Clicando em Salvar...');
         
-        // 7. Clicar no botao Salvar
-        await targetPage.evaluate(() => {
-            const btns = document.querySelectorAll('button.btn');
-            for(let b of btns) {
-                if(b.innerText.toLowerCase().includes('salvar')) {
-                    b.click();
-                    break;
+        // 8. Clicar no botao Salvar - multiplas estrategias
+        const salvarClicado = await targetPage.evaluate(() => {
+            // Estrategia 1: Busca por texto "salvar" em botoes
+            const btns = document.querySelectorAll('button.btn, button[type="submit"], input[type="submit"]');
+            for (let b of btns) {
+                const texto = (b.innerText || b.value || '').toLowerCase();
+                if (texto.includes('salvar') || texto.includes('gravar') || texto.includes('enviar')) {
+                    console.log('[RPA] Botao encontrado:', texto);
+                    // Dispara mousedown + mouseup + click (simula interacao real)
+                    b.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+                    b.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+                    b.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                    return texto;
                 }
             }
+            
+            // Estrategia 2: Submete o form diretamente
+            const form = document.querySelector('#modal1 form, #formComprovante, form');
+            if (form) {
+                console.log('[RPA] Submetendo form diretamente');
+                form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+                return 'form-submit';
+            }
+            
+            return null;
         });
 
-        // Aguarda um momento apos salvar para garantir o envio
-        await wait(3000);
+        if (!salvarClicado) {
+            // Ultima tentativa: busca e clica via Puppeteer nativo
+            console.warn('[SALIC] AVISO: Nenhum botao salvar encontrado via evaluate. Tentando via Puppeteer...');
+            try {
+                const btnSalvar = await targetPage.$('button.btn:not(.btn-floating)');
+                if (btnSalvar) await btnSalvar.click();
+            } catch(e) {
+                console.error('[SALIC] Falha ao clicar via Puppeteer:', e.message);
+            }
+        } else {
+            console.log(`[SALIC] Botao Salvar acionado via: "${salvarClicado}"`);
+        }
 
-        return { sucesso: true, mensagem: 'Formulario preenchido e salvo com sucesso!' };
+        // 9. VERIFICACAO POS-SAVE: Aguarda e analisa o resultado
+        console.log('[SALIC] Aguardando resposta do servidor apos salvar...');
+        await wait(6000); // Espera generosa para o servidor processar
+
+        // Checa mensagens de sucesso ou erro na pagina
+        const resultadoSalvamento = await targetPage.evaluate(() => {
+            const body = document.body.innerText.toLowerCase();
+            const toasts = Array.from(document.querySelectorAll('.toast, .toast-content, .alert, .notification, .card-panel'));
+            const toastTexts = toasts.map(t => t.innerText.trim()).filter(Boolean);
+            
+            // Verifica se o modal fechou (sinal de sucesso no Materialize)
+            const modal = document.querySelector('#modal1');
+            const modalAberto = modal && (modal.classList.contains('open') || modal.style.display !== 'none');
+            
+            // Verifica erros de validacao dentro do modal
+            const errosValidacao = Array.from(document.querySelectorAll('.invalid, .error, .red-text, .helper-text[data-error]'))
+                .map(e => e.innerText || e.getAttribute('data-error'))
+                .filter(Boolean);
+            
+            return {
+                modalAberto,
+                toastTexts,
+                errosValidacao,
+                contemSucesso: body.includes('sucesso') || body.includes('salvo') || body.includes('gravado') || body.includes('inserido'),
+                contemErro: body.includes('erro') || body.includes('falha') || body.includes('inválid') || body.includes('obrigatório'),
+                tituloAtual: document.title,
+                urlAtual: window.location.href
+            };
+        });
+
+        console.log('[SALIC] RESULTADO POS-SAVE:', JSON.stringify(resultadoSalvamento, null, 2));
+
+        // Tira screenshot do estado final para debug
+        const screenshotPath = `salic_resultado_${Date.now()}.png`;
+        await targetPage.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
+        console.log(`[SALIC] Screenshot salvo: ${screenshotPath}`);
+
+        // Analisa o resultado
+        if (resultadoSalvamento.errosValidacao.length > 0) {
+            const erroMsg = `Erros de validacao no formulario: ${resultadoSalvamento.errosValidacao.join(', ')}`;
+            console.error(`[SALIC] FALHA: ${erroMsg}`);
+            return { sucesso: false, erro: erroMsg };
+        }
+
+        if (resultadoSalvamento.modalAberto && resultadoSalvamento.contemErro) {
+            return { sucesso: false, erro: `Modal ainda aberto com possiveis erros. Toasts: ${resultadoSalvamento.toastTexts.join('; ')}` };
+        }
+
+        // Se o modal fechou, provavelmente salvou
+        if (!resultadoSalvamento.modalAberto || resultadoSalvamento.contemSucesso) {
+            console.log('[SALIC] ✓ Insercao aparenta ter sido bem-sucedida (modal fechou ou mensagem de sucesso detectada)');
+            return { sucesso: true, mensagem: 'Comprovacao financeira inserida com sucesso!' };
+        }
+
+        // Caso ambiguo: retorna sucesso com aviso
+        console.warn('[SALIC] AVISO: Resultado ambiguo - nao detectou sucesso nem erro claro');
+        return { sucesso: true, mensagem: 'Formulario enviado (resultado ambiguo - verificar manualmente)', toasts: resultadoSalvamento.toastTexts };
 
     } catch (error) {
         console.error('[SALIC] ERRO DURANTE A EXECUÇÃO:', error.message);
