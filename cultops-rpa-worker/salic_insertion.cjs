@@ -72,6 +72,12 @@ async function executarInsercaoSalic(config) {
     console.log('[SALIC] Plataforma:', process.platform, '| Chrome:', launchOptions.executablePath || 'bundled');
     const browser = await puppeteer.launch(launchOptions);
 
+    // FALLBACK: Timeout global de seguranca (4 minutos) para evitar browser zumbi
+    const globalTimeoutHandle = setTimeout(async () => {
+        console.error('[SALIC] TIMEOUT GLOBAL: Execucao excedeu 4 minutos. Fechando browser...');
+        try { await browser.close(); } catch(e) {}
+    }, 240000);
+
     let targetPage;
     let page;
     try {
@@ -113,6 +119,20 @@ async function executarInsercaoSalic(config) {
         console.log('[SALIC] Botão Entrar clicado... aguardando processamento do servidor.');
         // Aguarda 8 segundos para garantir que o SALIC processe o login e crie a sessão
         await wait(8000);
+
+        // FALLBACK: Verifica se o login foi bem-sucedido antes de prosseguir
+        const loginCheck = await page.evaluate(() => {
+            const body = document.body.innerText.toLowerCase();
+            const temErro = body.includes('senha inválida') || body.includes('senha invalida') ||
+                body.includes('usuário não encontrado') || body.includes('usuario nao encontrado') ||
+                body.includes('login incorreto') || body.includes('dados inválidos') || body.includes('tente novamente');
+            const temSessao = !!document.querySelector('a[href*="sair"], a[href*="logout"], .user-info, .usuario, .nav-wrapper .brand-logo');
+            return { temErro, temSessao, url: window.location.href };
+        });
+        console.log('[SALIC] Verificacao pos-login:', JSON.stringify(loginCheck));
+        if (loginCheck.temErro) {
+            throw new Error('Falha no login SALIC: credenciais invalidas ou usuario bloqueado.');
+        }
 
         console.log(`[SALIC] Navegando para a lista de projetos...`);
         // 2. IR PARA A LISTAGEM
@@ -420,6 +440,40 @@ async function executarInsercaoSalic(config) {
         });
         console.log(`[SALIC] Fornecedor encontrado: ${fornecedorEncontrado || 'NAO DETECTADO (verifique CNPJ)'}`);
 
+        // FALLBACK: Se fornecedor nao foi encontrado, tenta nova busca antes de abortar
+        if (!fornecedorEncontrado) {
+            console.warn('[SALIC] FALLBACK: Fornecedor nao encontrado. Re-tentando busca...');
+            const cnpjRetry = await targetPage.$('#CNPJCPF');
+            if (cnpjRetry) {
+                await cnpjRetry.click({ clickCount: 3 });
+                await cnpjRetry.press('Backspace');
+                await wait(500);
+                await cnpjRetry.type(documento.cnpj_fornecedor.replace(/\D/g, ''), { delay: 100 });
+                await wait(500);
+            }
+            await targetPage.evaluate(() => {
+                const modal = document.querySelector('#modal1');
+                const container = modal || document;
+                const btns = container.querySelectorAll('button.btn i.material-icons');
+                for (let i of btns) {
+                    if (i.innerText.trim() === 'search') { i.parentElement.click(); break; }
+                }
+            });
+            await wait(6000);
+            const fornecedorRetry = await targetPage.evaluate(() => {
+                const candidatos = ['#Descricao', '#nmFornecedor', '#razaoSocial', 'input[name="Descricao"]'];
+                for (const sel of candidatos) {
+                    const el = document.querySelector(sel);
+                    if (el && el.value) return el.value;
+                }
+                return null;
+            });
+            if (!fornecedorRetry) {
+                throw new Error(`Fornecedor com CNPJ ${documento.cnpj_fornecedor} nao encontrado no SALIC apos 2 tentativas.`);
+            }
+            console.log(`[SALIC] Fornecedor encontrado na 2a tentativa: ${fornecedorRetry}`);
+        }
+
         // 3. Formatar data (De YYYY-MM-DD para DD/MM/YYYY)
         let dataFormatada = documento.data_emissao;
         if (dataFormatada && dataFormatada.includes('-')) {
@@ -448,13 +502,25 @@ async function executarInsercaoSalic(config) {
             console.log('[SALIC] Baixando arquivo da Nota Fiscal: ', documento.nf_url);
             const localFilePath = path.join(os.tmpdir(), `nf_${Date.now()}.pdf`);
             await downloadFile(documento.nf_url, localFilePath);
+
+            // FALLBACK: Verifica se o PDF foi baixado corretamente
+            const fileStats = fs.statSync(localFilePath);
+            if (!fileStats || fileStats.size < 100) {
+                console.warn('[SALIC] FALLBACK: PDF com tamanho suspeito. Tentando download novamente...');
+                await downloadFile(documento.nf_url, localFilePath);
+                const retryStats = fs.statSync(localFilePath);
+                if (!retryStats || retryStats.size < 100) {
+                    throw new Error(`PDF da NF baixado com tamanho invalido (${retryStats?.size || 0} bytes). URL: ${documento.nf_url}`);
+                }
+            }
+            console.log(`[SALIC] PDF baixado com sucesso: ${fileStats.size} bytes`);
             
             const fileInput = await targetPage.$('#arquivo');
             if (fileInput) {
                 await fileInput.uploadFile(localFilePath);
                 console.log('[SALIC] Upload do arquivo realizado no formulario.');
             } else {
-                console.warn('[SALIC] AVISO: Campo de upload (#arquivo) nao encontrado!');
+                throw new Error('Campo de upload do arquivo (#arquivo) nao encontrado no formulario. Layout do SALIC pode ter mudado.');
             }
         }
 
@@ -479,6 +545,28 @@ async function executarInsercaoSalic(config) {
                 return el ? el.value : null;
             });
             console.log(`[SALIC] Valor exibido no campo apos mascara: ${valorExibido}`);
+
+            // FALLBACK: Valida se o valor exibido pela mascara corresponde ao esperado
+            if (valorExibido) {
+                const valorExibidoNum = parseFloat(valorExibido.replace(/[R$\s.]/g, '').replace(',', '.'));
+                if (!isNaN(valorExibidoNum) && Math.abs(valorExibidoNum - valorNum) > 0.01) {
+                    console.warn(`[SALIC] FALLBACK: Valor divergente! Esperado: ${valorNum}, Exibido: ${valorExibidoNum}. Tentando corrigir...`);
+                    await vlInput.click({ clickCount: 3 });
+                    await vlInput.press('Backspace');
+                    await wait(300);
+                    await vlInput.type(valorEmCentavos, { delay: 80 });
+                    await wait(300);
+                    const valorCorrigido = await targetPage.evaluate(() => {
+                        const el = document.querySelector('#vlComprovado');
+                        return el ? el.value : null;
+                    });
+                    const valorCorrigidoNum = parseFloat((valorCorrigido || '').replace(/[R$\s.]/g, '').replace(',', '.'));
+                    if (!isNaN(valorCorrigidoNum) && Math.abs(valorCorrigidoNum - valorNum) > 0.01) {
+                        throw new Error(`Valor no campo (${valorCorrigido}) diverge do esperado (R$ ${valorNum}) mesmo apos correcao.`);
+                    }
+                    console.log(`[SALIC] Valor corrigido com sucesso: ${valorCorrigido}`);
+                }
+            }
         } else {
             console.error('[SALIC] ERRO: Campo #vlComprovado nao encontrado!');
         }
@@ -595,9 +683,44 @@ async function executarInsercaoSalic(config) {
             return { sucesso: true, mensagem: 'Comprovacao financeira inserida com sucesso!' };
         }
 
-        // Caso ambiguo: retorna sucesso com aviso
-        console.warn('[SALIC] AVISO: Resultado ambiguo - nao detectou sucesso nem erro claro');
-        return { sucesso: true, mensagem: 'Formulario enviado (resultado ambiguo - verificar manualmente)', toasts: resultadoSalvamento.toastTexts };
+        // FALLBACK: Resultado ambiguo - verifica diretamente na tabela se a insercao foi registrada
+        console.warn('[SALIC] AVISO: Resultado ambiguo. Verificando na tabela de comprovacoes...');
+        await wait(3000);
+
+        try {
+            await targetPage.goto(linkComprovacao, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await wait(3000);
+
+            const insercaoConfirmada = await targetPage.evaluate((cnpj, valor) => {
+                const rows = Array.from(document.querySelectorAll('table tbody tr'));
+                const cnpjLimpo = cnpj.replace(/\D/g, '');
+                for (const row of rows) {
+                    const texto = row.innerText;
+                    if (texto.includes(cnpjLimpo) || texto.includes(cnpj)) {
+                        const cells = row.querySelectorAll('td');
+                        for (const cell of cells) {
+                            const cellText = cell.innerText.replace(/[R$\s.]/g, '').replace(',', '.');
+                            const cellVal = parseFloat(cellText);
+                            if (!isNaN(cellVal) && Math.abs(cellVal - parseFloat(valor)) < 0.01) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                return false;
+            }, documento.cnpj_fornecedor, documento.valor);
+
+            if (insercaoConfirmada) {
+                console.log('[SALIC] ✓ VERIFICACAO POS-AMBIGUO: Insercao CONFIRMADA na tabela!');
+                return { sucesso: true, mensagem: 'Comprovacao financeira inserida e verificada com sucesso (confirmada via tabela)!' };
+            } else {
+                console.warn('[SALIC] ✗ VERIFICACAO POS-AMBIGUO: Insercao NAO encontrada na tabela.');
+                return { sucesso: false, erro: 'Insercao nao confirmada na tabela de comprovacoes apos envio. Verificar manualmente no SALIC.', toasts: resultadoSalvamento.toastTexts };
+            }
+        } catch (verifyError) {
+            console.error('[SALIC] Erro durante verificacao pos-ambiguo:', verifyError.message);
+            return { sucesso: false, erro: 'Resultado ambiguo e falha na verificacao automatica. Verificar manualmente.', toasts: resultadoSalvamento.toastTexts };
+        }
 
     } catch (error) {
         console.error('[SALIC] ERRO DURANTE A EXECUÇÃO:', error.message);
@@ -613,6 +736,7 @@ async function executarInsercaoSalic(config) {
         } catch(e) {}
         return { sucesso: false, erro: error.message };
     } finally {
+        clearTimeout(globalTimeoutHandle);
         if (browser) await browser.close();
     }
 }
