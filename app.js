@@ -187,9 +187,9 @@ const STATUS_MAP = {
         description: 'Divergência de valor: O valor da nota fiscal não coincide com o valor da transação no extrato bancário. Revisão manual obrigatória antes de prosseguir.'
     },
     'divergencia_beneficiario': {
-        label: 'Divergência de Beneficiário',
+        label: 'Divergência no extrato',
         class: 'status-error',
-        description: 'Divergência de beneficiário: O CNPJ do fornecedor na nota não corresponde ao destinatário identificado no extrato bancário. Revisão manual obrigatória.'
+        description: 'Divergência no extrato: Transação não encontrada no extrato. Revisão manual obrigatória.'
     }
 };
 
@@ -1157,7 +1157,7 @@ ${Sidebar()}
                                     <p class="text-xs" style="color: var(--primary); font-weight: 600;">Enviando comprovante...</p>
                                  </div>` :
                 (doc.status === 'aguardando_comprovante' ?
-                    (state.uploadConcluidoComprovante ? 
+                    (state.uploadConcluidoComprovante ?
                         `<p class="text-xs mt-2" style="color: var(--success); font-weight: bold; text-align: center;">✓ Upload do comprovante já foi realizado.</p>` :
                         `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem;" onclick="document.getElementById('vincular-comprovante-input').click()">Anexar Comprovante</button>
                                  <input type="file" id="vincular-comprovante-input" style="display: none;" onchange="window.handleVincularDocumento('${doc.id}', this.files[0], 'comprovante', { id: '${doc.id}', nome: '${doc.name.replace(/'/g, "\\'")}', valor: ${doc.valor || 0}, cnpj: '${doc.cnpj_emissor || ''}' })" accept=".pdf,image/*">
@@ -1175,7 +1175,7 @@ ${Sidebar()}
                             ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? `
                             <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                                 <p class="text-xs" style="color: var(--error); font-weight: 600;">
-                                    ${doc.status === 'divergencia_valor' ? '⚠ Divergência de valor detectada entre a NF e o extrato.' : '⚠ Beneficiário no extrato não coincide com o fornecedor da NF.'}
+                                    ${doc.status === 'divergencia_valor' ? '⚠ Divergência de valor detectada entre a NF e o extrato.' : '⚠  Transação não encontrada no extrato. Verifique manualmente'}
                                 </p>
                                 <p class="text-xs" style="color: var(--text-muted); line-height: 1.4;">${doc.just_erro || 'Verifique o extrato bancário e a nota fiscal manualmente antes de prosseguir.'}</p>
                                 <div style="padding: 0.6rem; background: rgba(245, 158, 11, 0.1); border-radius: 4px; border: 1px solid rgba(245, 158, 11, 0.3);">
@@ -1183,25 +1183,25 @@ ${Sidebar()}
                                     <p class="text-xs" style="color: var(--text-secondary); line-height: 1.4;">Compare o valor e CNPJ do extrato com os dados extraídos da nota fiscal. Se estiver correto, use o botão abaixo para continuar.</p>
                                 </div>
                             </div>` :
-                            ((['aguardando_d3', 'liberado_rpa_airtop', 'enviado_salic', 'concluido'].includes(doc.status)) ?
-            `<p class="text-xs" style="color: var(--text-secondary);">Conciliado e validado em D-3</p>
+            ((['aguardando_d3', 'liberado_rpa_airtop', 'enviado_salic', 'concluido'].includes(doc.status)) ?
+                `<p class="text-xs" style="color: var(--text-secondary);">Conciliado e validado em D-3</p>
              <p class="text-xs mt-2" style="color: var(--success); font-weight: bold;">✓ Upload do extrato já foi realizado.</p>` :
-            (doc.status === 'aguardando_conciliacao_bancaria' || doc.status === 'aguardando_comprovante' ?
-                (state.isUploadingExtrato ?
-                    `<div style="padding: 0.5rem; text-align: center;">
+                (doc.status === 'aguardando_conciliacao_bancaria' || doc.status === 'aguardando_comprovante' ?
+                    (state.isUploadingExtrato ?
+                        `<div style="padding: 0.5rem; text-align: center;">
                         <div style="width: 100%; height: 6px; background: var(--bg-sidebar); border-radius: 3px; overflow: hidden; margin-bottom: 0.5rem;">
                             <div style="width: 60%; height: 100%; background: var(--primary); animation: loading 2s infinite ease-in-out;"></div>
                         </div>
                         <p class="text-xs" style="color: var(--primary); font-weight: 600;">Enviando extrato...</p>
                      </div>` :
-                (state.uploadConcluidoExtrato ? 
-                    `<p class="text-xs mt-2" style="color: var(--success); font-weight: bold; text-align: center;">✓ Upload do extrato já foi realizado.</p>` :
-                    `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem;" onclick="document.getElementById('vincular-extrato-input').click()">
+                        (state.uploadConcluidoExtrato ?
+                            `<p class="text-xs mt-2" style="color: var(--success); font-weight: bold; text-align: center;">✓ Upload do extrato já foi realizado.</p>` :
+                            `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem;" onclick="document.getElementById('vincular-extrato-input').click()">
                                         <i data-lucide="file-up" style="width: 14px;"></i>
                                         Subir Extrato (OFX/CSV/PDF)
                                      </button>
-                                     <input type="file" id="vincular-extrato-input" style="display: none;" onchange="window.handleUploadExtrato(this.files[0], '${doc.project_id}', '${doc.id}', '${state.currentComprovante?.id || ''}')" accept=".ofx,.csv,.pdf">`) ) :
-                `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando liberação...</p>`))
+                                     <input type="file" id="vincular-extrato-input" style="display: none;" onchange="window.handleUploadExtrato(this.files[0], '${doc.project_id}', '${doc.id}', '${state.currentComprovante?.id || ''}')" accept=".ofx,.csv,.pdf">`)) :
+                    `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando liberação...</p>`))
         }
                         </div>
 
@@ -1212,7 +1212,7 @@ ${Sidebar()}
                                 ${['enviado_salic', 'concluido'].includes(doc.status) ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : (doc.status === 'erro_rpa' ? '<i data-lucide="alert-circle" style="width: 16px; color: var(--error);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>')}
                             </div>
                             ${doc.status === 'liberado_rpa_airtop' ?
-            (state.isSalicRunning ? 
+            (state.isSalicRunning ?
                 `<div style="padding: 0.5rem; text-align: center;">
                     <div style="width: 100%; height: 6px; background: var(--bg-sidebar); border-radius: 3px; overflow: hidden; margin-bottom: 0.5rem;">
                         <div style="width: 60%; height: 100%; background: var(--primary); animation: loading 2s infinite ease-in-out;"></div>
@@ -1229,7 +1229,7 @@ ${Sidebar()}
                                     <p class="text-xs" style="color: var(--text-muted);">Protocolo: ${doc.protocolo_salic || 'Gerando...'}</p>
                                  </div>` :
                 (doc.status === 'erro_rpa' ?
-                    (state.isSalicRunning ? 
+                    (state.isSalicRunning ?
                         `<div style="padding: 0.5rem; text-align: center;">
                             <div style="width: 100%; height: 6px; background: var(--bg-sidebar); border-radius: 3px; overflow: hidden; margin-bottom: 0.5rem;">
                                 <div style="width: 60%; height: 100%; background: var(--primary); animation: loading 2s infinite ease-in-out;"></div>
@@ -1280,11 +1280,11 @@ ${Sidebar()}
  */
 window.handleForcarAvanco = async function (docId, currentStatus) {
     const nextStatus = {
-        'revisao_manual':            'aguardando_conformidade',
-        'bloqueado_conformidade':    'aguardando_comprovante',
-        'divergencia_valor':         'aguardando_d3',
-        'divergencia_beneficiario':  'aguardando_d3',
-        'erro_rpa':                  'liberado_rpa_airtop'
+        'revisao_manual': 'aguardando_conformidade',
+        'bloqueado_conformidade': 'aguardando_comprovante',
+        'divergencia_valor': 'aguardando_d3',
+        'divergencia_beneficiario': 'aguardando_d3',
+        'erro_rpa': 'liberado_rpa_airtop'
     }[currentStatus];
 
     if (!nextStatus) return alert('Não é possível forçar avanço para este status.');
