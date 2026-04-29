@@ -342,77 +342,86 @@ async function executarInsercaoSalic(config) {
             }, selector, value);
         }
 
-        // 1. Seleciona Tipo Pessoa (CNPJ = 2)
-        await targetPage.evaluate(() => {
-            const radioCNPJ = document.querySelector('input[name="tipoPessoa"][value="2"]');
-            if (radioCNPJ) {
-                radioCNPJ.checked = true;
-                radioCNPJ.dispatchEvent(new Event('change', { bubbles: true }));
-                radioCNPJ.dispatchEvent(new Event('click', { bubbles: true }));
-                // Tambem clica no label (Materialize usa labels clicaveis)
-                if (radioCNPJ.nextElementSibling) radioCNPJ.nextElementSibling.click();
-                console.log('[RPA] Tipo Pessoa CNPJ selecionado');
-            }
-        });
-        await wait(1500); // Espera a mascara trocar de CPF para CNPJ
+        // 1. Detecta tipo de pessoa pelo numero de digitos (CPF=11 / CNPJ=14)
+        //    No SALIC: tipoPessoa value="1" = CPF (Fisica) | value="2" = CNPJ (Juridica)
+        const documentoSoNumeros = String(documento.cnpj_fornecedor || '').replace(/\D/g, '');
+        const isCPF = documentoSoNumeros.length === 11;
+        const tipoPessoaValue = isCPF ? '1' : '2';
+        const tipoPessoaLabel = isCPF ? 'CPF' : 'CNPJ';
+        console.log(`[SALIC] Tipo de pessoa detectado: ${tipoPessoaLabel} (${documentoSoNumeros.length} digitos)`);
 
-        // 2. O <input> do CNPJ NAO tem atributo id no HTML do SALIC!
+        await targetPage.evaluate((tpValue, tpLabel) => {
+            const radio = document.querySelector(`input[name="tipoPessoa"][value="${tpValue}"]`);
+            if (radio) {
+                radio.checked = true;
+                radio.dispatchEvent(new Event('change', { bubbles: true }));
+                radio.dispatchEvent(new Event('click', { bubbles: true }));
+                // Tambem clica no label (Materialize usa labels clicaveis)
+                if (radio.nextElementSibling) radio.nextElementSibling.click();
+                console.log(`[RPA] Tipo Pessoa ${tpLabel} selecionado`);
+            }
+        }, tipoPessoaValue, tipoPessoaLabel);
+        await wait(1500); // Espera a mascara aplicar
+
+        // 2. O <input> do documento NAO tem atributo id no HTML do SALIC!
         //    Precisamos encontrar pelo label e injetar o id para o Puppeteer conseguir achar.
-        console.log(`[SALIC] Preenchendo CNPJ: ${documento.cnpj_fornecedor}`);
+        console.log(`[SALIC] Preenchendo ${tipoPessoaLabel}: ${documento.cnpj_fornecedor}`);
         
-        await targetPage.evaluate(() => {
+        await targetPage.evaluate((isCPF) => {
             // Encontra o input pela relacao com o label (previousElementSibling)
             const label = document.querySelector('label[for="CNPJCPF"]');
             if (label && label.previousElementSibling && label.previousElementSibling.tagName === 'INPUT') {
                 label.previousElementSibling.id = 'CNPJCPF';
                 console.log('[RPA] ID "CNPJCPF" injetado no input. Mask atual:', label.previousElementSibling.getAttribute('data-mask'));
             } else {
-                console.warn('[RPA] AVISO: Nao encontrou input do CNPJ pelo label!');
-                // Fallback: tenta encontrar pelo data-mask de CNPJ
+                console.warn('[RPA] AVISO: Nao encontrou input do documento pelo label!');
+                // Fallback: tenta encontrar pelo data-mask compativel
+                // CPF: ###.###.###-## | CNPJ: ##.###.###/####-##
                 const inputs = document.querySelectorAll('#modal1 input[data-mask]');
                 for (const inp of inputs) {
-                    const mask = inp.getAttribute('data-mask');
-                    if (mask && (mask.includes('/') || mask.includes('###.###.###'))) {
+                    const mask = inp.getAttribute('data-mask') || '';
+                    const matchCNPJ = mask.includes('/');
+                    const matchCPF = !mask.includes('/') && mask.includes('###.###.###');
+                    if ((isCPF && matchCPF) || (!isCPF && matchCNPJ)) {
                         inp.id = 'CNPJCPF';
                         console.log('[RPA] ID "CNPJCPF" injetado via fallback (data-mask):', mask);
                         break;
                     }
                 }
             }
-        });
+        }, isCPF);
         await wait(500);
 
         // Agora o input tem id, podemos usar o Puppeteer normalmente
-        const cnpjInput = await targetPage.$('#CNPJCPF');
-        if (cnpjInput) {
-            await cnpjInput.click({ clickCount: 3 }); // Seleciona tudo
-            await cnpjInput.press('Backspace');
+        const docInput = await targetPage.$('#CNPJCPF');
+        if (docInput) {
+            await docInput.click({ clickCount: 3 }); // Seleciona tudo
+            await docInput.press('Backspace');
             await wait(300);
-            // Digita somente os numeros do CNPJ (a mascara formata sozinha)
-            const cnpjSoNumeros = documento.cnpj_fornecedor.replace(/\D/g, '');
-            await cnpjInput.type(cnpjSoNumeros, { delay: 100 });
-            console.log('[SALIC] CNPJ digitado no campo');
-            
+            // Digita somente os numeros do documento (a mascara formata sozinha)
+            await docInput.type(documentoSoNumeros, { delay: 100 });
+            console.log(`[SALIC] ${tipoPessoaLabel} digitado no campo`);
+
             // Verifica o que ficou no campo apos a mascara formatar
-            const cnpjPreenchido = await targetPage.evaluate(() => {
+            const docPreenchido = await targetPage.evaluate(() => {
                 const el = document.querySelector('#CNPJCPF');
                 return el ? el.value : null;
             });
-            console.log(`[SALIC] CNPJ no campo apos mascara: ${cnpjPreenchido}`);
+            console.log(`[SALIC] ${tipoPessoaLabel} no campo apos mascara: ${docPreenchido}`);
         } else {
-            console.error('[SALIC] ERRO CRITICO: Input do CNPJ nao encontrado mesmo apos injecao de ID!');
+            console.error(`[SALIC] ERRO CRITICO: Input do ${tipoPessoaLabel} nao encontrado mesmo apos injecao de ID!`);
             // Ultima tentativa: digita via evaluate diretamente
-            await targetPage.evaluate((cnpj) => {
-                const label = document.querySelector('label[for="CNPJCPF"]');
-                const input = label ? label.previousElementSibling : null;
+            await targetPage.evaluate((doc, label) => {
+                const lbl = document.querySelector('label[for="CNPJCPF"]');
+                const input = lbl ? lbl.previousElementSibling : null;
                 if (input) {
-                    input.value = cnpj;
+                    input.value = doc;
                     input.dispatchEvent(new Event('input', { bubbles: true }));
                     input.dispatchEvent(new Event('change', { bubbles: true }));
                     input.dispatchEvent(new Event('blur', { bubbles: true }));
-                    console.log('[RPA] CNPJ inserido via fallback direto');
+                    console.log(`[RPA] ${label} inserido via fallback direto`);
                 }
-            }, documento.cnpj_fornecedor.replace(/\D/g, ''));
+            }, documentoSoNumeros, tipoPessoaLabel);
         }
         await wait(500);
 
@@ -430,7 +439,7 @@ async function executarInsercaoSalic(config) {
                 }
             }
         });
-        console.log('[SALIC] Buscando fornecedor pelo CNPJ...');
+        console.log(`[SALIC] Buscando fornecedor pelo ${tipoPessoaLabel}...`);
         await wait(5000); // Espera mais para a busca do fornecedor completar no servidor
 
         // Verifica se o fornecedor foi encontrado
@@ -443,17 +452,17 @@ async function executarInsercaoSalic(config) {
             }
             return null;
         });
-        console.log(`[SALIC] Fornecedor encontrado: ${fornecedorEncontrado || 'NAO DETECTADO (verifique CNPJ)'}`);
+        console.log(`[SALIC] Fornecedor encontrado: ${fornecedorEncontrado || `NAO DETECTADO (verifique ${tipoPessoaLabel})`}`);
 
         // FALLBACK: Se fornecedor nao foi encontrado, tenta nova busca antes de abortar
         if (!fornecedorEncontrado) {
             console.warn('[SALIC] FALLBACK: Fornecedor nao encontrado. Re-tentando busca...');
-            const cnpjRetry = await targetPage.$('#CNPJCPF');
-            if (cnpjRetry) {
-                await cnpjRetry.click({ clickCount: 3 });
-                await cnpjRetry.press('Backspace');
+            const docRetry = await targetPage.$('#CNPJCPF');
+            if (docRetry) {
+                await docRetry.click({ clickCount: 3 });
+                await docRetry.press('Backspace');
                 await wait(500);
-                await cnpjRetry.type(documento.cnpj_fornecedor.replace(/\D/g, ''), { delay: 100 });
+                await docRetry.type(documentoSoNumeros, { delay: 100 });
                 await wait(500);
             }
             await targetPage.evaluate(() => {
@@ -474,7 +483,7 @@ async function executarInsercaoSalic(config) {
                 return null;
             });
             if (!fornecedorRetry) {
-                throw new Error(`Fornecedor com CNPJ ${documento.cnpj_fornecedor} nao encontrado no SALIC apos 2 tentativas.`);
+                throw new Error(`Fornecedor com ${tipoPessoaLabel} ${documento.cnpj_fornecedor} nao encontrado no SALIC apos 2 tentativas.`);
             }
             console.log(`[SALIC] Fornecedor encontrado na 2a tentativa: ${fornecedorRetry}`);
         }
@@ -696,12 +705,12 @@ async function executarInsercaoSalic(config) {
             await targetPage.goto(linkComprovacao, { waitUntil: 'domcontentloaded', timeout: 30000 });
             await wait(3000);
 
-            const insercaoConfirmada = await targetPage.evaluate((cnpj, valor) => {
+            const insercaoConfirmada = await targetPage.evaluate((doc, valor) => {
                 const rows = Array.from(document.querySelectorAll('table tbody tr'));
-                const cnpjLimpo = cnpj.replace(/\D/g, '');
+                const docLimpo = doc.replace(/\D/g, '');
                 for (const row of rows) {
                     const texto = row.innerText;
-                    if (texto.includes(cnpjLimpo) || texto.includes(cnpj)) {
+                    if (texto.includes(docLimpo) || texto.includes(doc)) {
                         const cells = row.querySelectorAll('td');
                         for (const cell of cells) {
                             const cellText = cell.innerText.replace(/[R$\s.]/g, '').replace(',', '.');
