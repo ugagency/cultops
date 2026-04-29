@@ -121,13 +121,18 @@ async function executarInsercaoSalic(config) {
         await wait(8000);
 
         // FALLBACK: Verifica se o login foi bem-sucedido antes de prosseguir
+        // Aguarda a pagina estabilizar (o SALIC redireciona apos login, document.body pode ser null)
+        await page.waitForFunction(() => document.body && document.body.innerText.length > 0, { timeout: 15000 }).catch(() => {});
+        await wait(1000);
+
         const loginCheck = await page.evaluate(() => {
-            const body = document.body.innerText.toLowerCase();
+            if (!document.body) return { temErro: false, temSessao: false, url: window.location.href, bodyNull: true };
+            const body = (document.body.innerText || '').toLowerCase();
             const temErro = body.includes('senha inválida') || body.includes('senha invalida') ||
                 body.includes('usuário não encontrado') || body.includes('usuario nao encontrado') ||
                 body.includes('login incorreto') || body.includes('dados inválidos') || body.includes('tente novamente');
             const temSessao = !!document.querySelector('a[href*="sair"], a[href*="logout"], .user-info, .usuario, .nav-wrapper .brand-logo');
-            return { temErro, temSessao, url: window.location.href };
+            return { temErro, temSessao, url: window.location.href, bodyNull: false };
         });
         console.log('[SALIC] Verificacao pos-login:', JSON.stringify(loginCheck));
         if (loginCheck.temErro) {
