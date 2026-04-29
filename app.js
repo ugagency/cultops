@@ -180,6 +180,16 @@ const STATUS_MAP = {
         label: 'Erro no Envio',
         class: 'status-error',
         description: 'Erro no envio: O robô encontrou um problema ao tentar inserir no SALIC (ex: instabilidade no site do governo).'
+    },
+    'divergencia_valor': {
+        label: 'Divergência de Valor',
+        class: 'status-error',
+        description: 'Divergência de valor: O valor da nota fiscal não coincide com o valor da transação no extrato bancário. Revisão manual obrigatória antes de prosseguir.'
+    },
+    'divergencia_beneficiario': {
+        label: 'Divergência de Beneficiário',
+        class: 'status-error',
+        description: 'Divergência de beneficiário: O CNPJ do fornecedor na nota não corresponde ao destinatário identificado no extrato bancário. Revisão manual obrigatória.'
     }
 };
 
@@ -945,6 +955,7 @@ ${Sidebar()}
         if (doc.status === 'bloqueado_conformidade') { errorAtStep = 2; activeIndex = 2; }
         else if (doc.status === 'revisao_manual') { errorAtStep = 1; activeIndex = 1; }
         else if (doc.status === 'erro_rpa') { errorAtStep = 5; activeIndex = 5; }
+        else if (doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') { errorAtStep = 4; activeIndex = 4; }
         else activeIndex = 0;
     } else {
         // Normaliza index para os 6 círculos visuais
@@ -1101,6 +1112,22 @@ ${Sidebar()}
         }
                         </p>
                     </div>
+
+                    ${(doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') || doc.status === 'revisao_manual') ? `
+                    <div style="margin-top: 1rem; padding: 1rem; background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-sm);">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                            <i data-lucide="alert-triangle" style="width: 16px; color: #d97706; flex-shrink: 0;"></i>
+                            <span style="font-size: 12px; font-weight: 700; color: #d97706;">Continuar por Conta e Risco</span>
+                        </div>
+                        <p style="font-size: 11px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 0.75rem;">
+                            Esta ação força o avanço do documento para a próxima etapa ignorando o erro atual. <strong>O gestor assume total responsabilidade pela conformidade deste documento perante o SALIC e a prestação de contas.</strong>
+                        </p>
+                        <button class="btn" style="width: 100%; font-size: 11px; padding: 0.5rem; background: transparent; border: 1px solid #d97706; color: #d97706; font-weight: 600;" onclick="window.handleForcarAvanco('${doc.id}', '${doc.status}')">
+                            <i data-lucide="shield-off" style="width: 14px;"></i>
+                            Assumir risco e continuar
+                        </button>
+                    </div>
+                    ` : ''}
                 </div>
             </div>
 
@@ -1140,12 +1167,23 @@ ${Sidebar()}
                         </div>
 
                         <!-- Box do Extrato -->
-                        <div style="padding: 1rem; border: 1px dashed var(--border-light); border-radius: var(--radius-sm); background: ${['aguardando_d3', 'liberado_rpa_airtop', 'enviado_salic', 'concluido'].includes(doc.status) ? 'rgba(37, 99, 235, 0.05)' : 'transparent'};">
+                        <div style="padding: 1rem; border: 1px dashed ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'var(--error)' : 'var(--border-light)'}; border-radius: var(--radius-sm); background: ${['aguardando_d3', 'liberado_rpa_airtop', 'enviado_salic', 'concluido'].includes(doc.status) ? 'rgba(37, 99, 235, 0.05)' : (doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'rgba(239, 68, 68, 0.05)' : 'transparent'};">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                                <span class="text-xs" style="font-weight: 600; text-transform: uppercase;">2. Extrato Bancário</span>
-                                ${['aguardando_d3', 'enviado_salic', 'concluido'].includes(doc.status) ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--primary);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>'}
+                                <span class="text-xs" style="font-weight: 600; text-transform: uppercase; color: ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'var(--error)' : 'inherit'};">2. Extrato Bancário</span>
+                                ${['aguardando_d3', 'enviado_salic', 'concluido'].includes(doc.status) ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--primary);"></i>' : (doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? '<i data-lucide="x-circle" style="width: 16px; color: var(--error);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>'}
                             </div>
-                            ${['aguardando_d3', 'liberado_rpa_airtop', 'enviado_salic', 'concluido'].includes(doc.status) ?
+                            ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? `
+                            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                                <p class="text-xs" style="color: var(--error); font-weight: 600;">
+                                    ${doc.status === 'divergencia_valor' ? '⚠ Divergência de valor detectada entre a NF e o extrato.' : '⚠ Beneficiário no extrato não coincide com o fornecedor da NF.'}
+                                </p>
+                                <p class="text-xs" style="color: var(--text-muted); line-height: 1.4;">${doc.just_erro || 'Verifique o extrato bancário e a nota fiscal manualmente antes de prosseguir.'}</p>
+                                <div style="padding: 0.6rem; background: rgba(245, 158, 11, 0.1); border-radius: 4px; border: 1px solid rgba(245, 158, 11, 0.3);">
+                                    <p class="text-xs" style="color: #d97706; font-weight: 600; margin-bottom: 0.25rem;">📋 Revisão Manual Necessária</p>
+                                    <p class="text-xs" style="color: var(--text-secondary); line-height: 1.4;">Compare o valor e CNPJ do extrato com os dados extraídos da nota fiscal. Se estiver correto, use o botão abaixo para continuar.</p>
+                                </div>
+                            </div>` :
+                            ((['aguardando_d3', 'liberado_rpa_airtop', 'enviado_salic', 'concluido'].includes(doc.status)) ?
             `<p class="text-xs" style="color: var(--text-secondary);">Conciliado e validado em D-3</p>
              <p class="text-xs mt-2" style="color: var(--success); font-weight: bold;">✓ Upload do extrato já foi realizado.</p>` :
             (doc.status === 'aguardando_conciliacao_bancaria' || doc.status === 'aguardando_comprovante' ?
@@ -1162,8 +1200,8 @@ ${Sidebar()}
                                         <i data-lucide="file-up" style="width: 14px;"></i>
                                         Subir Extrato (OFX/CSV/PDF)
                                      </button>
-                                     <input type="file" id="vincular-extrato-input" style="display: none;" onchange="window.handleUploadExtrato(this.files[0], '${doc.project_id}', '${doc.id}', '${state.currentComprovante?.id || ''}')" accept=".ofx,.csv,.pdf">`)) :
-                `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando liberação...</p>`)
+                                     <input type="file" id="vincular-extrato-input" style="display: none;" onchange="window.handleUploadExtrato(this.files[0], '${doc.project_id}', '${doc.id}', '${state.currentComprovante?.id || ''}')" accept=".ofx,.csv,.pdf">`) ) :
+                `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando liberação...</p>`))
         }
                         </div>
 
@@ -1235,6 +1273,52 @@ ${Sidebar()}
 };
 
 // --- Handlers & API ---
+
+/**
+ * Forces a document past an error state at the manager's own risk.
+ * Maps each error to the next logical status in the pipeline.
+ */
+window.handleForcarAvanco = async function (docId, currentStatus) {
+    const nextStatus = {
+        'revisao_manual':            'aguardando_conformidade',
+        'bloqueado_conformidade':    'aguardando_comprovante',
+        'divergencia_valor':         'aguardando_d3',
+        'divergencia_beneficiario':  'aguardando_d3',
+        'erro_rpa':                  'liberado_rpa_airtop'
+    }[currentStatus];
+
+    if (!nextStatus) return alert('Não é possível forçar avanço para este status.');
+
+    const confirmed = window.confirm(
+        '⚠️ ATENÇÃO — Continuar por Conta e Risco\n\n' +
+        'Ao confirmar, você assume total responsabilidade pela conformidade deste documento perante o SALIC e a prestação de contas.\n\n' +
+        'Deseja prosseguir mesmo assim?'
+    );
+    if (!confirmed) return;
+
+    state.loading = true;
+    render();
+
+    try {
+        const { error } = await supabaseClient
+            .from('documents')
+            .update({
+                status: nextStatus,
+                just_erro: `[OVERRIDE] Gestor forçou avanço manualmente a partir do status "${currentStatus}" em ${new Date().toLocaleString('pt-BR')}.`
+            })
+            .eq('id', docId);
+
+        if (error) throw error;
+
+        window.showToast('Documento avançado manualmente com sucesso.', 'warning');
+        await fetchDocumentDetails(docId);
+    } catch (err) {
+        window.showToast('Erro ao forçar avanço: ' + err.message, 'error');
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
 
 window.handleSolicitanteLogin = async function () {
     if (!supabaseClient) return alert("Erro ao carregar o Supabase Client.");
