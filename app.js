@@ -1182,6 +1182,19 @@ ${Sidebar()}
                                     <p class="text-xs" style="color: #d97706; font-weight: 600; margin-bottom: 0.25rem;">📋 Revisão Manual Necessária</p>
                                     <p class="text-xs" style="color: var(--text-secondary); line-height: 1.4;">Compare o valor e CNPJ do extrato com os dados extraídos da nota fiscal. Se estiver correto, use o botão abaixo para continuar.</p>
                                 </div>
+                                ${state.isUploadingExtrato ?
+                `<div style="padding: 0.5rem; text-align: center;">
+                                    <div style="width: 100%; height: 6px; background: var(--bg-sidebar); border-radius: 3px; overflow: hidden; margin-bottom: 0.5rem;">
+                                        <div style="width: 60%; height: 100%; background: var(--primary); animation: loading 2s infinite ease-in-out;"></div>
+                                    </div>
+                                    <p class="text-xs" style="color: var(--primary); font-weight: 600;">Enviando novo extrato...</p>
+                                 </div>` :
+                `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem;" onclick="document.getElementById('substituir-extrato-input').click()">
+                                    <i data-lucide="refresh-cw" style="width: 14px;"></i>
+                                    Substituir Extrato
+                                 </button>
+                                 <input type="file" id="substituir-extrato-input" style="display: none;" onchange="window.handleUploadExtrato(this.files[0], '${doc.project_id}', '${doc.id}', '${state.currentComprovante?.id || ''}', true)" accept=".ofx,.csv,.pdf">`
+            }
                             </div>` :
             ((['aguardando_d3', 'liberado_rpa_airtop', 'enviado_salic', 'concluido'].includes(doc.status)) ?
                 `<p class="text-xs" style="color: var(--text-secondary);">Conciliado e validado em D-3</p>
@@ -3470,7 +3483,7 @@ function setupRealtime() {
 
 // --- Sprint 4: Re-structured Banking Logic (Manual Upload) ---
 
-window.handleUploadExtrato = async function (file, projectId, documentId, comprovanteId) {
+window.handleUploadExtrato = async function (file, projectId, documentId, comprovanteId, isReplace = false) {
     if (!file || !projectId || !documentId) return alert("Houve um erro ao processar o upload do extrato.");
 
     const fileExt = file.name.split('.').pop().toLowerCase();
@@ -3483,6 +3496,15 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
     render();
 
     try {
+        // Modo substituicao: reseta o documento para reprocessar a conciliacao com o novo extrato
+        if (isReplace) {
+            const { error: resetError } = await supabaseClient
+                .from('documents')
+                .update({ status: 'aguardando_conciliacao_bancaria', just_erro: null })
+                .eq('id', documentId);
+            if (resetError) throw resetError;
+        }
+
         const fileName = `extrato_${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
         const filePath = `${state.user.id}/${fileName}`;
 
@@ -3536,7 +3558,9 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
             console.log("n8n reconciliation ok!");
         }
 
-        showToast("Extrato enviado com sucesso! O processamento e conciliação IA foram iniciados.", 'success');
+        showToast(isReplace
+            ? "Novo extrato enviado! Reprocessando a conciliação..."
+            : "Extrato enviado com sucesso! O processamento e conciliação IA foram iniciados.", 'success');
         state.uploadConcluidoExtrato = true;
 
         // Recarrega os detalhes para mostrar o status (que será atualizado via Realtime/Fetch)
