@@ -115,7 +115,8 @@ const state = {
     uploadConcluidoComprovante: false,
     uploadConcluidoExtrato: false,
     isSalicRunning: false,
-    rubrica_versions: []
+    rubrica_versions: [],
+    expandedRubricas: {}
 };
 
 const STATUS_MAP = {
@@ -1652,12 +1653,19 @@ const FinanceiroView = () => {
     let pendentesConciliacao = 0;
     const chartLabels = [];
     const chartData = [];
+    const despesasFlat = [];
+    const rubricaById = {};
+    const STATUS_QUE_CONSOMEM = new Set(['aguardando_d3', 'liberado_rpa_airtop', 'enviado_salic', 'concluido']);
 
     state.rubricas.forEach(r => {
+        rubricaById[r.id] = r;
         let rubricaTotal = 0;
         if (r.despesas && r.despesas.length > 0) {
             r.despesas.forEach(d => {
-                rubricaTotal += parseFloat(d.valor || 0);
+                despesasFlat.push(d);
+                if (STATUS_QUE_CONSOMEM.has(d.status)) {
+                    rubricaTotal += parseFloat(d.valor || 0);
+                }
                 if (d.status_conformidade === 'pendente') pendentesConformidade++;
                 if (d.conciliado === false || d.conciliado === null) pendentesConciliacao++;
             });
@@ -1668,6 +1676,8 @@ const FinanceiroView = () => {
         }
         totalExecutado += rubricaTotal;
     });
+
+    despesasFlat.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
 
     state.chartData = { labels: chartLabels, data: chartData };
 
@@ -1704,32 +1714,14 @@ ${Sidebar()}
         </div>
     </div>
 
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
-        <div class="card">
-            <h3 class="h2 mb-4">Execução por Rubrica</h3>
-            <div style="height: 300px;">
-                ${chartLabels.length > 0 ? '<canvas id="rubricasChart"></canvas>' : '<p class="text-sm" style="text-align: center; padding-top: 4rem; color: var(--text-muted);">Sem dados para o gráfico.</p>'}
-            </div>
-        </div>
-        <div class="card">
-            <h3 class="h2 mb-1">Status de Conformidade</h3>
-            <p class="text-xs" style="color: var(--text-muted); margin-bottom: 1.5rem; line-height: 1.4;">Resumo da saúde jurídica e operacional do seu projeto perante o SALIC e a análise automática IA.</p>
-            <div style="display: flex; flex-direction: column; gap: 1rem; padding-top: 0.5rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span class="text-sm">Documentos validados</span>
-                    <span class="badge status-completed">Bom</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span class="text-sm">Certidões negativas</span>
-                    <span class="badge status-completed">Regular</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span class="text-sm">Pendências SALIC</span>
-                    <span class="badge status-pending">1 pendência</span>
-                </div>
-            </div>
+    <div class="card" style="margin-bottom: 1.5rem;">
+        <h3 class="h2 mb-4">Execução por Rubrica</h3>
+        <div style="height: 300px;">
+            ${chartLabels.length > 0 ? '<canvas id="rubricasChart"></canvas>' : '<p class="text-sm" style="text-align: center; padding-top: 4rem; color: var(--text-muted);">Sem dados para o gráfico.</p>'}
         </div>
     </div>
+
+    ${renderDespesasTable(despesasFlat, rubricaById)}
 </main>
 `;
 };
@@ -1893,6 +1885,112 @@ const RubricaInstructionsModal = () => `
 </div>
 `;
 
+function renderDespesaStatusBadge(status) {
+    const map = STATUS_MAP[status];
+    const label = map ? map.label : (status || '---');
+    const cls = map ? map.class : 'status-pending';
+    return `<span class="badge ${cls}" style="font-size: 10px;">${label}</span>`;
+}
+
+function formatCurrencyBR(value) {
+    const v = parseFloat(value || 0);
+    return 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatDateBR(value) {
+    if (!value) return '---';
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return '---';
+    return d.toLocaleDateString('pt-BR');
+}
+
+function renderDespesasMini(despesas) {
+    if (!despesas || despesas.length === 0) {
+        return `<p class="text-xs text-muted" style="margin-top: 0.75rem; text-align: center; font-style: italic;">Nenhuma despesa vinculada a esta rubrica ainda.</p>`;
+    }
+    return `
+        <div style="margin-top: 0.75rem; border-top: 1px solid var(--border-light); padding-top: 0.75rem; max-height: 220px; overflow-y: auto;">
+            ${despesas.map(d => `
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px dashed var(--border-light); font-size: 11px;">
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                            ${d.fornecedor_nome || d.cnpj_fornecedor || '—'}
+                        </div>
+                        <div class="text-muted" style="font-size: 10px;">${formatDateBR(d.data_emissao)}</div>
+                    </div>
+                    <div style="text-align: right; flex-shrink: 0;">
+                        <div style="font-weight: 700;">${formatCurrencyBR(d.valor)}</div>
+                        <div style="margin-top: 2px;">${renderDespesaStatusBadge(d.status)}</div>
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+function renderDespesasTable(despesas, rubricaById) {
+    if (!despesas || despesas.length === 0) {
+        return `
+            <div class="card" style="padding: 2rem; text-align: center;">
+                <i data-lucide="inbox" style="width: 36px; color: var(--text-muted); margin-bottom: 0.75rem;"></i>
+                <p class="text-sm text-muted">Nenhuma despesa registrada para este projeto ainda.</p>
+            </div>
+        `;
+    }
+    const search = (state.filters.despesasSearch || '').toLowerCase();
+    const filtered = despesas.filter(d => {
+        if (!search) return true;
+        const rubrica = rubricaById[d.rubrica_id]?.nome || '';
+        return [d.fornecedor_nome, d.cnpj_fornecedor, rubrica, d.status]
+            .filter(Boolean)
+            .some(v => String(v).toLowerCase().includes(search));
+    });
+    return `
+        <div class="card" style="padding: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; gap: 1rem; flex-wrap: wrap;">
+                <h3 class="h2" style="margin: 0;">Despesas do Projeto</h3>
+                <input type="search" placeholder="Buscar por fornecedor, CNPJ, rubrica ou status..."
+                    value="${state.filters.despesasSearch || ''}"
+                    oninput="state.filters.despesasSearch = this.value; render(); setTimeout(() => { const el = document.querySelector('input[placeholder*=Buscar]'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 0);"
+                    style="padding: 0.5rem 0.75rem; border: 1px solid var(--border-light); border-radius: 6px; font-size: 13px; min-width: 280px;">
+            </div>
+            <div style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                    <thead>
+                        <tr style="background: var(--bg-sidebar); text-align: left;">
+                            <th style="padding: 0.6rem; border-bottom: 1px solid var(--border-light);">Data Emissão</th>
+                            <th style="padding: 0.6rem; border-bottom: 1px solid var(--border-light);">Fornecedor</th>
+                            <th style="padding: 0.6rem; border-bottom: 1px solid var(--border-light);">CNPJ/CPF</th>
+                            <th style="padding: 0.6rem; border-bottom: 1px solid var(--border-light);">Rubrica</th>
+                            <th style="padding: 0.6rem; border-bottom: 1px solid var(--border-light); text-align: right;">Valor</th>
+                            <th style="padding: 0.6rem; border-bottom: 1px solid var(--border-light);">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${filtered.map(d => {
+                            const rubrica = rubricaById[d.rubrica_id];
+                            return `
+                                <tr style="border-bottom: 1px solid var(--border-subtle);">
+                                    <td style="padding: 0.6rem;">${formatDateBR(d.data_emissao)}</td>
+                                    <td style="padding: 0.6rem;">${d.fornecedor_nome || '—'}</td>
+                                    <td style="padding: 0.6rem; font-family: monospace; font-size: 11px;">${d.cnpj_fornecedor || '—'}</td>
+                                    <td style="padding: 0.6rem;">${rubrica ? rubrica.nome : '—'}</td>
+                                    <td style="padding: 0.6rem; text-align: right; font-weight: 600;">${formatCurrencyBR(d.valor)}</td>
+                                    <td style="padding: 0.6rem;">${renderDespesaStatusBadge(d.status)}</td>
+                                </tr>
+                            `;
+                        }).join('')}
+                        ${filtered.length === 0 ? `
+                            <tr><td colspan="6" style="padding: 2rem; text-align: center; color: var(--text-muted);">Nenhum resultado para "${search}".</td></tr>
+                        ` : ''}
+                    </tbody>
+                </table>
+            </div>
+            <p class="text-xs text-muted" style="margin-top: 0.75rem;">${filtered.length} de ${despesas.length} despesa(s)</p>
+        </div>
+    `;
+}
+
 const OrcamentoView = () => {
     const activeProject = state.projects.find(p => p.id === state.filters.project);
 
@@ -2046,6 +2144,10 @@ const OrcamentoView = () => {
         const utilizado = parseFloat(r.valor_utilizado || 0);
         const percentual = aprovado > 0 ? (utilizado / aprovado) * 100 : 0;
         const saldo = aprovado - utilizado;
+        const despesas = (r.despesas || []).slice().sort((a, b) =>
+            new Date(b.created_at || 0) - new Date(a.created_at || 0)
+        );
+        const expanded = !!state.expandedRubricas[r.id];
         return `
                                 <div class="card rubric-card" style="padding: 1.25rem;">
                                     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
@@ -2062,7 +2164,7 @@ const OrcamentoView = () => {
                                     <div style="width: 100%; height: 6px; background: var(--border-light); border-radius: 3px; overflow: hidden; margin-bottom: 0.75rem;">
                                         <div style="width: ${Math.min(percentual, 100)}%; height: 100%; background: ${percentual > 100 ? 'var(--error)' : 'var(--primary)'}; transition: width 0.3s ease;"></div>
                                     </div>
-                                    <div style="display: flex; justify-content: space-between; font-size: 11px;">
+                                    <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 0.75rem;">
                                         <div>
                                             <span class="text-muted">Aprovado:</span>
                                             <span class="font-semibold">R$ ${aprovado.toLocaleString('pt-BR')}</span>
@@ -2072,6 +2174,11 @@ const OrcamentoView = () => {
                                             <span class="font-bold ${saldo < 0 ? 'color-error' : 'color-success'}">R$ ${saldo.toLocaleString('pt-BR')}</span>
                                         </div>
                                     </div>
+                                    <button class="btn btn-secondary" style="width: 100%; padding: 0.4rem; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 0.4rem;" onclick="window.toggleRubricaExpand('${r.id}')">
+                                        <i data-lucide="${expanded ? 'chevron-up' : 'chevron-down'}" style="width: 14px;"></i>
+                                        ${expanded ? 'Ocultar' : 'Ver'} despesas (${despesas.length})
+                                    </button>
+                                    ${expanded ? renderDespesasMini(despesas) : ''}
                                 </div>
                             `;
     }).join('')}
@@ -2289,7 +2396,7 @@ async function fetchRubricas(projectId) {
     try {
         const { data, error } = await supabaseClient
             .from('rubricas')
-            .select('*, despesas(id, valor, status_conformidade, conciliado)')
+            .select('*, despesas(id, valor, status, status_conformidade, conciliado, cnpj_fornecedor, fornecedor_nome, data_emissao, data_pagamento, document_id, created_at)')
             .eq('project_id', projectId)
             .order('nome');
 
@@ -2423,6 +2530,11 @@ async function fetchDocumentDetails(id, silent = false) {
         render();
     }
 }
+
+window.toggleRubricaExpand = function (rubricaId) {
+    state.expandedRubricas[rubricaId] = !state.expandedRubricas[rubricaId];
+    render();
+};
 
 window.handleVincularRubrica = async function (documentId, projectId, valorDespesa) {
     const rubricaId = document.getElementById('vincular-rubrica-select').value;
