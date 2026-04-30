@@ -2548,21 +2548,53 @@ window.handleVincularRubrica = async function (documentId, projectId, valorDespe
         // Obter os valores do form original no currentDocument (cnpj_fornecedor, emissão, etc)
         const doc = state.currentDocument;
 
-        // Insert into despesas
-        const { error } = await supabaseClient.from('despesas').insert({
-            document_id: documentId,
-            rubrica_id: rubricaId,
-            project_id: projectId,
-            valor: parseFloat(valorDespesa),
-            cnpj_fornecedor: doc.cnpj_emissor || null,
-            data_emissao: doc.data_emissao || null,
-            data_pagamento: doc.data_pagamento || null
-        });
+        // Verifica se já existe despesa para este documento (criada pela trigger ou ciclo anterior)
+        const { data: existing, error: selectError } = await supabaseClient
+            .from('despesas')
+            .select('id')
+            .eq('document_id', documentId)
+            .maybeSingle();
 
-        if (error) {
-            // Caso de quebra de saldo no RLS (se implementado) ou erro unique
-            throw error;
+        if (selectError) throw selectError;
+
+        if (existing) {
+            // Despesa já existe — atualiza apenas a rubrica e volta para aguardando_conformidade
+            const { error: updateError } = await supabaseClient
+                .from('despesas')
+                .update({
+                    rubrica_id: rubricaId,
+                    status: 'aguardando_conformidade'
+                })
+                .eq('document_id', documentId);
+            if (updateError) throw updateError;
+        } else {
+            const { error: insertError } = await supabaseClient.from('despesas').insert({
+                document_id: documentId,
+                rubrica_id: rubricaId,
+                project_id: projectId,
+                valor: parseFloat(valorDespesa),
+                cnpj_fornecedor: doc.cnpj_emissor || null,
+                data_emissao: doc.data_emissao || null,
+                data_pagamento: doc.data_pagamento || null,
+                status: 'aguardando_conformidade'
+            });
+            if (insertError) throw insertError;
         }
+
+        // Atualiza também o nome da rubrica e o status do documento, para limpar
+        // o estado de bloqueio e disparar o re-fluxo de conformidade.
+        const rubricaSelecionada = (state.rubricas_disponiveis || []).find(r => r.id === rubricaId);
+        const updateDocPayload = {
+            status: 'aguardando_conformidade',
+            just_erro: null
+        };
+        if (rubricaSelecionada?.nome) updateDocPayload.rubrica = rubricaSelecionada.nome;
+
+        const { error: docUpdateError } = await supabaseClient
+            .from('documents')
+            .update(updateDocPayload)
+            .eq('id', documentId);
+        if (docUpdateError) console.warn("Falha ao atualizar status do documento:", docUpdateError);
 
         alert('Rubrica vinculada com sucesso! O workflow do n8n de conformidade deve ser acionado agora.');
 
