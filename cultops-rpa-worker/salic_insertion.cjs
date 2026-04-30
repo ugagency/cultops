@@ -28,7 +28,7 @@ async function executarInsercaoSalic(config) {
                     resolve();
                 });
             }).on('error', err => {
-                fs.unlink(dest, () => {});
+                fs.unlink(dest, () => { });
                 reject(err);
             });
         });
@@ -75,7 +75,7 @@ async function executarInsercaoSalic(config) {
     // FALLBACK: Timeout global de seguranca (4 minutos) para evitar browser zumbi
     const globalTimeoutHandle = setTimeout(async () => {
         console.error('[SALIC] TIMEOUT GLOBAL: Execucao excedeu 4 minutos. Fechando browser...');
-        try { await browser.close(); } catch(e) {}
+        try { await browser.close(); } catch (e) { }
     }, 240000);
 
     let targetPage;
@@ -103,7 +103,7 @@ async function executarInsercaoSalic(config) {
         await wait(500);
         await page.type('#Senha', senha, { delay: 50 });
         await wait(500);
-        
+
         // Clica especificamente no botão "ENTRAR" e não no Gov.br
         await page.evaluate(() => {
             const botoes = Array.from(document.querySelectorAll('button'));
@@ -115,14 +115,14 @@ async function executarInsercaoSalic(config) {
                 document.querySelector('button[type="submit"]').click();
             }
         });
-        
+
         console.log('[SALIC] Botão Entrar clicado... aguardando processamento do servidor.');
         // Aguarda 8 segundos para garantir que o SALIC processe o login e crie a sessão
         await wait(8000);
 
         // FALLBACK: Verifica se o login foi bem-sucedido antes de prosseguir
         // Aguarda a pagina estabilizar (o SALIC redireciona apos login, document.body pode ser null)
-        await page.waitForFunction(() => document.body && document.body.innerText.length > 0, { timeout: 15000 }).catch(() => {});
+        await page.waitForFunction(() => document.body && document.body.innerText.length > 0, { timeout: 15000 }).catch(() => { });
         await wait(1000);
 
         const loginCheck = await page.evaluate(() => {
@@ -161,7 +161,7 @@ async function executarInsercaoSalic(config) {
         }, pronac);
 
         if (!urlProjeto) throw new Error('Link do PRONAC nao encontrado na tabela.');
-        
+
         console.log('[SALIC] Navegando para os detalhes do projeto na mesma aba...');
         await page.goto(urlProjeto, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
@@ -186,10 +186,10 @@ async function executarInsercaoSalic(config) {
 
         // --- Abrir Comprovacao Financeira ---
         console.log('[SALIC] Acessando aba Comprovacao Financeira...');
-        
+
         // Espera a sidebar carregar (pode demorar em SPAs)
         await wait(3000);
-        
+
         let clicou = false;
         for (let i = 0; i < 15; i++) {
             // Log dos itens do menu para debug
@@ -199,7 +199,7 @@ async function executarInsercaoSalic(config) {
                 });
                 console.log('[SALIC] Itens de menu encontrados:', JSON.stringify(menuItems));
             }
-            
+
             clicou = await encontrarBotaoNoSidenav(targetPage);
             if (!clicou) {
                 const frames = targetPage.frames();
@@ -234,21 +234,21 @@ async function executarInsercaoSalic(config) {
         console.log(`[SALIC] Localizando a rubrica: ${rubricaNome}`);
         const linkComprovacao = await targetPage.evaluate((nome, valorAprovado, valorNota) => {
             const rows = Array.from(document.querySelectorAll('table.bordered tbody tr'));
-            
+
             // Limpa o nome (ex: "147 - Passagens Aereas (...)" -> "passagens aereas")
             const nomeLimpo = nome.replace(/^\d+\s*-\s*/, '').replace(/\(.*\)/, '').trim().toLowerCase();
-            
+
             let fallbackPorSaldo = null;
-            
+
             for (const row of rows) {
                 const colunas = row.querySelectorAll('td');
                 if (colunas.length >= 5) {
                     const nomeTabela = colunas[0].innerText.toLowerCase();
-                    
+
                     if (nomeTabela.includes(nomeLimpo)) {
                         const btn = row.querySelector('a[title="Comprovar item"]');
                         if (!btn) continue;
-                        
+
                         // PRIORIDADE 1: Match exato pelo Valor Aprovado (Coluna 1) com o valor do DB
                         if (valorAprovado) {
                             const strAprovado = colunas[1].innerText.replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
@@ -256,7 +256,7 @@ async function executarInsercaoSalic(config) {
                                 return btn.href; // Match perfeito, retorna imediatamente
                             }
                         }
-                        
+
                         // FALLBACK: Guarda a primeira rubrica com saldo suficiente (Coluna 3 >= valor da nota)
                         if (!fallbackPorSaldo) {
                             const strSaldo = colunas[3].innerText.replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
@@ -299,27 +299,27 @@ async function executarInsercaoSalic(config) {
             await pageRef.evaluate((sel, val) => {
                 const el = document.querySelector(sel);
                 if (!el) { console.warn('[RPA] Campo nao encontrado:', sel); return; }
-                
+
                 // Foca o campo (ativa o label do Materialize)
                 el.focus();
                 el.dispatchEvent(new Event('focus', { bubbles: true }));
-                
+
                 // Limpa valor anterior
                 el.value = '';
-                
+
                 // Define o novo valor
                 el.value = val;
-                
+
                 // Dispara toda a cadeia de eventos que o Materialize/jQuery escutam
                 el.dispatchEvent(new Event('input', { bubbles: true }));
                 el.dispatchEvent(new Event('change', { bubbles: true }));
                 el.dispatchEvent(new Event('keyup', { bubbles: true }));
                 el.dispatchEvent(new Event('blur', { bubbles: true }));
-                
+
                 // Ativa o label do Materialize (evita sobreposicao de texto)
                 const label = document.querySelector('label[for="' + el.id + '"]');
                 if (label) label.classList.add('active');
-                
+
                 console.log('[RPA] Campo preenchido:', sel, '=', val);
             }, selector, value);
         }
@@ -331,7 +331,7 @@ async function executarInsercaoSalic(config) {
                 if (!el) { console.warn('[RPA] Select nao encontrado:', sel); return; }
                 el.value = val;
                 el.dispatchEvent(new Event('change', { bubbles: true }));
-                
+
                 // Se for Materialize com select customizado, atualiza visualmente
                 if (typeof M !== 'undefined' && M.FormSelect) {
                     M.FormSelect.init(el);
@@ -366,7 +366,7 @@ async function executarInsercaoSalic(config) {
         // 2. O <input> do documento NAO tem atributo id no HTML do SALIC!
         //    Precisamos encontrar pelo label e injetar o id para o Puppeteer conseguir achar.
         console.log(`[SALIC] Preenchendo ${tipoPessoaLabel}: ${documento.cnpj_fornecedor}`);
-        
+
         await targetPage.evaluate((isCPF) => {
             // Encontra o input pela relacao com o label (previousElementSibling)
             const label = document.querySelector('label[for="CNPJCPF"]');
@@ -431,7 +431,7 @@ async function executarInsercaoSalic(config) {
             const modal = document.querySelector('#modal1');
             const container = modal || document;
             const btns = container.querySelectorAll('button.btn i.material-icons');
-            for (let i of btns) { 
+            for (let i of btns) {
                 if (i.innerText.trim() === 'search') {
                     i.parentElement.click();
                     console.log('[RPA] Botao buscar (lupa) clicado');
@@ -483,7 +483,7 @@ async function executarInsercaoSalic(config) {
                 return null;
             });
             if (!fornecedorRetry) {
-                throw new Error(`Fornecedor com ${tipoPessoaLabel} ${documento.cnpj_fornecedor} nao encontrado no SALIC apos 2 tentativas.`);
+                throw new Error(`Fornecedor com ${tipoPessoaLabel} ${documento.cnpj_fornecedor} nao encontrado no SALIC apos 2 tentativas. Cadastre manualmente no SALIC antes de executar o Robô.`);
             }
             console.log(`[SALIC] Fornecedor encontrado na 2a tentativa: ${fornecedorRetry}`);
         }
@@ -528,7 +528,7 @@ async function executarInsercaoSalic(config) {
                 }
             }
             console.log(`[SALIC] PDF baixado com sucesso: ${fileStats.size} bytes`);
-            
+
             const fileInput = await targetPage.$('#arquivo');
             if (fileInput) {
                 await fileInput.uploadFile(localFilePath);
@@ -602,7 +602,7 @@ async function executarInsercaoSalic(config) {
         console.log('[SALIC] AUDITORIA - Estado dos campos antes de salvar:', JSON.stringify(estadoCampos, null, 2));
 
         console.log('[SALIC] Formulario preenchido! Clicando em Salvar...');
-        
+
         // 8. Clicar no botao Salvar - multiplas estrategias
         const salvarClicado = await targetPage.evaluate(() => {
             // Estrategia 1: Busca por texto "salvar" em botoes
@@ -618,7 +618,7 @@ async function executarInsercaoSalic(config) {
                     return texto;
                 }
             }
-            
+
             // Estrategia 2: Submete o form diretamente
             const form = document.querySelector('#modal1 form, #formComprovante, form');
             if (form) {
@@ -626,7 +626,7 @@ async function executarInsercaoSalic(config) {
                 form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
                 return 'form-submit';
             }
-            
+
             return null;
         });
 
@@ -636,7 +636,7 @@ async function executarInsercaoSalic(config) {
             try {
                 const btnSalvar = await targetPage.$('button.btn:not(.btn-floating)');
                 if (btnSalvar) await btnSalvar.click();
-            } catch(e) {
+            } catch (e) {
                 console.error('[SALIC] Falha ao clicar via Puppeteer:', e.message);
             }
         } else {
@@ -652,16 +652,16 @@ async function executarInsercaoSalic(config) {
             const body = document.body.innerText.toLowerCase();
             const toasts = Array.from(document.querySelectorAll('.toast, .toast-content, .alert, .notification, .card-panel'));
             const toastTexts = toasts.map(t => t.innerText.trim()).filter(Boolean);
-            
+
             // Verifica se o modal fechou (sinal de sucesso no Materialize)
             const modal = document.querySelector('#modal1');
             const modalAberto = modal && (modal.classList.contains('open') || modal.style.display !== 'none');
-            
+
             // Verifica erros de validacao dentro do modal
             const errosValidacao = Array.from(document.querySelectorAll('.invalid, .error, .red-text, .helper-text[data-error]'))
                 .map(e => e.innerText || e.getAttribute('data-error'))
                 .filter(Boolean);
-            
+
             return {
                 modalAberto,
                 toastTexts,
@@ -677,7 +677,7 @@ async function executarInsercaoSalic(config) {
 
         // Tira screenshot do estado final para debug
         const screenshotPath = `salic_resultado_${Date.now()}.png`;
-        await targetPage.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
+        await targetPage.screenshot({ path: screenshotPath, fullPage: true }).catch(() => { });
         console.log(`[SALIC] Screenshot salvo: ${screenshotPath}`);
 
         // Analisa o resultado
@@ -747,7 +747,7 @@ async function executarInsercaoSalic(config) {
                 const fileName = `erro_salic_${Date.now()}.png`;
                 await erroPage.screenshot({ path: fileName }).catch(() => { });
             }
-        } catch(e) {}
+        } catch (e) { }
         return { sucesso: false, erro: error.message };
     } finally {
         clearTimeout(globalTimeoutHandle);
