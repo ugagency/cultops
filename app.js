@@ -2816,6 +2816,7 @@ async function fetchDocumentDetails(id, silent = false) {
     state.uploadConcluidoExtrato = false;
     state.isUploadingExtrato = false;
     state.isUploadingComprovante = false;
+    state.isSalicRunning = false;
 
     try {
         // Tenta buscar com join completo
@@ -3701,7 +3702,9 @@ window.handleEnviarSalic = async function (documentId) {
     if (!supabaseClient || !state.user) return;
 
     state.loading = true;
+    state.isSalicRunning = true;
     render();
+    showToast("Subindo ao SALIC, aguarde até terminar...", 'info');
 
     try {
         const doc = state.currentDocument;
@@ -3765,6 +3768,7 @@ window.handleEnviarSalic = async function (documentId) {
         showToast("Erro ao processar envio: " + err.message, 'error');
     } finally {
         state.loading = false;
+        state.isSalicRunning = false;
         render();
     }
 };
