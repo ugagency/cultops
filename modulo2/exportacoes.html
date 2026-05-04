@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI M2 — Exportações</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m2-shared.css">
+
+    <style>
+        .exp-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-bottom: 1rem;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1.5rem;
+        }
+
+        @media (max-width: 900px) {
+            .cards-grid { grid-template-columns: 1fr; }
+        }
+
+        .exp-card {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            padding: 1.75rem;
+            border-radius: var(--radius-lg);
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            box-shadow: var(--glass-shadow);
+            border-top: 4px solid var(--m2-accent);
+        }
+
+        .exp-card-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .exp-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: var(--radius-md);
+            background: rgba(99, 102, 241, 0.1);
+            color: var(--m2-accent);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .exp-card h3 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin: 0;
+        }
+
+        .exp-card .desc {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            margin: 0;
+        }
+
+        .filters-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }
+
+        .filter-group label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
+        }
+
+        .filter-group input,
+        .filter-group select {
+            padding: 0.6rem 0.75rem;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            font-size: 0.875rem;
+            background: white;
+            outline: none;
+            transition: var(--transition);
+        }
+
+        .filter-group input:focus,
+        .filter-group select:focus {
+            border-color: var(--m2-accent);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+        }
+
+        .checkbox-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.6rem 0.75rem;
+            background: #f8fafc;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            font-size: 0.875rem;
+            color: var(--text-primary);
+            cursor: pointer;
+        }
+
+        .checkbox-item input { width: 18px; height: 18px; cursor: pointer; }
+
+        .btn-exp {
+            width: 100%;
+            padding: 0.95rem 1.25rem;
+            border: none;
+            border-radius: var(--radius-md);
+            background: linear-gradient(135deg, var(--m2-accent) 0%, var(--m2-accent-hover) 100%);
+            color: white;
+            font-size: 0.95rem;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.6rem;
+            transition: all 0.2s;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+        }
+
+        .btn-exp:disabled {
+            background: #94a3b8;
+            cursor: not-allowed;
+            opacity: 0.85;
+            box-shadow: none;
+        }
+
+        .btn-exp:not(:disabled):hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
+        }
+
+        .card-feedback {
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            min-height: 1.1rem;
+        }
+
+        .warn-msg {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-align: center;
+        }
+
+        .spin {
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* Histórico */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        .data-table th {
+            text-align: left;
+            padding: 1rem;
+            background: #f8fafc;
+            color: var(--text-secondary);
+            font-weight: 700;
+            border-bottom: 2px solid var(--border-light);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
+        }
+        .data-table td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-light);
+            color: var(--text-primary);
+            vertical-align: middle;
+        }
+
+        .badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+        .badge::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+        .badge-gerando { background: #f1f5f9; color: #475569; }
+        .badge-gerando::before { background: #94a3b8; }
+        .badge-pronto { background: #d1fae5; color: #065f46; }
+        .badge-pronto::before { background: #10b981; }
+        .badge-erro { background: #fee2e2; color: #991b1b; }
+        .badge-erro::before { background: #ef4444; }
+
+        .btn-sm {
+            padding: 0.5rem 0.75rem;
+            border-radius: var(--radius-md);
+            font-weight: 600;
+            font-size: 0.8rem;
+            cursor: pointer;
+            border: 1px solid transparent;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .btn-download { background: #f1f5f9; color: #334155; border-color: #cbd5e1; }
+        .btn-download:hover { background: #e2e8f0; }
+        .btn-retry { background: #fee2e2; color: #991b1b; }
+        .btn-retry:hover { background: #fecaca; }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+    <main class="main-content">
+        <div class="exp-container">
+
+            <div class="dashboard-header">
+                <div>
+                    <h1 style="font-size: 2.5rem; font-weight: 800; color: var(--text-primary); margin-bottom: 0.5rem;">Exportações</h1>
+                    <p style="color: var(--text-secondary); font-size: 1.125rem;">Gere arquivos de despesas, planilhas gerenciais, ZIP de documentos e relatório de auditoria.</p>
+                </div>
+
+                <div class="project-selector-container">
+                    <i data-lucide="briefcase" style="width: 18px; color: var(--text-secondary);"></i>
+                    <select id="project-select" onchange="handleProjectChange(this.value)">
+                        <option value="">Selecione um Projeto...</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="cards-grid">
+
+                <!-- CARD 1 — CSV de Despesas -->
+                <div class="exp-card">
+                    <div class="exp-card-header">
+                        <div class="exp-icon"><i data-lucide="file-spreadsheet"></i></div>
+                        <div>
+                            <h3>CSV de Despesas</h3>
+                            <p class="desc">Geração instantânea no navegador, com filtros.</p>
+                        </div>
+                    </div>
+
+                    <div class="filters-row">
+                        <div class="filter-group">
+                            <label for="csv-data-inicio">Data início</label>
+                            <input type="date" id="csv-data-inicio">
+                        </div>
+                        <div class="filter-group">
+                            <label for="csv-data-fim">Data fim</label>
+                            <input type="date" id="csv-data-fim">
+                        </div>
+                        <div class="filter-group">
+                            <label for="csv-status">Status</label>
+                            <select id="csv-status">
+                                <option value="">Todos</option>
+                                <option value="enviado_salic">Enviado SALIC</option>
+                                <option value="concluido">Concluído</option>
+                                <option value="bloqueado_conformidade">Bloqueado Conformidade</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label for="csv-rubrica">Rubrica</label>
+                            <select id="csv-rubrica">
+                                <option value="">Todas</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <button class="btn-exp" id="btn-csv" disabled onclick="exportarCSV()">
+                        <i data-lucide="download"></i> Exportar CSV
+                    </button>
+                    <p class="card-feedback" id="fb-csv"></p>
+                </div>
+
+                <!-- CARD 2 — Excel Gerencial -->
+                <div class="exp-card">
+                    <div class="exp-card-header">
+                        <div class="exp-icon"><i data-lucide="table-2"></i></div>
+                        <div>
+                            <h3>Excel Gerencial</h3>
+                            <p class="desc">Planilha com 6 abas: Resumo, Despesas, Rubricas, Contratos, Impostos e Auditoria.</p>
+                        </div>
+                    </div>
+
+                    <button class="btn-exp" id="btn-excel" disabled onclick="exportarExcel()">
+                        <i data-lucide="download"></i> Exportar Excel
+                    </button>
+                    <p class="card-feedback" id="fb-excel"></p>
+                </div>
+
+                <!-- CARD 3 — ZIP de Documentos -->
+                <div class="exp-card">
+                    <div class="exp-card-header">
+                        <div class="exp-icon"><i data-lucide="archive"></i></div>
+                        <div>
+                            <h3>ZIP de Documentos</h3>
+                            <p class="desc">Empacota arquivos do Storage por categoria.</p>
+                        </div>
+                    </div>
+
+                    <div class="checkbox-list">
+                        <label class="checkbox-item"><input type="checkbox" value="nfs" checked> Notas Fiscais</label>
+                        <label class="checkbox-item"><input type="checkbox" value="contratos" checked> Contratos</label>
+                        <label class="checkbox-item"><input type="checkbox" value="evidencias" checked> Evidências físicas</label>
+                        <label class="checkbox-item"><input type="checkbox" value="impostos" checked> Guias de impostos</label>
+                    </div>
+
+                    <button class="btn-exp" id="btn-zip" disabled onclick="exportarZIP()">
+                        <i data-lucide="package"></i> Preparar ZIP
+                    </button>
+                    <p class="warn-msg">Projetos grandes podem demorar vários minutos.</p>
+                    <p class="card-feedback" id="fb-zip"></p>
+                </div>
+
+                <!-- CARD 4 — PDF de Auditoria -->
+                <div class="exp-card">
+                    <div class="exp-card-header">
+                        <div class="exp-icon"><i data-lucide="shield-check"></i></div>
+                        <div>
+                            <h3>PDF de Auditoria</h3>
+                            <p class="desc">Relatório completo com histórico do projeto e log de auditoria.</p>
+                        </div>
+                    </div>
+
+                    <button class="btn-exp" id="btn-auditoria" disabled onclick="exportarAuditoria()">
+                        <i data-lucide="file-text"></i> Gerar Relatório de Auditoria
+                    </button>
+                    <p class="card-feedback" id="fb-auditoria"></p>
+                </div>
+
+            </div>
+
+            <!-- Histórico de exportações -->
+            <section class="glass-card" style="background: white;">
+                <h3 style="margin-bottom: 1.5rem; font-size: 1.25rem;">Histórico de Exportações</h3>
+                <div style="overflow-x: auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Tipo</th>
+                                <th>Gerado em</th>
+                                <th>Status</th>
+                                <th>Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historico-tbody">
+                            <tr><td colspan="4" class="empty-state">Selecione um projeto para carregar o histórico.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper.js"></script>
+    <script>
+        let currentProjectId = null;
+        let currentProjectData = null;
+        let exportSubscription = null;
+
+        const TIPO_LABEL = {
+            csv: 'CSV de Despesas',
+            excel: 'Excel Gerencial',
+            zip: 'ZIP de Documentos',
+            auditoria: 'PDF de Auditoria'
+        };
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            if (window.renderSidebar) window.renderSidebar();
+
+            sbClient = await window.initSupabase();
+            if (!sbClient) return;
+
+            await carregarProjetos();
+
+            const savedPid = ProjectManager.getSelected();
+            if (savedPid) {
+                document.getElementById('project-select').value = savedPid;
+                handleProjectChange(savedPid);
+            }
+        });
+
+        async function carregarProjetos() {
+            const { data: { user } } = await sbClient.auth.getUser();
+            if (!user) return;
+
+            const { data } = await sbClient
+                .from('projects')
+                .select('id, pronac, nome')
+                .eq('user_id', user.id)
+                .order('created_at', { ascending: false });
+
+            const select = document.getElementById('project-select');
+            if (data && data.length > 0) {
+                data.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.id;
+                    opt.textContent = `${p.pronac} - ${p.nome}`;
+                    select.appendChild(opt);
+                });
+            }
+        }
+
+        async function handleProjectChange(pid) {
+            currentProjectId = pid;
+            if (!pid) return;
+            ProjectManager.setSelected(pid);
+
+            // Habilita botões
+            ['btn-csv','btn-excel','btn-zip','btn-auditoria'].forEach(id => {
+                document.getElementById(id).disabled = false;
+            });
+
+            // Carrega dados de projeto e rubricas
+            const { data: proj } = await sbClient
+                .from('projects')
+                .select('id, pronac, nome')
+                .eq('id', pid)
+                .maybeSingle();
+            currentProjectData = proj;
+
+            await carregarRubricas(pid);
+
+            // Realtime + histórico
+            setupRealtime(pid);
+            await carregarHistorico();
+        }
+
+        async function carregarRubricas(pid) {
+            const { data, error } = await sbClient
+                .from('rubricas')
+                .select('id, nome, codigo')
+                .eq('project_id', pid)
+                .order('codigo', { ascending: true });
+
+            const select = document.getElementById('csv-rubrica');
+            select.innerHTML = '<option value="">Todas</option>';
+            if (error || !data) return;
+
+            data.forEach(r => {
+                const opt = document.createElement('option');
+                opt.value = r.id;
+                opt.textContent = `${r.codigo || ''} ${r.nome}`.trim();
+                select.appendChild(opt);
+            });
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // CARD 1 — CSV (client-side)
+        // ─────────────────────────────────────────────────────────────
+        async function exportarCSV() {
+            if (!currentProjectId) return;
+
+            const btn = document.getElementById('btn-csv');
+            const fb = document.getElementById('fb-csv');
+            btn.disabled = true;
+            fb.innerHTML = '<i data-lucide="loader" class="spin"></i> Gerando CSV...';
+            if (window.lucide) window.lucide.createIcons();
+
+            const dataInicio = document.getElementById('csv-data-inicio').value;
+            const dataFim = document.getElementById('csv-data-fim').value;
+            const status = document.getElementById('csv-status').value;
+            const rubricaId = document.getElementById('csv-rubrica').value;
+
+            let query = sbClient
+                .from('despesas')
+                .select('data_pagamento, cnpj_fornecedor, fornecedor_nome, valor, status, protocolo_salic, autenticacao_bancaria, rubrica_id, rubricas(nome)')
+                .eq('project_id', currentProjectId)
+                .order('data_pagamento', { ascending: true });
+
+            if (dataInicio) query = query.gte('data_pagamento', dataInicio);
+            if (dataFim) query = query.lte('data_pagamento', dataFim);
+            if (status) query = query.eq('status', status);
+            if (rubricaId) query = query.eq('rubrica_id', rubricaId);
+
+            const { data, error } = await query;
+
+            if (error) {
+                fb.textContent = 'Erro ao buscar despesas: ' + error.message;
+                btn.disabled = false;
+                return;
+            }
+
+            if (!data || data.length === 0) {
+                fb.textContent = 'Nenhuma despesa encontrada para os filtros selecionados.';
+                btn.disabled = false;
+                return;
+            }
+
+            const headers = ['data_pagamento','cnpj_fornecedor','fornecedor_nome','rubrica_nome','valor','status','protocolo_salic','autenticacao_bancaria'];
+            const rows = data.map(d => [
+                d.data_pagamento || '',
+                d.cnpj_fornecedor || '',
+                d.fornecedor_nome || '',
+                (d.rubricas && d.rubricas.nome) || '',
+                (d.valor != null ? Number(d.valor).toFixed(2).replace('.', ',') : ''),
+                d.status || '',
+                d.protocolo_salic || '',
+                d.autenticacao_bancaria || ''
+            ]);
+
+            const csv = [headers, ...rows]
+                .map(line => line.map(csvEscape).join(';'))
+                .join('\r\n');
+
+            // UTF-8 com BOM para Excel pt-BR
+            const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+            const pronac = (currentProjectData && currentProjectData.pronac) || 'projeto';
+            const fname = `despesas_${pronac}_${formatDateFile(new Date())}.csv`;
+
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = fname;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(link.href);
+
+            // Registra no histórico
+            const { data: { user } } = await sbClient.auth.getUser();
+            await sbClient.from('exportacoes_log').insert({
+                project_id: currentProjectId,
+                tipo: 'csv',
+                status: 'pronto',
+                file_path: null,
+                gerado_por: user.id
+            });
+
+            fb.textContent = `${data.length} linha(s) exportadas.`;
+            btn.disabled = false;
+            await carregarHistorico();
+        }
+
+        function csvEscape(v) {
+            const s = String(v == null ? '' : v);
+            if (/[;"\r\n]/.test(s)) {
+                return '"' + s.replace(/"/g, '""') + '"';
+            }
+            return s;
+        }
+
+        function formatDateFile(d) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}${m}${day}`;
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // CARDS 2/3/4 — disparam n8n e gravam exportacoes_log
+        // ─────────────────────────────────────────────────────────────
+        async function exportarExcel() {
+            await dispararExportacaoN8N({
+                tipo: 'excel',
+                webhook: CONFIG.N8N_WEBHOOK_EXPORTAR_EXCEL,
+                btnId: 'btn-excel',
+                fbId: 'fb-excel',
+                loadingLabel: 'Gerando Excel...',
+                body: {}
+            });
+        }
+
+        async function exportarZIP() {
+            const tipos = Array.from(document.querySelectorAll('.checkbox-list input[type=checkbox]:checked')).map(c => c.value);
+            if (tipos.length === 0) {
+                document.getElementById('fb-zip').textContent = 'Selecione ao menos uma categoria.';
+                return;
+            }
+            await dispararExportacaoN8N({
+                tipo: 'zip',
+                webhook: CONFIG.N8N_WEBHOOK_EXPORTAR_ZIP,
+                btnId: 'btn-zip',
+                fbId: 'fb-zip',
+                loadingLabel: 'Preparando ZIP...',
+                body: { tipos }
+            });
+        }
+
+        async function exportarAuditoria() {
+            await dispararExportacaoN8N({
+                tipo: 'auditoria',
+                webhook: CONFIG.N8N_WEBHOOK_EXPORTAR_AUDITORIA,
+                btnId: 'btn-auditoria',
+                fbId: 'fb-auditoria',
+                loadingLabel: 'Gerando relatório...',
+                body: {}
+            });
+        }
+
+        async function dispararExportacaoN8N({ tipo, webhook, btnId, fbId, loadingLabel, body }) {
+            if (!currentProjectId) return;
+
+            const btn = document.getElementById(btnId);
+            const fb = document.getElementById(fbId);
+            btn.disabled = true;
+            fb.innerHTML = `<i data-lucide="loader" class="spin"></i> ${loadingLabel}`;
+            if (window.lucide) window.lucide.createIcons();
+
+            const { data: { user } } = await sbClient.auth.getUser();
+            const pronac = (currentProjectData && currentProjectData.pronac) || null;
+
+            // 1. Cria registro 'gerando' no log
+            const { data: logRow, error: logErr } = await sbClient
+                .from('exportacoes_log')
+                .insert({
+                    project_id: currentProjectId,
+                    tipo,
+                    status: 'gerando',
+                    gerado_por: user.id
+                })
+                .select('id')
+                .single();
+
+            if (logErr) {
+                fb.textContent = 'Erro ao registrar exportação: ' + logErr.message;
+                btn.disabled = false;
+                return;
+            }
+
+            // 2. Dispara webhook (fire-and-forget — Realtime atualiza UI quando n8n marcar pronto/erro)
+            try {
+                fetch(webhook, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        project_id: currentProjectId,
+                        pronac,
+                        export_id: logRow.id,
+                        ...body
+                    })
+                }).catch(e => console.error('[n8n webhook]', tipo, e));
+            } catch (e) {
+                console.error(e);
+            }
+
+            await carregarHistorico();
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // Histórico
+        // ─────────────────────────────────────────────────────────────
+        async function carregarHistorico() {
+            if (!currentProjectId) return;
+
+            const { data, error } = await sbClient
+                .from('exportacoes_log')
+                .select('*')
+                .eq('project_id', currentProjectId)
+                .order('criado_em', { ascending: false })
+                .limit(20);
+
+            const tbody = document.getElementById('historico-tbody');
+            if (error || !data || data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="4" class="empty-state">Nenhuma exportação gerada ainda.</td></tr>`;
+                return;
+            }
+
+            // Resetar feedback dos cards quando uma exportação completar
+            data.forEach(r => {
+                if (r.status === 'pronto' || r.status === 'erro') {
+                    const btnMap = { excel: 'btn-excel', zip: 'btn-zip', auditoria: 'btn-auditoria' };
+                    const fbMap = { excel: 'fb-excel', zip: 'fb-zip', auditoria: 'fb-auditoria' };
+                    const btnId = btnMap[r.tipo];
+                    const fbId = fbMap[r.tipo];
+                    if (btnId) {
+                        const btn = document.getElementById(btnId);
+                        if (btn && btn.disabled) btn.disabled = false;
+                    }
+                    if (fbId) {
+                        const fb = document.getElementById(fbId);
+                        if (fb && fb.querySelector('.spin')) fb.textContent = '';
+                    }
+                }
+            });
+
+            let html = '';
+            for (const r of data) {
+                const tipoLabel = TIPO_LABEL[r.tipo] || r.tipo;
+                const statusLabel = r.status === 'gerando' ? 'Gerando...' : r.status === 'pronto' ? 'Pronto' : 'Erro';
+
+                let acaoHtml = '';
+                if (r.status === 'pronto') {
+                    if (r.tipo === 'csv') {
+                        acaoHtml = '<span style="color: var(--text-muted); font-size: 0.85rem;">Download direto</span>';
+                    } else if (r.file_path) {
+                        acaoHtml = `<button class="btn-sm btn-download" onclick="downloadExport('${escapeAttr(r.file_path)}')"><i data-lucide="download"></i> Download</button>`;
+                    } else {
+                        acaoHtml = '<span style="color: var(--text-muted); font-size: 0.85rem;">—</span>';
+                    }
+                } else if (r.status === 'erro') {
+                    acaoHtml = `<button class="btn-sm btn-retry" onclick="retryExport('${r.tipo}')"><i data-lucide="refresh-cw"></i> Tentar novamente</button>`;
+                } else {
+                    acaoHtml = `<i data-lucide="loader" class="spin" style="color: var(--text-muted);"></i>`;
+                }
+
+                html += `
+                    <tr>
+                        <td><strong>${tipoLabel}</strong></td>
+                        <td>${formatDateStr(r.criado_em)}</td>
+                        <td><span class="badge badge-${r.status}">${statusLabel}</span></td>
+                        <td>${acaoHtml}</td>
+                    </tr>
+                `;
+            }
+            tbody.innerHTML = html;
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        async function downloadExport(filePath) {
+            if (!filePath) return;
+
+            // Se o n8n salvou URL completa em vez do path, extrai apenas o path
+            let cleanPath = filePath;
+            if (filePath.includes('/storage/v1/object/public/')) {
+                cleanPath = filePath.split('/public/')[1].split('/').slice(1).join('/');
+            } else if (filePath.includes('/storage/v1/object/authenticated/')) {
+                cleanPath = filePath.split('/authenticated/')[1].split('/').slice(1).join('/');
+            }
+
+            const { data, error } = await sbClient.storage.from('reports').createSignedUrl(cleanPath, 3600);
+
+            if (error) {
+                alert('Erro ao gerar link de download: ' + (error.message || 'verifique o console'));
+                console.error('[STORAGE]', error);
+                return;
+            }
+            window.open(data.signedUrl, '_blank');
+        }
+
+        function retryExport(tipo) {
+            if (tipo === 'excel') return exportarExcel();
+            if (tipo === 'zip') return exportarZIP();
+            if (tipo === 'auditoria') return exportarAuditoria();
+            if (tipo === 'csv') return exportarCSV();
+        }
+
+        function setupRealtime(pid) {
+            if (exportSubscription) {
+                sbClient.removeChannel(exportSubscription);
+            }
+            exportSubscription = sbClient.channel(`exportacoes-${pid}`)
+                .on('postgres_changes',
+                    { event: '*', schema: 'public', table: 'exportacoes_log', filter: `project_id=eq.${pid}` },
+                    () => carregarHistorico()
+                )
+                .subscribe();
+        }
+
+        function formatDateStr(isoStr) {
+            if (!isoStr) return '---';
+            return new Date(isoStr).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        }
+
+        function escapeAttr(s) {
+            return String(s).replace(/'/g, "\\'");
+        }
+    </script>
+</body>
+</html>

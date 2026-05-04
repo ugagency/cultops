@@ -99,6 +99,7 @@ function renderSidebar() {
         { label: 'Evidências', icon: 'camera', path: 'comprovacao-fisica.html' },
         { label: 'Solicitantes', icon: 'users', path: 'gestao-solicitantes.html' },
         { label: 'Prestação de Contas', icon: 'file-check-2', path: 'prestacao-contas.html' },
+        { label: 'Exportações', icon: 'download', path: 'exportacoes.html' },
         { label: 'Configurações', icon: 'settings', path: 'configuracoes.html' },
     ];
 
