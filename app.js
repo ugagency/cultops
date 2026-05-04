@@ -95,7 +95,8 @@ const state = {
         project: '',
         startDate: '',
         endDate: '',
-        search: ''
+        search: '',
+        sort: 'date_desc'
     },
     all_solicitantes: [],
     vinculos_solicitantes: [],
@@ -701,6 +702,20 @@ const DashboardView = () => {
     // Para simplificar agora, vamos mostrar o número de notas validadas se o valor não estiver fácil
     const aprovadas = state.documents.filter(d => ['validated', 'enviado_salic', 'concluido'].includes(d.status)).length;
 
+    const sortedDocs = [...state.documents].sort((a, b) => {
+        switch (state.filters.sort) {
+            case 'date_asc': return new Date(a.created_at) - new Date(b.created_at);
+            case 'status': {
+                const la = (STATUS_MAP[a.status] || {}).label || a.status || '';
+                const lb = (STATUS_MAP[b.status] || {}).label || b.status || '';
+                return la.localeCompare(lb, 'pt-BR');
+            }
+            case 'name': return (a.name || '').localeCompare(b.name || '', 'pt-BR');
+            case 'date_desc':
+            default: return new Date(b.created_at) - new Date(a.created_at);
+        }
+    });
+
     return `
 ${Sidebar()}
 <main class="main-content view-content">
@@ -739,6 +754,14 @@ ${Sidebar()}
                     ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
                 </select>
             </div>
+            <div style="min-width: 180px;">
+                <select onchange="window.updateSort(this.value)">
+                    <option value="date_desc" ${state.filters.sort === 'date_desc' ? 'selected' : ''}>Ordenar: Mais recentes</option>
+                    <option value="date_asc" ${state.filters.sort === 'date_asc' ? 'selected' : ''}>Ordenar: Mais antigos</option>
+                    <option value="status" ${state.filters.sort === 'status' ? 'selected' : ''}>Ordenar: Status</option>
+                    <option value="name" ${state.filters.sort === 'name' ? 'selected' : ''}>Ordenar: Nome (A-Z)</option>
+                </select>
+            </div>
             <button class="btn btn-secondary" onclick="window.clearFilters()">Limpar filtros</button>
             <button class="btn btn-primary" onclick="window.navigate('upload')">
                 <i data-lucide="upload-cloud"></i>
@@ -767,7 +790,7 @@ ${Sidebar()}
                     </tr>
                 </thead>
                 <tbody>
-                    ${state.documents.map(doc => {
+                    ${sortedDocs.map(doc => {
         const status = STATUS_MAP[doc.status] || { label: doc.status, class: 'status-pending' };
         const project = state.projects.find(p => p.id === doc.project_id);
         return `
@@ -2958,8 +2981,13 @@ window.updateFilters = function (key, value) {
 };
 
 window.clearFilters = function () {
-    state.filters = { project: '', startDate: '', endDate: '', search: '' };
+    state.filters = { project: '', startDate: '', endDate: '', search: '', sort: 'date_desc' };
     fetchDocuments().then(render);
+};
+
+window.updateSort = function (value) {
+    state.filters.sort = value;
+    render();
 };
 
 window.handleDeleteDocument = async function (id, filePath) {
