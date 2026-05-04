@@ -100,6 +100,7 @@ const state = {
     all_solicitantes: [],
     vinculos_solicitantes: [],
     extratos: [],
+    uploadLoteQueue: [],
     settings: {
         salic_user: '',
         salic_pass: ''
@@ -111,12 +112,7 @@ const state = {
     capturedProject: null,
     showCapturedProjectModal: false,
     isUploadingComprovante: false,
-    isUploadingExtrato: false,
-    uploadConcluidoComprovante: false,
-    uploadConcluidoExtrato: false,
-    isSalicRunning: false,
-    rubrica_versions: [],
-    expandedRubricas: {}
+    rubrica_versions: []
 };
 
 const STATUS_MAP = {
@@ -182,15 +178,10 @@ const STATUS_MAP = {
         class: 'status-error',
         description: 'Erro no envio: O robô encontrou um problema ao tentar inserir no SALIC (ex: instabilidade no site do governo).'
     },
-    'divergencia_valor': {
-        label: 'Divergência de Valor',
-        class: 'status-error',
-        description: 'Divergência de valor: O valor da nota fiscal não coincide com o valor da transação no extrato bancário. Revisão manual obrigatória antes de prosseguir.'
-    },
-    'divergencia_beneficiario': {
-        label: 'Divergência no extrato',
-        class: 'status-error',
-        description: 'Divergência no extrato: Transação não encontrada no extrato. Revisão manual obrigatória.'
+    'aguardando_rubrica': {
+        label: 'Aguardando Rubrica',
+        class: 'status-pending',
+        description: 'Aguardando rubrica: Documento enviado em lote, aguardando o usuário escolher a rubrica antes de iniciar o processamento.'
     }
 };
 
@@ -215,6 +206,10 @@ const Sidebar = () => `
         <a class="nav-item ${['upload', 'details'].includes(state.currentView) ? 'active' : ''}" onclick="window.navigate('upload')">
             <i data-lucide="file-text"></i>
             <span>Documentos</span>
+        </a>
+        <a class="nav-item ${state.currentView === 'upload_lote' ? 'active' : ''}" onclick="window.navigate('upload_lote')">
+            <i data-lucide="layers"></i>
+            <span>Upload em Lote</span>
         </a>
         <a class="nav-item ${['orcamento', 'rubricas'].includes(state.currentView) ? 'active' : ''}" onclick="window.navigate('orcamento')">
             <i data-lucide="list-checks"></i>
@@ -246,6 +241,10 @@ const Sidebar = () => `
                 <p style="font-size: 11px; color: var(--text-secondary);">Gestor</p>
             </div>
         </div>
+        <a class="nav-item" href="module-selector.html" style="color: var(--text-secondary); margin-bottom: 0.25rem;">
+            <i data-lucide="arrow-left-right"></i>
+            <span>Trocar Módulo</span>
+        </a>
         <a class="nav-item" onclick="window.handleLogout()" style="color: var(--error);">
             <i data-lucide="log-out"></i>
             <span>Sair</span>
@@ -269,6 +268,10 @@ const SolicitanteHeader = () => `
             <i data-lucide="user-circle"></i>
             <span>${state.user ? state.user.email.split('@')[0] : 'Solicitante'}</span>
         </div>
+        <a href="module-selector.html" class="btn btn-ghost" style="color: var(--text-secondary); border: 1px solid var(--border-light);">
+            <i data-lucide="arrow-left-right"></i>
+            Trocar Módulo
+        </a>
         <button class="btn btn-ghost" onclick="window.handleLogout()">
             <i data-lucide="log-out"></i>
             Sair
@@ -343,17 +346,41 @@ const RegisterView = () => `
             </div>
             
             <div class="form-group">
-                <label for="reg-password">Senha</label>
-                <input type="password" id="reg-password" placeholder="••••••••" required minlength="6">
+                <label for="reg-org-name">Nome da Organização</label>
+                <input type="text" id="reg-org-name" placeholder="Sua Produtora ou Entidade" required>
             </div>
- 
+
             <div class="form-group">
-                <label for="reg-password-confirm">Confirmar Senha</label>
-                <input type="password" id="reg-password-confirm" placeholder="••••••••" required minlength="6">
+                <label>Módulos de Interesse</label>
+                <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; padding: 0.5rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm); font-size: 0.875rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" name="reg-modules" value="modulo_1" checked> 
+                        <span>Módulo I (Comprovação Financeira RPA)</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" name="reg-modules" value="modulo_2"> 
+                        <span>Módulo II (Prestação de Contas & Contratos)</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: not-allowed; color: var(--text-muted);">
+                        <input type="checkbox" name="reg-modules" value="modulo_3" disabled> 
+                        <span>Módulo III (Contrapartidas - Em breve)</span>
+                    </label>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group">
+                    <label for="reg-password">Senha</label>
+                    <input type="password" id="reg-password" placeholder="••••••••" required minlength="6">
+                </div>
+                <div class="form-group">
+                    <label for="reg-password-confirm">Confirmar Senha</label>
+                    <input type="password" id="reg-password-confirm" placeholder="••••••••" required minlength="6">
+                </div>
             </div>
             
-            <button class="btn btn-primary" id="register-btn" style="width: 100%;" ${state.loading ? 'disabled' : ''}>
-                ${state.loading ? 'Criando conta...' : 'Cadastrar'}
+            <button class="btn btn-primary" id="register-btn" style="width: 100%; margin-top: 0.5rem;" ${state.loading ? 'disabled' : ''}>
+                ${state.loading ? 'Criando conta...' : 'Cadastrar e Acessar'}
             </button>
         </form>
         
@@ -555,15 +582,18 @@ const SolicitanteDashboardView = () => `
                         <h3 class="mb-2">Enviar Novo Documento</h3>
                         <p style="color: var(--text-muted); font-size: 0.875rem;">Escolha o PRONAC solicitante e anexe seu PDF.</p>
                     </div>
-                    <div style="display: flex; gap: 1rem;">
-                        <select id="f-upload-project" style="min-width: 250px; padding: 0.625rem; border-radius: var(--radius-sm); border: 1px solid var(--border-light);">
+                    <div style="display: flex; flex-direction: column; gap: 1rem;">
+                        <select id="f-upload-project" style="min-width: 250px; padding: 0.625rem; border-radius: var(--radius-sm); border: 1px solid var(--border-light);" onchange="window.updateSolicitanteUploadButtons()">
                             <option value="">Selecione o Projeto / PRONAC...</option>
-                            ${state.projects.map(p => `<option value="${p.project_id}">${p.projects.pronac} - ${p.projects.nome}</option>`).join('')}
+                            ${state.projects.map(p => `<option value="${p.project_id}" data-modulos='${JSON.stringify(p.modulos || [])}'>${p.projects.pronac} - ${p.projects.nome}</option>`).join('')}
                         </select>
-                        <input type="file" id="f-upload-file" style="display: none;" accept=".pdf" onchange="window.handleSolicitanteUpload(this.files[0])">
-                        <button class="btn btn-primary" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);" onclick="if(document.getElementById('f-upload-project').value) document.getElementById('f-upload-file').click(); else alert('Selecione primeiro o PRONAC!');">
-                            <i data-lucide="upload-cloud"></i> Enviar Arquivo
-                        </button>
+                        
+                        <div id="upload-buttons-area" style="display: none; gap: 1rem;">
+                            <button class="btn btn-primary" style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); width: 100%; justify-content: center; font-size: 1rem; padding: 1rem;" onclick="window.openUnifiedUploadModal()">
+                                <i data-lucide="plus-circle" style="width: 20px; height: 20px;"></i> Adicionar Novo Documento
+                            </button>
+                        </div>
+                        <p id="upload-hint" style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.5rem;">Selecione um projeto acima para ver as opções de envio.</p>
                     </div>
                 </div>
             </div>
@@ -593,9 +623,9 @@ const SolicitanteDashboardView = () => `
                                     </td>
                                     <td style="font-size: 0.875rem;">${doc.projects ? doc.projects.pronac : '---'}</td>
                                     <td>
-                                        <span class="badge ${(STATUS_MAP[doc.status] || {}).class || 'status-pending'}">
+                                        <span class="badge ${(STATUS_MAP[doc.status] || {}).class || (doc.is_m2 ? (doc.status === 'aprovada' ? 'status-success' : doc.status === 'reprovada' ? 'status-error' : 'status-pending') : 'status-pending')}">
                                             <span class="badge-dot"></span>
-                                            ${(STATUS_MAP[doc.status] || {}).label || doc.status}
+                                            ${(STATUS_MAP[doc.status] || {}).label || (doc.is_m2 ? (doc.status.charAt(0).toUpperCase() + doc.status.slice(1)) : doc.status)}
                                         </span>
                                     </td>
                                     <td style="color: var(--text-muted); font-size: 0.75rem;">${new Date(doc.created_at).toLocaleString('pt-BR')}</td>
@@ -608,6 +638,65 @@ const SolicitanteDashboardView = () => `
             </div>
         </div>
     </main>
+
+    <!-- Modal Unificado Upload -->
+    <div id="modal-upload-unified" class="modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9999; align-items: center; justify-content: center;">
+        <div style="background: white; border-radius: var(--radius-lg); width: 100%; max-width: 500px; padding: 2rem; box-shadow: var(--shadow-lg); max-height: 90vh; overflow-y: auto;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h3 style="font-size: 1.25rem;">Enviar Arquivo</h3>
+                <button class="btn btn-ghost" onclick="document.getElementById('modal-upload-unified').style.display='none'" style="padding: 0.5rem;"><i data-lucide="x"></i></button>
+            </div>
+            
+            <div style="margin-bottom: 1.5rem;">
+                <label style="font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; display: block;">O que você deseja enviar?</label>
+                <div style="display: flex; gap: 1rem;">
+                    <label style="flex: 1; border: 2px solid var(--border-light); padding: 1.5rem 1rem; border-radius: 8px; cursor: pointer; text-align: center; transition: all 0.2s;" id="label-tipo-nf" onclick="window.selectUnifiedType('nf')">
+                        <input type="radio" name="unified_type" value="nf" style="display:none;">
+                        <i data-lucide="file-text" style="margin: 0 auto 0.75rem; color: #f59e0b; width: 32px; height: 32px;"></i>
+                        <div style="font-weight: 600; font-size: 0.875rem;">Nota Fiscal<br>Recibo</div>
+                    </label>
+                    <label style="flex: 1; border: 2px solid var(--border-light); padding: 1.5rem 1rem; border-radius: 8px; cursor: pointer; text-align: center; transition: all 0.2s;" id="label-tipo-m2" onclick="window.selectUnifiedType('m2')">
+                        <input type="radio" name="unified_type" value="m2" style="display:none;">
+                        <i data-lucide="camera" style="margin: 0 auto 0.75rem; color: #4f46e5; width: 32px; height: 32px;"></i>
+                        <div style="font-weight: 600; font-size: 0.875rem;">Comprovação<br>Física</div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Campos NF -->
+            <div id="unified-fields-nf" style="display: none; margin-bottom: 1.5rem;">
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">Anexe a nota fiscal e nossa inteligência artificial fará a leitura e o processamento automático do pagamento.</p>
+                <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">Arquivo PDF / Imagem *</label>
+                <input type="file" id="f-upload-nf" accept=".pdf,.png,.jpg,.jpeg" style="width: 100%; padding: 0.75rem; border: 1px dashed var(--border-light); border-radius: 6px;">
+            </div>
+
+            <!-- Campos M2 -->
+            <div id="unified-fields-m2" style="display: none; margin-bottom: 1.5rem;">
+                <div style="margin-bottom: 1rem;">
+                    <label style="font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; display: block;">Tipo de Evidência *</label>
+                    <select id="m2-tipo-evidencia" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-light); border-radius: 6px;">
+                        <option value="">Selecione...</option>
+                        <option value="foto_evento">Foto do Evento</option>
+                        <option value="relatorio_objeto">Relatório Fotográfico/Objeto</option>
+                        <option value="peca_marketing">Peça de Marketing/Divulgação</option>
+                        <option value="outros">Outros</option>
+                    </select>
+                </div>
+                <div style="margin-bottom: 1rem;">
+                    <label style="font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; display: block;">Descrição (Opcional)</label>
+                    <textarea id="m2-descricao" rows="2" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-light); border-radius: 6px;" placeholder="Detalhes do arquivo..."></textarea>
+                </div>
+                <div>
+                    <label style="font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; display: block;">Arquivo / Mídia *</label>
+                    <input type="file" id="m2-file-upload" accept=".pdf,.png,.jpg,.jpeg,.mp4" style="width: 100%; padding: 0.75rem; border: 1px dashed var(--border-light); border-radius: 6px;">
+                </div>
+            </div>
+
+            <button class="btn btn-primary" id="btn-submit-unified" style="width: 100%; justify-content: center; display: none; padding: 1rem;" onclick="window.submitUnifiedFile()">
+                Confirmar Envio
+            </button>
+        </div>
+    </div>
 </div>
 `;
 
@@ -855,6 +944,100 @@ ${Sidebar()}
         </div>
     </main>
     `;
+
+const UploadLoteView = () => {
+    const fila = state.uploadLoteQueue || [];
+    const projetoSelecionado = state.filters.project || '';
+    const rubricas = state.rubricas_disponiveis || [];
+
+    return `
+${Sidebar()}
+    <main class="main-content view-content">
+        <header class="content-header">
+            <h1>Upload em Lote</h1>
+            <p class="page-subtitle">Envie vários PDFs de uma vez. Depois escolha a rubrica de cada um e clique em Processar para iniciar o OCR.</p>
+        </header>
+
+        <div style="max-width: 900px; margin: 0 auto;">
+            <div class="card mb-4">
+                <h3 class="h2 mb-4">1. Selecionar arquivos</h3>
+
+                <div class="form-group mb-4">
+                    <label>Projeto / PRONAC</label>
+                    <select id="lote-project-selector" onchange="window.handleLoteProjectChange(this.value)">
+                        <option value="">Selecione um projeto...</option>
+                        ${state.projects.map(p => `<option value="${p.id}" ${projetoSelecionado === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
+                    </select>
+                </div>
+
+                <div class="upload-area" onclick="if(document.getElementById('lote-project-selector').value) document.getElementById('lote-file-input').click(); else alert('Selecione um projeto primeiro!');">
+                    <input type="file" id="lote-file-input" multiple accept=".pdf" style="display: none;" onchange="window.handleLoteFilesSelected(this.files)">
+                    <i data-lucide="layers" style="width: 32px; color: var(--primary); margin-bottom: 1rem;"></i>
+                    <p class="text-sm" style="font-weight: 600;">Selecione vários PDFs ou clique para escolher</p>
+                    <p class="text-xs" style="color: var(--text-muted); margin-top: 0.5rem;">Os arquivos serão enviados para a fila abaixo. Você escolhe a rubrica de cada um antes de processar.</p>
+                </div>
+
+                ${state.loading ? `<p class="text-xs mt-4" style="color: var(--primary); text-align: center;">Enviando arquivos para a fila, aguarde...</p>` : ''}
+            </div>
+
+            <datalist id="rubricas-lote-list">
+                ${rubricas.map(r => {
+                    const valor = `${r.rubrica_id ? r.rubrica_id + ' - ' : ''}${r.nome}`;
+                    return `<option value="${valor}">`;
+                }).join('')}
+            </datalist>
+
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h3 class="h2" style="margin: 0;">2. Fila aguardando rubrica (${fila.length})</h3>
+                    ${fila.length > 0 ? `
+                        <button class="btn btn-primary" onclick="window.handleProcessarTodosLote()" ${state.loading ? 'disabled' : ''}>
+                            <i data-lucide="play" style="width: 16px;"></i> Processar todos preenchidos
+                        </button>
+                    ` : ''}
+                </div>
+
+                ${fila.length === 0 ? `
+                    <div style="padding: 2rem; text-align: center; color: var(--text-muted);">
+                        <i data-lucide="inbox" style="width: 32px; margin-bottom: 0.75rem;"></i>
+                        <p class="text-sm">Nenhum arquivo na fila. Selecione PDFs acima para começar.</p>
+                    </div>
+                ` : `
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Arquivo</th>
+                                <th>Tamanho</th>
+                                <th>Rubrica</th>
+                                <th style="width: 220px;">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${fila.map(doc => `
+                                <tr>
+                                    <td style="max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${doc.name}">${doc.name}</td>
+                                    <td>${doc.size || '-'}</td>
+                                    <td>
+                                        <input type="text" id="lote-rubrica-${doc.id}" list="rubricas-lote-list" placeholder="${rubricas.length === 0 ? 'Selecione um projeto com rubricas...' : 'Digite para buscar rubrica...'}" autocomplete="off" style="width: 100%; padding: 0.5rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: 4px; background: white;" value="${doc.rubrica || ''}" ${rubricas.length === 0 ? 'disabled' : ''}>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-primary" style="padding: 0.4rem 0.75rem;" onclick="window.handleProcessarLoteItem('${doc.id}')">
+                                            <i data-lucide="play" style="width: 14px;"></i> Processar
+                                        </button>
+                                        <button class="btn btn-ghost" style="padding: 0.4rem 0.5rem; color: var(--error);" onclick="window.handleExcluirLoteItem('${doc.id}', '${doc.file_path}')" title="Excluir">
+                                            <i data-lucide="trash-2" style="width: 14px;"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `}
+            </div>
+        </div>
+    </main>
+    `;
+};
 
 const CreateProjectView = () => `
 ${Sidebar()}
@@ -1288,10 +1471,6 @@ ${Sidebar()}
 
 // --- Handlers & API ---
 
-/**
- * Forces a document past an error state at the manager's own risk.
- * Maps each error to the next logical status in the pipeline.
- */
 window.handleForcarAvanco = async function (docId, currentStatus) {
     const nextStatus = {
         'revisao_manual': 'aguardando_conformidade',
@@ -1424,14 +1603,159 @@ window.handleSolicitanteRegister = async function () {
     }
 };
 
-window.handleSolicitanteUpload = async function (file) {
+window.updateSolicitanteUploadButtons = function () {
+    const select = document.getElementById('f-upload-project');
+    const btnArea = document.getElementById('upload-buttons-area');
+    const hint = document.getElementById('upload-hint');
+
+    if (!select.value) {
+        btnArea.style.display = 'none';
+        hint.style.display = 'block';
+        return;
+    }
+
+    hint.style.display = 'none';
+    btnArea.style.display = 'flex';
+};
+
+window.openUnifiedUploadModal = function() {
     const projectId = document.getElementById('f-upload-project').value;
+    if (!projectId) return alert("Selecione um projeto primeiro!");
+    
+    // Reset modal state
+    document.getElementById('unified-fields-nf').style.display = 'none';
+    document.getElementById('unified-fields-m2').style.display = 'none';
+    document.getElementById('btn-submit-unified').style.display = 'none';
+    
+    document.getElementById('label-tipo-nf').style.borderColor = 'var(--border-light)';
+    document.getElementById('label-tipo-nf').style.background = '#fff';
+    document.getElementById('label-tipo-m2').style.borderColor = 'var(--border-light)';
+    document.getElementById('label-tipo-m2').style.background = '#fff';
+    
+    document.getElementById('f-upload-nf').value = '';
+    document.getElementById('m2-file-upload').value = '';
+    document.getElementById('m2-tipo-evidencia').value = '';
+    document.getElementById('m2-descricao').value = '';
+
+    document.getElementById('modal-upload-unified').style.display = 'flex';
+};
+
+window.selectUnifiedType = function(type) {
+    document.getElementById('label-tipo-nf').style.borderColor = type === 'nf' ? '#f59e0b' : 'var(--border-light)';
+    document.getElementById('label-tipo-nf').style.background = type === 'nf' ? '#fffbeb' : '#fff';
+    
+    document.getElementById('label-tipo-m2').style.borderColor = type === 'm2' ? '#4f46e5' : 'var(--border-light)';
+    document.getElementById('label-tipo-m2').style.background = type === 'm2' ? '#eef2ff' : '#fff';
+
+    document.getElementById('unified-fields-nf').style.display = type === 'nf' ? 'block' : 'none';
+    document.getElementById('unified-fields-m2').style.display = type === 'm2' ? 'block' : 'none';
+    
+    const btn = document.getElementById('btn-submit-unified');
+    btn.style.display = 'flex';
+    btn.setAttribute('data-type', type);
+    
+    if (type === 'nf') {
+        btn.style.background = 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)';
+    } else {
+        btn.style.background = 'linear-gradient(135deg, #4f46e5 0%, #3730a3 100%)';
+    }
+};
+
+window.submitUnifiedFile = async function() {
+    const type = document.getElementById('btn-submit-unified').getAttribute('data-type');
+    
+    // CRÍTICO: Captura o projectId ANTES de fechar o modal ou chamar render(),
+    // pois o render() reconstrói o DOM e o select perde o valor selecionado.
+    const projectId = document.getElementById('f-upload-project').value;
+    if (!projectId) return alert("Selecione um projeto primeiro!");
+    
+    if (type === 'nf') {
+        const fileInput = document.getElementById('f-upload-nf');
+        if (!fileInput.files || fileInput.files.length === 0) return alert("Selecione o arquivo da Nota Fiscal.");
+        document.getElementById('modal-upload-unified').style.display = 'none';
+        await handleSolicitanteUpload(fileInput.files[0], projectId);
+    } else if (type === 'm2') {
+        const fileInput = document.getElementById('m2-file-upload');
+        if (!fileInput.files || fileInput.files.length === 0) return alert("Selecione o arquivo de comprovação.");
+        
+        const tipoSelect = document.getElementById('m2-tipo-evidencia');
+        if (!tipoSelect.value) return alert("Selecione o tipo de evidência.");
+        
+        document.getElementById('modal-upload-unified').style.display = 'none';
+        await submitM2Evidencia(fileInput.files[0], tipoSelect.value, document.getElementById('m2-descricao').value, projectId);
+    }
+};
+
+window.submitM2Evidencia = async function(file, tipo, descricao, projectId) {
+    state.loading = true;
+    render();
+
+    try {
+        // projectId é passado como parâmetro por submitUnifiedFile (capturado antes do render)
+        const selectedProject = state.projects.find(p => (p.project_id === projectId) || (p.id === projectId));
+        
+        if (!projectId || !selectedProject) {
+            console.error("ERRO: Projeto não encontrado no estado.", {
+                projetoProcurado: projectId,
+                listaProjetos: state.projects,
+                currentView: state.currentView
+            });
+            throw new Error(`Projeto inválido ou não vinculado à sua conta (ID: ${projectId}).`);
+        }
+
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${crypto.randomUUID()}.${fileExt}`;
+        const filePath = `${projectId}/${fileName}`;
+
+        // 1. Upload Storage
+        const { error: uploadError } = await supabaseClient.storage
+            .from('physical-evidences')
+            .upload(filePath, file);
+
+        if (uploadError) throw uploadError;
+
+        const insertPayload = {
+            project_id: projectId,
+            tipo_evidencia: tipo,
+            descricao: descricao,
+            file_path: filePath,
+            file_name: file.name,
+            file_size: file.size,
+            mime_type: file.type,
+            enviado_por: state.user.id,
+            enviado_via_token: false,
+            status_validacao: 'pendente'
+        };
+
+        if (selectedProject.organization_id) {
+            insertPayload.organization_id = selectedProject.organization_id;
+        }
+
+        // 2. Insert into physical_evidences table
+        const { error: dbError } = await supabaseClient.from('physical_evidences').insert(insertPayload);
+
+        if (dbError) throw dbError;
+
+        await fetchSolicitanteDashboard(); // recarrega a grid
+    } catch (err) {
+        console.error(err);
+        alert("Erro ao enviar evidência: " + err.message);
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
+
+window.handleSolicitanteUpload = async function (file, projectId) {
+    // projectId é passado como parâmetro por submitUnifiedFile (capturado antes do render)
     if (!file || !projectId) return alert("Selecione um projeto e um arquivo!");
 
     state.loading = true;
     render();
 
     try {
+        const selectedProject = state.projects.find(p => (p.project_id === projectId) || (p.id === projectId));
+        
         const fileExt = file.name.split('.').pop();
         const fileName = `${Math.random()}.${fileExt} `;
         const filePath = `${state.user.id}/${fileName}`;
@@ -1449,7 +1773,8 @@ window.handleSolicitanteUpload = async function (file) {
             size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
             file_path: filePath,
             status: 'processing_ocr',
-            tipo_documento: 'nf'
+            tipo_documento: 'nf',
+            organization_id: selectedProject?.organization_id || null
         }).select().single();
 
         if (dbError) throw dbError;
@@ -1486,13 +1811,41 @@ window.handleSolicitanteUpload = async function (file) {
 async function fetchSolicitanteDashboard() {
     if (!supabaseClient || !state.user) return;
     try {
-        // Busca projetos vinculados ao fornecedor
+        // Busca projetos vinculados ao fornecedor, incluindo o gestor_id
         const { data: projData, error: projError } = await supabaseClient
             .from('projeto_fornecedores')
-            .select('project_id, projects(id, pronac, nome)');
+            .select('project_id, gestor_id, projects(id, pronac, nome)');
 
         if (projError) console.error('Erro ao buscar projetos do fornecedor:', projError);
-        state.projects = (projData || []).filter(p => p.projects); // filtra registros com join válido
+        let activeProjects = (projData || []).filter(p => p.projects); // filtra registros com join válido
+
+        // Agora busca os módulos de cada gestor (para saber se é M1 ou M2)
+        const gestorIds = [...new Set(activeProjects.map(p => p.gestor_id))];
+        if (gestorIds.length > 0) {
+            const { data: orgUsers } = await supabaseClient.from('organization_users').select('user_id, organization_id').in('user_id', gestorIds);
+            console.log("DEBUG: Projetos (projData):", projData);
+            console.log("DEBUG: orgUsers:", orgUsers);
+            
+            if (orgUsers && orgUsers.length > 0) {
+                const orgIds = [...new Set(orgUsers.map(ou => ou.organization_id))];
+                const { data: orgs } = await supabaseClient.from('organizations').select('id, modulos').in('id', orgIds);
+                
+                // Mapeia gestor -> modulos
+                const gestorOrgs = {};
+                orgUsers.forEach(ou => {
+                    const org = orgs?.find(o => o.id === ou.organization_id);
+                    if (org) gestorOrgs[ou.user_id] = { modulos: org.modulos || [], id: org.id };
+                });
+
+                // Anexa os modulos ao projeto
+                activeProjects = activeProjects.map(p => ({
+                    ...p,
+                    modulos: gestorOrgs[p.gestor_id]?.modulos || [],
+                    organization_id: gestorOrgs[p.gestor_id]?.id
+                }));
+            }
+        }
+        state.projects = activeProjects;
 
         // Busca historico de docs (apenas NF para o fornecedor ver o status da despesa)
         const { data: docData, error: docError } = await supabaseClient
@@ -1503,7 +1856,28 @@ async function fetchSolicitanteDashboard() {
             .order('created_at', { ascending: false });
 
         if (docError) console.error('Erro ao buscar documentos do fornecedor:', docError);
-        state.documents = docData || [];
+        
+        // Busca historico de evidencias (Módulo 2)
+        const { data: evData, error: evError } = await supabaseClient
+            .from('physical_evidences')
+            .select('*, projects(pronac, nome)')
+            .eq('enviado_por', state.user.id)
+            .order('criado_em', { ascending: false });
+
+        if (evError) console.error('Erro ao buscar evidências do fornecedor:', evError);
+
+        const mappedEvData = (evData || []).map(ev => ({
+            id: ev.id,
+            name: ev.file_name,
+            size: (ev.file_size ? (ev.file_size / 1024 / 1024).toFixed(2) + ' MB' : '---'),
+            status: ev.status_validacao,
+            created_at: ev.criado_em,
+            projects: ev.projects,
+            is_m2: true
+        }));
+
+        // Junta os dois e ordena por data
+        state.documents = [...(docData || []), ...mappedEvData].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     } catch (err) {
         console.error("Erro dashboard solicitante", err);
     }
@@ -1534,7 +1908,7 @@ window.handleLogin = async function () {
 
         state.user = data.user;
         state.userStatus = 'gestor';
-        window.navigate('dashboard');
+        window.location.href = 'module-selector.html';
     } catch (error) {
         alert("Erro no login: " + error.message);
     } finally {
@@ -1549,9 +1923,21 @@ window.handleRegister = async function () {
     const email = document.getElementById('reg-email').value;
     const password = document.getElementById('reg-password').value;
     const confirmPassword = document.getElementById('reg-password-confirm').value;
+    const orgName = document.getElementById('reg-org-name').value;
+    
+    const checkboxes = document.querySelectorAll('input[name="reg-modules"]:checked');
+    const selectedModules = Array.from(checkboxes).map(cb => cb.value);
 
     if (password !== confirmPassword) {
         return alert("As senhas não coincidem!");
+    }
+    
+    if (!orgName) {
+        return alert("O nome da organização é obrigatório!");
+    }
+
+    if (selectedModules.length === 0) {
+        return alert("Selecione pelo menos um módulo de interesse!");
     }
 
     state.loading = true;
@@ -1568,11 +1954,44 @@ window.handleRegister = async function () {
             }
         });
         if (error) throw error;
+        
+        if (data.user) {
+            // 1. Criar a Organização no BD
+            const { data: orgData, error: orgError } = await supabaseClient
+                .from('organizations')
+                .insert([{ 
+                    nome: orgName, 
+                    slug: orgName.toLowerCase().replace(/[^a-z0-9]+/g, '-'), 
+                    modulos: selectedModules, 
+                    ativo: true 
+                }])
+                .select()
+                .single();
+                
+            if (orgError) {
+                console.error("Erro ao criar organização:", orgError);
+                throw new Error("Erro ao criar estrutura da organização no banco.");
+            }
+            
+            // 2. Vincular usuário à organização
+            const { error: linkError } = await supabaseClient
+                .from('organization_users')
+                .insert([{
+                    organization_id: orgData.id,
+                    user_id: data.user.id,
+                    role: 'admin'
+                }]);
+                
+            if (linkError) {
+                console.error("Erro ao vincular permissões:", linkError);
+                throw new Error("Erro ao vincular sua conta à organização.");
+            }
+        }
 
         if (data.user && data.session) {
             state.user = data.user;
             alert("Conta criada com sucesso!");
-            window.navigate('dashboard');
+            window.location.href = 'module-selector.html';
         } else {
             alert("Conta criada! Verifique seu e-mail para confirmar o cadastro.");
             window.navigate('login');
@@ -1653,19 +2072,12 @@ const FinanceiroView = () => {
     let pendentesConciliacao = 0;
     const chartLabels = [];
     const chartData = [];
-    const despesasFlat = [];
-    const rubricaById = {};
-    const STATUS_QUE_CONSOMEM = new Set(['aguardando_d3', 'liberado_rpa_airtop', 'enviado_salic', 'concluido']);
 
     state.rubricas.forEach(r => {
-        rubricaById[r.id] = r;
         let rubricaTotal = 0;
         if (r.despesas && r.despesas.length > 0) {
             r.despesas.forEach(d => {
-                despesasFlat.push(d);
-                if (STATUS_QUE_CONSOMEM.has(d.status)) {
-                    rubricaTotal += parseFloat(d.valor || 0);
-                }
+                rubricaTotal += parseFloat(d.valor || 0);
                 if (d.status_conformidade === 'pendente') pendentesConformidade++;
                 if (d.conciliado === false || d.conciliado === null) pendentesConciliacao++;
             });
@@ -1676,8 +2088,6 @@ const FinanceiroView = () => {
         }
         totalExecutado += rubricaTotal;
     });
-
-    despesasFlat.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
 
     state.chartData = { labels: chartLabels, data: chartData };
 
@@ -1714,14 +2124,32 @@ ${Sidebar()}
         </div>
     </div>
 
-    <div class="card" style="margin-bottom: 1.5rem;">
-        <h3 class="h2 mb-4">Execução por Rubrica</h3>
-        <div style="height: 300px;">
-            ${chartLabels.length > 0 ? '<canvas id="rubricasChart"></canvas>' : '<p class="text-sm" style="text-align: center; padding-top: 4rem; color: var(--text-muted);">Sem dados para o gráfico.</p>'}
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+        <div class="card">
+            <h3 class="h2 mb-4">Execução por Rubrica</h3>
+            <div style="height: 300px;">
+                ${chartLabels.length > 0 ? '<canvas id="rubricasChart"></canvas>' : '<p class="text-sm" style="text-align: center; padding-top: 4rem; color: var(--text-muted);">Sem dados para o gráfico.</p>'}
+            </div>
+        </div>
+        <div class="card">
+            <h3 class="h2 mb-1">Status de Conformidade</h3>
+            <p class="text-xs" style="color: var(--text-muted); margin-bottom: 1.5rem; line-height: 1.4;">Resumo da saúde jurídica e operacional do seu projeto perante o SALIC e a análise automática IA.</p>
+            <div style="display: flex; flex-direction: column; gap: 1rem; padding-top: 0.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span class="text-sm">Documentos validados</span>
+                    <span class="badge status-completed">Bom</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span class="text-sm">Certidões negativas</span>
+                    <span class="badge status-completed">Regular</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span class="text-sm">Pendências SALIC</span>
+                    <span class="badge status-pending">1 pendência</span>
+                </div>
+            </div>
         </div>
     </div>
-
-    ${renderDespesasTable(despesasFlat, rubricaById)}
 </main>
 `;
 };
@@ -1885,112 +2313,6 @@ const RubricaInstructionsModal = () => `
 </div>
 `;
 
-function renderDespesaStatusBadge(status) {
-    const map = STATUS_MAP[status];
-    const label = map ? map.label : (status || '---');
-    const cls = map ? map.class : 'status-pending';
-    return `<span class="badge ${cls}" style="font-size: 10px;">${label}</span>`;
-}
-
-function formatCurrencyBR(value) {
-    const v = parseFloat(value || 0);
-    return 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function formatDateBR(value) {
-    if (!value) return '---';
-    const d = new Date(value);
-    if (isNaN(d.getTime())) return '---';
-    return d.toLocaleDateString('pt-BR');
-}
-
-function renderDespesasMini(despesas) {
-    if (!despesas || despesas.length === 0) {
-        return `<p class="text-xs text-muted" style="margin-top: 0.75rem; text-align: center; font-style: italic;">Nenhuma despesa vinculada a esta rubrica ainda.</p>`;
-    }
-    return `
-        <div style="margin-top: 0.75rem; border-top: 1px solid var(--border-light); padding-top: 0.75rem; max-height: 220px; overflow-y: auto;">
-            ${despesas.map(d => `
-                <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px dashed var(--border-light); font-size: 11px;">
-                    <div style="flex: 1; min-width: 0;">
-                        <div style="font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                            ${d.fornecedor_nome || d.cnpj_fornecedor || '—'}
-                        </div>
-                        <div class="text-muted" style="font-size: 10px;">${formatDateBR(d.data_emissao)}</div>
-                    </div>
-                    <div style="text-align: right; flex-shrink: 0;">
-                        <div style="font-weight: 700;">${formatCurrencyBR(d.valor)}</div>
-                        <div style="margin-top: 2px;">${renderDespesaStatusBadge(d.status)}</div>
-                    </div>
-                </div>
-            `).join('')}
-        </div>
-    `;
-}
-
-function renderDespesasTable(despesas, rubricaById) {
-    if (!despesas || despesas.length === 0) {
-        return `
-            <div class="card" style="padding: 2rem; text-align: center;">
-                <i data-lucide="inbox" style="width: 36px; color: var(--text-muted); margin-bottom: 0.75rem;"></i>
-                <p class="text-sm text-muted">Nenhuma despesa registrada para este projeto ainda.</p>
-            </div>
-        `;
-    }
-    const search = (state.filters.despesasSearch || '').toLowerCase();
-    const filtered = despesas.filter(d => {
-        if (!search) return true;
-        const rubrica = rubricaById[d.rubrica_id]?.nome || '';
-        return [d.fornecedor_nome, d.cnpj_fornecedor, rubrica, d.status]
-            .filter(Boolean)
-            .some(v => String(v).toLowerCase().includes(search));
-    });
-    return `
-        <div class="card" style="padding: 1rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; gap: 1rem; flex-wrap: wrap;">
-                <h3 class="h2" style="margin: 0;">Despesas do Projeto</h3>
-                <input type="search" placeholder="Buscar por fornecedor, CNPJ, rubrica ou status..."
-                    value="${state.filters.despesasSearch || ''}"
-                    oninput="state.filters.despesasSearch = this.value; render(); setTimeout(() => { const el = document.querySelector('input[placeholder*=Buscar]'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 0);"
-                    style="padding: 0.5rem 0.75rem; border: 1px solid var(--border-light); border-radius: 6px; font-size: 13px; min-width: 280px;">
-            </div>
-            <div style="overflow-x: auto;">
-                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
-                    <thead>
-                        <tr style="background: var(--bg-sidebar); text-align: left;">
-                            <th style="padding: 0.6rem; border-bottom: 1px solid var(--border-light);">Data Emissão</th>
-                            <th style="padding: 0.6rem; border-bottom: 1px solid var(--border-light);">Fornecedor</th>
-                            <th style="padding: 0.6rem; border-bottom: 1px solid var(--border-light);">CNPJ/CPF</th>
-                            <th style="padding: 0.6rem; border-bottom: 1px solid var(--border-light);">Rubrica</th>
-                            <th style="padding: 0.6rem; border-bottom: 1px solid var(--border-light); text-align: right;">Valor</th>
-                            <th style="padding: 0.6rem; border-bottom: 1px solid var(--border-light);">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${filtered.map(d => {
-                            const rubrica = rubricaById[d.rubrica_id];
-                            return `
-                                <tr style="border-bottom: 1px solid var(--border-subtle);">
-                                    <td style="padding: 0.6rem;">${formatDateBR(d.data_emissao)}</td>
-                                    <td style="padding: 0.6rem;">${d.fornecedor_nome || '—'}</td>
-                                    <td style="padding: 0.6rem; font-family: monospace; font-size: 11px;">${d.cnpj_fornecedor || '—'}</td>
-                                    <td style="padding: 0.6rem;">${rubrica ? rubrica.nome : '—'}</td>
-                                    <td style="padding: 0.6rem; text-align: right; font-weight: 600;">${formatCurrencyBR(d.valor)}</td>
-                                    <td style="padding: 0.6rem;">${renderDespesaStatusBadge(d.status)}</td>
-                                </tr>
-                            `;
-                        }).join('')}
-                        ${filtered.length === 0 ? `
-                            <tr><td colspan="6" style="padding: 2rem; text-align: center; color: var(--text-muted);">Nenhum resultado para "${search}".</td></tr>
-                        ` : ''}
-                    </tbody>
-                </table>
-            </div>
-            <p class="text-xs text-muted" style="margin-top: 0.75rem;">${filtered.length} de ${despesas.length} despesa(s)</p>
-        </div>
-    `;
-}
-
 const OrcamentoView = () => {
     const activeProject = state.projects.find(p => p.id === state.filters.project);
 
@@ -2144,10 +2466,6 @@ const OrcamentoView = () => {
         const utilizado = parseFloat(r.valor_utilizado || 0);
         const percentual = aprovado > 0 ? (utilizado / aprovado) * 100 : 0;
         const saldo = aprovado - utilizado;
-        const despesas = (r.despesas || []).slice().sort((a, b) =>
-            new Date(b.created_at || 0) - new Date(a.created_at || 0)
-        );
-        const expanded = !!state.expandedRubricas[r.id];
         return `
                                 <div class="card rubric-card" style="padding: 1.25rem;">
                                     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
@@ -2164,7 +2482,7 @@ const OrcamentoView = () => {
                                     <div style="width: 100%; height: 6px; background: var(--border-light); border-radius: 3px; overflow: hidden; margin-bottom: 0.75rem;">
                                         <div style="width: ${Math.min(percentual, 100)}%; height: 100%; background: ${percentual > 100 ? 'var(--error)' : 'var(--primary)'}; transition: width 0.3s ease;"></div>
                                     </div>
-                                    <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 0.75rem;">
+                                    <div style="display: flex; justify-content: space-between; font-size: 11px;">
                                         <div>
                                             <span class="text-muted">Aprovado:</span>
                                             <span class="font-semibold">R$ ${aprovado.toLocaleString('pt-BR')}</span>
@@ -2174,11 +2492,6 @@ const OrcamentoView = () => {
                                             <span class="font-bold ${saldo < 0 ? 'color-error' : 'color-success'}">R$ ${saldo.toLocaleString('pt-BR')}</span>
                                         </div>
                                     </div>
-                                    <button class="btn btn-secondary" style="width: 100%; padding: 0.4rem; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 0.4rem;" onclick="window.toggleRubricaExpand('${r.id}')">
-                                        <i data-lucide="${expanded ? 'chevron-up' : 'chevron-down'}" style="width: 14px;"></i>
-                                        ${expanded ? 'Ocultar' : 'Ver'} despesas (${despesas.length})
-                                    </button>
-                                    ${expanded ? renderDespesasMini(despesas) : ''}
                                 </div>
                             `;
     }).join('')}
@@ -2271,13 +2584,19 @@ window.navigate = async function (view, id = null) {
     if (view === 'dashboard') {
         await fetchProjects(); // Sempre recarrega projetos ao voltar ao dashboard
         await fetchDocuments();
-    } else if (view === 'fornecedor_dashboard') {
-        await fetchFornecedorDashboard();
+    } else if (view === 'solicitante_dashboard') {
+        await fetchSolicitanteDashboard();
     } else if (view === 'upload') {
         await fetchProjects();
         // Dispara o carregamento das rubricas se já houver projeto selecionado
         if (state.filters.project) {
             setTimeout(() => window.handleProjectSelectChange(state.filters.project), 100);
+        }
+    } else if (view === 'upload_lote') {
+        await fetchProjects();
+        await fetchUploadLoteQueue();
+        if (state.filters.project) {
+            await fetchRubricasDisponiveis(state.filters.project);
         }
     } else if (view === 'orcamento' || view === 'financeiro') {
         await fetchProjects();
@@ -2396,7 +2715,7 @@ async function fetchRubricas(projectId) {
     try {
         const { data, error } = await supabaseClient
             .from('rubricas')
-            .select('*, despesas(id, valor, status, status_conformidade, conciliado, cnpj_fornecedor, fornecedor_nome, data_emissao, data_pagamento, document_id, created_at)')
+            .select('*, despesas(id, valor, status_conformidade, conciliado)')
             .eq('project_id', projectId)
             .order('nome');
 
@@ -2456,13 +2775,6 @@ window.handleCreateRubrica = async function () {
 };
 
 async function fetchDocumentDetails(id, silent = false) {
-    if (state.currentDocument?.id !== id) {
-        state.uploadConcluidoComprovante = false;
-        state.uploadConcluidoExtrato = false;
-        state.isSalicRunning = false;
-        state.isUploadingExtrato = false;
-    }
-
     // Se o supabase ou o usuário não estiver pronto, aguarda até 3s e tenta de novo
     if (!supabaseClient || !state.user) {
         if (!silent) {
@@ -2484,6 +2796,11 @@ async function fetchDocumentDetails(id, silent = false) {
         state.loading = true;
         render();
     }
+
+    state.uploadConcluidoComprovante = false;
+    state.uploadConcluidoExtrato = false;
+    state.isUploadingExtrato = false;
+    state.isUploadingComprovante = false;
 
     try {
         // Tenta buscar com join completo
@@ -2531,11 +2848,6 @@ async function fetchDocumentDetails(id, silent = false) {
     }
 }
 
-window.toggleRubricaExpand = function (rubricaId) {
-    state.expandedRubricas[rubricaId] = !state.expandedRubricas[rubricaId];
-    render();
-};
-
 window.handleVincularRubrica = async function (documentId, projectId, valorDespesa) {
     const rubricaId = document.getElementById('vincular-rubrica-select').value;
     if (!rubricaId) return alert('Selecione uma rubrica!');
@@ -2548,53 +2860,21 @@ window.handleVincularRubrica = async function (documentId, projectId, valorDespe
         // Obter os valores do form original no currentDocument (cnpj_fornecedor, emissão, etc)
         const doc = state.currentDocument;
 
-        // Verifica se já existe despesa para este documento (criada pela trigger ou ciclo anterior)
-        const { data: existing, error: selectError } = await supabaseClient
-            .from('despesas')
-            .select('id')
-            .eq('document_id', documentId)
-            .maybeSingle();
+        // Insert into despesas
+        const { error } = await supabaseClient.from('despesas').insert({
+            document_id: documentId,
+            rubrica_id: rubricaId,
+            project_id: projectId,
+            valor: parseFloat(valorDespesa),
+            cnpj_fornecedor: doc.cnpj_emissor || null,
+            data_emissao: doc.data_emissao || null,
+            data_pagamento: doc.data_pagamento || null
+        });
 
-        if (selectError) throw selectError;
-
-        if (existing) {
-            // Despesa já existe — atualiza apenas a rubrica e volta para aguardando_conformidade
-            const { error: updateError } = await supabaseClient
-                .from('despesas')
-                .update({
-                    rubrica_id: rubricaId,
-                    status: 'aguardando_conformidade'
-                })
-                .eq('document_id', documentId);
-            if (updateError) throw updateError;
-        } else {
-            const { error: insertError } = await supabaseClient.from('despesas').insert({
-                document_id: documentId,
-                rubrica_id: rubricaId,
-                project_id: projectId,
-                valor: parseFloat(valorDespesa),
-                cnpj_fornecedor: doc.cnpj_emissor || null,
-                data_emissao: doc.data_emissao || null,
-                data_pagamento: doc.data_pagamento || null,
-                status: 'aguardando_conformidade'
-            });
-            if (insertError) throw insertError;
+        if (error) {
+            // Caso de quebra de saldo no RLS (se implementado) ou erro unique
+            throw error;
         }
-
-        // Atualiza também o nome da rubrica e o status do documento, para limpar
-        // o estado de bloqueio e disparar o re-fluxo de conformidade.
-        const rubricaSelecionada = (state.rubricas_disponiveis || []).find(r => r.id === rubricaId);
-        const updateDocPayload = {
-            status: 'aguardando_conformidade',
-            just_erro: null
-        };
-        if (rubricaSelecionada?.nome) updateDocPayload.rubrica = rubricaSelecionada.nome;
-
-        const { error: docUpdateError } = await supabaseClient
-            .from('documents')
-            .update(updateDocPayload)
-            .eq('id', documentId);
-        if (docUpdateError) console.warn("Falha ao atualizar status do documento:", docUpdateError);
 
         alert('Rubrica vinculada com sucesso! O workflow do n8n de conformidade deve ser acionado agora.');
 
@@ -2646,6 +2926,9 @@ async function fetchDocuments() {
 
     // Mostra Notas Fiscais, Comprovantes e registros sem tipo (legado)
     query = query.or('tipo_documento.eq.nf,tipo_documento.eq.comprovante,tipo_documento.is.null');
+
+    // Não mostra documentos da fila de Upload em Lote (aguardando rubrica manual)
+    query = query.neq('status', 'aguardando_rubrica');
 
     // Filtros adicionais
     if (state.filters.project) {
@@ -3146,6 +3429,60 @@ window.handleProjectSelectChange = async function (projectId) {
     }
 };
 
+async function subirParaStorage(file, projectId, opts = {}) {
+    const status = opts.status || 'processing_ocr';
+    const rubrica = opts.rubrica || null;
+    const tipoDocumento = opts.tipo_documento || 'nf';
+
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Math.random()}.${fileExt} `;
+    const filePath = `${state.user.id}/${fileName}`;
+
+    const { error: uploadError } = await supabaseClient.storage
+        .from('documentos')
+        .upload(filePath, file);
+    if (uploadError) throw uploadError;
+
+    const { data: dbData, error: dbError } = await supabaseClient
+        .from('documents')
+        .insert({
+            user_id: state.user.id,
+            project_id: projectId,
+            name: file.name,
+            size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
+            file_path: filePath,
+            status: status,
+            tipo_documento: tipoDocumento,
+            rubrica: rubrica
+        })
+        .select()
+        .single();
+    if (dbError) throw dbError;
+
+    return dbData;
+}
+
+function dispararOcr(documentId, filePath) {
+    if (!CONFIG.N8N_WEBHOOK_URL) return;
+    console.log("Tentando notificar n8n em:", CONFIG.N8N_WEBHOOK_URL);
+    fetch(CONFIG.N8N_WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        mode: 'cors',
+        body: JSON.stringify({
+            document_id: documentId,
+            file_path: filePath,
+            user_id: state.user.id,
+            bucket: 'documentos'
+        })
+    })
+        .then(response => console.log("Resposta n8n:", response.status))
+        .catch(err => {
+            console.error("ERRO CRÍTICO n8n:", err);
+            alert("O arquivo foi enviado, mas o processamento automático falhou. Verifique a URL do n8n.");
+        });
+}
+
 window.handleUpload = async function (file) {
     const projectId = document.getElementById('project-selector').value;
     const rubrica = document.getElementById('rubrica-input') ? document.getElementById('rubrica-input').value : null;
@@ -3156,56 +3493,12 @@ window.handleUpload = async function (file) {
     render();
 
     try {
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${Math.random()}.${fileExt} `;
-        const filePath = `${state.user.id}/${fileName}`;
-
-        // 1. Upload para o Storage
-        const { error: uploadError } = await supabaseClient.storage
-            .from('documentos')
-            .upload(filePath, file);
-
-        if (uploadError) throw uploadError;
-
-        // 2. Salvar no Banco (Status inicial: 'processing_ocr' para indicar que n8n assumiu)
-        const { data: dbData, error: dbError } = await supabaseClient
-            .from('documents')
-            .insert({
-                user_id: state.user.id,
-                project_id: projectId,
-                name: file.name,
-                size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
-                file_path: filePath,
-                status: 'processing_ocr',
-                tipo_documento: 'nf',
-                rubrica: rubrica || null
-            })
-            .select()
-            .single();
-
-        if (dbError) throw dbError;
-
-        // 3. Disparar Webhook para o n8n
-        console.log("Tentando notificar n8n em:", CONFIG.N8N_WEBHOOK_URL);
-
-        if (CONFIG.N8N_WEBHOOK_URL) {
-            fetch(CONFIG.N8N_WEBHOOK_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                mode: 'cors', // Força o modo CORS
-                body: JSON.stringify({
-                    document_id: dbData.id,
-                    file_path: filePath,
-                    user_id: state.user.id,
-                    bucket: 'documentos'
-                })
-            })
-                .then(response => console.log("Resposta n8n:", response.status))
-                .catch(err => {
-                    console.error("ERRO CRÍTICO n8n:", err);
-                    alert("O arquivo foi enviado, mas o processamento automático falhou. Verifique a URL do n8n.");
-                });
-        }
+        const dbData = await subirParaStorage(file, projectId, {
+            status: 'processing_ocr',
+            rubrica: rubrica || null,
+            tipo_documento: 'nf'
+        });
+        dispararOcr(dbData.id, dbData.file_path);
 
         alert("Upload concluído! A IA está processando seu documento...");
         window.navigate('dashboard');
@@ -3217,11 +3510,177 @@ window.handleUpload = async function (file) {
     }
 };
 
+async function fetchRubricasDisponiveis(projectId) {
+    if (!supabaseClient || !projectId) {
+        state.rubricas_disponiveis = [];
+        return;
+    }
+    const { data, error } = await supabaseClient
+        .from('rubricas')
+        .select('id, nome, rubrica_id')
+        .eq('project_id', projectId)
+        .order('nome');
+    if (error) {
+        console.error("Erro fetchRubricasDisponiveis:", error);
+        state.rubricas_disponiveis = [];
+        return;
+    }
+    state.rubricas_disponiveis = data || [];
+}
+
+async function fetchUploadLoteQueue() {
+    if (!supabaseClient || !state.user) return;
+    const { data, error } = await supabaseClient
+        .from('documents')
+        .select('*')
+        .eq('user_id', state.user.id)
+        .eq('status', 'aguardando_rubrica')
+        .order('created_at', { ascending: false });
+    if (error) {
+        console.error("Erro fetchUploadLoteQueue:", error);
+        return;
+    }
+    state.uploadLoteQueue = data || [];
+}
+window.fetchUploadLoteQueue = fetchUploadLoteQueue;
+
+window.handleLoteProjectChange = async function (projectId) {
+    state.filters.project = projectId;
+    await fetchRubricasDisponiveis(projectId);
+    render();
+};
+
+window.handleLoteFilesSelected = async function (fileList) {
+    const projectId = document.getElementById('lote-project-selector').value;
+    if (!projectId) return alert("Selecione um projeto primeiro!");
+    if (!fileList || fileList.length === 0) return;
+
+    const arquivos = Array.from(fileList);
+    state.loading = true;
+    render();
+
+    const resultados = await Promise.allSettled(
+        arquivos.map(file => subirParaStorage(file, projectId, {
+            status: 'aguardando_rubrica',
+            rubrica: null,
+            tipo_documento: 'nf'
+        }))
+    );
+
+    const sucessos = resultados.filter(r => r.status === 'fulfilled').length;
+    const falhas = resultados.length - sucessos;
+
+    if (sucessos > 0) showToast(`${sucessos} arquivo(s) adicionado(s) à fila.`, 'success');
+    if (falhas > 0) {
+        const primeiraFalha = resultados.find(r => r.status === 'rejected');
+        showToast(`${falhas} arquivo(s) falharam: ${primeiraFalha.reason?.message || 'erro desconhecido'}`, 'error');
+    }
+
+    await fetchUploadLoteQueue();
+    state.loading = false;
+    render();
+};
+
+window.handleProcessarLoteItem = async function (documentId) {
+    const input = document.getElementById(`lote-rubrica-${documentId}`);
+    const rubrica = input ? input.value.trim() : '';
+    if (!rubrica) return alert("Escolha a rubrica antes de processar.");
+
+    const doc = state.uploadLoteQueue.find(d => d.id === documentId);
+    if (!doc) return;
+
+    state.loading = true;
+    render();
+
+    try {
+        const { error } = await supabaseClient
+            .from('documents')
+            .update({ rubrica: rubrica, status: 'processing_ocr' })
+            .eq('id', documentId);
+        if (error) throw error;
+
+        dispararOcr(documentId, doc.file_path);
+
+        showToast(`"${doc.name}" enviado para processamento.`, 'success');
+        await fetchUploadLoteQueue();
+    } catch (err) {
+        showToast("Erro ao processar: " + err.message, 'error');
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
+
+window.handleProcessarTodosLote = async function () {
+    const itensComRubrica = state.uploadLoteQueue
+        .map(doc => {
+            const input = document.getElementById(`lote-rubrica-${doc.id}`);
+            const rubrica = input ? input.value.trim() : '';
+            return { doc, rubrica };
+        })
+        .filter(x => x.rubrica);
+
+    if (itensComRubrica.length === 0) {
+        return alert("Preencha a rubrica em pelo menos um arquivo.");
+    }
+    if (!confirm(`Processar ${itensComRubrica.length} documento(s)?`)) return;
+
+    state.loading = true;
+    render();
+
+    const resultados = await Promise.allSettled(
+        itensComRubrica.map(async ({ doc, rubrica }) => {
+            const { error } = await supabaseClient
+                .from('documents')
+                .update({ rubrica: rubrica, status: 'processing_ocr' })
+                .eq('id', doc.id);
+            if (error) throw error;
+            dispararOcr(doc.id, doc.file_path);
+        })
+    );
+
+    const sucessos = resultados.filter(r => r.status === 'fulfilled').length;
+    const falhas = resultados.length - sucessos;
+    if (sucessos > 0) showToast(`${sucessos} documento(s) enviados para processamento.`, 'success');
+    if (falhas > 0) showToast(`${falhas} falharam.`, 'error');
+
+    await fetchUploadLoteQueue();
+    state.loading = false;
+    render();
+};
+
+window.handleExcluirLoteItem = async function (documentId, filePath) {
+    if (!confirm("Excluir este arquivo da fila? Esta ação não pode ser desfeita.")) return;
+
+    state.loading = true;
+    render();
+
+    try {
+        const { error: storageError } = await supabaseClient.storage
+            .from('documentos')
+            .remove([filePath]);
+        if (storageError && storageError.message !== 'Object not found') throw storageError;
+
+        const { error: dbError } = await supabaseClient
+            .from('documents')
+            .delete()
+            .eq('id', documentId);
+        if (dbError) throw dbError;
+
+        showToast("Arquivo removido da fila.", 'success');
+        await fetchUploadLoteQueue();
+    } catch (err) {
+        showToast("Erro ao excluir: " + err.message, 'error');
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
+
 window.handleEnviarSalic = async function (documentId) {
     if (!supabaseClient || !state.user) return;
 
     state.loading = true;
-    state.isSalicRunning = true;
     render();
 
     try {
@@ -3283,7 +3742,6 @@ window.handleEnviarSalic = async function (documentId) {
         setTimeout(() => fetchDocumentDetails(documentId, true), 3000);
 
     } catch (err) {
-        state.isSalicRunning = false;
         showToast("Erro ao processar envio: " + err.message, 'error');
     } finally {
         state.loading = false;
@@ -3358,7 +3816,6 @@ window.handleVincularDocumento = async function (parentDocumentId, file, tipo, l
         }
 
         alert(`${tipo.charAt(0).toUpperCase() + tipo.slice(1)} enviado com sucesso! O processamento da IA foi iniciado.`);
-        state.uploadConcluidoComprovante = true;
 
         // Recarrega os detalhes para mostrar o status atualizado
         await fetchDocumentDetails(parentDocumentId);
@@ -3490,6 +3947,9 @@ function render() {
             break;
         case 'upload':
             content = UploadView();
+            break;
+        case 'upload_lote':
+            content = UploadLoteView();
             break;
         case 'orcamento':
             content = OrcamentoView();
@@ -3640,7 +4100,6 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
     render();
 
     try {
-        // Modo substituicao: reseta o documento para reprocessar a conciliacao com o novo extrato
         if (isReplace) {
             const { error: resetError } = await supabaseClient
                 .from('documents')
@@ -3891,7 +4350,12 @@ async function init() {
                 state.currentView = 'solicitante_dashboard';
                 await fetchSolicitanteDashboard();
             } else {
-                state.currentView = 'dashboard';
+                const hash = window.location.hash.replace('#', '');
+                if (!hash || hash === 'login' || hash === 'register') {
+                    window.location.href = 'module-selector.html';
+                    return;
+                }
+                state.currentView = hash || 'dashboard';
                 await fetchProjects();
                 await fetchDocuments();
             }
