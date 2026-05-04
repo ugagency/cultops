@@ -241,10 +241,6 @@ const Sidebar = () => `
                 <p style="font-size: 11px; color: var(--text-secondary);">Gestor</p>
             </div>
         </div>
-        <a class="nav-item" href="module-selector.html" style="color: var(--text-secondary); margin-bottom: 0.25rem;">
-            <i data-lucide="arrow-left-right"></i>
-            <span>Trocar Módulo</span>
-        </a>
         <a class="nav-item" onclick="window.handleLogout()" style="color: var(--error);">
             <i data-lucide="log-out"></i>
             <span>Sair</span>
@@ -268,10 +264,6 @@ const SolicitanteHeader = () => `
             <i data-lucide="user-circle"></i>
             <span>${state.user ? state.user.email.split('@')[0] : 'Solicitante'}</span>
         </div>
-        <a href="module-selector.html" class="btn btn-ghost" style="color: var(--text-secondary); border: 1px solid var(--border-light);">
-            <i data-lucide="arrow-left-right"></i>
-            Trocar Módulo
-        </a>
         <button class="btn btn-ghost" onclick="window.handleLogout()">
             <i data-lucide="log-out"></i>
             Sair
@@ -1908,7 +1900,7 @@ window.handleLogin = async function () {
 
         state.user = data.user;
         state.userStatus = 'gestor';
-        window.location.href = 'module-selector.html';
+        window.navigate('dashboard');
     } catch (error) {
         alert("Erro no login: " + error.message);
     } finally {
@@ -1991,7 +1983,7 @@ window.handleRegister = async function () {
         if (data.user && data.session) {
             state.user = data.user;
             alert("Conta criada com sucesso!");
-            window.location.href = 'module-selector.html';
+            window.navigate('dashboard');
         } else {
             alert("Conta criada! Verifique seu e-mail para confirmar o cadastro.");
             window.navigate('login');
@@ -4351,11 +4343,7 @@ async function init() {
                 await fetchSolicitanteDashboard();
             } else {
                 const hash = window.location.hash.replace('#', '');
-                if (!hash || hash === 'login' || hash === 'register') {
-                    window.location.href = 'module-selector.html';
-                    return;
-                }
-                state.currentView = hash || 'dashboard';
+                state.currentView = (!hash || hash === 'login' || hash === 'register') ? 'dashboard' : hash;
                 await fetchProjects();
                 await fetchDocuments();
             }
