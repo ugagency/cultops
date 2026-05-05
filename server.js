@@ -3,14 +3,17 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
+const ws = require('ws');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Configuração Supabase (Backend usa Service Role para bypassar RLS e descriptografar)
+// Injeta 'ws' como transport para suportar Node < 22 (sem WebSocket nativo)
 const supabase = createClient(
     process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY // Use a chave service_role para ler credenciais descriptografadas
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+    { realtime: { transport: ws } }
 );
 
 app.use(cors());
