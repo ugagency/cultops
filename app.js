@@ -695,7 +695,7 @@ const SolicitanteDashboardView = () => `
 
 const DashboardView = () => {
     const totalAnalisadas = state.documents.length;
-    const pendentes = state.documents.filter(d => ['uploaded', 'processing_ocr', 'validating', 'pendente'].includes(d.status)).length;
+    const pendentes = state.documents.filter(d => ['uploaded', 'processing_ocr', 'validating', 'aguardando_conformidade', 'aguardando_comprovante', 'aguardando_conciliacao_bancaria', 'aguardando_d3', 'liberado_rpa_airtop'].includes(d.status)).length;
     const erros = state.documents.filter(d => ['erro_rpa', 'bloqueado_conformidade', 'revisao_manual', 'divergencia_valor', 'divergencia_beneficiario'].includes(d.status)).length;
 
     // Calcular valor aprovado (se disponível no state ou se precisarmos calcular de despesas)
@@ -730,7 +730,7 @@ ${Sidebar()}
             <div class="metric-value">${totalAnalisadas}</div>
         </div>
         <div class="card metric-card">
-            <p class="metric-label">Pendentes de revisão</p>
+            <p class="metric-label">Em processo</p>
             <div class="metric-value" style="color: var(--warning);">${pendentes}</div>
         </div>
         <div class="card metric-card">
