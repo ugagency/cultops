@@ -696,7 +696,7 @@ const SolicitanteDashboardView = () => `
 const DashboardView = () => {
     const totalAnalisadas = state.documents.length;
     const pendentes = state.documents.filter(d => ['uploaded', 'processing_ocr', 'validating', 'pendente'].includes(d.status)).length;
-    const erros = state.documents.filter(d => ['erro', 'erro_rpa'].includes(d.status)).length;
+    const erros = state.documents.filter(d => ['erro_rpa', 'bloqueado_conformidade', 'revisao_manual', 'divergencia_valor', 'divergencia_beneficiario'].includes(d.status)).length;
 
     // Calcular valor aprovado (se disponível no state ou se precisarmos calcular de despesas)
     // Para simplificar agora, vamos mostrar o número de notas validadas se o valor não estiver fácil
@@ -738,7 +738,7 @@ ${Sidebar()}
             <div class="metric-value" style="color: var(--success);">${aprovadas}</div>
         </div>
         <div class="card metric-card">
-            <p class="metric-label">Erros encontrados</p>
+            <p class="metric-label">Divergências</p>
             <div class="metric-value" style="color: var(--error);">${erros}</div>
         </div>
     </div>
