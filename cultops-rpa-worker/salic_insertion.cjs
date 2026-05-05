@@ -232,50 +232,141 @@ async function executarInsercaoSalic(config) {
 
         // --- FLUXO DE INSERCAO ---
         console.log(`[SALIC] Localizando a rubrica: ${rubricaNome}`);
-        const linkComprovacao = await targetPage.evaluate((nome, valorAprovado, valorNota) => {
+        const resultadoMatch = await targetPage.evaluate((nome, valorAprovado, valorNota) => {
+            // Normalizacao agressiva: remove prefixo numerico, acentos, mantem so alfanumerico+espaco
+            const norm = (s) => String(s || '')
+                .replace(/^\d+\s*-\s*/, '')
+                .normalize('NFD').replace(/[̀-ͯ]/g, '')
+                .replace(/[^a-zA-Z0-9 ]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .toLowerCase();
+
+            const tokensDe = (s) => norm(s).split(' ').filter(t => t.length >= 3);
+
+            // Coeficiente de Dice baseado em bigramas (similaridade 0..1)
+            const dice = (a, b) => {
+                if (!a || !b) return 0;
+                if (a === b) return 1;
+                const bigramas = (s) => {
+                    const out = new Map();
+                    for (let i = 0; i < s.length - 1; i++) {
+                        const bg = s.slice(i, i + 2);
+                        out.set(bg, (out.get(bg) || 0) + 1);
+                    }
+                    return out;
+                };
+                const ba = bigramas(a), bb = bigramas(b);
+                let inter = 0, totalA = 0, totalB = 0;
+                ba.forEach(v => totalA += v);
+                bb.forEach(v => totalB += v);
+                ba.forEach((v, k) => { if (bb.has(k)) inter += Math.min(v, bb.get(k)); });
+                if (totalA + totalB === 0) return 0;
+                return (2 * inter) / (totalA + totalB);
+            };
+
             const rows = Array.from(document.querySelectorAll('table.bordered tbody tr'));
+            const nomeNorm = norm(nome);
+            const tokensProcurados = tokensDe(nome);
 
-            // Limpa o nome (ex: "147 - Passagens Aereas (...)" -> "passagens aereas")
-            const nomeLimpo = nome.replace(/^\d+\s*-\s*/, '').replace(/\(.*\)/, '').trim().toLowerCase();
-
-            let fallbackPorSaldo = null;
-
+            // Coleta candidatos com botao de comprovar
+            const candidatos = [];
             for (const row of rows) {
                 const colunas = row.querySelectorAll('td');
-                if (colunas.length >= 5) {
-                    const nomeTabela = colunas[0].innerText.toLowerCase();
+                if (colunas.length < 5) continue;
+                const btn = row.querySelector('a[title="Comprovar item"]');
+                if (!btn) continue;
+                candidatos.push({
+                    btn,
+                    colunas,
+                    nomeOriginal: colunas[0].innerText,
+                    nomeNorm: norm(colunas[0].innerText),
+                });
+            }
 
-                    if (nomeTabela.includes(nomeLimpo)) {
-                        const btn = row.querySelector('a[title="Comprovar item"]');
-                        if (!btn) continue;
+            // Match por valor aprovado tem prioridade absoluta (so entre rubricas com nome compativel)
+            const nomeCompativel = (cNorm) => {
+                if (cNorm === nomeNorm) return true;
+                if (cNorm.includes(nomeNorm) || nomeNorm.includes(cNorm)) return true;
+                if (tokensProcurados.length > 0 && tokensProcurados.every(t => cNorm.includes(t))) return true;
+                return false;
+            };
 
-                        // PRIORIDADE 1: Match exato pelo Valor Aprovado (Coluna 1) com o valor do DB
-                        if (valorAprovado) {
-                            const strAprovado = colunas[1].innerText.replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
-                            if (Math.abs(parseFloat(strAprovado) - parseFloat(valorAprovado)) < 0.01) {
-                                return btn.href; // Match perfeito, retorna imediatamente
-                            }
-                        }
-
-                        // FALLBACK: Guarda a primeira rubrica com saldo suficiente (Coluna 3 >= valor da nota)
-                        if (!fallbackPorSaldo) {
-                            const strSaldo = colunas[3].innerText.replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
-                            if (parseFloat(strSaldo) >= parseFloat(valorNota)) {
-                                fallbackPorSaldo = btn.href;
-                            }
-                        }
+            if (valorAprovado) {
+                for (const c of candidatos) {
+                    if (!nomeCompativel(c.nomeNorm)) continue;
+                    const strAprovado = c.colunas[1].innerText.replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
+                    if (Math.abs(parseFloat(strAprovado) - parseFloat(valorAprovado)) < 0.01) {
+                        return { link: c.btn.href, matchType: 'valor_aprovado', score: 1, nomeTabela: c.nomeOriginal };
                     }
                 }
             }
-            return fallbackPorSaldo; // Retorna o fallback se nao encontrou match exato
+
+            // Estrategia 1: match exato normalizado
+            for (const c of candidatos) {
+                if (c.nomeNorm === nomeNorm) {
+                    return { link: c.btn.href, matchType: 'exato_normalizado', score: 1, nomeTabela: c.nomeOriginal };
+                }
+            }
+
+            // Estrategia 2: substring normalizada (resolve o caso "(a)" e similares)
+            for (const c of candidatos) {
+                if (c.nomeNorm.includes(nomeNorm) || nomeNorm.includes(c.nomeNorm)) {
+                    return { link: c.btn.href, matchType: 'substring_normalizada', score: 0.95, nomeTabela: c.nomeOriginal };
+                }
+            }
+
+            // Estrategia 3: todos os tokens fortes presentes
+            if (tokensProcurados.length > 0) {
+                for (const c of candidatos) {
+                    if (tokensProcurados.every(t => c.nomeNorm.includes(t))) {
+                        return { link: c.btn.href, matchType: 'tokens', score: 0.9, nomeTabela: c.nomeOriginal };
+                    }
+                }
+            }
+
+            // Estrategia 4: similaridade fuzzy (Dice) com limiar 0.85
+            let melhor = { score: 0 };
+            for (const c of candidatos) {
+                const s = dice(nomeNorm, c.nomeNorm);
+                if (s > melhor.score) melhor = { link: c.btn.href, matchType: 'fuzzy', score: s, nomeTabela: c.nomeOriginal };
+            }
+            if (melhor.score >= 0.85) return melhor;
+
+            // Fallback final: primeira rubrica com saldo suficiente (mantem comportamento antigo)
+            for (const c of candidatos) {
+                const strSaldo = c.colunas[3].innerText.replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
+                if (parseFloat(strSaldo) >= parseFloat(valorNota)) {
+                    return { link: c.btn.href, matchType: 'saldo_suficiente', score: 0, nomeTabela: c.nomeOriginal };
+                }
+            }
+
+            // Nada deu match: retorna lista de candidatos para diagnostico
+            return { link: null, candidatos: candidatos.map(c => c.nomeOriginal), melhorScore: melhor.score, melhorNome: melhor.nomeTabela };
         }, rubricaNome, config.rubricaValorAprovado, documento.valor);
 
-        if (!linkComprovacao) {
+        if (!resultadoMatch || !resultadoMatch.link) {
+            console.log('[SALIC] Rubrica nao localizada automaticamente. Sugestao: validar manualmente no painel do SALIC.');
+            if (resultadoMatch && resultadoMatch.candidatos) {
+                console.log(`[SALIC] Rubricas disponiveis na tela (${resultadoMatch.candidatos.length}):`);
+                resultadoMatch.candidatos.forEach((n, i) => console.log(`  [${i + 1}] ${n}`));
+                if (resultadoMatch.melhorNome) {
+                    console.log(`[SALIC] Mais proxima: "${resultadoMatch.melhorNome}" (score ${resultadoMatch.melhorScore.toFixed(2)}) - abaixo do limiar de 0.85.`);
+                }
+            }
             throw new Error('Rubrica nao encontrada ou sem link de comprovacao ("sinal de dinheiro")');
         }
 
+        if (resultadoMatch.matchType === 'fuzzy') {
+            console.log(`[SALIC] Match fuzzy aceito: procurado "${rubricaNome}" ~ tabela "${resultadoMatch.nomeTabela}" (score ${resultadoMatch.score.toFixed(2)})`);
+        } else if (resultadoMatch.matchType === 'saldo_suficiente') {
+            console.log(`[SALIC] Match por saldo suficiente: "${resultadoMatch.nomeTabela}" (sem match de nome - validar manualmente se necessario).`);
+        } else {
+            console.log(`[SALIC] Rubrica casada via ${resultadoMatch.matchType}: "${resultadoMatch.nomeTabela}"`);
+        }
+
         console.log(`[SALIC] Sinal de dinheiro encontrado! Redirecionando...`);
-        await targetPage.goto(linkComprovacao, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await targetPage.goto(resultadoMatch.link, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
         console.log('[SALIC] Tela da rubrica carregada! Procurando botao flutuante (+)...');
         await wait(2000); // Aguarda renderizacao do Materialize
