@@ -997,9 +997,9 @@ ${Sidebar()}
 
             <datalist id="rubricas-lote-list">
                 ${rubricas.map(r => {
-                    const valor = `${r.rubrica_id ? r.rubrica_id + ' - ' : ''}${r.nome}`;
-                    return `<option value="${valor}">`;
-                }).join('')}
+        const valor = `${r.rubrica_id ? r.rubrica_id + ' - ' : ''}${r.nome}`;
+        return `<option value="${valor}">`;
+    }).join('')}
             </datalist>
 
             <div class="card">
@@ -1127,7 +1127,7 @@ ${Sidebar()}
         { id: 'uploaded', label: 'Enviado', icon: 'upload-cloud' },
         { id: 'processing_ocr', label: 'OCR', icon: 'cpu' },
         { id: 'aguardando_conformidade', label: 'Auditoria', icon: 'shield' },
-        { id: 'aguardando_comprovante', label: 'Documentação', icon: 'file-text' },
+        { id: 'aguardando_comprovante', label: 'Preparação de Envio', icon: 'file-text' },
         { id: 'aguardando_conciliacao_bancaria', label: 'Conciliação', icon: 'banknote' },
         { id: 'enviado_salic', label: 'SALIC', icon: 'check-circle' }
     ];
@@ -1633,20 +1633,20 @@ window.updateSolicitanteUploadButtons = function () {
     btnArea.style.display = 'flex';
 };
 
-window.openUnifiedUploadModal = function() {
+window.openUnifiedUploadModal = function () {
     const projectId = document.getElementById('f-upload-project').value;
     if (!projectId) return alert("Selecione um projeto primeiro!");
-    
+
     // Reset modal state
     document.getElementById('unified-fields-nf').style.display = 'none';
     document.getElementById('unified-fields-m2').style.display = 'none';
     document.getElementById('btn-submit-unified').style.display = 'none';
-    
+
     document.getElementById('label-tipo-nf').style.borderColor = 'var(--border-light)';
     document.getElementById('label-tipo-nf').style.background = '#fff';
     document.getElementById('label-tipo-m2').style.borderColor = 'var(--border-light)';
     document.getElementById('label-tipo-m2').style.background = '#fff';
-    
+
     document.getElementById('f-upload-nf').value = '';
     document.getElementById('m2-file-upload').value = '';
     document.getElementById('m2-tipo-evidencia').value = '';
@@ -1655,20 +1655,20 @@ window.openUnifiedUploadModal = function() {
     document.getElementById('modal-upload-unified').style.display = 'flex';
 };
 
-window.selectUnifiedType = function(type) {
+window.selectUnifiedType = function (type) {
     document.getElementById('label-tipo-nf').style.borderColor = type === 'nf' ? '#f59e0b' : 'var(--border-light)';
     document.getElementById('label-tipo-nf').style.background = type === 'nf' ? '#fffbeb' : '#fff';
-    
+
     document.getElementById('label-tipo-m2').style.borderColor = type === 'm2' ? '#4f46e5' : 'var(--border-light)';
     document.getElementById('label-tipo-m2').style.background = type === 'm2' ? '#eef2ff' : '#fff';
 
     document.getElementById('unified-fields-nf').style.display = type === 'nf' ? 'block' : 'none';
     document.getElementById('unified-fields-m2').style.display = type === 'm2' ? 'block' : 'none';
-    
+
     const btn = document.getElementById('btn-submit-unified');
     btn.style.display = 'flex';
     btn.setAttribute('data-type', type);
-    
+
     if (type === 'nf') {
         btn.style.background = 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)';
     } else {
@@ -1676,14 +1676,14 @@ window.selectUnifiedType = function(type) {
     }
 };
 
-window.submitUnifiedFile = async function() {
+window.submitUnifiedFile = async function () {
     const type = document.getElementById('btn-submit-unified').getAttribute('data-type');
-    
+
     // CRÍTICO: Captura o projectId ANTES de fechar o modal ou chamar render(),
     // pois o render() reconstrói o DOM e o select perde o valor selecionado.
     const projectId = document.getElementById('f-upload-project').value;
     if (!projectId) return alert("Selecione um projeto primeiro!");
-    
+
     if (type === 'nf') {
         const fileInput = document.getElementById('f-upload-nf');
         if (!fileInput.files || fileInput.files.length === 0) return alert("Selecione o arquivo da Nota Fiscal.");
@@ -1692,23 +1692,23 @@ window.submitUnifiedFile = async function() {
     } else if (type === 'm2') {
         const fileInput = document.getElementById('m2-file-upload');
         if (!fileInput.files || fileInput.files.length === 0) return alert("Selecione o arquivo de comprovação.");
-        
+
         const tipoSelect = document.getElementById('m2-tipo-evidencia');
         if (!tipoSelect.value) return alert("Selecione o tipo de evidência.");
-        
+
         document.getElementById('modal-upload-unified').style.display = 'none';
         await submitM2Evidencia(fileInput.files[0], tipoSelect.value, document.getElementById('m2-descricao').value, projectId);
     }
 };
 
-window.submitM2Evidencia = async function(file, tipo, descricao, projectId) {
+window.submitM2Evidencia = async function (file, tipo, descricao, projectId) {
     state.loading = true;
     render();
 
     try {
         // projectId é passado como parâmetro por submitUnifiedFile (capturado antes do render)
         const selectedProject = state.projects.find(p => (p.project_id === projectId) || (p.id === projectId));
-        
+
         if (!projectId || !selectedProject) {
             console.error("ERRO: Projeto não encontrado no estado.", {
                 projetoProcurado: projectId,
@@ -1770,7 +1770,7 @@ window.handleSolicitanteUpload = async function (file, projectId) {
 
     try {
         const selectedProject = state.projects.find(p => (p.project_id === projectId) || (p.id === projectId));
-        
+
         const fileExt = file.name.split('.').pop();
         const fileName = `${Math.random()}.${fileExt} `;
         const filePath = `${state.user.id}/${fileName}`;
@@ -1840,11 +1840,11 @@ async function fetchSolicitanteDashboard() {
             const { data: orgUsers } = await supabaseClient.from('organization_users').select('user_id, organization_id').in('user_id', gestorIds);
             console.log("DEBUG: Projetos (projData):", projData);
             console.log("DEBUG: orgUsers:", orgUsers);
-            
+
             if (orgUsers && orgUsers.length > 0) {
                 const orgIds = [...new Set(orgUsers.map(ou => ou.organization_id))];
                 const { data: orgs } = await supabaseClient.from('organizations').select('id, modulos').in('id', orgIds);
-                
+
                 // Mapeia gestor -> modulos
                 const gestorOrgs = {};
                 orgUsers.forEach(ou => {
@@ -1871,7 +1871,7 @@ async function fetchSolicitanteDashboard() {
             .order('created_at', { ascending: false });
 
         if (docError) console.error('Erro ao buscar documentos do fornecedor:', docError);
-        
+
         // Busca historico de evidencias (Módulo 2)
         const { data: evData, error: evError } = await supabaseClient
             .from('physical_evidences')
@@ -1939,14 +1939,14 @@ window.handleRegister = async function () {
     const password = document.getElementById('reg-password').value;
     const confirmPassword = document.getElementById('reg-password-confirm').value;
     const orgName = document.getElementById('reg-org-name').value;
-    
+
     const checkboxes = document.querySelectorAll('input[name="reg-modules"]:checked');
     const selectedModules = Array.from(checkboxes).map(cb => cb.value);
 
     if (password !== confirmPassword) {
         return alert("As senhas não coincidem!");
     }
-    
+
     if (!orgName) {
         return alert("O nome da organização é obrigatório!");
     }
@@ -1969,25 +1969,25 @@ window.handleRegister = async function () {
             }
         });
         if (error) throw error;
-        
+
         if (data.user) {
             // 1. Criar a Organização no BD
             const { data: orgData, error: orgError } = await supabaseClient
                 .from('organizations')
-                .insert([{ 
-                    nome: orgName, 
-                    slug: orgName.toLowerCase().replace(/[^a-z0-9]+/g, '-'), 
-                    modulos: selectedModules, 
-                    ativo: true 
+                .insert([{
+                    nome: orgName,
+                    slug: orgName.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+                    modulos: selectedModules,
+                    ativo: true
                 }])
                 .select()
                 .single();
-                
+
             if (orgError) {
                 console.error("Erro ao criar organização:", orgError);
                 throw new Error("Erro ao criar estrutura da organização no banco.");
             }
-            
+
             // 2. Vincular usuário à organização
             const { error: linkError } = await supabaseClient
                 .from('organization_users')
@@ -1996,7 +1996,7 @@ window.handleRegister = async function () {
                     user_id: data.user.id,
                     role: 'admin'
                 }]);
-                
+
             if (linkError) {
                 console.error("Erro ao vincular permissões:", linkError);
                 throw new Error("Erro ao vincular sua conta à organização.");
