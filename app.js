@@ -113,7 +113,8 @@ const state = {
     capturedProject: null,
     showCapturedProjectModal: false,
     isUploadingComprovante: false,
-    rubrica_versions: []
+    rubrica_versions: [],
+    equipe: []
 };
 
 const STATUS_MAP = {
@@ -228,6 +229,12 @@ const Sidebar = () => `
             <i data-lucide="settings"></i>
             <span>Configurações</span>
         </a>
+        ${(state.user?.app_metadata?.role === 'gestor' || state.user?.user_metadata?.role === 'gestor') ? `
+        <a class="nav-item ${state.currentView === 'equipe' ? 'active' : ''}" onclick="window.navigate('equipe')">
+            <i data-lucide="user-cog"></i>
+            <span>Equipe</span>
+        </a>
+        ` : ''}
     </nav>
 
     <div class="sidebar-footer">
@@ -861,8 +868,8 @@ ${Sidebar()}
                         <th>PRONAC</th>
                         <th>Projeto / Proponente</th>
                         <th>UF</th>
-                        <th>Vr. Arrecadado</th>
-                        <th>Data Criação</th>
+                        <th>Valor Captado</th>
+                        <th>Data importação Prestaí</th>
                         <th style="text-align: right;">Ações</th>
                     </tr>
                 </thead>
@@ -1899,6 +1906,30 @@ async function fetchSolicitanteDashboard() {
 }
 
 
+// --- Sync de org_id para app_metadata (S0) ---
+async function syncOrgMetadata() {
+    try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session) return;
+        if (session.user?.app_metadata?.org_id) {
+            // Já sincronizado; apenas garante state.user atualizado
+            state.user = session.user;
+            return;
+        }
+
+        await fetch('/api/auth/sync-org-metadata', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${session.access_token}` }
+        });
+
+        await supabaseClient.auth.refreshSession();
+        const { data: { session: refreshed } } = await supabaseClient.auth.getSession();
+        if (refreshed) state.user = refreshed.user;
+    } catch (e) {
+        console.warn('sync-org-metadata:', e);
+    }
+}
+
 window.handleLogin = async function () {
     if (!supabaseClient) return alert("Erro ao carregar o Supabase Client.");
 
@@ -1923,6 +1954,7 @@ window.handleLogin = async function () {
 
         state.user = data.user;
         state.userStatus = 'gestor';
+        await syncOrgMetadata();
         window.navigate('dashboard');
     } catch (error) {
         alert("Erro no login: " + error.message);
@@ -2001,6 +2033,9 @@ window.handleRegister = async function () {
                 console.error("Erro ao vincular permissões:", linkError);
                 throw new Error("Erro ao vincular sua conta à organização.");
             }
+
+            // S0: popula app_metadata.org_id agora que a org existe
+            await syncOrgMetadata();
         }
 
         if (data.user && data.session) {
@@ -2638,6 +2673,8 @@ window.navigate = async function (view, id = null) {
         await fetchProjects();
     } else if (view === 'configuracoes') {
         await fetchSettings();
+    } else if (view === 'equipe') {
+        await fetchEquipe();
     }
 
     render();
@@ -3321,6 +3358,234 @@ ${Sidebar()}
 `;
 
 
+// --- Equipe (S1-B) ---
+const ROLE_LABELS = { gestor: 'Gestor', analista: 'Analista', fornecedor: 'Fornecedor' };
+
+const EquipeView = () => `
+${Sidebar()}
+<main class="main-content view-content">
+    <header class="content-header">
+        <h1>Equipe</h1>
+        <p class="page-subtitle">Gerencie os perfis de acesso dos usuários do sistema.</p>
+    </header>
+
+    <div class="card" style="max-width: 960px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 1rem;">
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <i data-lucide="users"></i>
+                <h3 class="h2">Usuários cadastrados</h3>
+            </div>
+            <button class="btn btn-primary" onclick="window.openCriarAnalistaModal()">
+                <i data-lucide="user-plus" style="width: 14px;"></i>
+                Adicionar Analista
+            </button>
+        </div>
+
+        ${state.equipe.length === 0 ? `
+            <p class="text-sm" style="color: var(--text-muted);">Nenhum usuário encontrado.</p>
+        ` : `
+        <table class="data-table" style="width: 100%;">
+            <thead>
+                <tr>
+                    <th>E-mail</th>
+                    <th>Perfil atual</th>
+                    <th>Cadastro</th>
+                    <th style="text-align: right;">Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${state.equipe.map(u => `
+                    <tr>
+                        <td>${u.email || '---'}</td>
+                        <td>
+                            <span class="status-badge ${u.role === 'gestor' ? 'status-success' : 'status-pending'}">
+                                ${ROLE_LABELS[u.role] || (u.role || '—')}
+                            </span>
+                        </td>
+                        <td>${u.created_at ? new Date(u.created_at).toLocaleDateString('pt-BR') : '---'}</td>
+                        <td style="text-align: right;">
+                            <button class="btn btn-secondary" onclick="window.openEquipeRoleModal('${u.id}', '${u.role || ''}', '${(u.email || '').replace(/'/g, "\\'")}')">
+                                <i data-lucide="shield" style="width: 14px;"></i>
+                                Alterar Perfil
+                            </button>
+                        </td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+        `}
+    </div>
+
+    <!-- Modal: Alterar Perfil -->
+    <div id="modal-equipe-role" class="modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+        <div class="card" style="width: 100%; max-width: 480px; margin: 1rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+                <h3 class="h2">Alterar Perfil</h3>
+                <button class="btn btn-ghost" onclick="document.getElementById('modal-equipe-role').style.display='none'">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+
+            <p class="text-sm mb-4">Usuário: <strong id="equipe-modal-email">—</strong></p>
+            <input type="hidden" id="equipe-modal-target" />
+
+            <div class="form-group mb-4">
+                <label for="equipe-modal-role">Perfil</label>
+                <select id="equipe-modal-role">
+                    <option value="analista">Analista</option>
+                    <option value="gestor">Gestor</option>
+                    <option value="fornecedor">Fornecedor</option>
+                </select>
+            </div>
+
+            <div style="padding: 0.75rem; background: var(--bg-sidebar); border-radius: var(--radius-sm); margin-bottom: 1.5rem; display: flex; gap: 0.5rem; align-items: flex-start;">
+                <i data-lucide="info" style="width: 16px; flex-shrink: 0; margin-top: 2px;"></i>
+                <p class="text-xs" style="color: var(--text-secondary); line-height: 1.5;">
+                    O usuário precisa fazer logout e login novamente para que o novo perfil tenha efeito no JWT da sessão.
+                </p>
+            </div>
+
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                <button class="btn btn-secondary" onclick="document.getElementById('modal-equipe-role').style.display='none'">Cancelar</button>
+                <button class="btn btn-primary" onclick="window.handleSetRole()">Confirmar alteração</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Adicionar Analista -->
+    <div id="modal-criar-analista" class="modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+        <div class="card" style="width: 100%; max-width: 480px; margin: 1rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+                <h3 class="h2">Adicionar Analista</h3>
+                <button class="btn btn-ghost" onclick="document.getElementById('modal-criar-analista').style.display='none'">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+
+            <form onsubmit="event.preventDefault(); window.handleCriarAnalista();">
+                <div class="form-group mb-4">
+                    <label for="criar-analista-nome">Nome (opcional)</label>
+                    <input type="text" id="criar-analista-nome" placeholder="Maria Silva" />
+                </div>
+
+                <div class="form-group mb-4">
+                    <label for="criar-analista-email">E-mail</label>
+                    <input type="email" id="criar-analista-email" placeholder="analista@empresa.com" required />
+                </div>
+
+                <div class="form-group mb-4">
+                    <label for="criar-analista-senha">Senha provisória (mín. 6 caracteres)</label>
+                    <input type="text" id="criar-analista-senha" placeholder="••••••" minlength="6" required />
+                </div>
+
+                <div style="padding: 0.75rem; background: var(--bg-sidebar); border-radius: var(--radius-sm); margin-bottom: 1.5rem; display: flex; gap: 0.5rem; align-items: flex-start;">
+                    <i data-lucide="info" style="width: 16px; flex-shrink: 0; margin-top: 2px;"></i>
+                    <p class="text-xs" style="color: var(--text-secondary); line-height: 1.5;">
+                        O analista será criado já vinculado à sua organização com perfil <strong>Analista</strong>. Compartilhe a senha provisória de forma segura — o analista poderá trocá-la depois.
+                    </p>
+                </div>
+
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-criar-analista').style.display='none'">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" id="criar-analista-submit">Criar Analista</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</main>
+`;
+
+async function fetchEquipe() {
+    state.equipe = [];
+    try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session) throw new Error('Sessão não encontrada.');
+        const resp = await fetch('/api/gestor/usuarios', {
+            headers: { Authorization: `Bearer ${session.access_token}` }
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json.error || 'Erro ao listar usuários.');
+        state.equipe = json.users || [];
+    } catch (err) {
+        console.error('fetchEquipe:', err);
+        window.showToast(err.message, 'error');
+    }
+}
+
+window.openEquipeRoleModal = function (userId, currentRole, email) {
+    document.getElementById('equipe-modal-target').value = userId;
+    document.getElementById('equipe-modal-role').value = currentRole || 'analista';
+    document.getElementById('equipe-modal-email').textContent = email || '—';
+    document.getElementById('modal-equipe-role').style.display = 'flex';
+};
+
+window.handleSetRole = async function () {
+    const targetUserId = document.getElementById('equipe-modal-target').value;
+    const role = document.getElementById('equipe-modal-role').value;
+    if (!targetUserId || !role) return;
+    try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        const resp = await fetch('/api/gestor/set-role', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${session.access_token}`
+            },
+            body: JSON.stringify({ targetUserId, role })
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json.error || 'Falha ao alterar perfil.');
+        window.showToast('Perfil atualizado com sucesso.', 'success');
+        document.getElementById('modal-equipe-role').style.display = 'none';
+        await fetchEquipe();
+        render();
+    } catch (err) {
+        window.showToast(err.message, 'error');
+    }
+};
+
+window.openCriarAnalistaModal = function () {
+    document.getElementById('criar-analista-nome').value = '';
+    document.getElementById('criar-analista-email').value = '';
+    document.getElementById('criar-analista-senha').value = '';
+    document.getElementById('modal-criar-analista').style.display = 'flex';
+};
+
+window.handleCriarAnalista = async function () {
+    const nome = document.getElementById('criar-analista-nome').value.trim();
+    const email = document.getElementById('criar-analista-email').value.trim();
+    const password = document.getElementById('criar-analista-senha').value;
+    if (!email || !password) return;
+
+    const submitBtn = document.getElementById('criar-analista-submit');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Criando...';
+
+    try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        const resp = await fetch('/api/gestor/criar-analista', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${session.access_token}`
+            },
+            body: JSON.stringify({ email, password, nome: nome || null })
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json.error || 'Falha ao criar analista.');
+
+        window.showToast(`Analista ${email} criado com sucesso.`, 'success');
+        document.getElementById('modal-criar-analista').style.display = 'none';
+        await fetchEquipe();
+        render();
+    } catch (err) {
+        window.showToast(err.message, 'error');
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Criar Analista';
+    }
+};
+
 async function fetchSettings() {
     if (!supabaseClient || !state.user) return;
     try {
@@ -3989,6 +4254,9 @@ function render() {
             break;
         case 'admin_solicitantes':
             content = SolicitantesAdminView();
+            break;
+        case 'equipe':
+            content = EquipeView();
             break;
         case 'configuracoes':
             content = ConfiguracoesView();
