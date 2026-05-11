@@ -892,7 +892,15 @@ ${Sidebar()}
                                     <button class="btn btn-secondary" style="padding: 0.4rem;" title="Financeiro" onclick="state.filters.project = '${p.id}'; window.navigate('financeiro')">
                                         <i data-lucide="bar-chart-3" style="width: 16px;"></i>
                                     </button>
-                                    
+                                    ${(() => {
+        const role = state.user?.app_metadata?.role || state.user?.user_metadata?.role;
+        return (role === 'gestor' || role === 'analista') ? `
+                                    <button class="btn btn-secondary" style="padding: 0.4rem;" title="Baixar Laudo Excel" onclick="window.generateLaudoExcel('${p.id}')">
+                                        <i data-lucide="file-spreadsheet" style="width: 16px;"></i>
+                                    </button>
+                                    ` : '';
+    })()}
+
                                     ${state.user?.user_metadata?.role === 'admin' ? `
                                         <button class="btn btn-secondary" style="padding: 0.4rem; color: var(--error);" title="Excluir Projeto" onclick="window.handleDeleteProject('${p.id}', '${p.nome}')">
                                             <i data-lucide="trash-2" style="width: 16px;"></i>
@@ -1179,9 +1187,20 @@ ${Sidebar()}
                     <p class="page-subtitle">${doc.name}</p>
                 </div>
             </div>
-            <div class="badge ${(STATUS_MAP[doc.status] || {}).class || 'status-pending'}">
-                <span class="badge-dot"></span>
-                ${(STATUS_MAP[doc.status] || {}).label || doc.status}
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <div class="badge ${(STATUS_MAP[doc.status] || {}).class || 'status-pending'}">
+                    <span class="badge-dot"></span>
+                    ${(STATUS_MAP[doc.status] || {}).label || doc.status}
+                </div>
+                ${(() => {
+        const role = state.user?.app_metadata?.role || state.user?.user_metadata?.role;
+        return (role === 'gestor' || role === 'analista') ? `
+                <button class="btn btn-secondary" title="Baixar Laudo Excel desta NF" onclick="window.generateLaudoExcelDoc('${doc.id}')">
+                    <i data-lucide="file-spreadsheet" style="width: 16px;"></i>
+                    Baixar Laudo
+                </button>
+                ` : '';
+    })()}
             </div>
         </header>
 
@@ -3473,6 +3492,187 @@ window.handleCriarAnalista = async function () {
         submitBtn.textContent = 'Criar Analista';
     }
 };
+
+// --- Laudo de Conformidade Excel (S4) ---
+const LAUDO_DOC_COLUMNS = `
+    nome_emissor, cnpj_emissor, rubrica, tipo_documento,
+    numero_nf, data_emissao, valor_pago, data_pagamento,
+    autenticacao_bancaria, justification, just_erro,
+    status, json_extraido, created_at
+`;
+
+const LAUDO_COL_WIDTHS = [
+    { wch: 40 }, // Razão Social
+    { wch: 18 }, // CNPJ
+    { wch: 12 }, // Nº Rubrica
+    { wch: 30 }, // Item de Custo
+    { wch: 12 }, // CNAE
+    { wch: 18 }, // Tipo doc
+    { wch: 60 }, // Discriminação
+    { wch: 14 }, // Nº NF
+    { wch: 14 }, // Data emissão
+    { wch: 16 }, // Valor
+    { wch: 14 }, // Data pagamento
+    { wch: 36 }, // Nº extrato
+    { wch: 10 }, // IRRF
+    { wch: 10 }, // PCC
+    { wch: 12 }, // INSS
+    { wch: 10 }, // ISS
+    { wch: 20 }, // Status
+    { wch: 50 }, // Motivo técnico
+];
+
+function _laudoMapStatus(status) {
+    const apto = ['validated'];
+    const ressalva = ['aguardando_conformidade', 'aguardando_comprovante', 'revisao_manual', 'aguardando_conciliacao_bancaria'];
+    const naoApto = ['bloqueado_conformidade', 'divergencia_valor', 'divergencia_beneficiario', 'erro_rpa'];
+    if (apto.includes(status)) return 'Apto';
+    if (ressalva.includes(status)) return 'Apto com ressalva';
+    if (naoApto.includes(status)) return 'Não apto';
+    return '(em processamento)';
+}
+
+function _laudoFmtDate(d) {
+    if (!d) return '';
+    const dt = new Date(d + 'T00:00:00');
+    if (isNaN(dt)) return d;
+    return dt.toLocaleDateString('pt-BR');
+}
+
+function _laudoFmtValor(v) {
+    if (v == null) return '';
+    return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function _laudoBuildRow(d, rubricaMap) {
+    const rubricaKey = (d.rubrica || '').toLowerCase().trim();
+    const codigoRubrica = rubricaMap[rubricaKey] || '';
+    const ret = d.json_extraido?.retencoes || {};
+    return {
+        'RAZÃO SOCIAL (FORNECEDOR/PRESTADOR)': d.nome_emissor || '',
+        'CNPJ': d.cnpj_emissor || '',
+        'NUMERO DA RUBRICA - ORÇAMENTO': codigoRubrica,
+        'ITEM DE CUSTO (RUBRICA)': d.rubrica || '',
+        'CNAE': d.json_extraido?.cnae_prestador || '',
+        'DOCUMENTO FISCAL (TIPO)': d.tipo_documento || '',
+        'DISCRIMINAÇÃO DOS SERVIÇOS': d.justification || '',
+        'NUMERO DOCUMENTO FISCAL': d.numero_nf || '',
+        'DATA EMISSÃO DO DOCUMENTO FISCAL': _laudoFmtDate(d.data_emissao),
+        'VALOR PAGAMENTO': _laudoFmtValor(d.valor_pago),
+        'DATA PAGAMENTO': _laudoFmtDate(d.data_pagamento),
+        'Nº DOCUMENTO (NO EXTRATO)': d.autenticacao_bancaria || '',
+        'IRRF': ret.irrf || '',
+        'PCC': ret.pcc || '',
+        'INSS (E PATRONAL)': ret.inss || '',
+        'ISS': ret.iss || '',
+        'STATUS': _laudoMapStatus(d.status),
+        'MOTIVO TÉCNICO': d.just_erro || '',
+    };
+}
+
+async function _laudoFetchRubricaMap(projectId, orgId) {
+    const { data: rubricas } = await supabaseClient
+        .from('rubricas')
+        .select('codigo, nome')
+        .eq('project_id', projectId)
+        .eq('organization_id', orgId);
+    const rubricaMap = {};
+    (rubricas || []).forEach(r => {
+        if (r.nome) rubricaMap[r.nome.toLowerCase().trim()] = r.codigo || '';
+    });
+    return rubricaMap;
+}
+
+function _laudoWriteXlsx(rows, filename) {
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = LAUDO_COL_WIDTHS;
+    XLSX.utils.book_append_sheet(wb, ws, 'Conformidade');
+    XLSX.writeFile(wb, filename);
+}
+
+function _laudoSafeName(s) {
+    return String(s || '').replace(/[^a-z0-9]/gi, '_');
+}
+
+function _laudoTodayStr() {
+    return new Date().toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+async function generateLaudoExcel(projectId) {
+    try {
+        if (typeof XLSX === 'undefined') {
+            window.showToast('Biblioteca XLSX não carregada. Recarregue a página.', 'error');
+            return;
+        }
+        window.showToast('Gerando laudo, aguarde...', 'info');
+
+        const project = (state.projects || []).find(p => p.id === projectId);
+        const projectNome = project?.nome || projectId;
+        const orgId = state.user?.app_metadata?.org_id;
+
+        const { data: docs, error: errDocs } = await supabaseClient
+            .from('documents')
+            .select(LAUDO_DOC_COLUMNS)
+            .eq('project_id', projectId)
+            .eq('organization_id', orgId)
+            .order('created_at', { ascending: true });
+
+        if (errDocs) throw new Error(errDocs.message);
+        if (!docs || docs.length === 0) {
+            window.showToast('Nenhum documento encontrado para este projeto.', 'error');
+            return;
+        }
+
+        const rubricaMap = await _laudoFetchRubricaMap(projectId, orgId);
+        const rows = docs.map(d => _laudoBuildRow(d, rubricaMap));
+        const filename = `laudo_${_laudoSafeName(projectNome)}_${_laudoTodayStr()}.xlsx`;
+        _laudoWriteXlsx(rows, filename);
+
+        window.showToast('Laudo gerado com sucesso!', 'success');
+    } catch (err) {
+        console.error('[LAUDO]', err);
+        window.showToast('Erro ao gerar laudo: ' + err.message, 'error');
+    }
+}
+window.generateLaudoExcel = generateLaudoExcel;
+
+async function generateLaudoExcelDoc(documentId) {
+    try {
+        if (typeof XLSX === 'undefined') {
+            window.showToast('Biblioteca XLSX não carregada. Recarregue a página.', 'error');
+            return;
+        }
+        window.showToast('Gerando laudo, aguarde...', 'info');
+
+        const orgId = state.user?.app_metadata?.org_id;
+
+        const { data: doc, error: errDoc } = await supabaseClient
+            .from('documents')
+            .select(LAUDO_DOC_COLUMNS + ', project_id, numero_nf')
+            .eq('id', documentId)
+            .eq('organization_id', orgId)
+            .maybeSingle();
+
+        if (errDoc) throw new Error(errDoc.message);
+        if (!doc) {
+            window.showToast('Documento não encontrado.', 'error');
+            return;
+        }
+
+        const rubricaMap = await _laudoFetchRubricaMap(doc.project_id, orgId);
+        const rows = [_laudoBuildRow(doc, rubricaMap)];
+        const nfTag = doc.numero_nf ? _laudoSafeName(doc.numero_nf) : 'NF';
+        const filename = `laudo_${nfTag}_${_laudoTodayStr()}.xlsx`;
+        _laudoWriteXlsx(rows, filename);
+
+        window.showToast('Laudo gerado com sucesso!', 'success');
+    } catch (err) {
+        console.error('[LAUDO_DOC]', err);
+        window.showToast('Erro ao gerar laudo: ' + err.message, 'error');
+    }
+}
+window.generateLaudoExcelDoc = generateLaudoExcelDoc;
 
 async function fetchSettings() {
     if (!supabaseClient || !state.user) return;
