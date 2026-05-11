@@ -315,7 +315,6 @@ const LoginView = () => `
         </form>
         
         <div class="login-footer">
-            <p>Não tem uma conta? <a href="#" onclick="window.navigate('register')" style="color: var(--primary); font-weight: 600;">Crie uma agora</a></p>
             <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
                 <p style="margin-bottom: 0.5rem;">É um solicitante?</p>
                 <button class="btn btn-ghost" onclick="window.navigate('solicitante_login')" style="width: 100%; border: 1px solid #f59e0b; color: #d97706;">
@@ -4193,12 +4192,22 @@ ${Sidebar()}
 function render() {
     let content = '';
 
-    if (!state.user && !['login', 'register', 'solicitante_login', 'solicitante_register', 'forgot_password', 'update_password'].includes(state.currentView)) {
+    // Opção B: cadastro publico de gestor desabilitado.
+    // Redireciona para login, limpa o hash (evita loop no F5) e avisa.
+    if (state.currentView === 'register') {
+        state.currentView = 'login';
+        if (window.location.hash === '#register' || window.location.hash === '#/register') {
+            window.location.hash = 'login';
+        }
+        setTimeout(() => window.showToast('Cadastros restritos. Solicite acesso ao administrador.', 'info'), 0);
+    }
+
+    if (!state.user && !['login', 'solicitante_login', 'solicitante_register', 'forgot_password', 'update_password'].includes(state.currentView)) {
         state.currentView = state.isSolicitanteMode ? 'solicitante_login' : 'login';
     }
 
     // Segurança: Bloquear solicitante de acessar rotas de gestor
-    const isGestorView = !['login', 'register', 'solicitante_login', 'solicitante_register', 'solicitante_dashboard'].includes(state.currentView);
+    const isGestorView = !['login', 'solicitante_login', 'solicitante_register', 'solicitante_dashboard'].includes(state.currentView);
     if (state.user && state.user.user_metadata?.role === 'fornecedor' && isGestorView) {
         state.currentView = 'solicitante_dashboard';
     }
