@@ -100,7 +100,6 @@ const state = {
     },
     all_solicitantes: [],
     vinculos_solicitantes: [],
-    extratos: [],
     uploadLoteQueue: [],
     settings: {
         salic_user: '',
@@ -2203,110 +2202,6 @@ ${Sidebar()}
 `;
 };
 
-const ConciliacaoView = () => `
-${Sidebar()}
-<main class="main-content view-content">
-    <header class="content-header">
-        <div style="display: flex; justify-content: space-between; align-items: flex-end;">
-            <div>
-                <h1>Conciliação Bancária</h1>
-                <p class="page-subtitle">Cruze o extrato bancário com as despesas analisadas.</p>
-            </div>
-            <div style="min-width: 250px;">
-                <select onchange="window.navigate('conciliacao', this.value)">
-                    <option value="">Selecione o Projeto...</option>
-                    ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
-                </select>
-            </div>
-        </div>
-    </header>
-
-    ${!state.filters.project ? `
-        <div class="card" style="text-align: center; padding: 4rem;">
-            <div class="empty-state-icon" style="margin: 0 auto 1rem;"><i data-lucide="building-2"></i></div>
-            <p style="color: var(--text-muted);">Selecione um projeto para iniciar a conciliação bancária.</p>
-        </div>
-    ` : `
-        <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 2rem;">
-            <div class="card">
-                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem;">
-                    <div style="width: 42px; height: 42px; background: #FFF100; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-sm);">
-                        <img src="https://upload.wikimedia.org/wikipedia/pt/thumb/3/3b/Logo_Banco_do_Brasil.png/300px-Logo_Banco_do_Brasil.png" style="width: 24px;" alt="BB">
-                    </div>
-                    <div>
-                        <h3 class="h2">Extrato Bancário</h3>
-                        <p class="text-xs" style="color: var(--success); font-weight: 600;">Conectado via API</p>
-                    </div>
-                </div>
-                
-                <div style="padding: 1.25rem; background: var(--bg-sidebar); border-radius: var(--radius-sm); border: 1px solid var(--border-light); margin-bottom: 1.5rem;">
-                    <p class="text-xs mb-2" style="font-weight: 600; text-transform: uppercase; color: var(--text-muted);">Status da Conta</p>
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span class="text-sm">Sincronizado em:</span>
-                        <span class="text-sm" style="font-weight: 600;">${state.extSorted && state.extSorted.length > 0 ? new Date().toLocaleDateString('pt-BR') : 'Aguardando...'}</span>
-                    </div>
-                </div>
-
-                <button class="btn btn-primary" style="width: 100%; background: #0038A8;" onclick="window.handleSyncBB('${state.filters.project}')" ${state.loading ? 'disabled' : ''}>
-                    <i data-lucide="refresh-cw" class="${state.loading ? 'spin' : ''}"></i>
-                    Sincronizar BB
-                </button>
-                
-                <p class="text-xs" style="margin-top: 1rem; line-height: 1.5; color: var(--text-muted);">
-                    As transações são buscadas diretamente na API do Banco do Brasil para garantir a conformidade absoluta.
-                </p>
-            </div>
-
-            <div class="card">
-                <div style="display: flex; justify-content: space-between; align-items: center;" class="mb-4">
-                    <h3 class="h2">Transações Bancárias</h3>
-                    <button class="btn btn-secondary" style="font-size: 12px;" onclick="window.handleRunN8NReconciliation()" ${state.loading ? 'disabled' : ''}>
-                        <i data-lucide="brain" style="width: 14px;"></i>
-                        Match Inteligente
-                    </button>
-                </div>
-
-                <div class="data-table-container">
-                    ${state.extSorted = [...state.extratos].sort((a, b) => new Date(b.data_transacao) - new Date(a.data_transacao)), ''}
-                    ${state.extratos.length === 0 ? `<p class="text-sm" style="text-align: center; padding: 2rem; color: var(--text-muted);">Nenhuma transação importada.</p>` : `
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>Data</th>
-                                    <th>Descrição</th>
-                                    <th style="text-align: right;">Valor</th>
-                                    <th style="text-align: right;">Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${state.extSorted.map(ex => `
-                                    <tr>
-                                        <td class="text-sm">${new Date(ex.data_transacao).toLocaleDateString('pt-BR')}</td>
-                                        <td>
-                                            <div style="font-weight: 500;">${ex.descricao}</div>
-                                            ${ex.documento_referencia ? `<div class="text-xs">Ref: ${ex.documento_referencia}</div>` : ''}
-                                        </td>
-                                        <td style="text-align: right; font-weight: 600; color: ${ex.valor < 0 ? 'var(--error)' : 'var(--success)'};">
-                                            R$ ${Math.abs(ex.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                        </td>
-                                        <td style="text-align: right;">
-                                            ${ex.conciliado_com_despesa_id ?
-        `<span class="badge status-completed">Conciliado</span>` :
-        `<button class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="window.handleShowMatchForm('${ex.id}', ${ex.valor})">Conciliar</button>`
-    }
-                                        </td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    `}
-                </div>
-            </div>
-        </div>
-    `}
-</main>
-`;
-
 const RubricaInstructionsModal = () => `
 <div class="modal-overlay" onclick="state.showRubricaInstructions = false; render();">
     <div class="modal-content" onclick="event.stopPropagation()">
@@ -2662,12 +2557,6 @@ window.navigate = async function (view, id = null) {
     } else if (view === 'admin_solicitantes') {
         await fetchProjects();
         await fetchSolicitantesAdmin();
-    } else if (view === 'conciliacao') {
-        await fetchProjects();
-        if (id) state.filters.project = id;
-        else if (!state.filters.project && state.projects.length > 0) state.filters.project = state.projects[0].id;
-
-        if (state.filters.project) await fetchExtratos(state.filters.project);
     } else if (view === 'projects' || view === 'create_project') {
         await fetchProjects();
     } else if (view === 'configuracoes') {
@@ -4258,9 +4147,6 @@ function render() {
         case 'details':
             content = DetailsView();
             break;
-        case 'conciliacao':
-            content = ConciliacaoView();
-            break;
         case 'admin_solicitantes':
             content = SolicitantesAdminView();
             break;
@@ -4475,155 +4361,6 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
     } finally {
         state.loading = false;
         state.isUploadingExtrato = false;
-        render();
-    }
-};
-
-async function fetchExtratos(projectId) {
-    if (!supabaseClient || !projectId) return;
-    try {
-        const { data, error } = await supabaseClient
-            .from('extratos_bancarios')
-            .select('*')
-            .eq('project_id', projectId)
-            .order('data_transacao', { ascending: false });
-
-        if (!error) state.extratos = data || [];
-    } catch (err) {
-        console.error("Erro fetch extratos:", err);
-    }
-}
-
-window.handleImportExtrato = async function (file) {
-    if (!file || !state.filters.project || !supabaseClient) return;
-
-    state.loading = true;
-    render();
-
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-        const text = e.target.result;
-        let transactions = [];
-
-        try {
-            if (file.name.toLowerCase().endsWith('.ofx')) {
-                transactions = parseOFX(text);
-            } else if (file.name.toLowerCase().endsWith('.csv')) {
-                transactions = parseCSV(text);
-            }
-
-            if (transactions.length === 0) {
-                state.loading = false;
-                render();
-                return alert("Nenhuma transação válida encontrada no arquivo.");
-            }
-
-            const toInsert = transactions.map(t => ({
-                project_id: state.filters.project,
-                user_id: state.user.id,
-                data_transacao: t.date,
-                descricao: t.description,
-                valor: t.amount,
-                documento_referencia: t.ref || null
-            }));
-
-            const { error } = await supabaseClient.from('extratos_bancarios').insert(toInsert);
-            if (error) throw error;
-
-            alert(`${transactions.length} transações importadas com sucesso!`);
-            await fetchExtratos(state.filters.project);
-        } catch (err) {
-            alert("Erro ao processar/salvar transações: " + err.message);
-        } finally {
-            state.loading = false;
-            render();
-        }
-    };
-    reader.readAsText(file);
-};
-
-function parseOFX(text) {
-    const transactions = [];
-    const stmtTrnRegex = /<STMTTRN>([\s\S]*?)<\/STMTTRN>/g;
-    let match;
-
-    while ((match = stmtTrnRegex.exec(text)) !== null) {
-        const block = match[1];
-        const dateStr = extractOFXTag(block, 'DTPOSTED');
-        const amount = parseFloat(extractOFXTag(block, 'TRNAMT'));
-        const memo = extractOFXTag(block, 'MEMO') || extractOFXTag(block, 'NAME');
-        const fitid = extractOFXTag(block, 'FITID');
-
-        if (dateStr && !isNaN(amount)) {
-            const formattedDate = `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
-            transactions.push({
-                date: formattedDate,
-                description: memo,
-                amount: amount,
-                ref: fitid
-            });
-        }
-    }
-    return transactions;
-}
-
-function extractOFXTag(text, tag) {
-    const regex = new RegExp(`<${tag}>([^<\\r\\n\\t]+)`, 'i');
-    const match = text.match(regex);
-    return match ? match[1].trim() : null;
-}
-
-function parseCSV(text) {
-    const lines = text.split('\n');
-    const transactions = [];
-
-    lines.forEach(line => {
-        const cols = line.split(/[;,]/);
-        if (cols.length >= 3) {
-            const dateStr = cols[0].trim();
-            const desc = cols[1].trim();
-            const amount = parseFloat(cols[2].trim().replace(',', '.'));
-
-            if (dateStr.includes('/') && !isNaN(amount)) {
-                const parts = dateStr.split('/');
-                if (parts.length === 3) {
-                    const formattedDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
-                    transactions.push({
-                        date: formattedDate,
-                        description: desc,
-                        amount: amount
-                    });
-                }
-            }
-        }
-    });
-    return transactions;
-}
-
-window.handleRunN8NReconciliation = async function () {
-    if (!state.filters.project || !CONFIG.N8N_WEBHOOK_RECONCILIATION_URL) return;
-
-    state.loading = true;
-    render();
-
-    try {
-        const response = await fetch(CONFIG.N8N_WEBHOOK_RECONCILIATION_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                project_id: state.filters.project,
-                user_id: state.user.id,
-                action: 'reconcile_all'
-            })
-        });
-
-        if (!response.ok) throw new Error("Erro ao disparar n8n.");
-
-        alert("O processo de conciliação inteligente foi iniciado no n8n. Aguarde alguns instantes e atualize a página.");
-    } catch (err) {
-        alert("Erro ao disparar conciliação: " + err.message);
-    } finally {
-        state.loading = false;
         render();
     }
 };
