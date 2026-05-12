@@ -1304,14 +1304,13 @@ ${Sidebar()}
                             ${doc.status === 'bloqueado_conformidade' ? `
                                 <div style="display: flex; gap: 0.5rem;">
                                     <div style="flex: 1;">
-                                        <select id="vincular-rubrica-select" style="width: 100%; padding: 0.5rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: 4px; background: white;">
-                                            <option value="">Selecione a rubrica para corrigir...</option>
-                                            ${(state.rubricas_disponiveis || []).map((r, idx) => `
-                                                <option value="${r.id}" ${doc.rubrica === r.nome || (!doc.rubrica && idx === 0) ? 'selected' : ''}>
-                                                    ${r.rubrica_id ? r.rubrica_id + ' - ' : ''}${r.nome}
-                                                </option>
-                                            `).join('')}
-                                        </select>
+                                        <input type="text" id="vincular-rubrica-input" list="vincular-rubricas-list" placeholder="${(state.rubricas_disponiveis || []).length === 0 ? 'Carregando rubricas...' : 'Digite para buscar rubrica...'}" autocomplete="off" style="width: 100%; padding: 0.5rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: 4px; background: white;" ${(state.rubricas_disponiveis || []).length === 0 ? 'disabled' : ''}>
+                                        <datalist id="vincular-rubricas-list">
+                                            ${(state.rubricas_disponiveis || []).map(r => {
+        const label = r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome;
+        return `<option value="${label}"></option>`;
+    }).join('')}
+                                        </datalist>
                                     </div>
                                     <button class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 12px;" onclick="window.handleVincularRubrica('${doc.id}', '${doc.project_id}', ${doc.valor})">
                                         Corrigir Vínculo
@@ -2809,19 +2808,34 @@ async function fetchDocumentDetails(id, silent = false) {
 }
 
 window.handleVincularRubrica = async function (documentId, projectId, valorDespesa) {
-    const rubricaId = document.getElementById('vincular-rubrica-select').value;
-    if (!rubricaId) return alert('Selecione uma rubrica!');
+    // O input agora e autocomplete (datalist). Resolve o texto digitado de volta
+    // para a rubrica do state (compara com "codigo - nome" e tambem com o nome puro).
+    const inputEl = document.getElementById('vincular-rubrica-input');
+    const inputText = (inputEl?.value || '').trim();
+    if (!inputText) return alert('Digite ou selecione uma rubrica!');
+
+    const rubricasDisp = state.rubricas_disponiveis || [];
+    const rubricaSelecionada = rubricasDisp.find(r => {
+        const label = r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome;
+        return label === inputText || r.nome === inputText;
+    });
+
+    if (!rubricaSelecionada) {
+        return alert('Rubrica não encontrada. Selecione uma opção da lista.');
+    }
+
+    const rubricaId = rubricaSelecionada.id;
+    const rubricaNome = rubricaSelecionada.nome;
     if (valorDespesa === undefined || valorDespesa === null) valorDespesa = 0;
 
     state.loading = true;
     render();
 
     try {
-        // Obter os valores do form original no currentDocument (cnpj_fornecedor, emissão, etc)
         const doc = state.currentDocument;
 
-        // Insert into despesas
-        const { error } = await supabaseClient.from('despesas').insert({
+        // Upsert em despesas: permite trocar a rubrica de um documento que ja foi vinculado
+        const { error } = await supabaseClient.from('despesas').upsert({
             document_id: documentId,
             rubrica_id: rubricaId,
             project_id: projectId,
@@ -2829,30 +2843,41 @@ window.handleVincularRubrica = async function (documentId, projectId, valorDespe
             cnpj_fornecedor: doc.cnpj_emissor || null,
             data_emissao: doc.data_emissao || null,
             data_pagamento: doc.data_pagamento || null
-        });
+        }, { onConflict: 'document_id' });
 
-        if (error) {
-            // Caso de quebra de saldo no RLS (se implementado) ou erro unique
-            throw error;
-        }
+        if (error) throw error;
 
-        alert('Rubrica vinculada com sucesso! O workflow do n8n de conformidade deve ser acionado agora.');
+        // Atualiza o doc: rubrica nova (texto), status processando, limpa erro anterior.
+        // O webhook do n8n provavelmente le de documents.rubrica — sem isso, ele revalidaria
+        // contra a rubrica antiga.
+        await supabaseClient
+            .from('documents')
+            .update({ rubrica: rubricaNome, status: 'processing_ocr', just_erro: null })
+            .eq('id', documentId);
 
-        // Simular o acionamento do workflow n8n - Fase 2 # Workflow 3.3
-        // No front-end nós recarregamos após notificar o n8n
+        window.showToast('Rubrica atualizada! Revalidando com o n8n...', 'info');
+
+        // Aciona o workflow n8n de revalidacao com a rubrica nova no payload
+        // (fire-and-forget; o realtime sub atualiza o status final ao terminar)
         if (CONFIG.N8N_WEBHOOK_VALIDATION_URL) {
             fetch(CONFIG.N8N_WEBHOOK_VALIDATION_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 mode: 'cors',
-                body: JSON.stringify({ document_id: documentId, cnpj_fornecedor: doc.cnpj_emissor })
+                body: JSON.stringify({
+                    document_id: documentId,
+                    cnpj_fornecedor: doc.cnpj_emissor,
+                    rubrica_id: rubricaId,
+                    rubrica_nome: rubricaNome
+                })
             }).then(r => console.log("n8n Validation Triggered:", r.status))
-                .catch(e => showToast("Erro ao notificar n8n: " + e.message, 'error'));
+                .catch(e => window.showToast("Erro ao notificar n8n: " + e.message, 'error'));
         }
 
         await fetchDocumentDetails(documentId);
     } catch (err) {
-        alert("Erro ao vincular despesa: " + err.message);
+        window.showToast("Erro ao vincular despesa: " + err.message, 'error');
+    } finally {
         state.loading = false;
         render();
     }
