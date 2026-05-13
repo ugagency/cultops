@@ -247,3 +247,43 @@ function setModuloAtivo(modulo) {
 
 window.getUserModules = getUserModules;
 window.setModuloAtivo = setModuloAtivo;
+
+/**
+ * Retorna o organization_id do usuário corrente.
+ * Padrão M1 (INV-02): app_metadata.org_id é a fonte de verdade.
+ * Fallback: lê projects.organization_id pelo projectId fornecido.
+ * Resultado por projectId é cacheado em memória.
+ */
+const _orgIdCache = { jwt: undefined, byProject: {} };
+
+async function getCurrentOrgId(projectId) {
+    const sb = await initSupabase();
+    if (!sb) return null;
+
+    if (_orgIdCache.jwt === undefined) {
+        try {
+            const { data } = await sb.auth.getSession();
+            _orgIdCache.jwt = data?.session?.user?.app_metadata?.org_id || null;
+        } catch (_) {
+            _orgIdCache.jwt = null;
+        }
+    }
+    if (_orgIdCache.jwt) return _orgIdCache.jwt;
+
+    if (!projectId) return null;
+    if (_orgIdCache.byProject[projectId] !== undefined) {
+        return _orgIdCache.byProject[projectId];
+    }
+
+    const { data, error } = await sb
+        .from('projects')
+        .select('organization_id')
+        .eq('id', projectId)
+        .maybeSingle();
+
+    const orgId = (!error && data && data.organization_id) || null;
+    _orgIdCache.byProject[projectId] = orgId;
+    return orgId;
+}
+
+window.getCurrentOrgId = getCurrentOrgId;

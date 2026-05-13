@@ -115,6 +115,136 @@
         .status-success { background: #d1fae5; color: #065f46; }
         .status-processing { background: #dbeafe; color: #1e40af; }
         .status-error { background: #fee2e2; color: #991b1b; }
+
+        /* Pills de status da rubrica */
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.2rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            white-space: nowrap;
+            letter-spacing: 0.02em;
+        }
+        .pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; }
+        .pill-ok       { background: #d1fae5; color: #065f46; }
+        .pill-ok::before       { background: #10b981; }
+        .pill-atencao  { background: #fef3c7; color: #92400e; }
+        .pill-atencao::before  { background: #f59e0b; }
+        .pill-excedida { background: #fee2e2; color: #991b1b; }
+        .pill-excedida::before { background: #ef4444; }
+
+        /* Modal genérico */
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9998;
+            padding: 1rem;
+        }
+        .modal-backdrop[hidden] { display: none; }
+        .modal-dialog {
+            background: white;
+            border-radius: var(--radius-lg);
+            padding: 1.75rem;
+            max-width: 560px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+        }
+        .modal-dialog.wide { max-width: 760px; }
+        .modal-dialog h3 {
+            margin: 0 0 1.25rem 0;
+            font-size: 1.25rem;
+            color: var(--text-primary);
+        }
+        .form-grid { display: flex; flex-direction: column; gap: 1rem; }
+        .form-grid label {
+            display: flex; flex-direction: column; gap: 0.35rem;
+            font-size: 0.78rem; font-weight: 600; color: var(--text-secondary);
+            text-transform: uppercase; letter-spacing: 0.03em;
+        }
+        .form-grid input,
+        .form-grid textarea {
+            padding: 0.7rem 0.85rem;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            font-size: 0.95rem;
+            color: var(--text-primary);
+            font-family: inherit;
+            background: white;
+            text-transform: none;
+            letter-spacing: normal;
+        }
+        .form-grid input[readonly] {
+            background: #f1f5f9;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+        .form-grid input:focus,
+        .form-grid textarea:focus {
+            outline: none;
+            border-color: var(--m2-accent);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+        }
+        .modal-actions {
+            display: flex; gap: 0.75rem; justify-content: flex-end;
+            margin-top: 1.5rem;
+        }
+        .btn-modal {
+            padding: 0.7rem 1.25rem;
+            border-radius: var(--radius-md);
+            font-weight: 700;
+            font-size: 0.875rem;
+            cursor: pointer;
+            border: 1px solid transparent;
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            transition: all 0.15s;
+        }
+        .btn-modal-cancel {
+            background: white;
+            color: var(--text-secondary);
+            border-color: var(--border-light);
+        }
+        .btn-modal-cancel:hover { background: #f8fafc; }
+        .btn-modal-primary {
+            background: linear-gradient(135deg, var(--m2-accent), var(--m2-accent-hover));
+            color: white;
+            border: none;
+        }
+        .btn-modal-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .config-btn.history-btn:hover { color: #6366f1; }
+
+        .hist-table {
+            width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 0.5rem;
+        }
+        .hist-table th {
+            text-align: left; padding: 0.65rem 0.75rem; background: #f8fafc;
+            color: var(--text-secondary); font-size: 0.7rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.04em;
+            border-bottom: 2px solid var(--border-light);
+        }
+        .hist-table td {
+            padding: 0.75rem; border-bottom: 1px solid var(--border-light);
+            vertical-align: top;
+        }
+        .hist-table tr:last-child td { border-bottom: none; }
+        .hist-empty {
+            padding: 2rem 1rem;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+
+        .spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -141,6 +271,51 @@
         </header>
         
         <div class="toast-notification" id="toast" style="position: fixed; bottom: 2.5rem; right: 2.5rem; padding: 1.25rem 2rem; border-radius: var(--radius-md); color: white; font-weight: 700; font-size: 0.95rem; z-index: 10000; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); transform: translateY(150%); transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);"></div>
+
+        <!-- Modal de Readequação Orçamentária -->
+        <div id="readequacao-modal" class="modal-backdrop" hidden onclick="if(event.target===this) closeReadequacaoModal()">
+            <div class="modal-dialog">
+                <h3><i data-lucide="git-branch" style="width:18px; vertical-align:-3px;"></i> Nova readequação orçamentária</h3>
+                <form id="readequacao-form" class="form-grid" onsubmit="event.preventDefault(); submitReadequacao();">
+                    <label>
+                        Rubrica
+                        <input type="text" id="re-nome" readonly>
+                    </label>
+                    <label>
+                        Valor atual aprovado
+                        <input type="text" id="re-atual" readonly>
+                    </label>
+                    <label>
+                        Novo valor aprovado <span style="color:#ef4444;">*</span>
+                        <input type="number" step="0.01" min="0.01" id="re-novo" required>
+                    </label>
+                    <label>
+                        Motivo <span style="color:#ef4444;">*</span>
+                        <textarea id="re-motivo" rows="4" required placeholder="Descreva a justificativa da readequação (será registrada no histórico)..."></textarea>
+                    </label>
+                    <div class="modal-actions">
+                        <button type="button" class="btn-modal btn-modal-cancel" onclick="closeReadequacaoModal()">Cancelar</button>
+                        <button type="submit" class="btn-modal btn-modal-primary" id="re-submit">
+                            <i data-lucide="check" style="width:16px;"></i> Registrar readequação
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Modal de Histórico de Readequações -->
+        <div id="historico-modal" class="modal-backdrop" hidden onclick="if(event.target===this) closeHistoricoModal()">
+            <div class="modal-dialog wide">
+                <h3><i data-lucide="history" style="width:18px; vertical-align:-3px;"></i> Histórico de readequações</h3>
+                <p id="hist-rubrica-label" style="margin: -0.5rem 0 1rem 0; color: var(--text-secondary); font-size: 0.9rem;"></p>
+                <div id="hist-content">
+                    <div class="hist-empty"><i data-lucide="loader" class="spin"></i> Carregando…</div>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-modal btn-modal-cancel" onclick="closeHistoricoModal()">Fechar</button>
+                </div>
+            </div>
+        </div>
 
         <div class="upload-progress-container" id="upload-progress-container">
             <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -303,24 +478,30 @@
                 const approved = parseFloat(r.valor_aprovado || 0);
                 const used = parseFloat(r.valor_utilizado || 0);
                 const percent = approved > 0 ? (used / approved) * 100 : 0;
-                
-                // Alerta em 90% (RN-II-05)
-                const isNearingLimit = percent >= (r.percentual_alerta || 90);
-                const isAlertActive = r.alerta_limite_ativo !== false;
-                
+                const ratio = approved > 0 ? (used / approved) : 0;
+
+                const limite = (r.percentual_alerta != null) ? (Number(r.percentual_alerta) / 100) : 0.9;
+                const isNearingLimit = ratio >= limite && ratio < 1;
+                const isExcedida = ratio >= 1;
+                const isAlertActive = r.alerta_limite_ativo === true;
+
                 let progressColor = 'var(--m2-accent)';
-                if (percent >= 100) progressColor = 'var(--error)';
+                if (isExcedida) progressColor = 'var(--error)';
                 else if (isNearingLimit) progressColor = 'var(--warning)';
+
+                let pillHtml = '<span class="pill pill-ok">OK</span>';
+                if (isExcedida) pillHtml = '<span class="pill pill-excedida">EXCEDIDA</span>';
+                else if (isNearingLimit) pillHtml = '<span class="pill pill-atencao">ATENÇÃO</span>';
 
                 return `
                     <div class="glass-card rubrica-card">
                         <div style="font-weight: 700; color: var(--text-secondary);">${r.codigo || '---'}</div>
-                        
+
                         <div>
-                            <div style="font-weight: 700; color: var(--text-primary);">${r.nome}</div>
-                            <div class="text-xs" style="color: var(--text-muted);">${r.etapa || 'Fase de Execução'}</div>
+                            <div style="font-weight: 700; color: var(--text-primary);">${escapeHtml(r.nome)}</div>
+                            <div class="text-xs" style="color: var(--text-muted);">${escapeHtml(r.etapa || 'Fase de Execução')}</div>
                         </div>
-                        
+
                         <div style="padding-right: 2rem;">
                             <div style="display: flex; justify-content: space-between; font-size: 0.75rem; font-weight: 600;">
                                 <span>${formatCurrency(used)}</span>
@@ -330,14 +511,18 @@
                                 <div class="progress-bar" style="width: ${Math.min(percent, 100)}%; background: ${progressColor};"></div>
                             </div>
                         </div>
-                        
-                        <div style="display: flex; justify-content: flex-end; align-items: center; gap: 1rem;">
-                            <div class="alerta-container ${isAlertActive && isNearingLimit ? 'alert-active' : ''}">
+
+                        <div style="display: flex; justify-content: flex-end; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                            ${pillHtml}
+                            <div class="alerta-container ${isAlertActive && (isNearingLimit || isExcedida) ? 'alert-active' : ''}">
                                 <i data-lucide="${isAlertActive ? 'bell' : 'bell-off'}" style="width: 16px;"></i>
                                 <span>${percent.toFixed(1)}%</span>
                             </div>
-                            
-                            <button class="config-btn" title="Configurar Alertas e Readequação" onclick="handleConfigRubrica('${r.id}')">
+
+                            <button class="config-btn history-btn" title="Histórico de readequações" onclick="openHistoricoModal('${r.id}', ${JSON.stringify(r.nome).replace(/"/g,'&quot;')})">
+                                <i data-lucide="history" style="width: 18px;"></i>
+                            </button>
+                            <button class="config-btn" title="Nova readequação orçamentária" onclick="openReadequacaoModal('${r.id}')">
                                 <i data-lucide="settings-2" style="width: 18px;"></i>
                             </button>
                         </div>
@@ -348,10 +533,187 @@
             if (window.lucide) window.lucide.createIcons();
         }
 
-        async function handleConfigRubrica(rubricaId) {
-            // No futuro abriria um modal de readequação/configuração
-            alert("Em breve: Módulo de Readequação Orçamentária e Histórico de Versões.");
+        // ─────────────────────────────────────────────────────────────
+        // Readequação orçamentária — modal + persistência
+        // ─────────────────────────────────────────────────────────────
+        let readequacaoState = null; // { rubricaId, rubrica }
+
+        async function openReadequacaoModal(rubricaId) {
+            const sb = await initSupabase();
+            const { data: rubrica, error } = await sb
+                .from('rubricas')
+                .select('id, nome, valor_aprovado, versao_atual')
+                .eq('id', rubricaId)
+                .maybeSingle();
+
+            if (error || !rubrica) {
+                showToast('Não foi possível carregar a rubrica.', 'error');
+                return;
+            }
+
+            readequacaoState = { rubricaId, rubrica };
+            document.getElementById('re-nome').value = rubrica.nome || '';
+            document.getElementById('re-atual').value = formatCurrency(rubrica.valor_aprovado || 0);
+            document.getElementById('re-novo').value = '';
+            document.getElementById('re-motivo').value = '';
+            document.getElementById('re-submit').disabled = false;
+            document.getElementById('readequacao-modal').hidden = false;
+            if (window.lucide) window.lucide.createIcons();
+            setTimeout(() => document.getElementById('re-novo').focus(), 50);
         }
+
+        function closeReadequacaoModal() {
+            document.getElementById('readequacao-modal').hidden = true;
+            readequacaoState = null;
+        }
+
+        async function submitReadequacao() {
+            if (!readequacaoState) return;
+            const { rubricaId, rubrica } = readequacaoState;
+
+            const novoValor = parseFloat(document.getElementById('re-novo').value);
+            const motivo = document.getElementById('re-motivo').value.trim();
+
+            if (!Number.isFinite(novoValor) || novoValor <= 0) {
+                showToast('Informe um novo valor maior que zero.', 'error');
+                return;
+            }
+            if (motivo.length < 5) {
+                showToast('Informe um motivo (mínimo 5 caracteres).', 'error');
+                return;
+            }
+
+            const valorAnterior = Number(rubrica.valor_aprovado || 0);
+            if (novoValor === valorAnterior) {
+                showToast('O novo valor é igual ao atual.', 'error');
+                return;
+            }
+
+            const submitBtn = document.getElementById('re-submit');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i data-lucide="loader" class="spin" style="width:16px;"></i> Salvando…';
+            if (window.lucide) window.lucide.createIcons();
+
+            try {
+                const sb = await initSupabase();
+                const { data: { user } } = await sb.auth.getUser();
+                const orgId = await getCurrentOrgId(currentProjectId);
+                const versaoAnterior = Number(rubrica.versao_atual || 0);
+                const novaVersao = versaoAnterior + 1;
+                const hoje = new Date().toISOString().split('T')[0]; // aprovado_em é DATE
+
+                // a/b) INSERT no histórico
+                const { error: insErr } = await sb.from('rubricas_readequacoes').insert({
+                    rubrica_id: rubricaId,
+                    project_id: currentProjectId,
+                    organization_id: orgId,
+                    versao: novaVersao,
+                    valor_anterior: valorAnterior,
+                    valor_novo: novoValor,
+                    motivo: motivo,
+                    aprovado_em: hoje,
+                    criado_por: user ? user.id : null
+                });
+                if (insErr) throw insErr;
+
+                // c) UPDATE rubrica
+                const { error: updErr } = await sb.from('rubricas')
+                    .update({ valor_aprovado: novoValor, versao_atual: novaVersao })
+                    .eq('id', rubricaId);
+                if (updErr) throw updErr;
+
+                closeReadequacaoModal();
+                showToast('Readequação registrada com sucesso.', 'success');
+                await loadRubricas();
+            } catch (err) {
+                console.error('[submitReadequacao]', err);
+                showToast('Erro ao registrar readequação: ' + (err.message || 'verifique o console'), 'error');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i data-lucide="check" style="width:16px;"></i> Registrar readequação';
+                if (window.lucide) window.lucide.createIcons();
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // Histórico de readequações
+        // ─────────────────────────────────────────────────────────────
+        async function openHistoricoModal(rubricaId, rubricaNome) {
+            document.getElementById('hist-rubrica-label').textContent = rubricaNome || '';
+            document.getElementById('hist-content').innerHTML =
+                '<div class="hist-empty"><i data-lucide="loader" class="spin"></i> Carregando…</div>';
+            document.getElementById('historico-modal').hidden = false;
+            if (window.lucide) window.lucide.createIcons();
+
+            const sb = await initSupabase();
+            const { data, error } = await sb
+                .from('rubricas_readequacoes')
+                .select('versao, valor_anterior, valor_novo, motivo, aprovado_em, criado_em')
+                .eq('rubrica_id', rubricaId)
+                .order('versao', { ascending: false });
+
+            const content = document.getElementById('hist-content');
+            if (error) {
+                content.innerHTML = `<div class="hist-empty">Erro: ${escapeHtml(error.message)}</div>`;
+                return;
+            }
+            if (!data || data.length === 0) {
+                content.innerHTML = '<div class="hist-empty">Nenhuma readequação registrada ainda para esta rubrica.</div>';
+                return;
+            }
+
+            const rows = data.map(h => `
+                <tr>
+                    <td><strong>v${h.versao}</strong></td>
+                    <td>${formatCurrency(Number(h.valor_anterior || 0))}</td>
+                    <td>${formatCurrency(Number(h.valor_novo || 0))}</td>
+                    <td style="font-size: 0.82rem; color: var(--text-secondary);">${escapeHtml(h.motivo || '—')}</td>
+                    <td>${formatHistDate(h.aprovado_em || h.criado_em)}</td>
+                </tr>
+            `).join('');
+
+            content.innerHTML = `
+                <div style="overflow-x: auto;">
+                    <table class="hist-table">
+                        <thead>
+                            <tr>
+                                <th>Versão</th>
+                                <th>De</th>
+                                <th>Para</th>
+                                <th>Motivo</th>
+                                <th>Data</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        function closeHistoricoModal() {
+            document.getElementById('historico-modal').hidden = true;
+        }
+
+        function formatHistDate(iso) {
+            if (!iso) return '—';
+            try { return new Date(iso).toLocaleDateString('pt-BR'); } catch { return '—'; }
+        }
+
+        function escapeHtml(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        // Atalho de teclado: ESC fecha modais abertos
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                if (!document.getElementById('readequacao-modal').hidden) closeReadequacaoModal();
+                if (!document.getElementById('historico-modal').hidden) closeHistoricoModal();
+            }
+        });
 
         function showToast(msg, type = 'success') {
             const t = document.getElementById('toast');

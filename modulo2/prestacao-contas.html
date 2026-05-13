@@ -230,6 +230,8 @@
     </style>
 </head>
 <body>
+    <div class="toast-notification" id="toast" style="position: fixed; bottom: 2.5rem; right: 2.5rem; padding: 1.25rem 2rem; border-radius: var(--radius-md); color: white; font-weight: 700; font-size: 0.95rem; z-index: 10000; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); transform: translateY(150%); transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);"></div>
+
     <main class="main-content">
         <div class="pc-container">
             
@@ -275,7 +277,7 @@
                     </div>
                     <div class="check-item" id="pre-04">
                         <div class="check-icon loading"><i data-lucide="loader" class="spin"></i></div>
-                        <div class="check-text">Sem guias de imposto pendentes ou atrasadas</div>
+                        <div class="check-text">Nenhuma guia de imposto vencida ou atrasada</div>
                     </div>
                     <div class="check-item" id="pre-05">
                         <div class="check-icon loading"><i data-lucide="loader" class="spin"></i></div>
@@ -295,7 +297,7 @@
                     </div>
                     <div class="check-item" id="pre-09">
                         <div class="check-icon loading"><i data-lucide="loader" class="spin"></i></div>
-                        <div class="check-text">Sem parcelas de contrato atrasadas</div>
+                        <div class="check-text">Nenhuma parcela de contrato vencida ou atrasada</div>
                     </div>
                     <div class="check-item" id="pre-10" style="background: #eff6ff; border-color: #bfdbfe;">
                         <div class="check-icon loading"><i data-lucide="loader" class="spin"></i></div>
@@ -510,8 +512,13 @@
             const q2 = getCount(sbClient.from('despesas').select('*', { count: 'exact', head: true }).eq('project_id', pid).eq('status', 'bloqueado_conformidade'));
             // P03: não conciliados
             const q3 = getCount(sbClient.from('despesas').select('*', { count: 'exact', head: true }).eq('project_id', pid).eq('conciliado', false));
-            // P04: tax_guides
-            const q4 = getCount(sbClient.from('tax_guides').select('*', { count: 'exact', head: true }).eq('project_id', pid).in('status', ['pendente','atrasada']));
+            // P04: tax_guides — atrasada OU (pendente AND vencimento < hoje)
+            // Fecha falso positivo causado pela ausência do CRON-01 (que marca pendente→atrasada)
+            const q4 = getCount(
+                sbClient.from('tax_guides').select('*', { count: 'exact', head: true })
+                    .eq('project_id', pid)
+                    .or(`status.eq.atrasada,and(status.eq.pendente,data_vencimento.lt.${today})`)
+            );
             // P05: foto aprovada
             const q5 = getCount(sbClient.from('physical_evidences').select('*', { count: 'exact', head: true }).eq('project_id', pid).eq('tipo_evidencia', 'foto_evento').eq('status_validacao', 'aprovada'));
             // P06: relatorio aprovado
@@ -520,8 +527,13 @@
             const q7 = getCount(sbClient.from('physical_evidences').select('*', { count: 'exact', head: true }).eq('project_id', pid).in('status_validacao', ['pendente','pendente_complemento']));
             // P08: contratos expirados
             const q8 = getCount(sbClient.from('contracts').select('*', { count: 'exact', head: true }).eq('project_id', pid).eq('status', 'ativo').lt('data_fim', today));
-            // P09: parcelas atrasadas
-            const q9 = getCount(sbClient.from('contract_parcelas').select('*', { count: 'exact', head: true }).eq('project_id', pid).eq('status', 'atrasada'));
+            // P09: contract_parcelas — atrasada OU (pendente AND vencimento < hoje)
+            // Fecha falso positivo causado pela ausência do CRON-03
+            const q9 = getCount(
+                sbClient.from('contract_parcelas').select('*', { count: 'exact', head: true })
+                    .eq('project_id', pid)
+                    .or(`status.eq.atrasada,and(status.eq.pendente,data_vencimento.lt.${today})`)
+            );
             
             // P10: project_checklist
             let q10_ok = false;
@@ -573,6 +585,12 @@
             if (window.lucide) window.lucide.createIcons();
 
             const { data: { user } } = await sbClient.auth.getUser();
+            const orgId = await getCurrentOrgId(currentProjectId);
+            if (!orgId) {
+                document.getElementById('gerar-feedback').textContent = 'Organização não identificada. Recarregue a página.';
+                btn.disabled = false;
+                return;
+            }
 
             // 1. Get MAX version
             const { data: maxVer } = await sbClient.from('relatorio_prestacao_contas')
@@ -594,6 +612,7 @@
             const { data: newRel, error: insErr } = await sbClient.from('relatorio_prestacao_contas')
                 .insert({
                     project_id: currentProjectId,
+                    organization_id: orgId,
                     versao: nova_versao,
                     status: 'gerando',
                     gerado_por: user.id
@@ -607,20 +626,48 @@
                 return;
             }
 
-            // 4. Call API (Fire and forget, Realtime handles update)
-            try {
-                // If API fails immediately, we'll catch it. If it takes time, realtime will catch it.
-                const apiUrl = (typeof CONFIG !== 'undefined' && CONFIG.N8N_WEBHOOK_CRIAR_PDF_URL) ? CONFIG.N8N_WEBHOOK_CRIAR_PDF_URL : '/api/m2/gerar-relatorio';
-                fetch(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ project_id: currentProjectId, relatorio_id: newRel.id })
-                }).catch(e => console.error("API error", e));
-            } catch (e) {
-                console.error(e);
-            }
+            // 4. Call API com timeout de 5 minutos via AbortController.
+            //    Realtime continua sendo a fonte primária da atualização de status — esta
+            //    chamada só precisa marcar 'erro' explicitamente se abortar/falhar.
+            const apiUrl = (typeof CONFIG !== 'undefined' && CONFIG.N8N_WEBHOOK_CRIAR_PDF_URL)
+                ? CONFIG.N8N_WEBHOOK_CRIAR_PDF_URL
+                : '/api/m2/gerar-relatorio';
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 min
+
+            fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ project_id: currentProjectId, relatorio_id: newRel.id }),
+                signal: controller.signal
+            })
+            .catch(async (err) => {
+                console.error('[gerarRelatorio] webhook falhou', err);
+                const isTimeout = err && err.name === 'AbortError';
+                await sbClient.from('relatorio_prestacao_contas')
+                    .update({ status: 'erro' })
+                    .eq('id', newRel.id);
+                showToast(
+                    isTimeout
+                        ? 'Tempo limite excedido (5 min). Tente novamente.'
+                        : 'Falha ao acionar a geração do relatório. Tente novamente.',
+                    'error'
+                );
+                await carregarHistorico();
+            })
+            .finally(() => clearTimeout(timeoutId));
 
             await carregarHistorico();
+        }
+
+        function showToast(msg, type = 'success') {
+            const t = document.getElementById('toast');
+            if (!t) return;
+            t.innerText = msg;
+            t.style.background = type === 'success' ? '#10b981' : (type === 'error' ? '#ef4444' : '#3b82f6');
+            t.style.transform = 'translateY(0)';
+            setTimeout(() => t.style.transform = 'translateY(150%)', 4000);
         }
 
         async function carregarHistorico() {

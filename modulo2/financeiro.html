@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PrestAI — Dashboard Financeiro (Módulo II)</title>
-    
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -13,13 +13,13 @@
 
     <link rel="stylesheet" href="../style.css">
     <link rel="stylesheet" href="m2-shared.css">
-    
+
     <style>
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
             gap: 1.5rem;
-            margin-bottom: 2rem;
+            margin-bottom: 1.5rem;
         }
 
         .stat-card {
@@ -27,6 +27,7 @@
             display: flex;
             flex-direction: column;
             gap: 0.5rem;
+            min-height: 130px;
         }
 
         .stat-label {
@@ -43,6 +44,7 @@
 
         .stat-sub {
             font-size: 0.75rem;
+            color: var(--text-muted);
             display: flex;
             align-items: center;
             gap: 0.25rem;
@@ -50,16 +52,9 @@
 
         .stat-positive { color: #10b981; }
         .stat-warning { color: #f59e0b; }
+        .stat-danger { color: #ef4444; }
 
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 1.5rem;
-        }
-
-        .progress-container {
-            margin-top: 1rem;
-        }
+        .progress-container { margin-top: 0.5rem; }
 
         .progress-bar-bg {
             height: 8px;
@@ -71,20 +66,107 @@
         .progress-bar-fill {
             height: 100%;
             background: linear-gradient(90deg, var(--m2-accent) 0%, var(--m2-accent-hover) 100%);
-            transition: width 1s ease-out;
+            transition: width 0.6s ease-out;
         }
+        .progress-bar-fill.warning { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+        .progress-bar-fill.danger  { background: linear-gradient(90deg, #ef4444, #f87171); }
 
-        .quick-nav {
-            display: grid;
-            grid-template-columns: 1fr;
+        .contracts-strip {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
             gap: 1rem;
+            padding: 1rem 1.5rem;
+            margin-bottom: 1.5rem;
+            border-left: 4px solid var(--m2-accent);
         }
 
+        .contracts-strip .ic {
+            width: 40px;
+            height: 40px;
+            border-radius: var(--radius-md);
+            background: rgba(99,102,241,0.1);
+            color: var(--m2-accent);
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 1.5rem;
+        }
+
+        @media (max-width: 900px) {
+            .dashboard-grid { grid-template-columns: 1fr; }
+        }
+
+        .section-title {
+            font-size: 1.125rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin: 0 0 1rem 0;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.875rem;
+        }
+        .data-table th {
+            text-align: left;
+            padding: 0.75rem;
+            background: #f8fafc;
+            color: var(--text-secondary);
+            font-weight: 700;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            border-bottom: 2px solid var(--border-light);
+        }
+        .data-table th.num, .data-table td.num { text-align: right; }
+        .data-table td {
+            padding: 0.75rem;
+            border-bottom: 1px solid var(--border-light);
+        }
+        .data-table tr:last-child td { border-bottom: none; }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.2rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+        .pill::before { content:''; width: 6px; height: 6px; border-radius: 50%; }
+        .pill-ok       { background: #d1fae5; color: #065f46; }
+        .pill-ok::before       { background: #10b981; }
+        .pill-atencao  { background: #fef3c7; color: #92400e; }
+        .pill-atencao::before  { background: #f59e0b; }
+        .pill-excedida { background: #fee2e2; color: #991b1b; }
+        .pill-excedida::before { background: #ef4444; }
+
+        .alert-row {
+            padding: 0.85rem 1rem;
+            background: #fef2f2;
+            border-left: 4px solid #ef4444;
+            border-radius: 6px;
+            margin-bottom: 0.6rem;
+        }
+        .alert-row.warning {
+            background: #fffbeb;
+            border-left-color: #f59e0b;
+        }
+
+        .quick-nav { display: flex; flex-direction: column; gap: 0.75rem; }
         .nav-item {
             display: flex;
             align-items: center;
             gap: 1rem;
-            padding: 1.25rem;
+            padding: 1rem 1.1rem;
             background: white;
             border: 1px solid var(--border-light);
             border-radius: var(--radius-md);
@@ -92,22 +174,43 @@
             color: inherit;
             transition: all 0.2s;
         }
-
         .nav-item:hover {
             border-color: var(--m2-accent);
-            transform: translateX(5px);
+            transform: translateX(4px);
             box-shadow: var(--shadow-sm);
         }
-
         .nav-icon {
-            width: 40px;
-            height: 40px;
+            width: 38px; height: 38px;
             border-radius: 10px;
-            background: rgba(99, 102, 241, 0.1);
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            background: rgba(99,102,241,0.1);
             color: var(--m2-accent);
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .skeleton {
+            background: linear-gradient(90deg, #e2e8f0 0%, #f1f5f9 50%, #e2e8f0 100%);
+            background-size: 200% 100%;
+            animation: shimmer 1.4s ease-in-out infinite;
+            border-radius: 4px;
+            color: transparent !important;
+        }
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        .empty-state {
+            padding: 2.5rem 1rem;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+        .empty-state i {
+            display: block;
+            margin: 0 auto 0.75rem auto;
+            color: var(--text-muted);
+            opacity: 0.6;
         }
     </style>
 </head>
@@ -118,7 +221,7 @@
                 <h1>Dashboard Financeiro</h1>
                 <p class="text-secondary">Visão geral da prestação de contas e conformidade.</p>
             </div>
-            
+
             <div class="project-selector-container">
                 <i data-lucide="folder-kanban" style="width: 18px; color: var(--text-secondary);"></i>
                 <select id="project-selector">
@@ -127,147 +230,482 @@
             </div>
         </header>
 
-        <section class="stats-grid">
-            <div class="glass-card stat-card">
-                <span class="stat-label">Orçamento Total</span>
-                <span class="stat-value" id="total-budget">R$ 0,00</span>
-                <span class="stat-sub stat-positive">
-                    <i data-lucide="trending-up" style="width: 14px;"></i>
-                    100% captado
-                </span>
-            </div>
-            <div class="glass-card stat-card">
-                <span class="stat-label">Execução Financeira</span>
-                <span class="stat-value" id="execution-percent">0%</span>
-                <div class="progress-container">
-                    <div class="progress-bar-bg">
-                        <div class="progress-bar-fill" id="execution-bar" style="width: 0%"></div>
+        <div id="dashboard-body">
+            <section class="stats-grid" id="stats-grid">
+                <div class="glass-card stat-card">
+                    <span class="stat-label">Total Aprovado MinC</span>
+                    <span class="stat-value skeleton" id="stat-aprovado">R$ 0,00</span>
+                    <span class="stat-sub" id="stat-aprovado-sub">&nbsp;</span>
+                </div>
+                <div class="glass-card stat-card">
+                    <span class="stat-label">Total Executado</span>
+                    <span class="stat-value skeleton" id="stat-executado">R$ 0,00</span>
+                    <span class="stat-sub" id="stat-executado-sub">&nbsp;</span>
+                </div>
+                <div class="glass-card stat-card">
+                    <span class="stat-label">Saldo Disponível</span>
+                    <span class="stat-value skeleton" id="stat-saldo">R$ 0,00</span>
+                    <span class="stat-sub" id="stat-saldo-sub">&nbsp;</span>
+                </div>
+                <div class="glass-card stat-card">
+                    <span class="stat-label">% Execução</span>
+                    <span class="stat-value skeleton" id="stat-percent">0%</span>
+                    <div class="progress-container">
+                        <div class="progress-bar-bg">
+                            <div class="progress-bar-fill" id="stat-percent-bar" style="width: 0%"></div>
+                        </div>
                     </div>
                 </div>
-            </div>
-            <div class="glass-card stat-card">
-                <span class="stat-label">Impostos Provisionados</span>
-                <span class="stat-value" id="total-taxes">R$ 0,00</span>
-                <span class="stat-sub stat-warning">
-                    <i data-lucide="alert-circle" style="width: 14px;"></i>
-                    3 guias vencendo hoje
-                </span>
-            </div>
-            <div class="glass-card stat-card">
-                <span class="stat-label">Checklist MinC</span>
-                <span class="stat-value" id="checklist-percent">0%</span>
-                <span class="stat-sub">Apto para envio ao atingir 100%</span>
-            </div>
-        </section>
-
-        <div class="dashboard-grid">
-            <section class="glass-card">
-                <h3 class="h3" style="margin-bottom: 1.5rem;">Alertas de Rubricas (Próximas ao Limite)</h3>
-                <div id="rubric-alerts">
-                    <p class="text-muted">Nenhum alerta crítico no momento.</p>
+                <div class="glass-card stat-card">
+                    <span class="stat-label">Impostos Provisionados</span>
+                    <span class="stat-value skeleton" id="stat-impostos">R$ 0,00</span>
+                    <span class="stat-sub" id="stat-impostos-sub">&nbsp;</span>
+                </div>
+                <div class="glass-card stat-card">
+                    <span class="stat-label">Checklist MinC</span>
+                    <span class="stat-value skeleton" id="stat-checklist">0 / 0</span>
+                    <div class="progress-container">
+                        <div class="progress-bar-bg">
+                            <div class="progress-bar-fill" id="stat-checklist-bar" style="width: 0%"></div>
+                        </div>
+                    </div>
                 </div>
             </section>
 
-            <aside class="quick-nav">
-                <h3 class="h3" style="margin-bottom: 0.5rem; padding-left: 0.5rem;">Acesso Rápido</h3>
-                <a href="rubricas.html" class="nav-item">
-                    <div class="nav-icon"><i data-lucide="pie-chart"></i></div>
-                    <div>
-                        <div style="font-weight: 700;">Gestão de Rubricas</div>
-                        <div style="font-size: 0.75rem; color: var(--text-secondary);">Controle orçamentário</div>
-                    </div>
+            <section class="glass-card contracts-strip" id="contracts-strip">
+                <div class="ic"><i data-lucide="file-text"></i></div>
+                <div style="flex: 1;">
+                    <div style="font-weight: 700;" id="contracts-headline">Carregando contratos…</div>
+                    <div class="stat-sub" id="contracts-sub">&nbsp;</div>
+                </div>
+                <a href="contratos.html" class="nav-item" style="padding: 0.6rem 1rem;">
+                    <span style="font-size: 0.85rem; font-weight: 600;">Ver contratos</span>
+                    <i data-lucide="arrow-right" style="width: 16px;"></i>
                 </a>
-                <a href="contratos.html" class="nav-item">
-                    <div class="nav-icon"><i data-lucide="file-text"></i></div>
-                    <div>
-                        <div style="font-weight: 700;">Contratos & Terceiros</div>
-                        <div style="font-size: 0.75rem; color: var(--text-secondary);">Jurídico e pagamentos</div>
-                    </div>
-                </a>
-                <a href="impostos.html" class="nav-item">
-                    <div class="nav-icon"><i data-lucide="landmark"></i></div>
-                    <div>
-                        <div style="font-weight: 700;">Gestão de Impostos</div>
-                        <div style="font-size: 0.75rem; color: var(--text-secondary);">Retenções e guias DARF</div>
-                    </div>
-                </a>
-                <a href="comprovacao-fisica.html" class="nav-item">
-                    <div class="nav-icon"><i data-lucide="camera"></i></div>
-                    <div>
-                        <div style="font-weight: 700;">Comprovação Física</div>
-                        <div style="font-size: 0.75rem; color: var(--text-secondary);">Fotos e evidências IA</div>
-                    </div>
-                </a>
-            </aside>
+            </section>
+
+            <div class="dashboard-grid">
+                <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+                    <section class="glass-card" style="padding: 1.5rem;">
+                        <h3 class="section-title">Execução por Rubrica</h3>
+                        <div id="rubricas-table-wrap">
+                            <div class="empty-state">
+                                <i data-lucide="loader" style="width: 24px;" class="spin"></i>
+                                Carregando rubricas…
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="glass-card" style="padding: 1.5rem;">
+                        <h3 class="section-title">Despesas Recentes</h3>
+                        <div id="despesas-recentes-wrap">
+                            <div class="empty-state">
+                                <i data-lucide="loader" style="width: 24px;" class="spin"></i>
+                                Carregando…
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <aside style="display: flex; flex-direction: column; gap: 1.5rem;">
+                    <section class="glass-card" style="padding: 1.5rem;">
+                        <h3 class="section-title">Alertas de Rubricas</h3>
+                        <div id="rubric-alerts">
+                            <p class="text-muted" style="font-size: 0.85rem;">Carregando…</p>
+                        </div>
+                    </section>
+
+                    <nav class="quick-nav">
+                        <h3 class="section-title" style="padding-left: 0.25rem;">Acesso Rápido</h3>
+                        <a href="rubricas.html" class="nav-item">
+                            <div class="nav-icon"><i data-lucide="pie-chart"></i></div>
+                            <div>
+                                <div style="font-weight: 700;">Rubricas</div>
+                                <div style="font-size: 0.75rem; color: var(--text-secondary);">Controle orçamentário</div>
+                            </div>
+                        </a>
+                        <a href="contratos.html" class="nav-item">
+                            <div class="nav-icon"><i data-lucide="file-text"></i></div>
+                            <div>
+                                <div style="font-weight: 700;">Contratos</div>
+                                <div style="font-size: 0.75rem; color: var(--text-secondary);">Jurídico e pagamentos</div>
+                            </div>
+                        </a>
+                        <a href="impostos.html" class="nav-item">
+                            <div class="nav-icon"><i data-lucide="landmark"></i></div>
+                            <div>
+                                <div style="font-weight: 700;">Impostos</div>
+                                <div style="font-size: 0.75rem; color: var(--text-secondary);">Retenções e guias</div>
+                            </div>
+                        </a>
+                        <a href="comprovacao-fisica.html" class="nav-item">
+                            <div class="nav-icon"><i data-lucide="camera"></i></div>
+                            <div>
+                                <div style="font-weight: 700;">Comprovação Física</div>
+                                <div style="font-size: 0.75rem; color: var(--text-secondary);">Evidências</div>
+                            </div>
+                        </a>
+                    </nav>
+                </aside>
+            </div>
+        </div>
+
+        <div id="no-project-state" style="display: none; padding: 4rem 1rem; text-align: center; color: var(--text-muted);">
+            <i data-lucide="folder-open" style="width: 48px; height: 48px; opacity: 0.5;"></i>
+            <h3 style="margin: 1rem 0 0.5rem;">Nenhum projeto selecionado</h3>
+            <p>Selecione um projeto no seletor acima para ver o dashboard.</p>
         </div>
     </main>
+
+    <style>
+        .spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    </style>
 
     <script src="../config.js"></script>
     <script src="supabase-helper.js"></script>
     <script>
+        const STATUS_DESPESA_EXECUTADO = ['enviado_salic', 'concluido', 'liberado_rpa', 'aguardando_d3'];
+
+        let sb = null;
+        let currentProjectId = null;
+
         document.addEventListener('DOMContentLoaded', async () => {
-            renderSidebar();
-            
+            if (window.renderSidebar) window.renderSidebar();
             if (window.lucide) window.lucide.createIcons();
-            
+
             try {
-                const sb = await initSupabase();
-                const session = await sb.auth.getSession();
-                if (!session.data.session) {
+                sb = await initSupabase();
+                const { data: { session } } = await sb.auth.getSession();
+                if (!session) {
                     window.location.href = '../index.html#login';
                     return;
                 }
 
-                // Carregar projetos
-                const { data: projects } = await sb.from('projects').select('*').order('nome');
+                const { data: projects, error } = await sb
+                    .from('projects')
+                    .select('id, pronac, nome')
+                    .order('nome', { ascending: true });
+
                 const selector = document.getElementById('project-selector');
-                
-                if (projects && projects.length > 0) {
-                    selector.innerHTML = projects.map(p => `<option value="${p.id}">${p.nome}</option>`).join('');
-                    loadDashboardData(projects[0].id);
-                } else {
+                if (error || !projects || projects.length === 0) {
                     selector.innerHTML = '<option value="">Nenhum projeto encontrado</option>';
+                    showNoProjectState();
+                    return;
                 }
 
-                selector.onchange = (e) => loadDashboardData(e.target.value);
+                selector.innerHTML = '<option value="">Selecione um projeto…</option>' +
+                    projects.map(p => `<option value="${p.id}">${p.pronac ? p.pronac + ' — ' : ''}${p.nome}</option>`).join('');
 
+                const saved = window.ProjectManager && ProjectManager.getSelected();
+                const initialId = (saved && projects.some(p => p.id === saved)) ? saved : projects[0].id;
+                selector.value = initialId;
+                if (window.ProjectManager) ProjectManager.setSelected(initialId);
+                await loadDashboardData(initialId);
+
+                selector.onchange = async (e) => {
+                    const pid = e.target.value;
+                    if (window.ProjectManager) ProjectManager.setSelected(pid);
+                    if (!pid) { showNoProjectState(); return; }
+                    await loadDashboardData(pid);
+                };
             } catch (err) {
-                console.error("Erro ao carregar dashboard:", err);
+                console.error('[dashboard]', err);
             }
         });
 
+        function showNoProjectState() {
+            document.getElementById('dashboard-body').style.display = 'none';
+            document.getElementById('no-project-state').style.display = 'block';
+            if (window.lucide) window.lucide.createIcons();
+        }
+        function hideNoProjectState() {
+            document.getElementById('dashboard-body').style.display = '';
+            document.getElementById('no-project-state').style.display = 'none';
+        }
+
+        function applySkeleton(on) {
+            const ids = ['stat-aprovado','stat-executado','stat-saldo','stat-percent','stat-impostos','stat-checklist'];
+            ids.forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.classList.toggle('skeleton', on);
+            });
+        }
+
         async function loadDashboardData(projectId) {
-            const sb = await initSupabase();
-            
-            // Simulação de dados para o dashboard (Em produção viria de views agregadas do Supabase)
-            document.getElementById('total-budget').textContent = 'R$ 450.000,00';
-            document.getElementById('execution-percent').textContent = '42%';
-            document.getElementById('execution-bar').style.width = '42%';
-            document.getElementById('total-taxes').textContent = 'R$ 12.450,80';
-            document.getElementById('checklist-percent').textContent = '15%';
+            if (!projectId) { showNoProjectState(); return; }
+            hideNoProjectState();
+            currentProjectId = projectId;
+            applySkeleton(true);
 
-            // Buscar rubricas com alerta (>90%)
-            const { data: rubrics } = await sb.from('rubricas')
-                .select('*')
-                .eq('project_id', projectId)
-                .gte('percentual_executado', 90);
+            try {
+                const [rubricasRes, despesasExecRes, impostosRes, checklistRes, contratosRes, despesasRecentesRes] = await Promise.all([
+                    sb.from('rubricas')
+                        .select('nome, codigo, valor_aprovado, valor_utilizado, alerta_limite_ativo, percentual_alerta')
+                        .eq('project_id', projectId)
+                        .order('nome', { ascending: true }),
+                    sb.from('despesas')
+                        .select('valor')
+                        .eq('project_id', projectId)
+                        .in('status', STATUS_DESPESA_EXECUTADO),
+                    sb.from('tax_guides')
+                        .select('valor, status')
+                        .eq('project_id', projectId)
+                        .neq('status', 'cancelada'),
+                    sb.from('checklist_items')
+                        .select('status')
+                        .eq('project_id', projectId),
+                    sb.from('contracts')
+                        .select('status, valor_total')
+                        .eq('project_id', projectId),
+                    sb.from('despesas')
+                        .select('data_pagamento, valor, status, fornecedor_nome, rubricas(nome)')
+                        .eq('project_id', projectId)
+                        .order('data_pagamento', { ascending: false, nullsFirst: false })
+                        .limit(8)
+                ]);
 
-            const alertContainer = document.getElementById('rubric-alerts');
-            if (rubrics && rubrics.length > 0) {
-                alertContainer.innerHTML = rubrics.map(r => `
-                    <div style="padding: 1rem; border-left: 4px solid #ef4444; background: #fef2f2; border-radius: 4px; margin-bottom: 0.75rem;">
-                        <div style="display: flex; justify-content: space-between; font-weight: 600;">
-                            <span>${r.nome}</span>
-                            <span class="text-error">${r.percentual_executado}%</span>
-                        </div>
-                        <div style="font-size: 0.75rem; color: var(--text-secondary);">Atenção: Rubrica atingindo o limite orçamentário.</div>
-                    </div>
-                `).join('');
-            } else {
-                alertContainer.innerHTML = '<p class="text-muted">Todas as rubricas estão dentro dos limites.</p>';
+                const rubricas = rubricasRes.data || [];
+                const despesasExec = despesasExecRes.data || [];
+                const impostos = impostosRes.data || [];
+                const checklist = checklistRes.data || [];
+                const contratos = contratosRes.data || [];
+                const despesasRecentes = despesasRecentesRes.data || [];
+
+                const totalAprovado = rubricas.reduce((s, r) => s + Number(r.valor_aprovado || 0), 0);
+                const totalExecutado = despesasExec.reduce((s, d) => s + Number(d.valor || 0), 0);
+                const saldo = totalAprovado - totalExecutado;
+                const percExec = totalAprovado > 0 ? (totalExecutado / totalAprovado) * 100 : 0;
+                const totalImpostos = impostos.reduce((s, i) => s + Number(i.valor || 0), 0);
+                const checklistTotal = checklist.length;
+                const checklistOk = checklist.filter(c => c.status === 'ok').length;
+                const checklistPerc = checklistTotal > 0 ? (checklistOk / checklistTotal) * 100 : 0;
+                const contratosAtivos = contratos.filter(c => c.status === 'ativo').length;
+                const contratosTotal = contratos.length;
+                const contratosValor = contratos.reduce((s, c) => s + Number(c.valor_total || 0), 0);
+
+                renderTopStats({ totalAprovado, totalExecutado, saldo, percExec, totalImpostos, checklistOk, checklistTotal, checklistPerc });
+                renderContractsStrip({ contratosAtivos, contratosTotal, contratosValor });
+                renderRubricasTable(rubricas);
+                renderDespesasRecentes(despesasRecentes);
+                renderRubricasAlerts(rubricas);
+
+                if (window.lucide) window.lucide.createIcons();
+            } catch (err) {
+                console.error('[loadDashboardData]', err);
+                applySkeleton(false);
+                document.getElementById('rubricas-table-wrap').innerHTML =
+                    `<div class="empty-state"><i data-lucide="alert-triangle"></i>Falha ao carregar dados: ${err.message || ''}</div>`;
+                if (window.lucide) window.lucide.createIcons();
             }
         }
 
+        function fmtBRL(n) {
+            return Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        }
+        function fmtDate(iso) {
+            if (!iso) return '—';
+            try { return new Date(iso).toLocaleDateString('pt-BR'); } catch { return '—'; }
+        }
+        function statusLabel(s) {
+            if (!s) return '—';
+            return String(s).replace(/_/g, ' ');
+        }
+
+        function renderTopStats(s) {
+            applySkeleton(false);
+            document.getElementById('stat-aprovado').textContent = fmtBRL(s.totalAprovado);
+            document.getElementById('stat-aprovado-sub').textContent = 'Soma de valor_aprovado das rubricas';
+
+            document.getElementById('stat-executado').textContent = fmtBRL(s.totalExecutado);
+            document.getElementById('stat-executado-sub').textContent = `${s.percExec.toFixed(1)}% do aprovado`;
+
+            const saldoEl = document.getElementById('stat-saldo');
+            saldoEl.textContent = fmtBRL(s.saldo);
+            const saldoSub = document.getElementById('stat-saldo-sub');
+            if (s.saldo < 0) {
+                saldoEl.style.color = '#ef4444';
+                saldoSub.innerHTML = '<i data-lucide="alert-triangle" style="width:14px;"></i> Saldo negativo';
+                saldoSub.className = 'stat-sub stat-danger';
+            } else {
+                saldoEl.style.color = '';
+                saldoSub.textContent = 'Disponível para execução';
+                saldoSub.className = 'stat-sub stat-positive';
+            }
+
+            document.getElementById('stat-percent').textContent = `${s.percExec.toFixed(1)}%`;
+            const bar = document.getElementById('stat-percent-bar');
+            const cappedWidth = Math.min(100, Math.max(0, s.percExec));
+            bar.style.width = `${cappedWidth}%`;
+            bar.classList.toggle('warning', s.percExec >= 80 && s.percExec < 100);
+            bar.classList.toggle('danger', s.percExec >= 100);
+
+            document.getElementById('stat-impostos').textContent = fmtBRL(s.totalImpostos);
+            document.getElementById('stat-impostos-sub').textContent = 'Guias não-canceladas';
+
+            document.getElementById('stat-checklist').textContent = `${s.checklistOk} / ${s.checklistTotal} itens`;
+            const cb = document.getElementById('stat-checklist-bar');
+            cb.style.width = `${Math.min(100, Math.max(0, s.checklistPerc))}%`;
+            if (s.checklistTotal === 0) {
+                cb.style.width = '0%';
+            }
+        }
+
+        function renderContractsStrip({ contratosAtivos, contratosTotal, contratosValor }) {
+            const headline = document.getElementById('contracts-headline');
+            const sub = document.getElementById('contracts-sub');
+            if (contratosTotal === 0) {
+                headline.textContent = 'Nenhum contrato cadastrado';
+                sub.textContent = 'Cadastre contratos na aba Contratos para começar.';
+            } else {
+                headline.textContent = `${contratosAtivos} contrato(s) ativo(s) de ${contratosTotal}`;
+                sub.textContent = `Valor total: ${fmtBRL(contratosValor)}`;
+            }
+        }
+
+        function classifyRubrica(aprov, util, percAlerta) {
+            if (aprov <= 0) return { label: '—', cls: 'pill-ok' };
+            const ratio = util / aprov;
+            if (ratio >= 1) return { label: 'Excedida', cls: 'pill-excedida' };
+            const limite = (percAlerta != null) ? (Number(percAlerta) / 100) : 0.9;
+            if (ratio >= limite) return { label: 'Atenção', cls: 'pill-atencao' };
+            return { label: 'OK', cls: 'pill-ok' };
+        }
+
+        function renderRubricasTable(rubricas) {
+            const wrap = document.getElementById('rubricas-table-wrap');
+            if (rubricas.length === 0) {
+                wrap.innerHTML = `<div class="empty-state"><i data-lucide="pie-chart"></i>Nenhuma rubrica cadastrada para este projeto.</div>`;
+                if (window.lucide) window.lucide.createIcons();
+                return;
+            }
+
+            const rows = rubricas.map(r => {
+                const aprov = Number(r.valor_aprovado || 0);
+                const util = Number(r.valor_utilizado || 0);
+                const saldo = aprov - util;
+                const pct = aprov > 0 ? (util / aprov) * 100 : 0;
+                const cls = classifyRubrica(aprov, util, r.percentual_alerta);
+                return `
+                    <tr>
+                        <td>
+                            <div style="font-weight: 600;">${escapeHtml(r.nome || '—')}</div>
+                            ${r.codigo ? `<div style="font-size: 0.7rem; color: var(--text-muted);">${escapeHtml(r.codigo)}</div>` : ''}
+                        </td>
+                        <td class="num">${fmtBRL(aprov)}</td>
+                        <td class="num">${fmtBRL(util)}</td>
+                        <td class="num" style="color: ${saldo < 0 ? '#ef4444' : 'inherit'};">${fmtBRL(saldo)}</td>
+                        <td class="num">${pct.toFixed(1)}%</td>
+                        <td><span class="pill ${cls.cls}">${cls.label}</span></td>
+                    </tr>
+                `;
+            }).join('');
+
+            wrap.innerHTML = `
+                <div style="overflow-x: auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Rubrica</th>
+                                <th class="num">Aprovado</th>
+                                <th class="num">Executado</th>
+                                <th class="num">Saldo</th>
+                                <th class="num">%</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        function renderDespesasRecentes(despesas) {
+            const wrap = document.getElementById('despesas-recentes-wrap');
+            if (despesas.length === 0) {
+                wrap.innerHTML = `<div class="empty-state"><i data-lucide="receipt"></i>Nenhuma despesa lançada ainda.</div>`;
+                if (window.lucide) window.lucide.createIcons();
+                return;
+            }
+
+            const rows = despesas.map(d => `
+                <tr>
+                    <td>${fmtDate(d.data_pagamento)}</td>
+                    <td>
+                        <div style="font-weight: 500;">${escapeHtml(d.fornecedor_nome || '—')}</div>
+                        <div style="font-size: 0.7rem; color: var(--text-muted);">${escapeHtml((d.rubricas && d.rubricas.nome) || '—')}</div>
+                    </td>
+                    <td class="num">${fmtBRL(d.valor)}</td>
+                    <td><span style="font-size: 0.75rem; color: var(--text-secondary); text-transform: capitalize;">${escapeHtml(statusLabel(d.status))}</span></td>
+                </tr>
+            `).join('');
+
+            wrap.innerHTML = `
+                <div style="overflow-x: auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Data</th>
+                                <th>Fornecedor / Rubrica</th>
+                                <th class="num">Valor</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        function renderRubricasAlerts(rubricas) {
+            const container = document.getElementById('rubric-alerts');
+            const alertas = [];
+            for (const r of rubricas) {
+                const aprov = Number(r.valor_aprovado || 0);
+                const util = Number(r.valor_utilizado || 0);
+                if (aprov <= 0) continue;
+                const ratio = util / aprov;
+                const limite = (r.percentual_alerta != null) ? (Number(r.percentual_alerta) / 100) : 0.9;
+                if (r.alerta_limite_ativo === false) continue;
+                if (ratio >= 1) {
+                    alertas.push({ tipo: 'excedida', rubrica: r, ratio });
+                } else if (ratio >= limite) {
+                    alertas.push({ tipo: 'atencao', rubrica: r, ratio });
+                }
+            }
+
+            if (alertas.length === 0) {
+                container.innerHTML = '<p class="text-muted" style="font-size: 0.85rem;">Nenhuma rubrica próxima do limite.</p>';
+                return;
+            }
+
+            alertas.sort((a, b) => b.ratio - a.ratio);
+            container.innerHTML = alertas.map(a => {
+                const pct = (a.ratio * 100).toFixed(1);
+                const isWarn = a.tipo === 'atencao';
+                return `
+                    <div class="alert-row ${isWarn ? 'warning' : ''}">
+                        <div style="display: flex; justify-content: space-between; gap: 0.5rem; font-weight: 600; font-size: 0.875rem;">
+                            <span>${escapeHtml(a.rubrica.nome || '—')}</span>
+                            <span style="color: ${isWarn ? '#92400e' : '#991b1b'};">${pct}%</span>
+                        </div>
+                        <div style="font-size: 0.72rem; color: var(--text-secondary);">
+                            ${a.tipo === 'excedida' ? 'Rubrica excedida — exige readequação.' : 'Próxima do limite orçamentário.'}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function escapeHtml(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
     </script>
 </body>
 </html>

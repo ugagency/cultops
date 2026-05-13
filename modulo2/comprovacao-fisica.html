@@ -139,6 +139,8 @@
         .status-aprovada::before { background: #10b981; }
         .status-reprovada { background: #fee2e2; color: #991b1b; }
         .status-reprovada::before { background: #ef4444; }
+        .status-pendente_complemento { background: #fef9c3; color: #854d0e; }
+        .status-pendente_complemento::before { background: #eab308; }
 
         /* Action buttons on cards */
         .card-actions {
@@ -184,6 +186,30 @@
             transition: all 0.2s;
         }
         .btn-reject:hover { background: #fecaca; }
+
+        .btn-complement {
+            flex: 1;
+            padding: 0.5rem;
+            border: none;
+            border-radius: var(--radius-sm);
+            background: #fef9c3;
+            color: #854d0e;
+            font-weight: 600;
+            font-size: 0.8rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.3rem;
+            transition: all 0.2s;
+        }
+        .btn-complement:hover { background: #fef08a; }
+
+        .btn-fs-complement { background: #eab308; color: white; }
+        .btn-fs-complement:hover { background: #ca8a04; }
+
+        .spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
         /* Fullscreen Modal */
         .modal-fullscreen {
@@ -313,6 +339,8 @@
     </style>
 </head>
 <body>
+    <div class="toast-notification" id="toast" style="position: fixed; bottom: 2.5rem; right: 2.5rem; padding: 1.25rem 2rem; border-radius: var(--radius-md); color: white; font-weight: 700; font-size: 0.95rem; z-index: 10002; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); transform: translateY(150%); transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);"></div>
+
     <main class="main-content">
         <header class="page-header">
             <div>
@@ -391,23 +419,48 @@
         </div>
     </div>
 
+    <!-- Modal Solicitar Complemento -->
+    <div class="modal-reject-overlay" id="modal-complement">
+        <div class="modal-reject-content">
+            <h3 style="margin-bottom: 0.5rem; color: #854d0e;">
+                <i data-lucide="help-circle" style="width: 20px; height: 20px; vertical-align: middle;"></i>
+                Solicitar Complemento
+            </h3>
+            <p style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                Descreva o que precisa ser complementado. O solicitante receberá esta mensagem e poderá reenviar a evidência.
+            </p>
+            <textarea id="complement-reason" rows="3" placeholder="Ex: Anexe a nota fiscal correspondente, envie a foto com data e local visíveis..."
+                style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-family: inherit; resize: vertical; margin-bottom: 1rem;"></textarea>
+            <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+                <button onclick="closeComplementModal()" style="padding: 0.5rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: white; cursor: pointer; font-weight: 500;">Cancelar</button>
+                <button onclick="confirmComplement()" style="padding: 0.5rem 1rem; border: none; border-radius: var(--radius-sm); background: #eab308; color: white; cursor: pointer; font-weight: 600;">Solicitar Complemento</button>
+            </div>
+        </div>
+    </div>
+
     <script src="../config.js"></script>
     <script src="supabase-helper.js"></script>
     <script>
+        const MIME_ACEITOS = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
+        const TAMANHO_MAX = 50 * 1024 * 1024; // 50MB
+
         let currentProjectId = ProjectManager.getSelected();
         let allProjects = [];
         let allEvidences = [];
         let signedUrls = {};
         let pendingRejectId = null;
+        let pendingComplementId = null;
+        let evidencesChannel = null;
 
         document.addEventListener('DOMContentLoaded', async () => {
             renderSidebar();
             await initSupabase();
             await populateProjectSelect();
-            
+
             if (currentProjectId) {
                 document.getElementById('project-select').value = currentProjectId;
-                loadEvidences();
+                await loadEvidences();
+                setupRealtime(currentProjectId);
             }
         });
 
@@ -416,6 +469,7 @@
             if (e.key === 'Escape') {
                 closeFullscreen();
                 closeRejectModal();
+                closeComplementModal();
             }
         });
 
@@ -431,10 +485,37 @@
             });
         }
 
-        function handleProjectChange(id) {
+        async function handleProjectChange(id) {
             currentProjectId = id;
             ProjectManager.setSelected(id);
-            loadEvidences();
+            await teardownRealtime();
+            await loadEvidences();
+            if (id) setupRealtime(id);
+        }
+
+        async function teardownRealtime() {
+            if (evidencesChannel) {
+                try {
+                    const sb = await initSupabase();
+                    await sb.removeChannel(evidencesChannel);
+                } catch (e) {
+                    console.warn('[teardownRealtime]', e);
+                }
+                evidencesChannel = null;
+            }
+        }
+
+        async function setupRealtime(pid) {
+            const sb = await initSupabase();
+            evidencesChannel = sb
+                .channel(`evidencias-${pid}`)
+                .on('postgres_changes', {
+                    event: '*',
+                    schema: 'public',
+                    table: 'physical_evidences',
+                    filter: `project_id=eq.${pid}`
+                }, () => { loadEvidences(); })
+                .subscribe();
         }
 
         async function loadEvidences() {
@@ -512,47 +593,60 @@
                 const scoreClass = ev.ia_score >= 80 ? 'score-high' : (ev.ia_score >= 50 ? 'score-mid' : 'score-low');
                 const isImage = isImageFile(ev.file_path);
                 const url = signedUrls[ev.file_path] || '';
-                const statusLabel = ev.status_validacao === 'aprovada' ? 'Aprovada' : ev.status_validacao === 'reprovada' ? 'Reprovada' : 'Pendente';
-                const isPending = ev.status_validacao === 'pendente';
+                const statusLabel =
+                    ev.status_validacao === 'aprovada' ? 'Aprovada' :
+                    ev.status_validacao === 'reprovada' ? 'Reprovada' :
+                    ev.status_validacao === 'pendente_complemento' ? 'Complemento solicitado' :
+                    'Pendente';
+                const isReviewable = ev.status_validacao === 'pendente' || ev.status_validacao === 'pendente_complemento';
+                const motivoMsg = ev.motivo_reprovacao || '';
+                const showMotivo = (ev.status_validacao === 'reprovada' || ev.status_validacao === 'pendente_complemento') && motivoMsg;
+                const motivoLabel = ev.status_validacao === 'pendente_complemento' ? 'Complemento solicitado' : 'Motivo';
+                const motivoStyle = ev.status_validacao === 'pendente_complemento'
+                    ? 'background: #fef9c3; color: #854d0e;'
+                    : 'background: #fef2f2; color: #991b1b;';
 
                 return `
                     <div class="glass-card evidence-card" onclick="openFullscreen('${ev.id}')">
                         ${ev.ia_score ? `<div class="ia-score-badge">IA: <span class="${scoreClass}">${ev.ia_score}%</span></div>` : ''}
-                        
+
                         <div class="evidence-preview">
                             ${isImage && url
-                                ? `<img src="${url}" alt="${ev.file_name || 'Evidência'}" loading="lazy">`
+                                ? `<img src="${url}" alt="${escapeHtml(ev.file_name || 'Evidência')}" loading="lazy">`
                                 : `<i data-lucide="${isPdfFile(ev.file_path) ? 'file-text' : 'file'}" style="width: 40px; height: 40px;"></i>`
                             }
                             <div class="preview-overlay">
                                 <i data-lucide="maximize-2"></i>
                             </div>
                         </div>
-                        
+
                         <div class="evidence-meta">
-                            <span class="meta-tag">${(ev.tipo_evidencia || 'outros').replace('_', ' ')}</span>
-                            ${ev.file_name ? `<span class="meta-tag">${ev.file_name}</span>` : ''}
+                            <span class="meta-tag">${escapeHtml((ev.tipo_evidencia || 'outros').replace(/_/g, ' '))}</span>
+                            ${ev.file_name ? `<span class="meta-tag">${escapeHtml(ev.file_name)}</span>` : ''}
                         </div>
 
                         <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
-                            ${ev.descricao || ''}
+                            ${escapeHtml(ev.descricao || '')}
                         </div>
 
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
                             <span class="status-badge status-${ev.status_validacao || 'pendente'}">${statusLabel}</span>
                             <span style="font-size: 0.7rem; color: var(--text-muted);">${formatDate(ev.criado_em)}</span>
                         </div>
 
-                        ${ev.status_validacao === 'reprovada' && ev.motivo_reprovacao ? `
-                            <div style="margin-top: 0.5rem; padding: 0.5rem; background: #fef2f2; border-radius: var(--radius-sm); font-size: 0.75rem; color: #991b1b;">
-                                <strong>Motivo:</strong> ${ev.motivo_reprovacao}
+                        ${showMotivo ? `
+                            <div style="margin-top: 0.5rem; padding: 0.5rem; border-radius: var(--radius-sm); font-size: 0.75rem; ${motivoStyle}">
+                                <strong>${motivoLabel}:</strong> ${escapeHtml(motivoMsg)}
                             </div>
                         ` : ''}
 
-                        ${isPending ? `
+                        ${isReviewable ? `
                             <div class="card-actions" onclick="event.stopPropagation()">
                                 <button class="btn-approve" onclick="approveEvidence('${ev.id}')">
                                     <i data-lucide="check" style="width: 14px; height: 14px;"></i> Aprovar
+                                </button>
+                                <button class="btn-complement" onclick="openComplementModal('${ev.id}')">
+                                    <i data-lucide="help-circle" style="width: 14px; height: 14px;"></i> Complemento
                                 </button>
                                 <button class="btn-reject" onclick="openRejectModal('${ev.id}')">
                                     <i data-lucide="x" style="width: 14px; height: 14px;"></i> Reprovar
@@ -575,7 +669,6 @@
             const url = signedUrls[ev.file_path] || '';
             const isImage = isImageFile(ev.file_path);
             const isPdf = isPdfFile(ev.file_path);
-            const isPending = ev.status_validacao === 'pendente';
 
             // Title
             document.getElementById('fs-title').textContent = ev.file_name || ev.tipo_evidencia || 'Evidência';
@@ -601,10 +694,14 @@
 
             // Footer actions
             const footer = document.getElementById('fs-footer');
-            if (isPending) {
+            const isReviewable = ev.status_validacao === 'pendente' || ev.status_validacao === 'pendente_complemento';
+            if (isReviewable) {
                 footer.innerHTML = `
                     <button class="btn-action btn-fs-approve" onclick="approveEvidence('${ev.id}'); closeFullscreen();">
                         <i data-lucide="check-circle" style="width: 16px;"></i> Aprovar
+                    </button>
+                    <button class="btn-action btn-fs-complement" onclick="closeFullscreen(); openComplementModal('${ev.id}');">
+                        <i data-lucide="help-circle" style="width: 16px;"></i> Solicitar complemento
                     </button>
                     <button class="btn-action btn-fs-reject" onclick="closeFullscreen(); openRejectModal('${ev.id}');">
                         <i data-lucide="x-circle" style="width: 16px;"></i> Reprovar
@@ -637,17 +734,17 @@
 
             const { error } = await sb.from('physical_evidences').update({
                 status_validacao: 'aprovada',
+                motivo_reprovacao: null,
                 validado_por: user?.id || null,
                 validado_em: new Date().toISOString()
             }).eq('id', evidenceId);
 
             if (error) {
-                alert("Erro ao aprovar: " + error.message);
+                showToast('Erro ao aprovar: ' + error.message, 'error');
                 return;
             }
-
-            alert("Evidência aprovada com sucesso!");
-            await loadEvidences();
+            showToast('Evidência aprovada.', 'success');
+            // Realtime cuidará do reload; sem fallback manual
         }
 
         function openRejectModal(evidenceId) {
@@ -665,8 +762,8 @@
             if (!pendingRejectId) return;
 
             const motivo = document.getElementById('reject-reason').value.trim();
-            if (!motivo) {
-                alert("Informe o motivo da reprovação.");
+            if (motivo.length < 3) {
+                showToast('Informe o motivo da reprovação.', 'error');
                 return;
             }
 
@@ -681,41 +778,100 @@
             }).eq('id', pendingRejectId);
 
             if (error) {
-                alert("Erro ao reprovar: " + error.message);
+                showToast('Erro ao reprovar: ' + error.message, 'error');
+                return;
+            }
+            closeRejectModal();
+            showToast('Evidência reprovada.', 'success');
+        }
+
+        function openComplementModal(evidenceId) {
+            pendingComplementId = evidenceId;
+            document.getElementById('complement-reason').value = '';
+            document.getElementById('modal-complement').classList.add('active');
+            setTimeout(() => document.getElementById('complement-reason').focus(), 50);
+        }
+
+        function closeComplementModal() {
+            pendingComplementId = null;
+            document.getElementById('modal-complement').classList.remove('active');
+        }
+
+        async function confirmComplement() {
+            if (!pendingComplementId) return;
+            const descricao = document.getElementById('complement-reason').value.trim();
+            if (descricao.length < 5) {
+                showToast('Descreva o que precisa ser complementado (mín. 5 caracteres).', 'error');
                 return;
             }
 
-            closeRejectModal();
-            alert("Evidência reprovada.");
-            await loadEvidences();
+            const sb = await initSupabase();
+            const { data: { user } } = await sb.auth.getUser();
+
+            const { error } = await sb.from('physical_evidences').update({
+                status_validacao: 'pendente_complemento',
+                motivo_reprovacao: descricao,
+                validado_por: user?.id || null,
+                validado_em: new Date().toISOString()
+            }).eq('id', pendingComplementId);
+
+            if (error) {
+                showToast('Erro ao solicitar complemento: ' + error.message, 'error');
+                return;
+            }
+            closeComplementModal();
+            showToast('Complemento solicitado.', 'success');
         }
 
         // ============ FILE UPLOAD ============
 
         async function handleFileUpload(files) {
             if (!currentProjectId) {
-                alert("Selecione um projeto primeiro!");
+                showToast('Selecione um projeto primeiro!', 'error');
                 return;
             }
+            if (!files || files.length === 0) return;
 
             const sb = await initSupabase();
             const { data: { user } } = await sb.auth.getUser();
-            const project = allProjects.find(p => p.id === currentProjectId);
+
+            // Resolve orgId ANTES do loop — uma única chamada async para a fonte do JWT/projects
+            const orgId = await getCurrentOrgId(currentProjectId);
+            if (!orgId) {
+                showToast('Organização não identificada.', 'error');
+                return;
+            }
+
             const tipoSelecionado = document.getElementById('gestor-tipo-evidencia').value;
-            
+            let sucessos = 0, falhas = 0;
+
             for (const file of files) {
+                // Validação de tamanho e MIME real
+                if (!MIME_ACEITOS.includes(file.type)) {
+                    showToast(`"${file.name}": formato não aceito. Use PDF, JPG ou PNG.`, 'error');
+                    falhas++;
+                    continue;
+                }
+                if (file.size > TAMANHO_MAX) {
+                    showToast(`"${file.name}": arquivo muito grande. Máximo: 50MB.`, 'error');
+                    falhas++;
+                    continue;
+                }
+
                 const fileUuid = crypto.randomUUID();
-                const fileExt = file.name.split('.').pop();
+                const fileExt = (file.name.split('.').pop() || 'bin').toLowerCase();
                 const fileName = `${fileUuid}.${fileExt}`;
                 const filePath = `${currentProjectId}/${fileName}`;
 
                 // 1. Upload para o Storage
                 const { error: uploadError } = await sb.storage
                     .from('physical-evidences')
-                    .upload(filePath, file);
+                    .upload(filePath, file, { contentType: file.type });
 
                 if (uploadError) {
-                    alert("Erro no upload: " + uploadError.message);
+                    console.error('[upload evidence]', uploadError);
+                    showToast(`"${file.name}": erro no upload — ${uploadError.message}`, 'error');
+                    falhas++;
                     continue;
                 }
 
@@ -723,7 +879,7 @@
                 const { error: dbError } = await sb.from('physical_evidences').insert([{
                     id: fileUuid,
                     project_id: currentProjectId,
-                    organization_id: project?.organization_id || null,
+                    organization_id: orgId,
                     enviado_por: user?.id || null,
                     tipo_evidencia: tipoSelecionado,
                     file_path: filePath,
@@ -734,13 +890,43 @@
                 }]);
 
                 if (dbError) {
-                    console.error("Erro ao registrar no banco:", dbError);
+                    console.error('[insert evidence]', dbError);
+                    // Limpa arquivo órfão (best-effort)
+                    sb.storage.from('physical-evidences').remove([filePath]).catch(() => {});
+                    showToast(`"${file.name}": erro ao registrar — ${dbError.message}`, 'error');
+                    falhas++;
+                    continue;
                 }
+                sucessos++;
             }
-            
-            // Reset file input
+
             document.getElementById('file-input').value = '';
-            await loadEvidences();
+            if (sucessos > 0) {
+                const msg = falhas > 0
+                    ? `${sucessos} evidência(s) enviada(s), ${falhas} falha(s).`
+                    : `${sucessos} evidência(s) enviada(s).`;
+                showToast(msg, 'success');
+            }
+            // Realtime já dispara loadEvidences; mas se a sub não estiver ativa, fazemos um refresh manual
+            if (!evidencesChannel) await loadEvidences();
+        }
+
+        function escapeHtml(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function showToast(msg, type = 'success') {
+            const t = document.getElementById('toast');
+            if (!t) return;
+            t.innerText = msg;
+            t.style.background = type === 'success' ? '#10b981' : (type === 'error' ? '#ef4444' : '#3b82f6');
+            t.style.transform = 'translateY(0)';
+            setTimeout(() => t.style.transform = 'translateY(150%)', 4000);
         }
     </script>
 </body>

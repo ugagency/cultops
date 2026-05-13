@@ -8,6 +8,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
 
     <link rel="stylesheet" href="../style.css">
     <link rel="stylesheet" href="m2-shared.css">
@@ -268,6 +272,8 @@
 </head>
 <body>
     <main class="main-content">
+        <div class="toast-notification" id="toast" style="position: fixed; bottom: 2.5rem; right: 2.5rem; padding: 1.25rem 2rem; border-radius: var(--radius-md); color: white; font-weight: 700; font-size: 0.95rem; z-index: 10000; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); transform: translateY(150%); transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);"></div>
+
         <div class="exp-container">
 
             <div class="dashboard-header">
@@ -354,17 +360,17 @@
                         </div>
                     </div>
 
-                    <div class="checkbox-list">
-                        <label class="checkbox-item"><input type="checkbox" value="nfs" checked> Notas Fiscais</label>
-                        <label class="checkbox-item"><input type="checkbox" value="contratos" checked> Contratos</label>
-                        <label class="checkbox-item"><input type="checkbox" value="evidencias" checked> Evidências físicas</label>
-                        <label class="checkbox-item"><input type="checkbox" value="impostos" checked> Guias de impostos</label>
+                    <div class="checkbox-list" id="zip-checkbox-list">
+                        <label class="checkbox-item"><input type="checkbox" value="nfs" checked onchange="atualizarBotaoZIP()"> Notas Fiscais</label>
+                        <label class="checkbox-item"><input type="checkbox" value="contratos" checked onchange="atualizarBotaoZIP()"> Contratos</label>
+                        <label class="checkbox-item"><input type="checkbox" value="evidencias" checked onchange="atualizarBotaoZIP()"> Evidências físicas</label>
+                        <label class="checkbox-item"><input type="checkbox" value="impostos" checked onchange="atualizarBotaoZIP()"> Guias de impostos</label>
                     </div>
 
                     <button class="btn-exp" id="btn-zip" disabled onclick="exportarZIP()">
                         <i data-lucide="package"></i> Preparar ZIP
                     </button>
-                    <p class="warn-msg">Projetos grandes podem demorar vários minutos.</p>
+                    <p class="warn-msg">Projetos com muitos arquivos podem demorar alguns minutos.</p>
                     <p class="card-feedback" id="fb-zip"></p>
                 </div>
 
@@ -464,9 +470,10 @@
             ProjectManager.setSelected(pid);
 
             // Habilita botões
-            ['btn-csv','btn-excel','btn-zip','btn-auditoria'].forEach(id => {
+            ['btn-csv','btn-excel','btn-auditoria'].forEach(id => {
                 document.getElementById(id).disabled = false;
             });
+            atualizarBotaoZIP();
 
             // Carrega dados de projeto e rubricas
             const { data: proj } = await sbClient
@@ -521,7 +528,7 @@
 
             let query = sbClient
                 .from('despesas')
-                .select('data_pagamento, cnpj_fornecedor, fornecedor_nome, valor, status, protocolo_salic, autenticacao_bancaria, rubrica_id, rubricas(nome)')
+                .select('data_pagamento, cnpj_fornecedor, fornecedor_nome, valor, status, protocolo_salic, autenticacao_bancaria, data_conciliacao, rubrica_id, rubricas(nome), documents(numero_nf)')
                 .eq('project_id', currentProjectId)
                 .order('data_pagamento', { ascending: true });
 
@@ -544,16 +551,21 @@
                 return;
             }
 
-            const headers = ['data_pagamento','cnpj_fornecedor','fornecedor_nome','rubrica_nome','valor','status','protocolo_salic','autenticacao_bancaria'];
+            const headers = [
+                'data_pagamento','cnpj_fornecedor','numero_nf','fornecedor_nome','rubrica_nome',
+                'valor','status','protocolo_salic','autenticacao_bancaria','data_conciliacao'
+            ];
             const rows = data.map(d => [
-                d.data_pagamento || '',
-                d.cnpj_fornecedor || '',
-                d.fornecedor_nome || '',
-                (d.rubricas && d.rubricas.nome) || '',
+                d.data_pagamento ? new Date(d.data_pagamento).toLocaleDateString('pt-BR') : '—',
+                formatCNPJ(d.cnpj_fornecedor),
+                (d.documents && d.documents.numero_nf) || '—',
+                d.fornecedor_nome || '—',
+                (d.rubricas && d.rubricas.nome) || '—',
                 (d.valor != null ? Number(d.valor).toFixed(2).replace('.', ',') : ''),
-                d.status || '',
-                d.protocolo_salic || '',
-                d.autenticacao_bancaria || ''
+                d.status || '—',
+                d.protocolo_salic || '—',
+                d.autenticacao_bancaria || '—',
+                formatDateTimeBR(d.data_conciliacao)
             ]);
 
             const csv = [headers, ...rows]
@@ -575,8 +587,10 @@
 
             // Registra no histórico
             const { data: { user } } = await sbClient.auth.getUser();
+            const orgId = await getCurrentOrgId(currentProjectId);
             await sbClient.from('exportacoes_log').insert({
                 project_id: currentProjectId,
+                organization_id: orgId,
                 tipo: 'csv',
                 status: 'pronto',
                 file_path: null,
@@ -586,6 +600,21 @@
             fb.textContent = `${data.length} linha(s) exportadas.`;
             btn.disabled = false;
             await carregarHistorico();
+        }
+
+        function formatCNPJ(cnpj) {
+            if (!cnpj) return '—';
+            const c = String(cnpj).replace(/\D/g, '');
+            if (c.length !== 14) return cnpj;
+            return c.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+        }
+
+        function formatDateTimeBR(iso) {
+            if (!iso) return '—';
+            const d = new Date(iso);
+            if (Number.isNaN(d.getTime())) return '—';
+            const pad = n => String(n).padStart(2, '0');
+            return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
         }
 
         function csvEscape(v) {
@@ -604,93 +633,897 @@
         }
 
         // ─────────────────────────────────────────────────────────────
-        // CARDS 2/3/4 — disparam n8n e gravam exportacoes_log
+        // CARD 2 — Excel Gerencial (client-side com SheetJS)
         // ─────────────────────────────────────────────────────────────
         async function exportarExcel() {
-            await dispararExportacaoN8N({
-                tipo: 'excel',
-                webhook: CONFIG.N8N_WEBHOOK_EXPORTAR_EXCEL,
-                btnId: 'btn-excel',
-                fbId: 'fb-excel',
-                loadingLabel: 'Gerando Excel...',
-                body: {}
-            });
+            if (!currentProjectId) return;
+
+            const btn = document.getElementById('btn-excel');
+            const fb = document.getElementById('fb-excel');
+            btn.disabled = true;
+            fb.innerHTML = '<i data-lucide="loader" class="spin"></i> Gerando Excel...';
+            if (window.lucide) window.lucide.createIcons();
+
+            const pid = currentProjectId;
+            const { data: { user } } = await sbClient.auth.getUser();
+            const orgId = await getCurrentOrgId(pid);
+
+            try {
+                // PASSO 1 — Buscar todos os dados em paralelo
+                const [
+                    projetoRes,
+                    rubricasRes,
+                    despesasRes,
+                    contratosRes,
+                    parcelasRes,
+                    impostosRes,
+                    despesasIdsRes
+                ] = await Promise.all([
+                    sbClient.from('projects').select('*').eq('id', pid).maybeSingle(),
+                    sbClient.from('rubricas')
+                        .select('nome, codigo, valor_aprovado, valor_utilizado, etapa')
+                        .eq('project_id', pid)
+                        .order('nome', { ascending: true }),
+                    sbClient.from('despesas')
+                        .select('data_pagamento, valor, status, cnpj_fornecedor, fornecedor_nome, protocolo_salic, autenticacao_bancaria, rubricas(nome), documents(numero_nf)')
+                        .eq('project_id', pid)
+                        .order('data_pagamento', { ascending: true }),
+                    sbClient.from('contracts')
+                        .select('id, numero, objeto, valor_total, data_inicio, data_fim, status, fornecedores(razao_social, cnpj)')
+                        .eq('project_id', pid)
+                        .order('data_inicio', { ascending: true }),
+                    sbClient.from('contract_parcelas')
+                        .select('contract_id, status, contracts!inner(project_id)')
+                        .eq('contracts.project_id', pid),
+                    sbClient.from('tax_guides')
+                        .select('tipo_imposto, codigo_receita, competencia, valor, data_vencimento, data_pagamento, status')
+                        .eq('project_id', pid)
+                        .order('data_vencimento', { ascending: true }),
+                    sbClient.from('despesas').select('id').eq('project_id', pid)
+                ]);
+
+                const erros = [projetoRes, rubricasRes, despesasRes, contratosRes, parcelasRes, impostosRes, despesasIdsRes]
+                    .map(r => r.error).filter(Boolean);
+                if (erros.length) throw erros[0];
+
+                const projeto = projetoRes.data || {};
+                const rubricas = rubricasRes.data || [];
+                const despesas = despesasRes.data || [];
+                const contratos = contratosRes.data || [];
+                const parcelas = parcelasRes.data || [];
+                const impostos = impostosRes.data || [];
+                const despesasIds = (despesasIdsRes.data || []).map(d => d.id);
+
+                // Auditoria — só busca se houver despesas
+                let auditoria = [];
+                if (despesasIds.length > 0) {
+                    const { data: auditData, error: auditErr } = await sbClient
+                        .from('audit_log')
+                        .select('tabela, campo, valor_anterior, valor_novo, origem, created_at')
+                        .in('registro_id', despesasIds)
+                        .order('created_at', { ascending: false })
+                        .limit(200);
+                    if (auditErr) throw auditErr;
+                    auditoria = auditData || [];
+                }
+
+                // Agrupar parcelas por contract_id
+                const parcelasPorContrato = {};
+                parcelas.forEach(p => {
+                    if (!parcelasPorContrato[p.contract_id]) {
+                        parcelasPorContrato[p.contract_id] = { total: 0, pagas: 0, pendentes: 0, atrasadas: 0 };
+                    }
+                    const g = parcelasPorContrato[p.contract_id];
+                    g.total++;
+                    if (p.status === 'paga') g.pagas++;
+                    else if (p.status === 'pendente') g.pendentes++;
+                    else if (p.status === 'atrasada') g.atrasadas++;
+                });
+
+                // Totais financeiros
+                const totalAprovado = rubricas.reduce((s, r) => s + Number(r.valor_aprovado || 0), 0);
+                const totalExecutado = rubricas.reduce((s, r) => s + Number(r.valor_utilizado || 0), 0);
+                const saldo = totalAprovado - totalExecutado;
+                const percExec = totalAprovado > 0 ? ((totalExecutado / totalAprovado) * 100).toFixed(1) : '0';
+
+                // PASSO 2 — Montar workbook
+                const wb = XLSX.utils.book_new();
+
+                // ABA 1 — Resumo
+                const dadosResumo = [
+                    ['PrestAI — Relatório Gerencial'],
+                    ['Projeto:', projeto.nome || '—'],
+                    ['PRONAC:', projeto.pronac || '—'],
+                    ['Proponente:', projeto.propoente || '—'],
+                    ['Mecanismo:', projeto.Mecanismo || '—'],
+                    ['UF:', projeto.uf || '—'],
+                    [],
+                    ['RESUMO FINANCEIRO'],
+                    ['Valor Aprovado MinC:', totalAprovado],
+                    ['Total Executado:', totalExecutado],
+                    ['Saldo:', saldo],
+                    ['% Execução:', percExec + '%'],
+                    [],
+                    ['RESUMO OPERACIONAL'],
+                    ['Total de Contratos:', contratos.length],
+                    ['Guias de Imposto Pagas:', impostos.filter(i => i.status === 'paga').length],
+                    ['Evidências Aprovadas:', '—'],
+                    [],
+                    ['Data de Geração:', new Date().toLocaleString('pt-BR')]
+                ];
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(dadosResumo), 'Resumo');
+
+                // ABA 2 — Despesas
+                const headerDespesas = ['Data', 'Fornecedor', 'CNPJ', 'Nº NF', 'Rubrica', 'Valor (R$)', 'Status', 'Protocolo SALIC'];
+                const dadosDespesas = despesas.map(d => [
+                    d.data_pagamento ? new Date(d.data_pagamento).toLocaleDateString('pt-BR') : '—',
+                    d.fornecedor_nome || '—',
+                    d.cnpj_fornecedor || '—',
+                    (d.documents && d.documents.numero_nf) || '—',
+                    (d.rubricas && d.rubricas.nome) || '—',
+                    Number(d.valor || 0),
+                    d.status || '—',
+                    d.protocolo_salic || '—'
+                ]);
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headerDespesas, ...dadosDespesas]), 'Despesas');
+
+                // ABA 3 — Rubricas
+                const headerRubricas = ['Código', 'Rubrica', 'Valor Aprovado (R$)', 'Valor Utilizado (R$)', 'Saldo (R$)', '% Execução', 'Status'];
+                const dadosRubricas = rubricas.map(r => {
+                    const aprov = Number(r.valor_aprovado || 0);
+                    const util = Number(r.valor_utilizado || 0);
+                    const sld = aprov - util;
+                    const perc = aprov > 0 ? ((util / aprov) * 100).toFixed(1) + '%' : '0%';
+                    const status = util > aprov ? 'Excedida' : (aprov > 0 && util / aprov >= 0.9) ? 'Atenção' : 'OK';
+                    return [r.codigo || '—', r.nome, aprov, util, sld, perc, status];
+                });
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headerRubricas, ...dadosRubricas]), 'Rubricas');
+
+                // ABA 4 — Contratos
+                const headerContratos = ['Nº', 'Fornecedor', 'CNPJ', 'Objeto', 'Valor Total (R$)', 'Início', 'Fim', 'Status', 'Parcelas Pagas', 'Pendentes', 'Atrasadas'];
+                const dadosContratos = contratos.map(c => {
+                    const g = parcelasPorContrato[c.id] || { pagas: 0, pendentes: 0, atrasadas: 0 };
+                    return [
+                        c.numero || '—',
+                        (c.fornecedores && c.fornecedores.razao_social) || '—',
+                        (c.fornecedores && c.fornecedores.cnpj) || '—',
+                        c.objeto || '—',
+                        Number(c.valor_total || 0),
+                        c.data_inicio ? new Date(c.data_inicio).toLocaleDateString('pt-BR') : '—',
+                        c.data_fim ? new Date(c.data_fim).toLocaleDateString('pt-BR') : '—',
+                        c.status || '—',
+                        g.pagas,
+                        g.pendentes,
+                        g.atrasadas
+                    ];
+                });
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headerContratos, ...dadosContratos]), 'Contratos');
+
+                // ABA 5 — Impostos
+                const headerImpostos = ['Tipo', 'Cód. Receita', 'Competência', 'Valor (R$)', 'Vencimento', 'Data Pagamento', 'Status'];
+                const dadosImpostos = impostos.map(i => [
+                    i.tipo_imposto || '—',
+                    i.codigo_receita || '—',
+                    i.competencia || '—',
+                    Number(i.valor || 0),
+                    i.data_vencimento ? new Date(i.data_vencimento).toLocaleDateString('pt-BR') : '—',
+                    i.data_pagamento ? new Date(i.data_pagamento).toLocaleDateString('pt-BR') : '—',
+                    i.status || '—'
+                ]);
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headerImpostos, ...dadosImpostos]), 'Impostos');
+
+                // ABA 6 — Auditoria
+                const headerAuditoria = ['Data/Hora', 'Tabela', 'Campo', 'Valor Anterior', 'Valor Novo', 'Origem'];
+                const dadosAuditoria = auditoria.map(a => [
+                    a.created_at ? new Date(a.created_at).toLocaleString('pt-BR') : '—',
+                    a.tabela || '—',
+                    a.campo || '—',
+                    a.valor_anterior || '—',
+                    a.valor_novo || '—',
+                    a.origem || '—'
+                ]);
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headerAuditoria, ...dadosAuditoria]), 'Auditoria');
+
+                // PASSO 3 — Disparar download
+                const pronac = projeto.pronac || 'projeto';
+                const hoje = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+                const fileName = `gerencial_${pronac}_${hoje}.xlsx`;
+                XLSX.writeFile(wb, fileName);
+
+                // PASSO 4 — Registrar em exportacoes_log
+                await sbClient.from('exportacoes_log').insert({
+                    project_id: pid,
+                    organization_id: orgId,
+                    tipo: 'excel',
+                    status: 'pronto',
+                    file_path: null,
+                    gerado_por: user.id
+                });
+
+                // PASSO 5 — Feedback
+                fb.textContent = '';
+                showToast('Excel gerado com sucesso!', 'success');
+                await carregarHistorico();
+            } catch (err) {
+                console.error('[exportarExcel]', err);
+                await sbClient.from('exportacoes_log').insert({
+                    project_id: pid,
+                    organization_id: orgId,
+                    tipo: 'excel',
+                    status: 'erro',
+                    file_path: null,
+                    gerado_por: user ? user.id : null
+                });
+                fb.textContent = '';
+                showToast('Erro ao gerar Excel: ' + (err.message || 'verifique o console'), 'error');
+                await carregarHistorico();
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function showToast(msg, type = 'success') {
+            const t = document.getElementById('toast');
+            if (!t) return;
+            t.innerText = msg;
+            t.style.background = type === 'success' ? '#10b981' : (type === 'error' ? '#ef4444' : '#3b82f6');
+            t.style.transform = 'translateY(0)';
+            setTimeout(() => t.style.transform = 'translateY(150%)', 4000);
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // CARD 3 — ZIP de Documentos (client-side com JSZip)
+        // ─────────────────────────────────────────────────────────────
+        const ZIP_BUCKETS = {
+            nfs: 'documentos',
+            contratos: 'contracts',
+            evidencias: 'physical-evidences',
+            impostos: 'tax-guides'
+        };
+
+        const ZIP_PASTAS = {
+            nfs: '01_Notas_Fiscais',
+            contratos: '02_Contratos',
+            evidencias: '03_Evidencias_Fisicas',
+            impostos: '04_Guias_Impostos'
+        };
+
+        const ZIP_LABELS = {
+            nfs: '01_Notas_Fiscais/',
+            contratos: '02_Contratos/',
+            evidencias: '03_Evidencias_Fisicas/',
+            impostos: '04_Guias_Impostos/'
+        };
+
+        function atualizarBotaoZIP() {
+            const btn = document.getElementById('btn-zip');
+            if (!btn) return;
+            const marcados = document.querySelectorAll('#zip-checkbox-list input[type=checkbox]:checked').length;
+            btn.disabled = marcados === 0 || !currentProjectId;
+        }
+
+        async function buscarArquivosZIP(tipo, pid) {
+            if (tipo === 'nfs') {
+                const { data, error } = await sbClient
+                    .from('documents')
+                    .select('file_path, name')
+                    .eq('project_id', pid)
+                    .not('file_path', 'is', null)
+                    .order('created_at', { ascending: true });
+                if (error) throw error;
+                return (data || []).map(d => ({
+                    tipo, bucket: ZIP_BUCKETS.nfs,
+                    file_path: d.file_path,
+                    file_name: d.name || 'documento'
+                }));
+            }
+            if (tipo === 'contratos') {
+                const { data, error } = await sbClient
+                    .from('contracts')
+                    .select('arquivo_path, numero')
+                    .eq('project_id', pid)
+                    .not('arquivo_path', 'is', null);
+                if (error) throw error;
+                return (data || []).map(c => ({
+                    tipo, bucket: ZIP_BUCKETS.contratos,
+                    file_path: c.arquivo_path,
+                    file_name: c.numero ? `contrato_${c.numero}` : 'contrato'
+                }));
+            }
+            if (tipo === 'evidencias') {
+                const { data, error } = await sbClient
+                    .from('physical_evidences')
+                    .select('file_path, file_name')
+                    .eq('project_id', pid)
+                    .eq('status_validacao', 'aprovada')
+                    .not('file_path', 'is', null)
+                    .order('criado_em', { ascending: true });
+                if (error) throw error;
+                return (data || []).map(e => ({
+                    tipo, bucket: ZIP_BUCKETS.evidencias,
+                    file_path: e.file_path,
+                    file_name: e.file_name || 'evidencia'
+                }));
+            }
+            if (tipo === 'impostos') {
+                const { data, error } = await sbClient
+                    .from('tax_guides')
+                    .select('arquivo_guia_path, tipo_imposto')
+                    .eq('project_id', pid)
+                    .not('arquivo_guia_path', 'is', null)
+                    .order('data_vencimento', { ascending: true });
+                if (error) throw error;
+                return (data || []).map(g => ({
+                    tipo, bucket: ZIP_BUCKETS.impostos,
+                    file_path: g.arquivo_guia_path,
+                    file_name: g.tipo_imposto ? `guia_${g.tipo_imposto}` : 'guia_imposto'
+                }));
+            }
+            return [];
+        }
+
+        function sanitizeFilename(name) {
+            return String(name || 'arquivo').replace(/[\/\\:*?"<>|]/g, '_').trim() || 'arquivo';
+        }
+
+        function extFromMime(mime) {
+            const map = {
+                'application/pdf': 'pdf',
+                'image/jpeg': 'jpg',
+                'image/jpg': 'jpg',
+                'image/png': 'png',
+                'image/webp': 'webp',
+                'image/gif': 'gif',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+                'application/vnd.ms-excel': 'xls',
+                'text/csv': 'csv',
+                'application/zip': 'zip',
+                'text/plain': 'txt'
+            };
+            return map[mime] || 'bin';
+        }
+
+        function ensureExtension(name, mime, path) {
+            const safe = sanitizeFilename(name);
+            if (/\.[A-Za-z0-9]{1,5}$/.test(safe)) return safe;
+            const pathExt = (path && path.match(/\.[A-Za-z0-9]{1,5}$/) || [])[0];
+            if (pathExt) return safe + pathExt.toLowerCase();
+            return safe + '.' + extFromMime(mime);
         }
 
         async function exportarZIP() {
-            const tipos = Array.from(document.querySelectorAll('.checkbox-list input[type=checkbox]:checked')).map(c => c.value);
-            if (tipos.length === 0) {
-                document.getElementById('fb-zip').textContent = 'Selecione ao menos uma categoria.';
+            if (!currentProjectId) return;
+            if (typeof JSZip === 'undefined') {
+                showToast('Biblioteca JSZip não carregada. Recarregue a página.', 'error');
                 return;
             }
-            await dispararExportacaoN8N({
-                tipo: 'zip',
-                webhook: CONFIG.N8N_WEBHOOK_EXPORTAR_ZIP,
-                btnId: 'btn-zip',
-                fbId: 'fb-zip',
-                loadingLabel: 'Preparando ZIP...',
-                body: { tipos }
-            });
+
+            const tipos = Array.from(document.querySelectorAll('#zip-checkbox-list input[type=checkbox]:checked')).map(c => c.value);
+            if (tipos.length === 0) {
+                showToast('Selecione ao menos uma categoria.', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('btn-zip');
+            const fb = document.getElementById('fb-zip');
+            const btnOriginal = '<i data-lucide="package"></i> Preparar ZIP';
+
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin"></i> Preparando ZIP...';
+            fb.textContent = '';
+            if (window.lucide) window.lucide.createIcons();
+
+            const pid = currentProjectId;
+            const { data: { user } } = await sbClient.auth.getUser();
+            const orgId = await getCurrentOrgId(pid);
+
+            const restaurarBotao = () => {
+                btn.innerHTML = btnOriginal;
+                if (window.lucide) window.lucide.createIcons();
+                atualizarBotaoZIP();
+            };
+
+            try {
+                // PASSO 1 — coletar paths em paralelo
+                const resultados = await Promise.all(tipos.map(t => buscarArquivosZIP(t, pid)));
+                const arquivos = resultados.flat();
+
+                if (arquivos.length === 0) {
+                    showToast('Nenhum arquivo encontrado para os tipos selecionados.', 'error');
+                    fb.textContent = '';
+                    restaurarBotao();
+                    return;
+                }
+
+                // PASSO 2 — montar ZIP
+                const zip = new JSZip();
+                const pastas = {};
+                tipos.forEach(t => {
+                    pastas[t] = zip.folder(ZIP_PASTAS[t]);
+                });
+
+                const counts = { nfs: 0, contratos: 0, evidencias: 0, impostos: 0 };
+                let falhas = 0;
+
+                // PASSO 3 — baixar arquivos sequencialmente
+                for (let i = 0; i < arquivos.length; i++) {
+                    const item = arquivos[i];
+                    fb.textContent = `Baixando arquivo ${i + 1} de ${arquivos.length}...`;
+                    try {
+                        const { data, error } = await sbClient.storage
+                            .from(item.bucket)
+                            .download(item.file_path);
+                        if (error || !data) {
+                            falhas++;
+                            console.warn('[ZIP download falhou]', item.bucket, item.file_path, error);
+                            continue;
+                        }
+                        const nome = ensureExtension(item.file_name, data.type, item.file_path);
+                        pastas[item.tipo].file(nome, data);
+                        counts[item.tipo]++;
+                    } catch (e) {
+                        falhas++;
+                        console.warn('[ZIP exception]', e);
+                    }
+                }
+
+                // PASSO 4 — index.txt
+                const projetoPronac = (currentProjectData && currentProjectData.pronac) || 'projeto';
+                const indiceLinhas = [
+                    'PrestAI — Documentos do Projeto',
+                    `PRONAC: ${projetoPronac}`,
+                    `Gerado em: ${new Date().toLocaleString('pt-BR')}`,
+                    '',
+                    'Conteúdo:'
+                ];
+                tipos.forEach(t => {
+                    indiceLinhas.push(`${ZIP_LABELS[t].padEnd(24, ' ')}→ ${counts[t]} arquivos`);
+                });
+                indiceLinhas.push('');
+                const totalIncluidos = arquivos.length - falhas;
+                indiceLinhas.push(`Total: ${totalIncluidos} arquivos`);
+                if (falhas > 0) {
+                    indiceLinhas.push(`Falhas no download: ${falhas}`);
+                }
+                zip.file('index.txt', indiceLinhas.join('\r\n'));
+
+                // PASSO 5 — gerar e baixar
+                fb.textContent = 'Comprimindo...';
+                const blob = await zip.generateAsync({ type: 'blob' }, (meta) => {
+                    btn.innerHTML = `<i data-lucide="loader" class="spin"></i> Comprimindo ${Math.round(meta.percent)}%`;
+                    if (window.lucide) window.lucide.createIcons();
+                });
+
+                const hoje = formatDateFile(new Date());
+                const fileName = `documentos_${projetoPronac}_${hoje}.zip`;
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                // PASSO 6 — registrar log
+                await sbClient.from('exportacoes_log').insert({
+                    project_id: pid,
+                    organization_id: orgId,
+                    tipo: 'zip',
+                    status: 'pronto',
+                    file_path: null,
+                    gerado_por: user ? user.id : null
+                });
+
+                // PASSO 7 — feedback final
+                fb.textContent = '';
+                if (falhas > 0) {
+                    showToast(`ZIP gerado com ${totalIncluidos} arquivos. ${falhas} não puderam ser incluídos.`, 'success');
+                } else {
+                    showToast(`ZIP gerado com sucesso! ${totalIncluidos} arquivos incluídos.`, 'success');
+                }
+                await carregarHistorico();
+            } catch (err) {
+                console.error('[exportarZIP]', err);
+                await sbClient.from('exportacoes_log').insert({
+                    project_id: pid,
+                    organization_id: orgId,
+                    tipo: 'zip',
+                    status: 'erro',
+                    file_path: null,
+                    gerado_por: user ? user.id : null
+                });
+                fb.textContent = '';
+                showToast('Erro ao gerar ZIP: ' + (err.message || 'verifique o console'), 'error');
+                await carregarHistorico();
+            } finally {
+                restaurarBotao();
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // CARD 4 — PDF de Auditoria (client-side com jsPDF)
+        // ─────────────────────────────────────────────────────────────
+        const PDF_COLORS = {
+            navy:   [26, 53, 87],
+            blue:   [46, 109, 164],
+            accent: [232, 150, 12],
+            gray:   [108, 117, 125],
+            light:  [240, 242, 245]
+        };
+
+        function pdfFormatDate(iso) {
+            if (!iso) return '—';
+            return new Date(iso).toLocaleDateString('pt-BR');
+        }
+        function pdfFormatDateTime(iso) {
+            if (!iso) return '—';
+            return new Date(iso).toLocaleString('pt-BR');
+        }
+        function pdfFormatMoney(v) {
+            const n = Number(v || 0);
+            return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        }
+        function pdfTruncate(s, n) {
+            const str = String(s == null ? '—' : s);
+            return str.length > n ? str.slice(0, n - 1) + '…' : str;
         }
 
         async function exportarAuditoria() {
-            await dispararExportacaoN8N({
-                tipo: 'auditoria',
-                webhook: CONFIG.N8N_WEBHOOK_EXPORTAR_AUDITORIA,
-                btnId: 'btn-auditoria',
-                fbId: 'fb-auditoria',
-                loadingLabel: 'Gerando relatório...',
-                body: {}
-            });
-        }
-
-        async function dispararExportacaoN8N({ tipo, webhook, btnId, fbId, loadingLabel, body }) {
             if (!currentProjectId) return;
-
-            const btn = document.getElementById(btnId);
-            const fb = document.getElementById(fbId);
-            btn.disabled = true;
-            fb.innerHTML = `<i data-lucide="loader" class="spin"></i> ${loadingLabel}`;
-            if (window.lucide) window.lucide.createIcons();
-
-            const { data: { user } } = await sbClient.auth.getUser();
-            const pronac = (currentProjectData && currentProjectData.pronac) || null;
-
-            // 1. Cria registro 'gerando' no log
-            const { data: logRow, error: logErr } = await sbClient
-                .from('exportacoes_log')
-                .insert({
-                    project_id: currentProjectId,
-                    tipo,
-                    status: 'gerando',
-                    gerado_por: user.id
-                })
-                .select('id')
-                .single();
-
-            if (logErr) {
-                fb.textContent = 'Erro ao registrar exportação: ' + logErr.message;
-                btn.disabled = false;
+            if (!window.jspdf || !window.jspdf.jsPDF) {
+                showToast('Biblioteca jsPDF não carregada. Recarregue a página.', 'error');
                 return;
             }
 
-            // 2. Dispara webhook (fire-and-forget — Realtime atualiza UI quando n8n marcar pronto/erro)
-            try {
-                fetch(webhook, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        project_id: currentProjectId,
-                        pronac,
-                        export_id: logRow.id,
-                        ...body
-                    })
-                }).catch(e => console.error('[n8n webhook]', tipo, e));
-            } catch (e) {
-                console.error(e);
-            }
+            const btn = document.getElementById('btn-auditoria');
+            const fb = document.getElementById('fb-auditoria');
+            const btnOriginal = '<i data-lucide="file-text"></i> Gerar Relatório de Auditoria';
 
-            await carregarHistorico();
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin"></i> Gerando relatório...';
+            fb.textContent = '';
+            if (window.lucide) window.lucide.createIcons();
+
+            const pid = currentProjectId;
+            const { data: { user } } = await sbClient.auth.getUser();
+            const orgId = await getCurrentOrgId(pid);
+
+            const restaurarBotao = () => {
+                btn.innerHTML = btnOriginal;
+                btn.disabled = false;
+                if (window.lucide) window.lucide.createIcons();
+            };
+
+            try {
+                // PASSO 1 — buscar dados em paralelo
+                const [
+                    projetoRes,
+                    documentosRes,
+                    evidenciasRes,
+                    contratosRes,
+                    impostosRes,
+                    despesasIdsRes
+                ] = await Promise.all([
+                    sbClient.from('projects').select('*').eq('id', pid).maybeSingle(),
+                    sbClient.from('documents')
+                        .select('name, status, valor, tipo_documento, created_at')
+                        .eq('project_id', pid)
+                        .order('created_at', { ascending: false })
+                        .limit(200),
+                    sbClient.from('physical_evidences')
+                        .select('file_name, tipo_evidencia, status_validacao, criado_em, validado_em')
+                        .eq('project_id', pid)
+                        .order('criado_em', { ascending: false })
+                        .limit(100),
+                    sbClient.from('contracts')
+                        .select('numero, objeto, valor_total, status, data_inicio, data_fim')
+                        .eq('project_id', pid)
+                        .order('data_inicio', { ascending: true }),
+                    sbClient.from('tax_guides')
+                        .select('tipo_imposto, competencia, valor, status, data_vencimento, data_pagamento')
+                        .eq('project_id', pid)
+                        .order('data_vencimento', { ascending: true }),
+                    sbClient.from('despesas').select('id').eq('project_id', pid)
+                ]);
+
+                const erros = [projetoRes, documentosRes, evidenciasRes, contratosRes, impostosRes, despesasIdsRes]
+                    .map(r => r.error).filter(Boolean);
+                if (erros.length) throw erros[0];
+
+                const projeto = projetoRes.data || {};
+                const documentos = documentosRes.data || [];
+                const evidencias = evidenciasRes.data || [];
+                const contratos = contratosRes.data || [];
+                const impostos = impostosRes.data || [];
+                const despesasIds = (despesasIdsRes.data || []).map(d => d.id);
+
+                let auditoria = [];
+                if (despesasIds.length > 0) {
+                    const { data: auditData, error: auditErr } = await sbClient
+                        .from('audit_log')
+                        .select('tabela, campo, valor_anterior, valor_novo, origem, created_at')
+                        .in('registro_id', despesasIds)
+                        .order('created_at', { ascending: false })
+                        .limit(500);
+                    if (auditErr) throw auditErr;
+                    auditoria = auditData || [];
+                }
+
+                // PASSO 2 — montar PDF
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+                const pageW = doc.internal.pageSize.getWidth();
+                const margin = 14;
+                const pronac = projeto.pronac || '—';
+                const nomeProjeto = projeto.nome || '—';
+                const proponente = projeto.propoente || '—';
+
+                // --- CAPA ---
+                doc.setFillColor(...PDF_COLORS.navy);
+                doc.rect(0, 0, pageW, 35, 'F');
+
+                doc.setTextColor(255, 255, 255);
+                doc.setFontSize(9);
+                doc.setFont('helvetica', 'normal');
+                doc.text('P R E S T A I', margin, 12);
+
+                doc.setFontSize(18);
+                doc.setFont('helvetica', 'bold');
+                doc.text('Relatório de Auditoria', margin, 22);
+
+                doc.setFontSize(11);
+                doc.setFont('helvetica', 'normal');
+                doc.text(`PRONAC: ${pronac}`, margin, 30);
+
+                doc.setFillColor(...PDF_COLORS.accent);
+                doc.rect(0, 35, pageW, 1.5, 'F');
+
+                let y = 50;
+                doc.setTextColor(0, 0, 0);
+                doc.setFontSize(10);
+                doc.setFont('helvetica', 'bold');
+                doc.text('Projeto:', margin, y);
+                doc.setFont('helvetica', 'normal');
+                doc.text(pdfTruncate(nomeProjeto, 80), margin + 25, y);
+                y += 6;
+
+                doc.setFont('helvetica', 'bold');
+                doc.text('Proponente:', margin, y);
+                doc.setFont('helvetica', 'normal');
+                doc.text(pdfTruncate(proponente, 80), margin + 25, y);
+                y += 6;
+
+                doc.setFont('helvetica', 'bold');
+                doc.text('Gerado em:', margin, y);
+                doc.setFont('helvetica', 'normal');
+                doc.text(new Date().toLocaleString('pt-BR'), margin + 25, y);
+                y += 10;
+
+                // --- SEÇÃO 1: RESUMO OPERACIONAL ---
+                doc.setTextColor(...PDF_COLORS.navy);
+                doc.setFontSize(13);
+                doc.setFont('helvetica', 'bold');
+                doc.text('1. Resumo Operacional', margin, y);
+                y += 6;
+
+                const cardW = (pageW - margin * 2 - 9) / 4;
+                const cardH = 22;
+                const cards = [
+                    { label: 'Documentos', val: documentos.length },
+                    { label: 'Evidências', val: evidencias.length },
+                    { label: 'Contratos', val: contratos.length },
+                    { label: 'Guias Imp.', val: impostos.length }
+                ];
+                cards.forEach((c, i) => {
+                    const x = margin + i * (cardW + 3);
+                    doc.setFillColor(...PDF_COLORS.light);
+                    doc.roundedRect(x, y, cardW, cardH, 2, 2, 'F');
+                    doc.setTextColor(...PDF_COLORS.gray);
+                    doc.setFontSize(8);
+                    doc.setFont('helvetica', 'normal');
+                    doc.text(c.label, x + 3, y + 6);
+                    doc.setTextColor(...PDF_COLORS.navy);
+                    doc.setFontSize(18);
+                    doc.setFont('helvetica', 'bold');
+                    doc.text(String(c.val), x + 3, y + 17);
+                });
+                y += cardH + 8;
+
+                const tableTheme = {
+                    theme: 'grid',
+                    styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak' },
+                    headStyles: { fillColor: PDF_COLORS.navy, textColor: 255, fontStyle: 'bold' },
+                    alternateRowStyles: { fillColor: PDF_COLORS.light },
+                    margin: { left: margin, right: margin }
+                };
+
+                const renderSectionTitle = (title) => {
+                    doc.setTextColor(...PDF_COLORS.navy);
+                    doc.setFontSize(13);
+                    doc.setFont('helvetica', 'bold');
+                    doc.text(title, margin, y);
+                    y += 4;
+                };
+
+                // --- SEÇÃO 2: DOCUMENTOS FISCAIS (M1) ---
+                renderSectionTitle('2. Documentos Fiscais (M1)');
+                if (documentos.length === 0) {
+                    doc.setTextColor(...PDF_COLORS.gray);
+                    doc.setFontSize(9);
+                    doc.setFont('helvetica', 'italic');
+                    doc.text('Nenhum documento cadastrado.', margin, y + 4);
+                    y += 12;
+                } else {
+                    doc.autoTable({
+                        ...tableTheme,
+                        startY: y,
+                        head: [['Data', 'Nome', 'Tipo', 'Valor', 'Status']],
+                        body: documentos.map(d => [
+                            pdfFormatDate(d.created_at),
+                            pdfTruncate(d.name, 50),
+                            pdfTruncate(d.tipo_documento, 18),
+                            pdfFormatMoney(d.valor),
+                            pdfTruncate(d.status, 18)
+                        ])
+                    });
+                    y = doc.lastAutoTable.finalY + 8;
+                }
+
+                // --- SEÇÃO 3: EVIDÊNCIAS FÍSICAS (M2) ---
+                if (y > 240) { doc.addPage(); y = 20; }
+                renderSectionTitle('3. Evidências Físicas (M2)');
+                if (evidencias.length === 0) {
+                    doc.setTextColor(...PDF_COLORS.gray);
+                    doc.setFontSize(9);
+                    doc.setFont('helvetica', 'italic');
+                    doc.text('Nenhuma evidência cadastrada.', margin, y + 4);
+                    y += 12;
+                } else {
+                    doc.autoTable({
+                        ...tableTheme,
+                        startY: y,
+                        head: [['Arquivo', 'Tipo', 'Status Validação', 'Enviado em', 'Validado em']],
+                        body: evidencias.map(e => [
+                            pdfTruncate(e.file_name, 40),
+                            pdfTruncate(e.tipo_evidencia, 20),
+                            pdfTruncate(e.status_validacao, 20),
+                            pdfFormatDate(e.criado_em),
+                            pdfFormatDate(e.validado_em)
+                        ])
+                    });
+                    y = doc.lastAutoTable.finalY + 8;
+                }
+
+                // --- SEÇÃO 4: CONTRATOS ---
+                if (y > 240) { doc.addPage(); y = 20; }
+                renderSectionTitle('4. Contratos');
+                if (contratos.length === 0) {
+                    doc.setTextColor(...PDF_COLORS.gray);
+                    doc.setFontSize(9);
+                    doc.setFont('helvetica', 'italic');
+                    doc.text('Nenhum contrato cadastrado.', margin, y + 4);
+                    y += 12;
+                } else {
+                    doc.autoTable({
+                        ...tableTheme,
+                        startY: y,
+                        head: [['Nº', 'Objeto', 'Valor Total', 'Período', 'Status']],
+                        body: contratos.map(c => [
+                            pdfTruncate(c.numero, 14),
+                            pdfTruncate(c.objeto, 50),
+                            pdfFormatMoney(c.valor_total),
+                            `${pdfFormatDate(c.data_inicio)} → ${pdfFormatDate(c.data_fim)}`,
+                            pdfTruncate(c.status, 16)
+                        ])
+                    });
+                    y = doc.lastAutoTable.finalY + 8;
+                }
+
+                // --- SEÇÃO 5: IMPOSTOS ---
+                if (y > 240) { doc.addPage(); y = 20; }
+                renderSectionTitle('5. Guias de Impostos');
+                if (impostos.length === 0) {
+                    doc.setTextColor(...PDF_COLORS.gray);
+                    doc.setFontSize(9);
+                    doc.setFont('helvetica', 'italic');
+                    doc.text('Nenhuma guia cadastrada.', margin, y + 4);
+                    y += 12;
+                } else {
+                    doc.autoTable({
+                        ...tableTheme,
+                        startY: y,
+                        head: [['Tipo', 'Competência', 'Valor', 'Vencimento', 'Pagamento', 'Status']],
+                        body: impostos.map(i => [
+                            pdfTruncate(i.tipo_imposto, 14),
+                            pdfTruncate(i.competencia, 14),
+                            pdfFormatMoney(i.valor),
+                            pdfFormatDate(i.data_vencimento),
+                            pdfFormatDate(i.data_pagamento),
+                            pdfTruncate(i.status, 14)
+                        ])
+                    });
+                    y = doc.lastAutoTable.finalY + 8;
+                }
+
+                // --- SEÇÃO 6: LOG DE AUDITORIA ---
+                if (y > 240) { doc.addPage(); y = 20; }
+                renderSectionTitle('6. Log de Auditoria');
+                if (auditoria.length === 0) {
+                    doc.setTextColor(...PDF_COLORS.gray);
+                    doc.setFontSize(9);
+                    doc.setFont('helvetica', 'italic');
+                    doc.text('Nenhum registro de auditoria.', margin, y + 4);
+                    y += 12;
+                } else {
+                    doc.autoTable({
+                        ...tableTheme,
+                        startY: y,
+                        head: [['Data/Hora', 'Tabela', 'Campo', 'Valor Anterior', 'Valor Novo']],
+                        body: auditoria.map(a => [
+                            pdfFormatDateTime(a.created_at),
+                            pdfTruncate(a.tabela, 16),
+                            pdfTruncate(a.campo, 18),
+                            pdfTruncate(a.valor_anterior, 30),
+                            pdfTruncate(a.valor_novo, 30)
+                        ])
+                    });
+                    y = doc.lastAutoTable.finalY + 8;
+                }
+
+                // --- RODAPÉ em todas as páginas ---
+                const totalPages = doc.internal.getNumberOfPages();
+                const pageH = doc.internal.pageSize.getHeight();
+                for (let p = 1; p <= totalPages; p++) {
+                    doc.setPage(p);
+                    doc.setDrawColor(...PDF_COLORS.gray);
+                    doc.setLineWidth(0.2);
+                    doc.line(margin, pageH - 12, pageW - margin, pageH - 12);
+                    doc.setTextColor(...PDF_COLORS.gray);
+                    doc.setFontSize(8);
+                    doc.setFont('helvetica', 'normal');
+                    doc.text(
+                        `PrestAI — Auditoria | PRONAC ${pronac} | Página ${p} de ${totalPages}`,
+                        pageW / 2,
+                        pageH - 7,
+                        { align: 'center' }
+                    );
+                }
+
+                // PASSO 3 — disparar download
+                const hoje = formatDateFile(new Date());
+                doc.save(`auditoria_${pronac}_${hoje}.pdf`);
+
+                // PASSO 4 — registrar log
+                await sbClient.from('exportacoes_log').insert({
+                    project_id: pid,
+                    organization_id: orgId,
+                    tipo: 'auditoria',
+                    status: 'pronto',
+                    file_path: null,
+                    gerado_por: user ? user.id : null
+                });
+
+                // PASSO 5 — feedback
+                fb.textContent = '';
+                showToast('PDF de Auditoria gerado com sucesso!', 'success');
+                await carregarHistorico();
+            } catch (err) {
+                console.error('[exportarAuditoria]', err);
+                await sbClient.from('exportacoes_log').insert({
+                    project_id: pid,
+                    organization_id: orgId,
+                    tipo: 'auditoria',
+                    status: 'erro',
+                    file_path: null,
+                    gerado_por: user ? user.id : null
+                });
+                fb.textContent = '';
+                showToast('Erro ao gerar PDF: ' + (err.message || 'verifique o console'), 'error');
+                await carregarHistorico();
+            } finally {
+                restaurarBotao();
+            }
         }
 
         // ─────────────────────────────────────────────────────────────
@@ -737,12 +1570,10 @@
 
                 let acaoHtml = '';
                 if (r.status === 'pronto') {
-                    if (r.tipo === 'csv') {
-                        acaoHtml = '<span style="color: var(--text-muted); font-size: 0.85rem;">Download direto</span>';
-                    } else if (r.file_path) {
+                    if (r.file_path) {
                         acaoHtml = `<button class="btn-sm btn-download" onclick="downloadExport('${escapeAttr(r.file_path)}')"><i data-lucide="download"></i> Download</button>`;
                     } else {
-                        acaoHtml = '<span style="color: var(--text-muted); font-size: 0.85rem;">—</span>';
+                        acaoHtml = '<span style="color: var(--text-muted); font-size: 0.85rem;">Gerado localmente</span>';
                     }
                 } else if (r.status === 'erro') {
                     acaoHtml = `<button class="btn-sm btn-retry" onclick="retryExport('${r.tipo}')"><i data-lucide="refresh-cw"></i> Tentar novamente</button>`;
