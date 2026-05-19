@@ -30,7 +30,10 @@ app.get('/config.js', (req, res) => {
         N8N_WEBHOOK_SALIC_PROJECT_URL: "https://automacoes-n8n.infrassys.com/webhook/cultops-projeto",
         N8N_WEBHOOK_SALIC_IMPORT_RUBRICAS_URL: "https://automacoes-n8n.infrassys.com/webhook/uploadrubricas",
         N8N_WEBHOOK_CRIAR_PDF_URL: "https://automacoes-n8n.infrassys.com/webhook/relatorio",
-        SALIC_API_URL: "/api/salic/inserir"
+        // Em local: defina SALIC_API_URL=http://localhost:10000/api/salic/inserir no .env
+        // para apontar o frontend para o worker (cultops-rpa-worker) que contem o CHG-13.
+        // Em producao: deixe vazio para usar o endpoint relativo do proprio server.
+        SALIC_API_URL: process.env.SALIC_API_URL || "/api/salic/inserir"
     };
     res.type('application/javascript');
     res.send(`const CONFIG = ${JSON.stringify(publicConfig, null, 2)};`);
@@ -112,6 +115,24 @@ app.post('/api/salic/inserir', async (req, res) => {
             }
         }
 
+        // CHG-13: para Recibo, buscar numero_extrato (extratos_bancarios.documento_referencia)
+        // via despesas.extrato_vinculado_id. So executa o join se a coluna recibo estiver preenchida.
+        let numeroExtrato = null;
+        const isRecibo = !!(doc.recibo && String(doc.recibo).trim().length > 0);
+        if (isRecibo) {
+            const { data: despesaLink } = await supabase
+                .from('despesas')
+                .select('extratos_bancarios:extrato_vinculado_id(documento_referencia)')
+                .eq('document_id', documentId)
+                .maybeSingle();
+            if (despesaLink?.extratos_bancarios?.documento_referencia) {
+                numeroExtrato = despesaLink.extratos_bancarios.documento_referencia;
+                console.log(`[API] numero_extrato encontrado para Recibo: ${numeroExtrato}`);
+            } else {
+                console.warn('[API] AVISO: Recibo sem extrato_vinculado_id ou documento_referencia. RPA usara fallback.');
+            }
+        }
+
         // 3. Executar o Robô
         const config = {
             usuario: String(creds.identifier),
@@ -125,7 +146,10 @@ app.post('/api/salic/inserir', async (req, res) => {
                 numero: doc.numero_nf || doc.json_extraido?.numero_nota || 'S/N',
                 data_emissao: doc.data_emissao,
                 nf_path: doc.file_path,
-                nf_url: `${process.env.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.file_path}`
+                nf_url: `${process.env.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.file_path}`,
+                recibo: doc.recibo,
+                recibo_url: doc.recibo ? `${process.env.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.recibo}` : null,
+                numero_extrato: numeroExtrato
             },
             browserWSEndpoint: process.env.BROWSERLESS_ENDPOINT
         };

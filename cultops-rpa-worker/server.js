@@ -80,6 +80,24 @@ app.post('/api/salic/inserir', async (req, res) => {
             }
         }
 
+        // CHG-13: para Recibo, buscar numero_extrato (extratos_bancarios.documento_referencia)
+        // via despesas.extrato_vinculado_id. So executa o join se a coluna recibo estiver preenchida.
+        let numeroExtrato = null;
+        const isRecibo = !!(doc.recibo && String(doc.recibo).trim().length > 0);
+        if (isRecibo) {
+            const { data: despesaLink } = await supabase
+                .from('despesas')
+                .select('extratos_bancarios:extrato_vinculado_id(documento_referencia)')
+                .eq('document_id', documentId)
+                .maybeSingle();
+            if (despesaLink?.extratos_bancarios?.documento_referencia) {
+                numeroExtrato = despesaLink.extratos_bancarios.documento_referencia;
+                console.log(`[API] numero_extrato encontrado para Recibo: ${numeroExtrato}`);
+            } else {
+                console.warn('[API] AVISO: Recibo sem extrato_vinculado_id ou documento_referencia. RPA usara fallback.');
+            }
+        }
+
         const config = {
             usuario: String(creds.identifier),
             senha: String(creds.secret_plain),
@@ -92,7 +110,10 @@ app.post('/api/salic/inserir', async (req, res) => {
                 numero: doc.numero_nf || doc.json_extraido?.numero_nota || 'S/N',
                 data_emissao: doc.data_emissao,
                 nf_path: doc.file_path,
-                nf_url: `${process.env.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.file_path}`
+                nf_url: `${process.env.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.file_path}`,
+                recibo: doc.recibo,
+                recibo_url: doc.recibo ? `${process.env.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.recibo}` : null,
+                numero_extrato: numeroExtrato
             }
         };
 

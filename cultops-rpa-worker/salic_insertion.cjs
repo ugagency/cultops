@@ -4,12 +4,25 @@ const https = require('https');
 const path = require('path');
 const os = require('os');
 
+// tpDocumento values descobertos no SALIC:
+//   '1' = Cupom Fiscal
+//   '2' = Guia de Recolhimento
+//   '3' = Nota Fiscal/Fatura
+//   '4' = Recibo de Pagamento
+//   '5' = RPA
+const TP_DOCUMENTO_RECIBO = '4';
+
 /**
  * Script de Inserção de Comprovação Financeira no SALIC
  * @param {Object} config - Objeto com credenciais e dados da despesa
  */
 async function executarInsercaoSalic(config) {
     const { usuario, senha, pronac, rubricaNome, documento } = config;
+
+    // CHG-13: detecta tipo do documento via documents.recibo (text, nullable).
+    // Valor preenchido = Recibo. null/vazio = Nota Fiscal.
+    const isRecibo = !!(documento.recibo && String(documento.recibo).trim().length > 0);
+    console.log(`[SALIC] recibo: "${documento.recibo}" | isRecibo: ${isRecibo}`);
 
     // Helper para pausas
     const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -595,11 +608,19 @@ async function executarInsercaoSalic(config) {
         console.log(`[SALIC] Valor: R$ ${documento.valor} -> centavos para digitar: ${valorEmCentavos}`);
 
         // 5. Preenche Dados do Comprovante com eventos Materialize
-        await setMaterializeSelect(targetPage, '#tpDocumento', '3'); // Nota Fiscal/Fatura
+        // CHG-13: Recibo usa '4' (Recibo de Pagamento); NF usa '3' (Nota Fiscal/Fatura).
+        const tpDocumentoValue = isRecibo ? TP_DOCUMENTO_RECIBO : '3';
+        await setMaterializeSelect(targetPage, '#tpDocumento', tpDocumentoValue);
+        console.log(`[SALIC] Tipo de documento definido: ${tpDocumentoValue} (${isRecibo ? 'Recibo' : 'Nota Fiscal/Fatura'})`);
         await wait(500);
+
         await setMaterializeField(targetPage, '#dataEmissao', dataFormatada);
         await wait(300);
-        await setMaterializeField(targetPage, '#nrComprovante', String(documento.numero));
+
+        // CHG-13: Recibo usa '000' fixo; NF usa o numero da nota.
+        const numeroComprovante = isRecibo ? '000' : String(documento.numero || '');
+        await setMaterializeField(targetPage, '#nrComprovante', numeroComprovante);
+        console.log(`[SALIC] Numero comprovante definido: ${numeroComprovante}`);
         await wait(300);
 
         // 6. Upload do Arquivo (PDF)
@@ -634,7 +655,17 @@ async function executarInsercaoSalic(config) {
         await wait(500);
         await setMaterializeField(targetPage, '#dtPagamento', dataFormatada);
         await wait(300);
-        await setMaterializeField(targetPage, '#nrDocumentoDePagamento', String(documento.numero));
+
+        // CHG-13: Recibo usa LPAD(numero_extrato, 10, '0'); NF usa o numero da nota.
+        // numero_extrato vem de extratos_bancarios.documento_referencia (coluna "Documento" do extrato).
+        const nrDocPagamento = isRecibo
+            ? String(documento.numero_extrato || documento.numero || '').padStart(10, '0')
+            : String(documento.numero || '');
+        if (isRecibo && !documento.numero_extrato) {
+            console.warn('[SALIC] AVISO: numero_extrato ausente para Recibo. Usando numero como fallback.');
+        }
+        await setMaterializeField(targetPage, '#nrDocumentoDePagamento', nrDocPagamento);
+        console.log(`[SALIC] No Documento Pagamento definido: ${nrDocPagamento}`);
         await wait(300);
 
         // 8. Valor: digitar caractere por caractere para a mascara de moeda funcionar
@@ -677,7 +708,12 @@ async function executarInsercaoSalic(config) {
         }
         await wait(300);
 
-        await setMaterializeField(targetPage, '#dsJustificativa', 'Insercao automatizada via Sistema Cultops');
+        // CHG-13: Recibo usa justificativa fixa da spec (grafia "usuario" SEM acento e obrigatoria).
+        const justificativa = isRecibo
+            ? 'Inserção realizada por usuario Prestai da empresa @Cliente'
+            : 'Insercao automatizada via Sistema Cultops';
+        await setMaterializeField(targetPage, '#dsJustificativa', justificativa);
+        console.log(`[SALIC] Justificativa definida: ${justificativa}`);
         await wait(300);
 
         // Log de auditoria: mostra o estado de todos os campos antes de salvar
