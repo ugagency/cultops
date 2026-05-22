@@ -656,14 +656,18 @@ async function executarInsercaoSalic(config) {
         await setMaterializeField(targetPage, '#dtPagamento', dataFormatada);
         await wait(300);
 
-        // CHG-13 (corrigido): igual para Recibo e NF — sempre numero_extrato com padStart(10).
-        // numero_extrato vem de extratos_bancarios.documento_referencia (coluna "Documento" do extrato).
-        const nrDocPagamento = String(documento.numero_extrato || documento.numero || '').padStart(10, '0');
+        // CHG-13 (rev): igual para Recibo e NF. Fonte = documents.fitid (numero_extrato).
+        // O fitid pode vir com separadores (ex: "."), entao mantemos so os digitos.
+        // Regra: >10 digitos -> ultimos 10; =10 -> mantem; <10 -> zero-pad a esquerda ate 10.
+        // slice(-10) cobre os casos >10 e =10; padStart(10,'0') so atua quando tem menos de 10.
+        const origemDocPagamento = String(documento.numero_extrato || documento.numero || '');
+        const digitosDocPagamento = origemDocPagamento.replace(/\D/g, '');
+        const nrDocPagamento = digitosDocPagamento.slice(-10).padStart(10, '0');
         if (!documento.numero_extrato) {
-            console.warn('[SALIC] AVISO: numero_extrato ausente. Usando numero como fallback.');
+            console.warn('[SALIC] AVISO: numero_extrato (fitid) ausente. Usando numero como fallback.');
         }
         await setMaterializeField(targetPage, '#nrDocumentoDePagamento', nrDocPagamento);
-        console.log(`[SALIC] #nrDocumentoDePagamento: ${nrDocPagamento}`);
+        console.log(`[SALIC] #nrDocumentoDePagamento: ${nrDocPagamento} (origem: "${origemDocPagamento}")`);
         await wait(300);
 
         // 8. Valor: digitar caractere por caractere para a mascara de moeda funcionar

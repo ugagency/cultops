@@ -115,11 +115,12 @@ app.post('/api/salic/inserir', async (req, res) => {
             }
         }
 
-        // CHG-13: para Recibo, buscar numero_extrato (extratos_bancarios.documento_referencia)
-        // via despesas.extrato_vinculado_id. So executa o join se a coluna recibo estiver preenchida.
-        let numeroExtrato = null;
-        const isRecibo = !!(doc.recibo && String(doc.recibo).trim().length > 0);
-        if (isRecibo) {
+        // CHG-13 (rev): numero_extrato vem de documents.fitid (RPA usa os ultimos 10 digitos / zero-pad).
+        // Fallback: extratos_bancarios.documento_referencia via despesas.extrato_vinculado_id.
+        let numeroExtrato = (doc.fitid && String(doc.fitid).trim().length > 0) ? String(doc.fitid).trim() : null;
+        if (numeroExtrato) {
+            console.log(`[API] numero_extrato (fitid): ${numeroExtrato}`);
+        } else {
             const { data: despesaLink } = await supabase
                 .from('despesas')
                 .select('extratos_bancarios:extrato_vinculado_id(documento_referencia)')
@@ -127,9 +128,9 @@ app.post('/api/salic/inserir', async (req, res) => {
                 .maybeSingle();
             if (despesaLink?.extratos_bancarios?.documento_referencia) {
                 numeroExtrato = despesaLink.extratos_bancarios.documento_referencia;
-                console.log(`[API] numero_extrato encontrado para Recibo: ${numeroExtrato}`);
+                console.log(`[API] numero_extrato (fallback extrato): ${numeroExtrato}`);
             } else {
-                console.warn('[API] AVISO: Recibo sem extrato_vinculado_id ou documento_referencia. RPA usara fallback.');
+                console.warn('[API] AVISO: documents.fitid vazio e sem extrato vinculado. RPA usara numero como fallback.');
             }
         }
 
