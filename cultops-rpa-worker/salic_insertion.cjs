@@ -617,10 +617,10 @@ async function executarInsercaoSalic(config) {
         await setMaterializeField(targetPage, '#dataEmissao', dataFormatada);
         await wait(300);
 
-        // CHG-13: Recibo usa '000' fixo; NF usa o numero da nota.
-        const numeroComprovante = isRecibo ? '000' : String(documento.numero || '');
+        // CHG-13 (corrigido): igual para Recibo e NF — sempre o numero do documento.
+        const numeroComprovante = String(documento.numero || '');
         await setMaterializeField(targetPage, '#nrComprovante', numeroComprovante);
-        console.log(`[SALIC] Numero comprovante definido: ${numeroComprovante}`);
+        console.log(`[SALIC] #nrComprovante: ${numeroComprovante}`);
         await wait(300);
 
         // 6. Upload do Arquivo (PDF)
@@ -656,16 +656,14 @@ async function executarInsercaoSalic(config) {
         await setMaterializeField(targetPage, '#dtPagamento', dataFormatada);
         await wait(300);
 
-        // CHG-13: Recibo usa LPAD(numero_extrato, 10, '0'); NF usa o numero da nota.
+        // CHG-13 (corrigido): igual para Recibo e NF — sempre numero_extrato com padStart(10).
         // numero_extrato vem de extratos_bancarios.documento_referencia (coluna "Documento" do extrato).
-        const nrDocPagamento = isRecibo
-            ? String(documento.numero_extrato || documento.numero || '').padStart(10, '0')
-            : String(documento.numero || '');
-        if (isRecibo && !documento.numero_extrato) {
-            console.warn('[SALIC] AVISO: numero_extrato ausente para Recibo. Usando numero como fallback.');
+        const nrDocPagamento = String(documento.numero_extrato || documento.numero || '').padStart(10, '0');
+        if (!documento.numero_extrato) {
+            console.warn('[SALIC] AVISO: numero_extrato ausente. Usando numero como fallback.');
         }
         await setMaterializeField(targetPage, '#nrDocumentoDePagamento', nrDocPagamento);
-        console.log(`[SALIC] No Documento Pagamento definido: ${nrDocPagamento}`);
+        console.log(`[SALIC] #nrDocumentoDePagamento: ${nrDocPagamento}`);
         await wait(300);
 
         // 8. Valor: digitar caractere por caractere para a mascara de moeda funcionar
