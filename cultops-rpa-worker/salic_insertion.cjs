@@ -598,7 +598,16 @@ async function executarInsercaoSalic(config) {
             const parts = dataFormatada.split('-');
             dataFormatada = `${parts[2]}/${parts[1]}/${parts[0]}`;
         }
-        console.log(`[SALIC] Data formatada: ${dataFormatada}`);
+
+        // Bug #2: a Data do Pagamento é distinta da Data de Emissão — vem do
+        // lançamento bancário conciliado (data do débito). Fallback para a emissão
+        // por compatibilidade caso o payload não traga data_pagamento.
+        let dataPagamentoFormatada = documento.data_pagamento || documento.data_emissao;
+        if (dataPagamentoFormatada && dataPagamentoFormatada.includes('-')) {
+            const partsPg = dataPagamentoFormatada.split('-');
+            dataPagamentoFormatada = `${partsPg[2]}/${partsPg[1]}/${partsPg[0]}`;
+        }
+        console.log(`[SALIC] Data de Emissao: ${dataFormatada} | Data de Pagamento: ${dataPagamentoFormatada}`);
 
         // 4. Converter valor para centavos (mascara de moeda do SALIC trata digitos como centavos)
         //    Ex: R$4.100,00 -> digitar "410000" -> mascara exibe "4.100,00"
@@ -653,7 +662,7 @@ async function executarInsercaoSalic(config) {
         // 7. Dados de Pagamento com eventos Materialize
         await setMaterializeSelect(targetPage, '#tpFormaDePagamento', '2'); // Transferencia Bancaria
         await wait(500);
-        await setMaterializeField(targetPage, '#dtPagamento', dataFormatada);
+        await setMaterializeField(targetPage, '#dtPagamento', dataPagamentoFormatada);
         await wait(300);
 
         // CHG-13 (rev): igual para Recibo e NF. Fonte = documents.fitid (numero_extrato).

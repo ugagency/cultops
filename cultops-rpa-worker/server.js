@@ -23,6 +23,25 @@ app.get('/', (req, res) => {
     res.json({ status: 'Cultopps RPA Worker is online' });
 });
 
+// Bug #2: a Data do Pagamento no SALIC deve vir do lançamento bancário
+// conciliado (extratos_lancamentos.data_lancamento = data do débito),
+// NUNCA de documents.data_emissao (data de emissão da NF).
+function resolverDataPagamento(lancamento, doc) {
+    // Fonte 1: data real do lançamento bancário (sempre preferida)
+    if (lancamento?.data_lancamento) {
+        console.log(`[SERVER] data_pagamento: ${lancamento.data_lancamento} (fonte: extratos_lancamentos)`);
+        return lancamento.data_lancamento;
+    }
+    // Fonte 2: documents.data_pagamento, se preenchido
+    if (doc.data_pagamento) {
+        console.warn(`[SERVER] data_pagamento: ${doc.data_pagamento} (fonte: documents.data_pagamento — fallback)`);
+        return doc.data_pagamento;
+    }
+    // Fonte 3: último recurso — data_emissao com aviso
+    console.warn(`[SERVER] AVISO: usando data_emissao como último fallback. Verificar conciliação do documento ${doc.id}`);
+    return doc.data_emissao;
+}
+
 // Endpoint SALIC
 app.post('/api/salic/inserir', async (req, res) => {
     const { executarInsercaoSalic } = require('./salic_insertion.cjs');
@@ -99,6 +118,19 @@ app.post('/api/salic/inserir', async (req, res) => {
             }
         }
 
+        // Bug #2: busca a data real de pagamento (débito) do lançamento conciliado.
+        // NÃO filtrar por `tipo` (essa coluna guarda texto longo da justificativa, não 'debito').
+        const { data: lancamento } = await supabase
+            .from('extratos_lancamentos')
+            .select('data_lancamento, fitid, memo')
+            .eq('document_id', documentId)
+            .eq('status_conciliacao', 'conciliado')
+            .order('data_lancamento', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        const dataPagamento = resolverDataPagamento(lancamento, doc);
+
         const config = {
             usuario: String(creds.identifier),
             senha: String(creds.secret_plain),
@@ -109,7 +141,8 @@ app.post('/api/salic/inserir', async (req, res) => {
                 cnpj_fornecedor: doc.cnpj_emissor,
                 valor: doc.valor,
                 numero: doc.numero_nf || doc.json_extraido?.numero_nota || 'S/N',
-                data_emissao: doc.data_emissao,
+                data_emissao: doc.data_emissao,   // Data de Emissão real da NF/recibo (#dataEmissao)
+                data_pagamento: dataPagamento,    // Bug #2: Data do Pagamento = data do débito (#dtPagamento)
                 nf_path: doc.file_path,
                 nf_url: `${process.env.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.file_path}`,
                 recibo: doc.recibo,
