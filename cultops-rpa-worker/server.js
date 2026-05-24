@@ -174,8 +174,7 @@ app.post('/api/salic/inserir', async (req, res) => {
                 data_pagamento: dataPagamento,    // Bug #2: Data do Pagamento = data do débito (#dtPagamento)
                 nf_path: doc.file_path,
                 nf_url: `${process.env.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.file_path}`,
-                recibo: doc.recibo,
-                recibo_url: doc.recibo ? `${process.env.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.recibo}` : null,
+                recibo: doc.recibo,   // flag de tipo: 'yes' = Recibo, 'no' = NF (NÃO é caminho de arquivo)
                 numero_extrato: formatarNrDocPagamento(numeroExtrato)
             }
         };

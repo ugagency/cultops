@@ -19,9 +19,10 @@ const TP_DOCUMENTO_RECIBO = '4';
 async function executarInsercaoSalic(config) {
     const { usuario, senha, pronac, rubricaNome, documento } = config;
 
-    // CHG-13: detecta tipo do documento via documents.recibo (text, nullable).
-    // Valor preenchido = Recibo. null/vazio = Nota Fiscal.
-    const isRecibo = !!(documento.recibo && String(documento.recibo).trim().length > 0);
+    // CHG-13 (rev): tipo do documento via documents.recibo (text: 'yes' = Recibo;
+    // 'no'/outro/null = Nota Fiscal). É preciso comparar o VALOR — qualquer string
+    // não-vazia (incl. "no") é truthy, então não dá para usar só a presença do campo.
+    const isRecibo = String(documento.recibo || '').trim().toLowerCase() === 'yes';
     console.log(`[SALIC] recibo: "${documento.recibo}" | isRecibo: ${isRecibo}`);
 
     // Helper para pausas
