@@ -665,18 +665,18 @@ async function executarInsercaoSalic(config) {
         await setMaterializeField(targetPage, '#dtPagamento', dataPagamentoFormatada);
         await wait(300);
 
-        // CHG-13 (rev): igual para Recibo e NF. Fonte = documents.fitid (numero_extrato).
-        // O fitid pode vir com separadores (ex: "."), entao mantemos so os digitos.
-        // Regra: >10 digitos -> ultimos 10; =10 -> mantem; <10 -> zero-pad a esquerda ate 10.
-        // slice(-10) cobre os casos >10 e =10; padStart(10,'0') so atua quando tem menos de 10.
-        const origemDocPagamento = String(documento.numero_extrato || documento.numero || '');
-        const digitosDocPagamento = origemDocPagamento.replace(/\D/g, '');
-        const nrDocPagamento = digitosDocPagamento.slice(-10).padStart(10, '0');
-        if (!documento.numero_extrato) {
+        // Bug #1 (rev): numero_extrato JA chega formatado do server.js
+        // (formatarNrDocPagamento — trata TED do BB extraindo a conta destino).
+        // Aqui NAO reformatamos para evitar dupla formatacao. Fallback: se ausente,
+        // usa o numero do documento aplicando a MESMA regra (>=13 digitos -> conta destino).
+        let nrDocPagamento = String(documento.numero_extrato || '');
+        if (!nrDocPagamento) {
+            const digFallback = String(documento.numero || '').replace(/\D/g, '');
+            nrDocPagamento = (digFallback.length >= 13 ? digFallback.slice(-6) : digFallback).padStart(10, '0');
             console.warn('[SALIC] AVISO: numero_extrato (fitid) ausente. Usando numero como fallback.');
         }
         await setMaterializeField(targetPage, '#nrDocumentoDePagamento', nrDocPagamento);
-        console.log(`[SALIC] #nrDocumentoDePagamento: ${nrDocPagamento} (origem: "${origemDocPagamento}")`);
+        console.log(`[SALIC] #nrDocumentoDePagamento: ${nrDocPagamento}`);
         await wait(300);
 
         // 8. Valor: digitar caractere por caractere para a mascara de moeda funcionar

@@ -42,6 +42,35 @@ function resolverDataPagamento(lancamento, doc) {
     return doc.data_emissao;
 }
 
+// Bug #1: formata o "Nº Documento de Pagamento" enviado ao SALIC.
+// TED interbancária do BB vem como AAA.BBB.CCC.DDD.EEE (15 dígitos); a conta
+// destino são os ÚLTIMOS 6 dígitos (DDD.EEE). Truncar em 10 (slice(-10))
+// pegava dígitos do meio e gerava número errado. Docs curtos (PIX/boleto)
+// seguem com zero-pad direto.
+// Casos validados:
+//   TED BB:  "551.614.000.114.014" -> "0000114014"
+//   PIX:     "42.001"              -> "0000042001"
+//   Boleto:  "42.205"              -> "0000042205"
+function formatarNrDocPagamento(docExtrato) {
+    if (!docExtrato) return '';
+
+    // Remove tudo que não é dígito
+    const limpo = String(docExtrato).replace(/\D/g, '');
+
+    if (limpo.length >= 13) {
+        // TED interbancária BB — conta destino = últimos 6 dígitos
+        const contaDestino = limpo.slice(-6);
+        const resultado = contaDestino.padStart(10, '0');
+        console.log(`[SERVER] Nr.DocPagamento: "${docExtrato}" → TED → conta "${contaDestino}" → "${resultado}"`);
+        return resultado;
+    }
+
+    // PIX direto, boleto, doc curto — zero-pad direto
+    const resultado = limpo.padStart(10, '0');
+    console.log(`[SERVER] Nr.DocPagamento: "${docExtrato}" → curto → "${resultado}"`);
+    return resultado;
+}
+
 // Endpoint SALIC
 app.post('/api/salic/inserir', async (req, res) => {
     const { executarInsercaoSalic } = require('./salic_insertion.cjs');
@@ -147,7 +176,7 @@ app.post('/api/salic/inserir', async (req, res) => {
                 nf_url: `${process.env.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.file_path}`,
                 recibo: doc.recibo,
                 recibo_url: doc.recibo ? `${process.env.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.recibo}` : null,
-                numero_extrato: numeroExtrato
+                numero_extrato: formatarNrDocPagamento(numeroExtrato)
             }
         };
 
