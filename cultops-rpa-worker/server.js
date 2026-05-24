@@ -102,27 +102,53 @@ app.post('/api/salic/inserir', async (req, res) => {
 
         console.log(`[API] Documento: ${doc.name} | Rubrica: ${doc.rubrica}`);
 
-        // Busca o valor aprovado da rubrica para identificar a rubrica correta no SALIC
+        // Bug #7: resolve a rubrica por rubrica_id (prefixo numerico de doc.rubrica),
+        // unico por projeto — evita ambiguidade com nomes repetidos (ex.: "Produtor
+        // executivo" em Pre-Producao e em Execucao). doc.rubrica = "37 - Produtor executivo".
         let rubricaValorAprovado = null;
+        let rubricaEtapa = null;
         if (doc.rubrica) {
-            // Limpa: "147 - Passagens Aéreas (Descrever os trechos...)" -> "Passagens Aéreas"
-            const nomeParaBusca = doc.rubrica
+            const matchId = String(doc.rubrica).match(/^\s*(\d+)\s*-/);
+            const rubricaId = matchId ? matchId[1] : null;
+            // Nome limpo (sem prefixo/parenteses) para o fallback por nome.
+            const nomeParaBusca = String(doc.rubrica)
                 .replace(/^\d+\s*-\s*/, '')  // Remove prefixo numerico
                 .replace(/\(.*\)/, '')         // Remove texto entre parenteses
                 .trim();
             
-            console.log(`[API] Buscando rubrica no DB com nome: "${nomeParaBusca}" | project_id: ${doc.project_id}`);
+            console.log(`[API] Buscando rubrica no DB | rubrica_id: "${rubricaId}" | nome(fallback): "${nomeParaBusca}" | project_id: ${doc.project_id}`);
             
-            const { data: rubricaData } = await supabase
-                .from('rubricas')
-                .select('valor_aprovado, nome')
-                .eq('project_id', doc.project_id)
-                .ilike('nome', `%${nomeParaBusca}%`)
-                .maybeSingle();
+            let rubricaData = null;
 
-            if (rubricaData && rubricaData.valor_aprovado) {
+            // 1) Busca primaria por rubrica_id (unico por projeto — sem ambiguidade)
+            if (rubricaId) {
+                const { data } = await supabase
+                    .from('rubricas')
+                    .select('nome, etapa, valor_aprovado, rubrica_id')
+                    .eq('project_id', doc.project_id)
+                    .eq('rubrica_id', rubricaId)
+                    .maybeSingle();
+                rubricaData = data;
+            }
+
+            // 2) Fallback por nome (maior valor primeiro; limit(1) nao quebra com nomes repetidos)
+            if (!rubricaData) {
+                console.warn(`[API] rubrica_id "${rubricaId}" nao encontrado. Tentando por nome: "${nomeParaBusca}"`);
+                const { data } = await supabase
+                    .from('rubricas')
+                    .select('nome, etapa, valor_aprovado, rubrica_id')
+                    .eq('project_id', doc.project_id)
+                    .ilike('nome', `%${nomeParaBusca}%`)
+                    .order('valor_aprovado', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+                rubricaData = data;
+            }
+
+            if (rubricaData) {
                 rubricaValorAprovado = rubricaData.valor_aprovado;
-                console.log(`[API] Rubrica encontrada: "${rubricaData.nome}" | Valor Aprovado: R$ ${rubricaValorAprovado}`);
+                rubricaEtapa = rubricaData.etapa;
+                console.log(`[API] Rubrica encontrada: "${rubricaData.nome}" | ID: ${rubricaData.rubrica_id} | Etapa: ${rubricaData.etapa} | Valor Aprovado: R$ ${rubricaData.valor_aprovado}`);
             } else {
                 console.log(`[API] AVISO: Rubrica nao encontrada no DB. A selecao no SALIC pode falhar.`);
             }
@@ -166,6 +192,7 @@ app.post('/api/salic/inserir', async (req, res) => {
             pronac: String(doc.projects.pronac),
             rubricaNome: doc.rubrica || 'Rubrica não informada',
             rubricaValorAprovado: rubricaValorAprovado,
+            rubricaEtapa: rubricaEtapa,
             documento: {
                 cnpj_fornecedor: doc.cnpj_emissor,
                 valor: doc.valor,
