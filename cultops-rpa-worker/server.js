@@ -102,57 +102,81 @@ app.post('/api/salic/inserir', async (req, res) => {
 
         console.log(`[API] Documento: ${doc.name} | Rubrica: ${doc.rubrica}`);
 
-        // Bug #7: resolve a rubrica por rubrica_id (prefixo numerico de doc.rubrica),
-        // unico por projeto — evita ambiguidade com nomes repetidos (ex.: "Produtor
-        // executivo" em Pre-Producao e em Execucao). doc.rubrica = "37 - Produtor executivo".
-        let rubricaValorAprovado = null;
-        let rubricaEtapa = null;
-        if (doc.rubrica) {
-            const matchId = String(doc.rubrica).match(/^\s*(\d+)\s*-/);
-            const rubricaId = matchId ? matchId[1] : null;
-            // Nome limpo (sem prefixo/parenteses) para o fallback por nome.
-            const nomeParaBusca = String(doc.rubrica)
-                .replace(/^\d+\s*-\s*/, '')  // Remove prefixo numerico
-                .replace(/\(.*\)/, '')         // Remove texto entre parenteses
-                .trim();
-            
-            console.log(`[API] Buscando rubrica no DB | rubrica_id: "${rubricaId}" | nome(fallback): "${nomeParaBusca}" | project_id: ${doc.project_id}`);
-            
-            let rubricaData = null;
+        // Resolucao da rubrica em CASCATA (3 estrategias, da mais confiavel a mais ambigua).
+        // Motivacao: doc.rubrica e texto livre e nem sempre tem prefixo numerico; nomes
+        // repetidos em etapas diferentes (ex.: "Produtor executivo" em Pre-Producao E em
+        // Execucao) geravam match errado. A coluna documents.rubrica_id_fk (FK -> rubricas.id),
+        // quando preenchida, resolve por UUID direto — sem parsing, sem ambiguidade.
+        let rubrica = null;
 
-            // 1) Busca primaria por rubrica_id (unico por projeto — sem ambiguidade)
-            if (rubricaId) {
-                const { data } = await supabase
-                    .from('rubricas')
-                    .select('nome, etapa, valor_aprovado, rubrica_id')
-                    .eq('project_id', doc.project_id)
-                    .eq('rubrica_id', rubricaId)
-                    .maybeSingle();
-                rubricaData = data;
+        // ESTRATEGIA 1 — UUID direto (mais confiavel)
+        // Requer que documents.rubrica_id_fk esteja preenchido
+        if (doc.rubrica_id_fk) {
+            const { data } = await supabase
+                .from('rubricas')
+                .select('nome, etapa, valor_aprovado, rubrica_id')
+                .eq('id', doc.rubrica_id_fk)
+                .single();
+            rubrica = data;
+            if (rubrica) {
+                console.log(`[API] Rubrica por UUID: "${rubrica.nome}"` +
+                    ` | ID: ${rubrica.rubrica_id}` +
+                    ` | Etapa: ${rubrica.etapa}` +
+                    ` | Valor: R$ ${rubrica.valor_aprovado}`);
             }
+        }
 
-            // 2) Fallback por nome (maior valor primeiro; limit(1) nao quebra com nomes repetidos)
-            if (!rubricaData) {
-                console.warn(`[API] rubrica_id "${rubricaId}" nao encontrado. Tentando por nome: "${nomeParaBusca}"`);
+        // ESTRATEGIA 2 — rubrica_id numerico extraido do prefixo
+        // Ex: "37 - Produtor executivo" → rubrica_id="37"
+        if (!rubrica) {
+            console.warn('[API] rubrica_id_fk ausente — tentando prefixo numérico');
+            const rubricaIdNum = doc.rubrica?.match(/^(\d+)\s*-/)?.[1];
+            if (rubricaIdNum) {
                 const { data } = await supabase
                     .from('rubricas')
                     .select('nome, etapa, valor_aprovado, rubrica_id')
                     .eq('project_id', doc.project_id)
-                    .ilike('nome', `%${nomeParaBusca}%`)
+                    .eq('rubrica_id', rubricaIdNum)
+                    .maybeSingle();
+                rubrica = data;
+                if (rubrica) {
+                    console.log(`[API] Rubrica por prefixo "${rubricaIdNum}":` +
+                        ` "${rubrica.nome}" | Etapa: ${rubrica.etapa}`);
+                }
+            }
+        }
+
+        // ESTRATEGIA 3 — nome (ultimo recurso, ambiguo)
+        if (!rubrica) {
+            console.warn('[API] Fallback por nome — pode ser ambíguo');
+            const nomeRubrica = doc.rubrica
+                ?.replace(/^\d+\s*-\s*/, '')
+                ?.trim();
+            if (nomeRubrica) {
+                const { data } = await supabase
+                    .from('rubricas')
+                    .select('nome, etapa, valor_aprovado, rubrica_id')
+                    .eq('project_id', doc.project_id)
+                    .ilike('nome', `%${nomeRubrica}%`)
                     .order('valor_aprovado', { ascending: false })
                     .limit(1)
                     .maybeSingle();
-                rubricaData = data;
-            }
-
-            if (rubricaData) {
-                rubricaValorAprovado = rubricaData.valor_aprovado;
-                rubricaEtapa = rubricaData.etapa;
-                console.log(`[API] Rubrica encontrada: "${rubricaData.nome}" | ID: ${rubricaData.rubrica_id} | Etapa: ${rubricaData.etapa} | Valor Aprovado: R$ ${rubricaData.valor_aprovado}`);
-            } else {
-                console.log(`[API] AVISO: Rubrica nao encontrada no DB. A selecao no SALIC pode falhar.`);
+                rubrica = data;
+                if (rubrica) {
+                    console.warn(`[API] Rubrica por nome: "${rubrica.nome}"` +
+                        ` | Etapa: ${rubrica.etapa} — VALIDAR SE CORRETO`);
+                }
             }
         }
+
+        if (!rubrica) {
+            throw new Error(`Rubrica não encontrada para documento ${doc.id}` +
+                ` | rubrica: "${doc.rubrica}" | rubrica_id_fk: ${doc.rubrica_id_fk}`);
+        }
+
+        // Mantem as variaveis usadas no payload (sem alterar payload nem o .cjs)
+        const rubricaValorAprovado = rubrica.valor_aprovado;
+        const rubricaEtapa = rubrica.etapa;
 
         // CHG-13 (rev): numero_extrato vem de documents.fitid (RPA usa os ultimos 10 digitos / zero-pad).
         // Fallback: extratos_bancarios.documento_referencia via despesas.extrato_vinculado_id.
