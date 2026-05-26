@@ -4978,8 +4978,6 @@ function setupRealtime() {
                         badgeContainer.className = `badge ${status.class}`;
                         badgeContainer.innerHTML = `<span class="badge-dot"></span>${status.label}`;
                     }
-                } else {
-                    render();
                 }
             }
         )
