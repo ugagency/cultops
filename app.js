@@ -776,6 +776,10 @@ ${Sidebar()}
                 </select>
             </div>
             <button class="btn btn-secondary" onclick="window.clearFilters()">Limpar filtros</button>
+            <button class="btn btn-secondary" id="btn-excluir-lote-dashboard" style="display: none; background: var(--error); color: white; border: none; align-items: center; gap: 0.25rem;" onclick="window.handleDeleteSelectedDocuments()">
+                <i data-lucide="trash-2" style="width: 16px;"></i>
+                Excluir Selecionados (<span id="count-excluir-lote-dashboard">0</span>)
+            </button>
             <button class="btn btn-primary" onclick="window.navigate('upload')">
                 <i data-lucide="upload-cloud"></i>
                 Enviar nota
@@ -795,6 +799,9 @@ ${Sidebar()}
             <table class="data-table">
                 <thead>
                     <tr>
+                        <th style="width: 40px; text-align: center;">
+                            <input type="checkbox" id="chk-dashboard-select-all" onchange="window.handleSelectAllDashboardDocs(this.checked)">
+                        </th>
                         <th>Arquivo</th>
                         <th>Projeto</th>
                         <th>Status</th>
@@ -808,6 +815,9 @@ ${Sidebar()}
         const project = state.projects.find(p => p.id === doc.project_id);
         return `
                         <tr>
+                            <td style="text-align: center;">
+                                <input type="checkbox" class="chk-doc-dashboard" data-id="${doc.id}" data-file-path="${doc.file_path}" onchange="window.handleDashboardDocCheckboxChange()">
+                            </td>
                             <td>
                                 <div style="font-weight: 500;">${doc.name}</div>
                                 <div class="text-xs">${doc.size || '---'}</div>
@@ -3396,6 +3406,82 @@ window.handleDeleteDocument = async function (id, filePath) {
         render();
     } catch (error) {
         showToast("Erro ao excluir: " + error.message, 'error');
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
+
+window.handleSelectAllDashboardDocs = function (checked) {
+    const checkboxes = document.querySelectorAll('.chk-doc-dashboard');
+    checkboxes.forEach(chk => chk.checked = checked);
+    window.handleDashboardDocCheckboxChange();
+};
+
+window.handleDashboardDocCheckboxChange = function () {
+    const selected = document.querySelectorAll('.chk-doc-dashboard:checked');
+    const btn = document.getElementById('btn-excluir-lote-dashboard');
+    const countSpan = document.getElementById('count-excluir-lote-dashboard');
+    const selectAllChk = document.getElementById('chk-dashboard-select-all');
+
+    if (btn && countSpan) {
+        if (selected.length > 0) {
+            btn.style.display = 'inline-flex';
+            countSpan.textContent = selected.length;
+        } else {
+            btn.style.display = 'none';
+        }
+    }
+
+    if (selectAllChk) {
+        const all = document.querySelectorAll('.chk-doc-dashboard');
+        selectAllChk.checked = all.length > 0 && selected.length === all.length;
+    }
+};
+
+window.handleDeleteSelectedDocuments = async function () {
+    const checkboxes = document.querySelectorAll('.chk-doc-dashboard:checked');
+    if (checkboxes.length === 0) return;
+
+    if (!confirm(`Tem certeza que deseja excluir os ${checkboxes.length} documentos selecionados? Esta ação não pode ser desfeita.`)) return;
+
+    state.loading = true;
+    render();
+
+    const ids = [];
+    const filePaths = [];
+
+    checkboxes.forEach(chk => {
+        ids.push(chk.getAttribute('data-id'));
+        const fp = chk.getAttribute('data-file-path');
+        if (fp && fp !== 'null' && fp !== 'undefined') filePaths.push(fp);
+    });
+
+    try {
+        // 1. Excluir do Storage
+        if (filePaths.length > 0) {
+            const { error: storageError } = await supabaseClient.storage
+                .from('documentos')
+                .remove(filePaths);
+
+            if (storageError) {
+                console.warn("Alguns arquivos podem não ter sido limpos do storage:", storageError.message);
+            }
+        }
+
+        // 2. Excluir do Banco
+        const { error: dbError } = await supabaseClient
+            .from('documents')
+            .delete()
+            .in('id', ids);
+
+        if (dbError) throw dbError;
+
+        showToast(`${ids.length} documentos excluídos com sucesso.`, 'success');
+        await fetchDocuments();
+        render();
+    } catch (error) {
+        showToast("Erro ao excluir documentos em lote: " + error.message, 'error');
     } finally {
         state.loading = false;
         render();
