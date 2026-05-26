@@ -54,7 +54,7 @@ app.get('/config.js', (req, res) => {
         N8N_WEBHOOK_SALIC_PROJECT_URL: "https://automacoes-n8n.infrassys.com/webhook/cultops-projeto",
         N8N_WEBHOOK_SALIC_IMPORT_RUBRICAS_URL: "https://automacoes-n8n.infrassys.com/webhook/uploadrubricas",
         N8N_WEBHOOK_CRIAR_PDF_URL: "https://automacoes-n8n.infrassys.com/webhook/relatorio",
-        SALIC_API_URL: "cultops-production-5a3d.up.railway.app/api/salic/inserir"
+        SALIC_API_URL: "https://cultops-production-5a3d.up.railway.app/api/salic/inserir"
     };
     res.type('application/javascript');
     res.send(`const CONFIG = ${JSON.stringify(publicConfig, null, 2)};`);
