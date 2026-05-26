@@ -814,7 +814,7 @@ ${Sidebar()}
         const status = STATUS_MAP[doc.status] || { label: doc.status, class: 'status-pending' };
         const project = state.projects.find(p => p.id === doc.project_id);
         return `
-                        <tr>
+                        <tr id="doc-row-${doc.id}">
                             <td style="text-align: center;">
                                 <input type="checkbox" class="chk-doc-dashboard" data-id="${doc.id}" data-file-path="${doc.file_path}" onchange="window.handleDashboardDocCheckboxChange()">
                             </td>
@@ -4428,7 +4428,7 @@ async function fetchUploadLoteQueue() {
         .select('*')
         .eq('user_id', state.user.id)
         .eq('status', 'aguardando_rubrica')
-        .order('created_at', { ascending: false });
+        .order('name', { ascending: true });
     if (error) {
         console.error("Erro fetchUploadLoteQueue:", error);
         return;
@@ -4970,6 +4970,14 @@ function setupRealtime() {
                 // para garantir que pegamos as relações (despesas, etc) que o n8n pode ter criado.
                 if (state.currentDocument && state.currentDocument.id === payload.new.id && state.currentView === 'details') {
                     fetchDocumentDetails(payload.new.id, true);
+                } else if (state.currentView === 'dashboard') {
+                    // Atualização cirúrgica do badge de status
+                    const status = STATUS_MAP[payload.new.status] || { label: payload.new.status, class: 'status-pending' };
+                    const badgeContainer = document.querySelector(`#doc-row-${payload.new.id} .badge`);
+                    if (badgeContainer) {
+                        badgeContainer.className = `badge ${status.class}`;
+                        badgeContainer.innerHTML = `<span class="badge-dot"></span>${status.label}`;
+                    }
                 } else {
                     render();
                 }
