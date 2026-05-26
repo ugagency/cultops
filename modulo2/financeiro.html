@@ -257,7 +257,7 @@
                     </div>
                 </div>
                 <div class="glass-card stat-card">
-                    <span class="stat-label">Impostos Provisionados</span>
+                    <span class="stat-label">Impostos Pagos</span>
                     <span class="stat-value skeleton" id="stat-impostos">R$ 0,00</span>
                     <span class="stat-sub" id="stat-impostos-sub">&nbsp;</span>
                 </div>
@@ -452,7 +452,7 @@
                     sb.from('tax_guides')
                         .select('valor, status')
                         .eq('project_id', projectId)
-                        .neq('status', 'cancelada'),
+                        .eq('status', 'paga'),
                     sb.from('checklist_items')
                         .select('status')
                         .eq('project_id', projectId),
@@ -542,7 +542,7 @@
             bar.classList.toggle('danger', s.percExec >= 100);
 
             document.getElementById('stat-impostos').textContent = fmtBRL(s.totalImpostos);
-            document.getElementById('stat-impostos-sub').textContent = 'Guias não-canceladas';
+            document.getElementById('stat-impostos-sub').textContent = 'Guias pagas';
 
             document.getElementById('stat-checklist').textContent = `${s.checklistOk} / ${s.checklistTotal} itens`;
             const cb = document.getElementById('stat-checklist-bar');
