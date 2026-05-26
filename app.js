@@ -113,7 +113,11 @@ const state = {
     showCapturedProjectModal: false,
     isUploadingComprovante: false,
     rubrica_versions: [],
-    equipe: []
+    equipe: [],
+    salicLoteQueue: [],          // [{id, name, status, error, project_name}]
+    salicLoteRunning: false,
+    salicLoteCancelled: false,
+    salicLoteProgress: { current: 0, total: 0 }
 };
 
 const STATUS_MAP = {
@@ -211,6 +215,10 @@ const Sidebar = () => `
         <a class="nav-item ${state.currentView === 'upload_lote' ? 'active' : ''}" onclick="window.navigate('upload_lote')">
             <i data-lucide="layers"></i>
             <span>Upload em Lote</span>
+        </a>
+        <a class="nav-item ${state.currentView === 'envio_lote_salic' ? 'active' : ''}" onclick="window.navigate('envio_lote_salic')">
+            <i data-lucide="send"></i>
+            <span>Envio SALIC</span>
         </a>
         <a class="nav-item ${['orcamento', 'rubricas'].includes(state.currentView) ? 'active' : ''}" onclick="window.navigate('orcamento')">
             <i data-lucide="list-checks"></i>
@@ -1066,6 +1074,403 @@ ${Sidebar()}
     </main>
     `;
 };
+
+// --- Envio SALIC em Lote ---
+
+// Funções de Persistência da Fila do SALIC
+function salvarFilaSalic() {
+    localStorage.setItem('salicLoteQueue', JSON.stringify(state.salicLoteQueue));
+    localStorage.setItem('salicLoteProgress', JSON.stringify(state.salicLoteProgress));
+}
+
+function carregarFilaSalic() {
+    const queueData = localStorage.getItem('salicLoteQueue');
+    const progressData = localStorage.getItem('salicLoteProgress');
+    if (queueData) {
+        try {
+            state.salicLoteQueue = JSON.parse(queueData);
+            // Se o app recarregar, qualquer item 'sending' deve voltar para 'pending'
+            state.salicLoteQueue.forEach(item => {
+                if (item.status === 'sending') {
+                    item.status = 'pending';
+                }
+            });
+            if (progressData) {
+                state.salicLoteProgress = JSON.parse(progressData);
+            }
+        } catch (e) {
+            console.error("Erro ao ler fila SALIC do localStorage:", e);
+            state.salicLoteQueue = [];
+            state.salicLoteProgress = { current: 0, total: 0 };
+        }
+    }
+}
+
+function limparFilaSalic() {
+    localStorage.removeItem('salicLoteQueue');
+    localStorage.removeItem('salicLoteProgress');
+    state.salicLoteQueue = [];
+    state.salicLoteProgress = { current: 0, total: 0 };
+    state.salicLoteRunning = false;
+    state.salicLoteCancelled = false;
+}
+
+const EnvioLoteSalicView = () => {
+    // Se a fila estiver ativa (tem itens salvos no estado)
+    const hasQueue = state.salicLoteQueue && state.salicLoteQueue.length > 0;
+
+    if (!hasQueue) {
+        // Modo Seleção
+        // Documentos filtrados com status 'liberado_rpa_airtop'
+        const readyDocs = state.documents.filter(doc => doc.status === 'liberado_rpa_airtop');
+        const projetoSelecionado = state.filters.project || '';
+
+        return `
+        ${Sidebar()}
+        <main class="main-content view-content">
+            <header class="content-header">
+                <h1>Envio SALIC em Lote</h1>
+                <p class="page-subtitle">Selecione os documentos aprovados na auditoria de conformidade para enviar em lote sequencial ao SALIC.</p>
+            </header>
+
+            <div class="salic-batch-container">
+                <div class="card mb-4" style="padding: 1.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                        <div class="form-group" style="margin-bottom: 0; min-width: 250px; flex: 1;">
+                            <label>Filtrar por Projeto</label>
+                            <select id="salic-lote-project-selector" onchange="window.updateFilters('project', this.value);">
+                                <option value="">Todos os projetos...</option>
+                                ${state.projects.map(p => `<option value="${p.id}" ${projetoSelecionado === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; align-self: flex-end;">
+                            <button class="btn btn-secondary" onclick="window.handleSelectAllSalicDocs(true)">Selecionar Todos</button>
+                            <button class="btn btn-ghost" onclick="window.handleSelectAllSalicDocs(false)">Desmarcar Todos</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                        <h3 class="h2" style="margin: 0;">Documentos Prontos para Envio (${readyDocs.length})</h3>
+                        <button class="btn btn-primary" id="btn-iniciar-lote" style="background: linear-gradient(135deg, #059669 0%, #10b981 100%); border: none; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);" onclick="window.handleIniciarEnvioLote()" ${readyDocs.length === 0 ? 'disabled' : ''}>
+                            <i data-lucide="play" style="width: 16px;"></i> Iniciar Envio
+                        </button>
+                    </div>
+
+                    ${readyDocs.length === 0 ? `
+                        <div style="padding: 3rem; text-align: center; color: var(--text-muted);">
+                            <i data-lucide="send-to-back" style="width: 48px; height: 48px; margin-bottom: 1rem; color: var(--text-muted); opacity: 0.5;"></i>
+                            <p class="text-sm" style="font-weight: 500;">Nenhum documento com status "Pronto para envio" encontrado.</p>
+                            <p class="text-xs" style="margin-top: 0.25rem;">Apenas documentos validados e liberados pelo RPA com status correspondente aparecem aqui.</p>
+                        </div>
+                    ` : `
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 40px; text-align: center;">
+                                        <input type="checkbox" id="chk-salic-select-all" onchange="window.handleSelectAllSalicDocs(this.checked)" checked>
+                                    </th>
+                                    <th>Documento</th>
+                                    <th>Projeto</th>
+                                    <th>Rubrica</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${readyDocs.map(doc => {
+                                    const proj = state.projects.find(p => p.id === doc.project_id);
+                                    const projLabel = proj ? `${proj.pronac} - ${proj.nome}` : 'Projeto não encontrado';
+                                    return `
+                                    <tr>
+                                        <td style="text-align: center;">
+                                            <input type="checkbox" class="chk-salic-doc" data-id="${doc.id}" data-name="${doc.name}" data-project="${projLabel}" checked>
+                                        </td>
+                                        <td style="font-weight: 600; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${doc.name}</td>
+                                        <td style="font-size: 13px; color: var(--text-secondary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${projLabel}</td>
+                                        <td style="font-size: 13px; font-weight: 500;">${doc.rubrica_nome || doc.rubrica || '-'}</td>
+                                        <td>
+                                            <span class="status-badge status-completed">Pronto</span>
+                                        </td>
+                                    </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    `}
+                </div>
+            </div>
+        </main>
+        `;
+    }
+
+    // Modo Progresso/Fila Ativa
+    const total = state.salicLoteProgress.total || 1;
+    const current = state.salicLoteProgress.current || 0;
+    const percentage = Math.round((current / total) * 100);
+
+    const pendingCount = state.salicLoteQueue.filter(i => i.status === 'pending').length;
+    const successCount = state.salicLoteQueue.filter(i => i.status === 'success').length;
+    const errorCount = state.salicLoteQueue.filter(i => i.status === 'error').length;
+    const isFinished = pendingCount === 0 && !state.salicLoteRunning;
+
+    return `
+    ${Sidebar()}
+    <main class="main-content view-content">
+        <header class="content-header">
+            <h1>Envio SALIC em Lote (Progresso)</h1>
+            <p class="page-subtitle">Os documentos estão sendo enviados sequencialmente para o SALIC. Por favor, mantenha esta aba aberta durante o processo.</p>
+        </header>
+
+        <div class="salic-batch-container">
+            <!-- Box de Progresso Geral -->
+            <div class="salic-progress-box">
+                <div class="salic-progress-info">
+                    <span class="salic-progress-label">
+                        ${isFinished ? 'Envio concluído!' : state.salicLoteRunning ? 'Processando fila...' : 'Fila pausada'}
+                    </span>
+                    <span class="salic-progress-percentage">${percentage}%</span>
+                </div>
+                <div class="salic-progress-bar">
+                    <div class="salic-progress-fill" style="width: ${percentage}%;"></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; font-size: 13px; color: var(--text-secondary);">
+                    <div>
+                        <span>Sucesso: <strong style="color: var(--success);">${successCount}</strong></span>
+                        <span style="margin-left: 1rem;">Erros: <strong style="color: var(--error);">${errorCount}</strong></span>
+                        <span style="margin-left: 1rem;">Pendentes: <strong>${pendingCount}</strong></span>
+                    </div>
+                    <div>
+                        ${state.salicLoteRunning ? `
+                            <button class="btn btn-ghost" style="color: var(--error); padding: 0.4rem 1rem;" onclick="window.handleCancelarLoteSalic()">
+                                <i data-lucide="square" style="width: 14px; margin-right: 0.25rem;"></i> Cancelar Envio
+                            </button>
+                        ` : `
+                            <div style="display: flex; gap: 0.5rem;">
+                                ${pendingCount > 0 ? `
+                                    <button class="btn btn-primary" style="padding: 0.4rem 1rem;" onclick="window.handleRetomarLoteSalic()">
+                                        <i data-lucide="play" style="width: 14px; margin-right: 0.25rem;"></i> Retomar
+                                    </button>
+                                ` : ''}
+                                <button class="btn btn-ghost" style="padding: 0.4rem 1rem;" onclick="window.handleLimparFilaSalic()">
+                                    <i data-lucide="trash-2" style="width: 14px; margin-right: 0.25rem;"></i> Limpar / Voltar
+                                </button>
+                            </div>
+                        `}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fila de Itens -->
+            <div class="card">
+                <h3 class="h2 mb-4">Fila de Envio (${state.salicLoteQueue.length} documentos)</h3>
+                <div class="salic-queue-list">
+                    ${state.salicLoteQueue.map((item, idx) => {
+                        let statusText = 'Pendente';
+                        let iconName = 'clock';
+                        if (item.status === 'sending') {
+                            statusText = 'Enviando...';
+                            iconName = 'loader-2';
+                        } else if (item.status === 'success') {
+                            statusText = 'Enviado';
+                            iconName = 'check-circle';
+                        } else if (item.status === 'error') {
+                            statusText = 'Erro';
+                            iconName = 'alert-circle';
+                        }
+
+                        const spinClass = item.status === 'sending' ? 'spin' : '';
+
+                        return `
+                        <div class="salic-queue-item ${item.status}">
+                            <div class="salic-queue-item-left">
+                                <div class="salic-queue-item-icon ${spinClass}">
+                                    <i data-lucide="${iconName}"></i>
+                                </div>
+                                <div class="salic-queue-item-details">
+                                    <span class="salic-queue-item-name" title="${item.name}">${item.name}</span>
+                                    <span style="font-size: 11px; color: var(--text-secondary);">${item.project}</span>
+                                    ${item.error ? `<span class="salic-queue-item-error-msg">${item.error}</span>` : ''}
+                                </div>
+                            </div>
+                            <span class="salic-queue-item-status">
+                                ${statusText}
+                            </span>
+                        </div>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+        </div>
+    </main>
+    `;
+};
+
+window.handleSelectAllSalicDocs = function (checked) {
+    const checkboxes = document.querySelectorAll('.chk-salic-doc');
+    checkboxes.forEach(chk => chk.checked = checked);
+    const headerChk = document.getElementById('chk-salic-select-all');
+    if (headerChk) headerChk.checked = checked;
+};
+
+window.handleIniciarEnvioLote = async function () {
+    if (!supabaseClient || !state.user) return;
+
+    // Verificar credenciais SALIC
+    try {
+        state.loading = true;
+        render();
+
+        const { data: creds, error: credError } = await supabaseClient
+            .from('decrypted_external_credentials')
+            .select('*')
+            .eq('service_name', 'salic')
+            .limit(1)
+            .maybeSingle();
+
+        if (credError) throw credError;
+        if (!creds) {
+            alert("Você precisa configurar suas credenciais SALIC em 'Configurações' antes de enviar em lote.");
+            window.navigate('configuracoes');
+            return;
+        }
+    } catch (err) {
+        showToast("Erro ao verificar credenciais: " + err.message, 'error');
+        return;
+    } finally {
+        state.loading = false;
+        render();
+    }
+
+    const checkboxes = document.querySelectorAll('.chk-salic-doc:checked');
+    if (checkboxes.length === 0) {
+        alert("Por favor, selecione pelo menos um documento para enviar.");
+        return;
+    }
+
+    const queue = [];
+    checkboxes.forEach(chk => {
+        queue.push({
+            id: chk.getAttribute('data-id'),
+            name: chk.getAttribute('data-name'),
+            project: chk.getAttribute('data-project'),
+            status: 'pending',
+            error: null
+        });
+    });
+
+    state.salicLoteQueue = queue;
+    state.salicLoteProgress = { current: 0, total: queue.length };
+    state.salicLoteRunning = true;
+    state.salicLoteCancelled = false;
+
+    salvarFilaSalic();
+    render();
+
+    // Inicia processamento assíncrono
+    processarFilaSalic();
+};
+
+window.handleCancelarLoteSalic = function () {
+    state.salicLoteCancelled = true;
+    state.salicLoteRunning = false;
+    showToast("Envio em lote cancelado pelo usuário. O envio atual terminará antes de parar.", "warning");
+    salvarFilaSalic();
+    render();
+};
+
+window.handleRetomarLoteSalic = function () {
+    if (state.salicLoteRunning) return;
+    state.salicLoteCancelled = false;
+    state.salicLoteRunning = true;
+    showToast("Retomando envio em lote...", "info");
+    salvarFilaSalic();
+    render();
+    processarFilaSalic();
+};
+
+window.handleLimparFilaSalic = function () {
+    if (state.salicLoteRunning) {
+        alert("Não é possível limpar a fila enquanto ela está rodando.");
+        return;
+    }
+    if (confirm("Tem certeza que deseja descartar a fila atual?")) {
+        limparFilaSalic();
+        fetchDocuments().then(render);
+    }
+};
+
+async function processarFilaSalic() {
+    if (!state.salicLoteRunning) return;
+
+    for (let i = 0; i < state.salicLoteQueue.length; i++) {
+        if (state.salicLoteCancelled) {
+            state.salicLoteRunning = false;
+            salvarFilaSalic();
+            render();
+            return;
+        }
+
+        const item = state.salicLoteQueue[i];
+        if (item.status === 'success' || item.status === 'error') {
+            continue;
+        }
+
+        item.status = 'sending';
+        salvarFilaSalic();
+        render();
+
+        try {
+            console.log(`[LOTE SALIC] Enviando: ${item.name}`);
+            
+            const fullUrl = CONFIG.SALIC_API_URL.startsWith('/')
+                ? window.location.origin + CONFIG.SALIC_API_URL
+                : CONFIG.SALIC_API_URL;
+
+            const response = await fetch(fullUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                mode: 'cors',
+                body: JSON.stringify({
+                    documentId: item.id,
+                    userId: state.user.id
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || "O servidor de API retornou erro.");
+            }
+
+            const resData = await response.json();
+            if (resData.success) {
+                item.status = 'success';
+            } else {
+                throw new Error("Erro no processamento da API.");
+            }
+        } catch (err) {
+            item.status = 'error';
+            item.error = err.message;
+        }
+
+        state.salicLoteProgress.current++;
+        salvarFilaSalic();
+        render();
+
+        // 2 segundos de cortesia entre envios
+        if (i < state.salicLoteQueue.length - 1) {
+            await new Promise(r => setTimeout(r, 2000));
+        }
+    }
+
+    state.salicLoteRunning = false;
+    salvarFilaSalic();
+    render();
+
+    const successCount = state.salicLoteQueue.filter(item => item.status === 'success').length;
+    const errorCount = state.salicLoteQueue.filter(item => item.status === 'error').length;
+    showToast(`Lote processado! Sucessos: ${successCount}, Falhas: ${errorCount}`, 'info');
+}
 
 const CreateProjectView = () => `
 ${Sidebar()}
@@ -2560,6 +2965,9 @@ window.navigate = async function (view, id = null) {
         if (state.filters.project) {
             await fetchRubricasDisponiveis(state.filters.project);
         }
+    } else if (view === 'envio_lote_salic') {
+        await fetchProjects();
+        await fetchDocuments();
     } else if (view === 'orcamento' || view === 'financeiro') {
         await fetchProjects();
         await fetchCatalogoRubricas();
@@ -4363,6 +4771,9 @@ function render() {
         case 'upload_lote':
             content = UploadLoteView();
             break;
+        case 'envio_lote_salic':
+            content = EnvioLoteSalicView();
+            break;
         case 'orcamento':
             content = OrcamentoView();
             break;
@@ -4617,6 +5028,16 @@ async function init() {
                 state.currentView = (!hash || hash === 'login' || hash === 'register') ? 'dashboard' : hash;
                 await fetchProjects();
                 await fetchDocuments();
+
+                // Carrega a fila do SALIC persistida
+                carregarFilaSalic();
+                const pendingCount = state.salicLoteQueue.filter(item => item.status === 'pending').length;
+                if (pendingCount > 0) {
+                    state.currentView = 'envio_lote_salic';
+                    setTimeout(() => {
+                        showToast(`Você tem um envio em lote do SALIC pendente (${pendingCount} documentos).`, 'warning');
+                    }, 1000);
+                }
             }
         }
     }
