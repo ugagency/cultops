@@ -218,7 +218,7 @@
     <main class="main-content">
         <header class="page-header">
             <div>
-                <h1>Dashboard Financeiro</h1>
+                <h1>Dashboard Financeiro<span id="header-project-info" style="color: var(--text-secondary); font-weight: 500;"></span></h1>
                 <p class="text-secondary">Visão geral da prestação de contas e conformidade.</p>
             </div>
 
@@ -369,6 +369,26 @@
 
         let sb = null;
         let currentProjectId = null;
+        let projectsById = new Map();
+
+        function setSelectorPlaceholder(hasProject) {
+            const placeholder = document.getElementById('selector-placeholder');
+            const selector = document.getElementById('project-selector');
+            if (placeholder) {
+                placeholder.textContent = hasProject ? 'Trocar projeto' : 'Selecione um projeto';
+            }
+            if (selector) selector.value = '';
+        }
+
+        function updateHeaderProject(pid) {
+            const el = document.getElementById('header-project-info');
+            if (!el) return;
+            const p = pid ? projectsById.get(pid) : null;
+            if (!p) { el.textContent = ''; return; }
+            const nome = escapeHtml(p.nome || '');
+            const pronac = p.pronac ? ` · PRONAC ${escapeHtml(String(p.pronac))}` : '';
+            el.innerHTML = ` — ${nome}${pronac}`;
+        }
 
         document.addEventListener('DOMContentLoaded', async () => {
             if (window.renderSidebar) window.renderSidebar();
@@ -394,19 +414,28 @@
                     return;
                 }
 
-                selector.innerHTML = '<option value="">Selecione um projeto…</option>' +
+                projectsById = new Map(projects.map(p => [p.id, p]));
+                selector.innerHTML = '<option value="" id="selector-placeholder">Selecione um projeto</option>' +
                     projects.map(p => `<option value="${p.id}">${p.pronac ? p.pronac + ' — ' : ''}${p.nome}</option>`).join('');
 
                 const saved = window.ProjectManager && ProjectManager.getSelected();
                 const initialId = (saved && projects.some(p => p.id === saved)) ? saved : projects[0].id;
-                selector.value = initialId;
+                currentProjectId = initialId;
                 if (window.ProjectManager) ProjectManager.setSelected(initialId);
+                updateHeaderProject(initialId);
+                setSelectorPlaceholder(true);
                 await loadDashboardData(initialId);
 
                 selector.onchange = async (e) => {
                     const pid = e.target.value;
+                    if (!pid) {
+                        setSelectorPlaceholder(false);
+                        return;
+                    }
+                    currentProjectId = pid;
                     if (window.ProjectManager) ProjectManager.setSelected(pid);
-                    if (!pid) { showNoProjectState(); return; }
+                    updateHeaderProject(pid);
+                    setSelectorPlaceholder(true);
                     await loadDashboardData(pid);
                 };
             } catch (err) {

@@ -15,14 +15,99 @@
     
     <style>
         .setup-container {
-            max-width: 900px;
+            max-width: 1100px;
             width: 100%;
             margin: 0 auto;
         }
-        
+
         .setup-header {
             text-align: center;
+            margin-bottom: 2.5rem;
+        }
+
+        .active-projects-section {
             margin-bottom: 3rem;
+        }
+
+        .section-heading {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin: 0 0 1rem 0;
+        }
+
+        .section-subheading {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin: 2rem 0 1rem 0;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .projects-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1rem;
+        }
+
+        .project-card {
+            background: white;
+            padding: 1.25rem;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-light);
+            box-shadow: var(--shadow-sm);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .project-card:hover {
+            border-color: var(--m2-accent);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .project-card-pronac {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .project-card-nome {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1.3;
+        }
+
+        .project-card-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 0.5rem;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .empty-projects {
+            background: white;
+            border: 1px dashed var(--border-light);
+            border-radius: var(--radius-md);
+            padding: 2.5rem 1rem;
+            text-align: center;
+            color: var(--text-muted);
+        }
+
+        .empty-projects i {
+            width: 40px;
+            height: 40px;
+            margin-bottom: 0.75rem;
+            opacity: 0.6;
         }
         
         .options-grid {
@@ -170,6 +255,17 @@
                 </p>
             </div>
 
+            <section class="active-projects-section">
+                <h2 class="section-heading">Projetos ativos</h2>
+                <div id="active-projects-wrap">
+                    <div class="empty-projects">
+                        <i data-lucide="loader" class="spin"></i>
+                        <div>Carregando projetos…</div>
+                    </div>
+                </div>
+            </section>
+
+            <h2 class="section-subheading">Importar novo projeto</h2>
             <div class="options-grid" id="options-container">
                 <!-- Renderizado dinamicamente via JS -->
             </div>
@@ -220,7 +316,105 @@
             }
 
             renderSetupOptions(currentUserContext.params.modulos);
+            loadActiveProjects();
         });
+
+        function escapeHtml(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            })[c]);
+        }
+
+        function statusBadgeClass(status) {
+            switch (String(status || '')) {
+                case 'aprovado': return 'badge-paga';
+                case 'enviado_minc': return 'badge-paga';
+                case 'em_encerramento': return 'badge-pendente';
+                case 'em_execucao':
+                default: return 'badge-pendente';
+            }
+        }
+
+        function statusLabel(status) {
+            const map = {
+                'em_execucao': 'Em execução',
+                'em_encerramento': 'Em encerramento',
+                'enviado_minc': 'Enviado ao MinC',
+                'aprovado': 'Aprovado'
+            };
+            return map[String(status || '')] || String(status || '');
+        }
+
+        function formatDate(iso) {
+            if (!iso) return '—';
+            try {
+                const d = new Date(iso);
+                return d.toLocaleDateString('pt-BR');
+            } catch (_) { return '—'; }
+        }
+
+        async function loadActiveProjects() {
+            const wrap = document.getElementById('active-projects-wrap');
+            try {
+                const sb = await window.initSupabase();
+                const orgId = await getCurrentOrgId();
+                if (!orgId) {
+                    wrap.innerHTML = `
+                        <div class="empty-projects">
+                            <i data-lucide="alert-triangle"></i>
+                            <div>Não foi possível identificar a organização.</div>
+                        </div>`;
+                    if (window.lucide) window.lucide.createIcons();
+                    return;
+                }
+
+                const { data, error } = await sb
+                    .from('projects')
+                    .select('id, nome, pronac, status_prestacao, created_at')
+                    .eq('organization_id', orgId)
+                    .order('created_at', { ascending: false });
+
+                if (error) throw error;
+
+                if (!data || data.length === 0) {
+                    wrap.innerHTML = `
+                        <div class="empty-projects">
+                            <i data-lucide="folder-open"></i>
+                            <div>Nenhum projeto importado ainda</div>
+                        </div>`;
+                    if (window.lucide) window.lucide.createIcons();
+                    return;
+                }
+
+                wrap.innerHTML = `<div class="projects-grid">${data.map(p => {
+                    const status = p.status_prestacao || 'em_execucao';
+                    return `
+                        <div class="project-card" onclick="openProject('${escapeHtml(p.id)}')">
+                            <span class="project-card-pronac">PRONAC ${escapeHtml(p.pronac || '—')}</span>
+                            <span class="project-card-nome">${escapeHtml(p.nome || 'Projeto sem nome')}</span>
+                            <div class="project-card-footer">
+                                <span class="badge-m2 ${statusBadgeClass(status)}">${escapeHtml(statusLabel(status))}</span>
+                                <span>${formatDate(p.created_at)}</span>
+                            </div>
+                        </div>`;
+                }).join('')}</div>`;
+                if (window.lucide) window.lucide.createIcons();
+            } catch (err) {
+                console.error('[loadActiveProjects]', err);
+                wrap.innerHTML = `
+                    <div class="empty-projects">
+                        <i data-lucide="alert-triangle"></i>
+                        <div>Erro ao carregar projetos.</div>
+                    </div>`;
+                if (window.lucide) window.lucide.createIcons();
+            }
+        }
+
+        function openProject(projectId) {
+            if (!projectId) return;
+            if (window.ProjectManager) ProjectManager.setSelected(projectId);
+            window.location.href = 'financeiro.html';
+        }
 
         async function renderSetupOptions(modulos) {
             const container = document.getElementById('options-container');

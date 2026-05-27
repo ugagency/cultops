@@ -281,7 +281,7 @@
                     </div>
                     <div class="check-item" id="pre-05">
                         <div class="check-icon loading"><i data-lucide="loader" class="spin"></i></div>
-                        <div class="check-text">Mínimo 1 foto do evento aprovada</div>
+                        <div class="check-text">Nenhuma evidência física pendente de validação</div>
                     </div>
                     <div class="check-item" id="pre-06">
                         <div class="check-icon loading"><i data-lucide="loader" class="spin"></i></div>
@@ -519,8 +519,8 @@
                     .eq('project_id', pid)
                     .or(`status.eq.atrasada,and(status.eq.pendente,data_vencimento.lt.${today})`)
             );
-            // P05: foto aprovada
-            const q5 = getCount(sbClient.from('physical_evidences').select('*', { count: 'exact', head: true }).eq('project_id', pid).eq('tipo_evidencia', 'foto_evento').eq('status_validacao', 'aprovada'));
+            // P05: sem evidências físicas pendentes de validação
+            const q5 = getCount(sbClient.from('physical_evidences').select('*', { count: 'exact', head: true }).eq('project_id', pid).in('status_validacao', ['pendente','pendente_complemento']));
             // P06: relatorio aprovado
             const q6 = getCount(sbClient.from('physical_evidences').select('*', { count: 'exact', head: true }).eq('project_id', pid).eq('tipo_evidencia', 'relatorio_objeto').eq('status_validacao', 'aprovada'));
             // P07: sem evidencias pendentes
@@ -555,7 +555,7 @@
             allOk &= updateCheckItem('pre-02', results[1] === 0);
             allOk &= updateCheckItem('pre-03', results[2] === 0);
             allOk &= updateCheckItem('pre-04', results[3] === 0);
-            allOk &= updateCheckItem('pre-05', results[4] >= 1);
+            allOk &= updateCheckItem('pre-05', results[4] === 0);
             allOk &= updateCheckItem('pre-06', results[5] >= 1);
             allOk &= updateCheckItem('pre-07', results[6] === 0);
             allOk &= updateCheckItem('pre-08', results[7] === 0);
