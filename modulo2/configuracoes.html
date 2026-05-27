@@ -6,6 +6,7 @@
     <title>PrestAI M2 — Configurações</title>
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
@@ -67,8 +68,8 @@
             font-weight: 700;
         }
 
-        .status-badge.connected { background: #dcfce7; color: #15803d; }
-        .status-badge.disconnected { background: #fee2e2; color: #b91c1c; }
+        .status-badge.connected { background: #1547FF; color: #70FF00; }
+        .status-badge.disconnected { background: #FF5807; color: #FFFFFF; }
 
         .toast-notification {
             position: fixed;
@@ -84,8 +85,8 @@
         }
 
         .toast-notification.show { transform: translateY(0); }
-        .toast-notification.success { background: #10b981; }
-        .toast-notification.error { background: #ef4444; }
+        .toast-notification.success { background: #1547FF; }
+        .toast-notification.error { background: #FF5807; }
         
         .sidebar { z-index: 10000 !important; } /* Garantir que a sidebar fique no topo */
     </style>
@@ -124,7 +125,7 @@
             </section>
 
             <!-- Credenciais BB -->
-            <section class="settings-card" style="border-top: 5px solid #f7c948;">
+            <section class="settings-card" style="border-top: 5px solid #FF5807;">
                 <div class="card-header">
                     <img src="https://upload.wikimedia.org/wikipedia/pt/thumb/3/3b/Logo_Banco_do_Brasil.png/300px-Logo_Banco_do_Brasil.png" style="width: 28px;">
                     <h3>Integração Banco do Brasil (API)</h3>
@@ -146,7 +147,7 @@
                         <label>Developer Application Key (X-Developer-Key)</label>
                         <input type="text" id="bb-developer-key" required>
                     </div>
-                    <button type="submit" class="btn-m2 btn-m2-primary" id="btn-save-bb" style="width: 100%; justify-content: center; background: #0038A8; height: 50px;">
+                    <button type="submit" class="btn-m2 btn-m2-primary" id="btn-save-bb" style="width: 100%; justify-content: center; background: #1547FF; height: 50px;">
                         Salvar Credenciais BB
                     </button>
                 </form>

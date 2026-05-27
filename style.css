@@ -1,22 +1,40 @@
-:root {
-    /* Color Palette - Minimalist & SaaS Professional */
-    --primary: #2563EB;
-    /* Trustworthy Blue */
-    --primary-hover: #1D4ED8;
-    --bg-main: #FFFFFF;
-    --bg-sidebar: #F7F7F8;
-    --bg-card: #FFFFFF;
+@import url('https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap');
 
-    --text-primary: #2F2F2F;
+:root {
+    /* PrestaÃ­ - Paleta Oficial */
+    --color-primary:    #1547FF;
+    --color-accent:     #70FF00;
+    --color-alert:      #FF5807;
+    --color-white:      #FFFFFF;
+    --color-black:      #000000;
+    --color-blue-60:    #8EA3FF;
+    --color-blue-30:    #C6D0FF;
+    --color-blue-15:    #E3E8FF;
+    --color-green-60:   #A8FF66;
+    --color-green-30:   #D3FFAD;
+    --color-beige:      #F5F0E8;
+
+    /* Tipografia oficial */
+    --font-heading:     'Ryker', 'Inter', sans-serif;
+    --font-body:        'Mona Sans', 'Inter', system-ui, -apple-system, sans-serif;
+
+    /* Aliases semÃ¢nticos (mapeados para nova paleta) */
+    --primary: var(--color-primary);
+    --primary-hover: #0F38D9;
+    --bg-main: var(--color-white);
+    --bg-sidebar: var(--color-beige);
+    --bg-card: var(--color-white);
+
+    --text-primary: var(--color-black);
     --text-secondary: #6B6B6B;
     --text-muted: #94A3B8;
 
-    --border-subtle: #F1F5F9;
-    --border-light: #E2E8F0;
+    --border-subtle: var(--color-blue-15);
+    --border-light: var(--color-blue-30);
 
-    --success: #10B981;
-    --warning: #F59E0B;
-    --error: #EF4444;
+    --success: var(--color-primary);
+    --warning: var(--color-alert);
+    --error: var(--color-alert);
 
     /* Shadows - Extremely Soft */
     --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
@@ -42,11 +60,16 @@
 }
 
 body {
-    font-family: 'Inter', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    font-family: var(--font-body);
     background-color: var(--bg-main);
     color: var(--text-primary);
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, h5, h6,
+.h1, .h2, .h3, .h4, .h5, .h6 {
+    font-family: var(--font-heading);
 }
 
 #app {
@@ -270,7 +293,7 @@ select:focus,
 textarea:focus {
     outline: none;
     border-color: var(--primary);
-    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+    box-shadow: 0 0 0 2px rgba(21, 71, 255, 0.1);
 }
 
 /* Status Badges - SaaS Style */
@@ -291,18 +314,18 @@ textarea:focus {
 }
 
 .status-pending {
-    background-color: #FEF3C7;
-    color: #92400E;
+    background-color: var(--color-blue-30);
+    color: var(--color-primary);
 }
 
 .status-completed {
-    background-color: #D1FAE5;
-    color: #065F46;
+    background-color: var(--color-primary);
+    color: var(--color-accent);
 }
 
 .status-error {
-    background-color: #FEE2E2;
-    color: #991B1B;
+    background-color: var(--color-alert);
+    color: var(--color-white);
 }
 
 .status-pending .badge-dot {
@@ -780,7 +803,7 @@ textarea:focus {
     font-size: 13px;
     font-weight: 700;
     flex-shrink: 0;
-    box-shadow: 0 4px 10px rgba(37, 99, 235, 0.2);
+    box-shadow: 0 4px 10px rgba(21, 71, 255, 0.2);
 }
 
 .step-text {
@@ -803,12 +826,12 @@ textarea:focus {
 
 .upload-card-interactive:hover {
     border-color: var(--primary);
-    background: rgba(37, 99, 235, 0.02);
+    background: rgba(21, 71, 255, 0.02);
 }
 
 .upload-card-interactive.active {
     border-color: var(--primary);
-    background: rgba(37, 99, 235, 0.05);
+    background: rgba(21, 71, 255, 0.05);
 }
 
 .help-link {
@@ -824,7 +847,7 @@ textarea:focus {
 .help-link:hover {
     text-decoration: underline;
 }
-/* Animações de Carregamento */
+/* Animaï¿½ï¿½es de Carregamento */
 @keyframes loading {
     0% { transform: translateX(-100%); }
     50% { transform: translateX(0); }

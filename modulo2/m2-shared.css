@@ -1,11 +1,13 @@
+@import url('https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap');
+
 :root {
-    /* M2 specific colors - deeper and more vibrant */
-    --m2-accent: #6366f1;
-    --m2-accent-hover: #4f46e5;
+    /* M2 - usa a paleta oficial Prestaí (definida em style.css) */
+    --m2-accent: var(--color-primary, #1547FF);
+    --m2-accent-hover: #0F38D9;
     --glass-bg: rgba(255, 255, 255, 0.7);
     --glass-border: rgba(255, 255, 255, 0.5);
-    --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
-    
+    --glass-shadow: 0 8px 32px 0 rgba(21, 71, 255, 0.1);
+
     /* Layout Constants */
     --sidebar-width: 260px;
     --radius-md: 12px;
@@ -15,8 +17,13 @@
 
 /* Base styles inherited from style.css logic */
 body {
-    background: radial-gradient(circle at top left, #f8fafc, #eff6ff);
+    font-family: var(--font-body, 'Mona Sans', 'Inter', system-ui, sans-serif);
+    background: radial-gradient(circle at top left, var(--color-beige, #F5F0E8), var(--color-blue-15, #E3E8FF));
     min-height: 100vh;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading, 'Ryker', 'Inter', sans-serif);
 }
 
 .main-content {
@@ -88,10 +95,10 @@ h1 {
     letter-spacing: 0.025em;
 }
 
-.badge-pendente { background: #fef3c7; color: #92400e; }
-.badge-paga { background: #d1fae5; color: #065f46; }
-.badge-atrasada { background: #fee2e2; color: #991b1b; }
-.badge-cancelada { background: #f3f4f6; color: #374151; }
+.badge-pendente { background: var(--color-blue-30, #C6D0FF); color: var(--color-primary, #1547FF); }
+.badge-paga { background: var(--color-primary, #1547FF); color: var(--color-accent, #70FF00); }
+.badge-atrasada { background: var(--color-alert, #FF5807); color: var(--color-white, #FFFFFF); }
+.badge-cancelada { background: var(--color-blue-15, #E3E8FF); color: var(--color-black, #000000); }
 
 /* Tables Premium */
 .m2-table {
@@ -145,10 +152,10 @@ h1 {
 .btn-m2-primary {
     background: linear-gradient(135deg, var(--m2-accent) 0%, var(--m2-accent-hover) 100%);
     color: white;
-    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+    box-shadow: 0 4px 12px rgba(21, 71, 255, 0.3);
 }
 
 .btn-m2-primary:hover {
     transform: translateY(-1px);
-    box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
+    box-shadow: 0 6px 16px rgba(21, 71, 255, 0.4);
 }

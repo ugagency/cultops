@@ -10,6 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -21,11 +22,11 @@
 
     <style>
         :root {
-            --m2-accent: #6366f1;
-            --m2-accent-hover: #4f46e5;
+            --m2-accent: var(--color-primary);
+            --m2-accent-hover: #0F38D9;
             --glass-bg: rgba(255, 255, 255, 0.7);
             --glass-border: rgba(255, 255, 255, 0.5);
-            --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
+            --glass-shadow: 0 8px 32px 0 rgba(21, 71, 255, 0.1);
         }
 
         body {
@@ -34,7 +35,7 @@
             align-items: center;
             justify-content: center;
             min-height: 100vh;
-            background: radial-gradient(circle at top left, #f8fafc, #eff6ff);
+            background: radial-gradient(circle at top left, var(--color-beige), var(--color-blue-15));
             margin: 0;
             padding: 2rem;
         }
@@ -159,7 +160,7 @@
             width: 64px;
             height: 64px;
             border-radius: 50%;
-            background: linear-gradient(135deg, rgba(37, 99, 235, 0.1) 0%, rgba(37, 99, 235, 0.2) 100%);
+            background: linear-gradient(135deg, rgba(21, 71, 255, 0.1) 0%, rgba(21, 71, 255, 0.2) 100%);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -171,7 +172,7 @@
         .module-card:hover:not(.disabled) .module-icon {
             background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
             color: white;
-            box-shadow: 0 8px 20px rgba(37, 99, 235, 0.4);
+            box-shadow: 0 8px 20px rgba(21, 71, 255, 0.4);
         }
 
         .module-title {

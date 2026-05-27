@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -18,12 +19,12 @@
     <style>
         .contracts-container { margin-top: 2rem; }
         .contract-row { cursor: pointer; }
-        .contract-row:hover { background: #f8fafc; }
-        .contract-row.expanded { background: #eef2ff; }
+        .contract-row:hover { background: #F5F0E8; }
+        .contract-row.expanded { background: #E3E8FF; }
         .row-chevron { color: var(--text-muted); transition: transform 0.2s; }
         .contract-row.expanded .row-chevron { transform: rotate(180deg); color: var(--m2-accent); }
 
-        .accordion-row td { padding: 0 !important; background: #f8fafc; border-top: none !important; }
+        .accordion-row td { padding: 0 !important; background: #F5F0E8; border-top: none !important; }
         .accordion-content {
             padding: 1.25rem 1.5rem 1.5rem 1.5rem;
             border-left: 4px solid var(--m2-accent);
@@ -66,7 +67,7 @@
         .inner-table th {
             text-align: left;
             padding: 0.7rem 0.85rem;
-            background: #f1f5f9;
+            background: #E3E8FF;
             color: var(--text-secondary);
             font-size: 0.7rem;
             font-weight: 700;
@@ -100,15 +101,15 @@
             letter-spacing: 0.02em;
             white-space: nowrap;
         }
-        .badge-ativo       { background: #d1fae5; color: #065f46; }
-        .badge-encerrado   { background: #e2e8f0; color: #334155; }
+        .badge-ativo       { background: #1547FF; color: #70FF00; }
+        .badge-encerrado   { background: #C6D0FF; color: #334155; }
         .badge-suspenso    { background: #6c757d; color: white; }
         .badge-cancelado   { background: #721c24; color: white; }
         .badge-rescindido  { background: #721c24; color: white; }
-        .badge-pendente    { background: #fef3c7; color: #92400e; }
-        .badge-paga        { background: #d1fae5; color: #065f46; }
-        .badge-atrasada    { background: #fee2e2; color: #991b1b; }
-        .badge-cancelada   { background: #e2e8f0; color: #475569; }
+        .badge-pendente    { background: #FF5807; color: #FFFFFF; }
+        .badge-paga        { background: #1547FF; color: #70FF00; }
+        .badge-atrasada    { background: #FF5807; color: #FFFFFF; }
+        .badge-cancelada   { background: #C6D0FF; color: #475569; }
 
         /* Alerta calculado no frontend */
         .alert-pill {
@@ -123,10 +124,10 @@
             margin-left: 0.4rem;
         }
         .alert-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; }
-        .alert-vencida  { background: #fee2e2; color: #991b1b; }
-        .alert-vencida::before  { background: #ef4444; }
-        .alert-vencendo { background: #fef3c7; color: #92400e; }
-        .alert-vencendo::before { background: #f59e0b; }
+        .alert-vencida  { background: #FF5807; color: #FFFFFF; }
+        .alert-vencida::before  { background: #FF5807; }
+        .alert-vencendo { background: #FF5807; color: #FFFFFF; }
+        .alert-vencendo::before { background: #FF5807; }
 
         /* Modal */
         .modal-backdrop {
@@ -171,7 +172,7 @@
         .form-grid textarea:focus {
             outline: none;
             border-color: var(--m2-accent);
-            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+            box-shadow: 0 0 0 3px rgba(21, 71, 255, 0.15);
         }
         .modal-actions {
             display: flex; gap: 0.75rem; justify-content: flex-end;
@@ -187,7 +188,7 @@
             display: inline-flex; align-items: center; gap: 0.5rem;
         }
         .btn-modal-cancel { background: white; color: var(--text-secondary); border-color: var(--border-light); }
-        .btn-modal-cancel:hover { background: #f8fafc; }
+        .btn-modal-cancel:hover { background: #F5F0E8; }
         .btn-modal-primary {
             background: linear-gradient(135deg, var(--m2-accent), var(--m2-accent-hover));
             color: white;
@@ -279,40 +280,40 @@
             <form id="form-contrato" class="form-grid" onsubmit="event.preventDefault(); submitContrato();">
                 <div class="row-2">
                     <label>
-                        Número <span style="color:#ef4444;">*</span>
+                        Número <span style="color:#FF5807;">*</span>
                         <input type="text" id="c-numero" required maxlength="50" placeholder="Ex: 2026/001">
                     </label>
                     <label>
-                        Valor total (R$) <span style="color:#ef4444;">*</span>
+                        Valor total (R$) <span style="color:#FF5807;">*</span>
                         <input type="number" step="0.01" min="0.01" id="c-valor" required>
                     </label>
                 </div>
 
                 <label>
-                    Objeto <span style="color:#ef4444;">*</span>
+                    Objeto <span style="color:#FF5807;">*</span>
                     <textarea id="c-objeto" rows="3" required maxlength="500" placeholder="Descreva o objeto do contrato..."></textarea>
                 </label>
 
                 <div class="row-2">
                     <label>
-                        Início <span style="color:#ef4444;">*</span>
+                        Início <span style="color:#FF5807;">*</span>
                         <input type="date" id="c-inicio" required>
                     </label>
                     <label>
-                        Fim <span style="color:#ef4444;">*</span>
+                        Fim <span style="color:#FF5807;">*</span>
                         <input type="date" id="c-fim" required>
                     </label>
                 </div>
 
                 <label>
-                    Fornecedor <span style="color:#ef4444;">*</span>
+                    Fornecedor <span style="color:#FF5807;">*</span>
                     <select id="c-fornecedor" required>
                         <option value="">Carregando…</option>
                     </select>
                 </label>
 
                 <label>
-                    Rubrica <span style="color:#ef4444;">*</span>
+                    Rubrica <span style="color:#FF5807;">*</span>
                     <select id="c-rubrica" required>
                         <option value="">Carregando…</option>
                     </select>
@@ -340,16 +341,16 @@
             <form id="form-parcela" class="form-grid" onsubmit="event.preventDefault(); submitParcela();">
                 <div class="row-2">
                     <label>
-                        Nº parcela <span style="color:#ef4444;">*</span>
+                        Nº parcela <span style="color:#FF5807;">*</span>
                         <input type="number" min="1" id="p-numero" required>
                     </label>
                     <label>
-                        Valor (R$) <span style="color:#ef4444;">*</span>
+                        Valor (R$) <span style="color:#FF5807;">*</span>
                         <input type="number" step="0.01" min="0.01" id="p-valor" required>
                     </label>
                 </div>
                 <label>
-                    Data de vencimento <span style="color:#ef4444;">*</span>
+                    Data de vencimento <span style="color:#FF5807;">*</span>
                     <input type="date" id="p-vencimento" required>
                 </label>
 
@@ -369,7 +370,7 @@
             <h3><i data-lucide="git-branch" style="width:18px; vertical-align:-3px;"></i> Registrar aditivo</h3>
             <form id="form-aditivo" class="form-grid" onsubmit="event.preventDefault(); submitAditivo();">
                 <label>
-                    Tipo <span style="color:#ef4444;">*</span>
+                    Tipo <span style="color:#FF5807;">*</span>
                     <select id="a-tipo" required onchange="onAditivoTipoChange()">
                         <option value="prazo">Prorrogação de prazo</option>
                         <option value="valor">Alteração de valor</option>
@@ -381,22 +382,22 @@
                 </label>
 
                 <label>
-                    Descrição <span style="color:#ef4444;">*</span>
+                    Descrição <span style="color:#FF5807;">*</span>
                     <textarea id="a-descricao" rows="3" required maxlength="500" placeholder="Justificativa do aditivo..."></textarea>
                 </label>
 
                 <label>
-                    Data do aditivo <span style="color:#ef4444;">*</span>
+                    Data do aditivo <span style="color:#FF5807;">*</span>
                     <input type="date" id="a-data" required>
                 </label>
 
                 <label id="a-wrap-nova-data">
-                    Nova data fim <span id="a-req-nova-data" style="color:#ef4444;">*</span>
+                    Nova data fim <span id="a-req-nova-data" style="color:#FF5807;">*</span>
                     <input type="date" id="a-nova-data-fim">
                 </label>
 
                 <label id="a-wrap-novo-valor">
-                    Novo valor total (R$) <span id="a-req-novo-valor" style="color:#ef4444; display:none;">*</span>
+                    Novo valor total (R$) <span id="a-req-novo-valor" style="color:#FF5807; display:none;">*</span>
                     <input type="number" step="0.01" min="0" id="a-novo-valor">
                 </label>
 
@@ -1118,7 +1119,7 @@
             const t = document.getElementById('toast');
             if (!t) return;
             t.innerText = msg;
-            t.style.background = type === 'success' ? '#10b981' : (type === 'error' ? '#ef4444' : '#3b82f6');
+            t.style.background = type === 'success' ? '#1547FF' : (type === 'error' ? '#FF5807' : '#1547FF');
             t.style.transform = 'translateY(0)';
             setTimeout(() => t.style.transform = 'translateY(150%)', 4000);
         }

@@ -9,6 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -37,7 +38,7 @@
         .progress-container {
             width: 100%;
             height: 8px;
-            background: #e2e8f0;
+            background: #C6D0FF;
             border-radius: 99px;
             overflow: hidden;
             margin-top: 0.5rem;
@@ -68,7 +69,7 @@
         
         .config-btn:hover { color: var(--m2-accent); }
         
-        .alert-active { color: var(--warning); filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.2)); }
+        .alert-active { color: var(--warning); filter: drop-shadow(0 0 4px rgba(255, 88, 7, 0.2)); }
 
         .upload-progress-container {
             margin-top: 1.5rem;
@@ -83,7 +84,7 @@
         .upload-progress-bar-bg {
             width: 100%;
             height: 8px;
-            background: #e2e8f0;
+            background: #C6D0FF;
             border-radius: 99px;
             overflow: hidden;
             margin-top: 1rem;
@@ -103,7 +104,7 @@
             font-size: 0.875rem;
         }
         .history-table th {
-            text-align: left; padding: 1rem; background: #f8fafc; color: var(--text-secondary);
+            text-align: left; padding: 1rem; background: #F5F0E8; color: var(--text-secondary);
             font-weight: 700; border-bottom: 2px solid var(--border-light);
         }
         .history-table td {
@@ -112,9 +113,9 @@
         .status-badge {
             padding: 0.25rem 0.75rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600;
         }
-        .status-success { background: #d1fae5; color: #065f46; }
-        .status-processing { background: #dbeafe; color: #1e40af; }
-        .status-error { background: #fee2e2; color: #991b1b; }
+        .status-success { background: #1547FF; color: #70FF00; }
+        .status-processing { background: #E3E8FF; color: #1547FF; }
+        .status-error { background: #FF5807; color: #FFFFFF; }
 
         /* Pills de status da rubrica */
         .pill {
@@ -129,12 +130,12 @@
             letter-spacing: 0.02em;
         }
         .pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; }
-        .pill-ok       { background: #d1fae5; color: #065f46; }
-        .pill-ok::before       { background: #10b981; }
-        .pill-atencao  { background: #fef3c7; color: #92400e; }
-        .pill-atencao::before  { background: #f59e0b; }
-        .pill-excedida { background: #fee2e2; color: #991b1b; }
-        .pill-excedida::before { background: #ef4444; }
+        .pill-ok       { background: #1547FF; color: #70FF00; }
+        .pill-ok::before       { background: #1547FF; }
+        .pill-atencao  { background: #FF5807; color: #FFFFFF; }
+        .pill-atencao::before  { background: #FF5807; }
+        .pill-excedida { background: #FF5807; color: #FFFFFF; }
+        .pill-excedida::before { background: #FF5807; }
 
         /* Modal genérico */
         .modal-backdrop {
@@ -183,7 +184,7 @@
             letter-spacing: normal;
         }
         .form-grid input[readonly] {
-            background: #f1f5f9;
+            background: #E3E8FF;
             color: var(--text-secondary);
             font-weight: 600;
         }
@@ -191,7 +192,7 @@
         .form-grid textarea:focus {
             outline: none;
             border-color: var(--m2-accent);
-            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+            box-shadow: 0 0 0 3px rgba(21, 71, 255, 0.15);
         }
         .modal-actions {
             display: flex; gap: 0.75rem; justify-content: flex-end;
@@ -212,7 +213,7 @@
             color: var(--text-secondary);
             border-color: var(--border-light);
         }
-        .btn-modal-cancel:hover { background: #f8fafc; }
+        .btn-modal-cancel:hover { background: #F5F0E8; }
         .btn-modal-primary {
             background: linear-gradient(135deg, var(--m2-accent), var(--m2-accent-hover));
             color: white;
@@ -220,13 +221,13 @@
         }
         .btn-modal-primary:disabled { opacity: 0.6; cursor: not-allowed; }
 
-        .config-btn.history-btn:hover { color: #6366f1; }
+        .config-btn.history-btn:hover { color: #1547FF; }
 
         .hist-table {
             width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 0.5rem;
         }
         .hist-table th {
-            text-align: left; padding: 0.65rem 0.75rem; background: #f8fafc;
+            text-align: left; padding: 0.65rem 0.75rem; background: #F5F0E8;
             color: var(--text-secondary); font-size: 0.7rem; font-weight: 700;
             text-transform: uppercase; letter-spacing: 0.04em;
             border-bottom: 2px solid var(--border-light);
@@ -286,11 +287,11 @@
                         <input type="text" id="re-atual" readonly>
                     </label>
                     <label>
-                        Novo valor aprovado <span style="color:#ef4444;">*</span>
+                        Novo valor aprovado <span style="color:#FF5807;">*</span>
                         <input type="number" step="0.01" min="0.01" id="re-novo" required>
                     </label>
                     <label>
-                        Motivo <span style="color:#ef4444;">*</span>
+                        Motivo <span style="color:#FF5807;">*</span>
                         <textarea id="re-motivo" rows="4" required placeholder="Descreva a justificativa da readequação (será registrada no histórico)..."></textarea>
                     </label>
                     <div class="modal-actions">
@@ -718,7 +719,7 @@
         function showToast(msg, type = 'success') {
             const t = document.getElementById('toast');
             t.innerText = msg;
-            t.style.background = type === 'success' ? '#10b981' : (type === 'error' ? '#ef4444' : '#3b82f6');
+            t.style.background = type === 'success' ? '#1547FF' : (type === 'error' ? '#FF5807' : '#1547FF');
             t.style.transform = 'translateY(0)';
             setTimeout(() => t.style.transform = 'translateY(150%)', 4000);
         }

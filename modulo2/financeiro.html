@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
@@ -50,15 +51,15 @@
             gap: 0.25rem;
         }
 
-        .stat-positive { color: #10b981; }
-        .stat-warning { color: #f59e0b; }
-        .stat-danger { color: #ef4444; }
+        .stat-positive { color: #1547FF; }
+        .stat-warning { color: #FF5807; }
+        .stat-danger { color: #FF5807; }
 
         .progress-container { margin-top: 0.5rem; }
 
         .progress-bar-bg {
             height: 8px;
-            background: #e2e8f0;
+            background: #C6D0FF;
             border-radius: 999px;
             overflow: hidden;
         }
@@ -68,8 +69,8 @@
             background: linear-gradient(90deg, var(--m2-accent) 0%, var(--m2-accent-hover) 100%);
             transition: width 0.6s ease-out;
         }
-        .progress-bar-fill.warning { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
-        .progress-bar-fill.danger  { background: linear-gradient(90deg, #ef4444, #f87171); }
+        .progress-bar-fill.warning { background: linear-gradient(90deg, #FF5807, #FF5807); }
+        .progress-bar-fill.danger  { background: linear-gradient(90deg, #FF5807, #FF5807); }
 
         .contracts-strip {
             display: flex;
@@ -85,7 +86,7 @@
             width: 40px;
             height: 40px;
             border-radius: var(--radius-md);
-            background: rgba(99,102,241,0.1);
+            background: rgba(21, 71, 255,0.1);
             color: var(--m2-accent);
             display: flex; align-items: center; justify-content: center;
             flex-shrink: 0;
@@ -116,7 +117,7 @@
         .data-table th {
             text-align: left;
             padding: 0.75rem;
-            background: #f8fafc;
+            background: #F5F0E8;
             color: var(--text-secondary);
             font-weight: 700;
             font-size: 0.7rem;
@@ -142,23 +143,23 @@
             white-space: nowrap;
         }
         .pill::before { content:''; width: 6px; height: 6px; border-radius: 50%; }
-        .pill-ok       { background: #d1fae5; color: #065f46; }
-        .pill-ok::before       { background: #10b981; }
-        .pill-atencao  { background: #fef3c7; color: #92400e; }
-        .pill-atencao::before  { background: #f59e0b; }
-        .pill-excedida { background: #fee2e2; color: #991b1b; }
-        .pill-excedida::before { background: #ef4444; }
+        .pill-ok       { background: #1547FF; color: #70FF00; }
+        .pill-ok::before       { background: #1547FF; }
+        .pill-atencao  { background: #FF5807; color: #FFFFFF; }
+        .pill-atencao::before  { background: #FF5807; }
+        .pill-excedida { background: #FF5807; color: #FFFFFF; }
+        .pill-excedida::before { background: #FF5807; }
 
         .alert-row {
             padding: 0.85rem 1rem;
-            background: #fef2f2;
-            border-left: 4px solid #ef4444;
+            background: #FF5807;
+            border-left: 4px solid #FF5807;
             border-radius: 6px;
             margin-bottom: 0.6rem;
         }
         .alert-row.warning {
-            background: #fffbeb;
-            border-left-color: #f59e0b;
+            background: #E3E8FF;
+            border-left-color: #FF5807;
         }
 
         .quick-nav { display: flex; flex-direction: column; gap: 0.75rem; }
@@ -182,14 +183,14 @@
         .nav-icon {
             width: 38px; height: 38px;
             border-radius: 10px;
-            background: rgba(99,102,241,0.1);
+            background: rgba(21, 71, 255,0.1);
             color: var(--m2-accent);
             display: flex; align-items: center; justify-content: center;
             flex-shrink: 0;
         }
 
         .skeleton {
-            background: linear-gradient(90deg, #e2e8f0 0%, #f1f5f9 50%, #e2e8f0 100%);
+            background: linear-gradient(90deg, #C6D0FF 0%, #E3E8FF 50%, #C6D0FF 100%);
             background-size: 200% 100%;
             animation: shimmer 1.4s ease-in-out infinite;
             border-radius: 4px;
@@ -554,7 +555,7 @@
             saldoEl.textContent = fmtBRL(s.saldo);
             const saldoSub = document.getElementById('stat-saldo-sub');
             if (s.saldo < 0) {
-                saldoEl.style.color = '#ef4444';
+                saldoEl.style.color = '#FF5807';
                 saldoSub.innerHTML = '<i data-lucide="alert-triangle" style="width:14px;"></i> Saldo negativo';
                 saldoSub.className = 'stat-sub stat-danger';
             } else {
@@ -624,7 +625,7 @@
                         </td>
                         <td class="num">${fmtBRL(aprov)}</td>
                         <td class="num">${fmtBRL(util)}</td>
-                        <td class="num" style="color: ${saldo < 0 ? '#ef4444' : 'inherit'};">${fmtBRL(saldo)}</td>
+                        <td class="num" style="color: ${saldo < 0 ? '#FF5807' : 'inherit'};">${fmtBRL(saldo)}</td>
                         <td class="num">${pct.toFixed(1)}%</td>
                         <td><span class="pill ${cls.cls}">${cls.label}</span></td>
                     </tr>
@@ -717,7 +718,7 @@
                     <div class="alert-row ${isWarn ? 'warning' : ''}">
                         <div style="display: flex; justify-content: space-between; gap: 0.5rem; font-weight: 600; font-size: 0.875rem;">
                             <span>${escapeHtml(a.rubrica.nome || '—')}</span>
-                            <span style="color: ${isWarn ? '#92400e' : '#991b1b'};">${pct}%</span>
+                            <span style="color: ${isWarn ? '#FFFFFF' : '#FFFFFF'};">${pct}%</span>
                         </div>
                         <div style="font-size: 0.72rem; color: var(--text-secondary);">
                             ${a.tipo === 'excedida' ? 'Rubrica excedida — exige readequação.' : 'Próxima do limite orçamentário.'}

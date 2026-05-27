@@ -6,6 +6,7 @@
     <title>PrestAI M2 — Portal do Solicitante (Evidências Físicas)</title>
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
@@ -43,7 +44,7 @@
             align-items: center;
             gap: 0.5rem;
             padding: 0.5rem 1rem;
-            background: #eef2ff;
+            background: #E3E8FF;
             color: var(--m2-accent);
             border-radius: var(--radius-md);
             font-weight: 600;
@@ -51,7 +52,7 @@
             text-decoration: none;
             transition: all 0.2s;
         }
-        .admin-link:hover { background: #e0e7ff; }
+        .admin-link:hover { background: #E3E8FF; }
 
         .upload-card, .list-card {
             background: white;
@@ -82,7 +83,7 @@
         .form-control:focus, .form-select:focus {
             outline: none;
             border-color: var(--m2-accent);
-            box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
+            box-shadow: 0 0 0 3px rgba(21, 71, 255,0.1);
         }
 
         .file-upload-zone {
@@ -92,11 +93,11 @@
             text-align: center;
             cursor: pointer;
             transition: all 0.2s;
-            background: #f8fafc;
+            background: #F5F0E8;
         }
         .file-upload-zone:hover, .file-upload-zone.dragover {
             border-color: var(--m2-accent);
-            background: #eff6ff;
+            background: #E3E8FF;
         }
 
         .file-list {
@@ -110,7 +111,7 @@
             align-items: center;
             justify-content: space-between;
             padding: 0.75rem 1rem;
-            background: #f1f5f9;
+            background: #E3E8FF;
             border-radius: var(--radius-sm);
             font-size: 0.875rem;
         }
@@ -120,7 +121,7 @@
             padding: 0.25rem;
             border-radius: 4px;
         }
-        .file-item .remove-btn:hover { background: #fee2e2; }
+        .file-item .remove-btn:hover { background: #FF5807; }
 
         .data-table {
             width: 100%;
@@ -130,7 +131,7 @@
         .data-table th {
             text-align: left;
             padding: 1rem;
-            background: #f8fafc;
+            background: #F5F0E8;
             color: var(--text-secondary);
             font-weight: 600;
             border-bottom: 2px solid var(--border-light);
@@ -149,22 +150,22 @@
             font-size: 0.75rem;
             font-weight: 700;
         }
-        .badge-pendente { background: #fef3c7; color: #b45309; }
-        .badge-aprovada { background: #dcfce7; color: #15803d; }
-        .badge-reprovada { background: #fee2e2; color: #b91c1c; }
-        .badge-pendente_complemento { background: #ffedd5; color: #c2410c; }
+        .badge-pendente { background: #FF5807; color: #FFFFFF; }
+        .badge-aprovada { background: #1547FF; color: #70FF00; }
+        .badge-reprovada { background: #FF5807; color: #FFFFFF; }
+        .badge-pendente_complemento { background: #FF5807; color: #FFFFFF; }
 
         .rejection-reason {
             display: block;
             margin-top: 0.25rem;
             font-size: 0.75rem;
-            color: #b91c1c;
+            color: #FFFFFF;
         }
 
         .block-message {
-            background: #fee2e2;
-            border: 1px solid #f87171;
-            color: #b91c1c;
+            background: #FF5807;
+            border: 1px solid #FF5807;
+            color: #FFFFFF;
             padding: 1rem;
             border-radius: var(--radius-md);
             margin-bottom: 1.5rem;
@@ -182,8 +183,8 @@
             transform: translateY(150%); transition: transform 0.3s ease;
         }
         .toast-notification.show { transform: translateY(0); }
-        .toast-notification.success { background: #10b981; }
-        .toast-notification.error { background: #ef4444; }
+        .toast-notification.success { background: #1547FF; }
+        .toast-notification.error { background: #FF5807; }
 
         /* Protocol Modal */
         .modal-overlay {
@@ -302,13 +303,13 @@
     <!-- Protocol Modal -->
     <div class="modal-overlay" id="protocol-modal">
         <div class="modal-content">
-            <div style="width: 64px; height: 64px; background: #dcfce7; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem;">
-                <i data-lucide="check" style="width: 32px; height: 32px; color: #16a34a;"></i>
+            <div style="width: 64px; height: 64px; background: #1547FF; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem;">
+                <i data-lucide="check" style="width: 32px; height: 32px; color: #1547FF;"></i>
             </div>
             <h2 style="font-size: 1.5rem; font-weight: 800; margin-bottom: 0.5rem;">Evidência Enviada!</h2>
             <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">Sua evidência foi registrada com sucesso.</p>
             
-            <div style="background: #f8fafc; padding: 1.5rem; border-radius: var(--radius-md); border: 1px dashed var(--border-light); margin-bottom: 2rem;">
+            <div style="background: #F5F0E8; padding: 1.5rem; border-radius: var(--radius-md); border: 1px dashed var(--border-light); margin-bottom: 2rem;">
                 <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700; margin-bottom: 0.5rem;">Protocolos Gerados</div>
                 <div id="protocol-list" style="font-family: monospace; font-size: 0.875rem; font-weight: 600; word-break: break-all; display: flex; flex-direction: column; gap: 0.5rem;"></div>
             </div>
@@ -348,7 +349,7 @@
                     if (evLink) {
                         evLink.classList.add('active');
                         evLink.style.color = 'var(--m2-accent)';
-                        evLink.style.background = 'rgba(99, 102, 241, 0.08)';
+                        evLink.style.background = 'rgba(21, 71, 255, 0.08)';
                         evLink.style.fontWeight = '700';
                     }
                 }, 100);

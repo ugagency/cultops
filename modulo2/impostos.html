@@ -9,6 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -122,10 +123,10 @@
             margin-left: 0.5rem;
         }
         .alert-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; }
-        .alert-vencida   { background: #fee2e2; color: #991b1b; }
-        .alert-vencida::before   { background: #ef4444; }
-        .alert-vencendo  { background: #fef3c7; color: #92400e; }
-        .alert-vencendo::before  { background: #f59e0b; }
+        .alert-vencida   { background: #FF5807; color: #FFFFFF; }
+        .alert-vencida::before   { background: #FF5807; }
+        .alert-vencendo  { background: #FF5807; color: #FFFFFF; }
+        .alert-vencendo::before  { background: #FF5807; }
 
         .btn-m2[disabled] {
             opacity: 0.55;
@@ -416,7 +417,7 @@
             const t = document.getElementById('toast');
             if (!t) return;
             t.innerText = msg;
-            t.style.background = type === 'success' ? '#10b981' : (type === 'error' ? '#ef4444' : '#3b82f6');
+            t.style.background = type === 'success' ? '#1547FF' : (type === 'error' ? '#FF5807' : '#1547FF');
             t.style.transform = 'translateY(0)';
             setTimeout(() => t.style.transform = 'translateY(150%)', 4000);
         }

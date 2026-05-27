@@ -308,7 +308,7 @@ const LoginView = () => `
             <p>Não tem uma conta? <a href="#" onclick="window.navigate('register')" style="color: var(--primary); font-weight: 600;">Crie uma agora</a></p>
             <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
                 <p style="margin-bottom: 0.5rem;">É um solicitante?</p>
-                <button class="btn btn-ghost" onclick="window.navigate('solicitante_login')" style="width: 100%; border: 1px solid #f59e0b; color: #d97706;">
+                <button class="btn btn-ghost" onclick="window.navigate('solicitante_login')" style="width: 100%; border: 1px solid #FF5807; color: #FF5807;">
                     <i data-lucide="truck"></i>
                     Acesso Solicitante
                 </button>
@@ -378,7 +378,7 @@ const RegisterView = () => `
             <p>Já tem uma conta? <a href="#" onclick="window.navigate('login')" style="color: var(--primary); font-weight: 600;">Faça login</a></p>
             <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
                 <p style="margin-bottom: 0.5rem;">É um solicitante?</p>
-                <button class="btn btn-ghost" onclick="window.navigate('solicitante_login')" style="width: 100%; border: 1px solid #f59e0b; color: #d97706;">
+                <button class="btn btn-ghost" onclick="window.navigate('solicitante_login')" style="width: 100%; border: 1px solid #FF5807; color: #FF5807;">
                     <i data-lucide="truck"></i>
                     Acesso Solicitante
                 </button>
@@ -455,7 +455,7 @@ const SolicitanteLoginView = () => `
 <div class="login-view view-content">
     <div class="card login-card">
         <div style="text-align: center; margin-bottom: 2rem;">
-            <div class="logo" style="justify-content: center; font-size: 2rem; margin-bottom: 0.5rem; color: #f59e0b;">
+            <div class="logo" style="justify-content: center; font-size: 2rem; margin-bottom: 0.5rem; color: #FF5807;">
                 <i data-lucide="truck" style="width: 32px; height: 32px;"></i>
                 <span>Portal Solicitante</span>
             </div>
@@ -474,16 +474,16 @@ const SolicitanteLoginView = () => `
             </div>
 
             <div style="text-align: right; margin-bottom: 1.5rem; font-size: 0.75rem;">
-                <a href="javascript:void(0)" onclick="window.navigate('forgot_password')" style="color: #d97706; font-weight: 500;">Esqueceu a senha?</a>
+                <a href="javascript:void(0)" onclick="window.navigate('forgot_password')" style="color: #FF5807; font-weight: 500;">Esqueceu a senha?</a>
             </div>
             
-            <button class="btn btn-primary" id="f-login-btn" style="width: 100%; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); shadow: 0 4px 10px rgba(245, 158, 11, 0.3);" ${state.loading ? 'disabled' : ''}>
+            <button class="btn btn-primary" id="f-login-btn" style="width: 100%; background: linear-gradient(135deg, #FF5807 0%, #FF5807 100%); shadow: 0 4px 10px rgba(255, 88, 7, 0.3);" ${state.loading ? 'disabled' : ''}>
                 ${state.loading ? 'Entrando...' : 'Acessar Área do Solicitante'}
             </button>
         </form>
         
         <div class="login-footer">
-            <p>Primeiro acesso? <a href="#" onclick="window.navigate('solicitante_register')" style="color: #d97706; font-weight: 600;">Cadastre sua empresa</a></p>
+            <p>Primeiro acesso? <a href="#" onclick="window.navigate('solicitante_register')" style="color: #FF5807; font-weight: 600;">Cadastre sua empresa</a></p>
             <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
                 <p style="margin-bottom: 0.5rem;">É um proponente/gestor?</p>
                 <button class="btn btn-ghost" onclick="window.navigate('login')" style="width: 100%; border: 1px solid var(--primary); color: var(--primary);">
@@ -500,7 +500,7 @@ const SolicitanteRegisterView = () => `
 <div class="login-view view-content">
     <div class="card login-card" style="max-width: 500px;">
         <div style="text-align: center; margin-bottom: 2rem;">
-            <div class="logo" style="justify-content: center; font-size: 2rem; margin-bottom: 0.5rem; color: #f59e0b;">
+            <div class="logo" style="justify-content: center; font-size: 2rem; margin-bottom: 0.5rem; color: #FF5807;">
                 <i data-lucide="truck" style="width: 32px; height: 32px;"></i>
                 <span>Portal Solicitante</span>
             </div>
@@ -537,13 +537,13 @@ const SolicitanteRegisterView = () => `
                 </div>
             </div>
             
-            <button class="btn btn-primary" id="f-register-btn" style="width: 100%; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); shadow: 0 4px 10px rgba(245, 158, 11, 0.3);" ${state.loading ? 'disabled' : ''}>
+            <button class="btn btn-primary" id="f-register-btn" style="width: 100%; background: linear-gradient(135deg, #FF5807 0%, #FF5807 100%); shadow: 0 4px 10px rgba(255, 88, 7, 0.3);" ${state.loading ? 'disabled' : ''}>
                 ${state.loading ? 'Criando conta...' : 'Concluir Cadastro'}
             </button>
         </form>
         
         <div class="login-footer">
-            <p>Já tem uma conta? <a href="#" onclick="window.navigate('solicitante_login')" style="color: #d97706; font-weight: 600;">Faça login</a></p>
+            <p>Já tem uma conta? <a href="#" onclick="window.navigate('solicitante_login')" style="color: #FF5807; font-weight: 600;">Faça login</a></p>
             <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
                 <p style="margin-bottom: 0.5rem;">É um proponente/gestor?</p>
                 <button class="btn btn-ghost" onclick="window.navigate('login')" style="width: 100%; border: 1px solid var(--primary); color: var(--primary);">
@@ -566,7 +566,7 @@ const SolicitanteDashboardView = () => `
                 <p style="color: var(--text-muted); font-size: 0.875rem;">Acompanhe o status das suas notas e recibos enviados</p>
             </div>
             
-            <div class="card mb-4" style="background: rgba(245, 158, 11, 0.05); border: 1px dashed rgba(245, 158, 11, 0.5);">
+            <div class="card mb-4" style="background: rgba(255, 88, 7, 0.05); border: 1px dashed rgba(255, 88, 7, 0.5);">
                 <div style="display: grid; grid-template-columns: 1fr auto; gap: 2rem; align-items: center;">
                     <div>
                         <h3 class="mb-2">Enviar Novo Documento</h3>
@@ -579,7 +579,7 @@ const SolicitanteDashboardView = () => `
                         </select>
                         
                         <div id="upload-buttons-area" style="display: none; gap: 1rem;">
-                            <button class="btn btn-primary" style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); width: 100%; justify-content: center; font-size: 1rem; padding: 1rem;" onclick="window.openUnifiedUploadModal()">
+                            <button class="btn btn-primary" style="background: linear-gradient(135deg, #1547FF 0%, #0F38D9 100%); width: 100%; justify-content: center; font-size: 1rem; padding: 1rem;" onclick="window.openUnifiedUploadModal()">
                                 <i data-lucide="plus-circle" style="width: 20px; height: 20px;"></i> Adicionar Novo Documento
                             </button>
                         </div>
@@ -642,12 +642,12 @@ const SolicitanteDashboardView = () => `
                 <div style="display: flex; gap: 1rem;">
                     <label style="flex: 1; border: 2px solid var(--border-light); padding: 1.5rem 1rem; border-radius: 8px; cursor: pointer; text-align: center; transition: all 0.2s;" id="label-tipo-nf" onclick="window.selectUnifiedType('nf')">
                         <input type="radio" name="unified_type" value="nf" style="display:none;">
-                        <i data-lucide="file-text" style="margin: 0 auto 0.75rem; color: #f59e0b; width: 32px; height: 32px;"></i>
+                        <i data-lucide="file-text" style="margin: 0 auto 0.75rem; color: #FF5807; width: 32px; height: 32px;"></i>
                         <div style="font-weight: 600; font-size: 0.875rem;">Nota Fiscal<br>Recibo</div>
                     </label>
                     <label style="flex: 1; border: 2px solid var(--border-light); padding: 1.5rem 1rem; border-radius: 8px; cursor: pointer; text-align: center; transition: all 0.2s;" id="label-tipo-m2" onclick="window.selectUnifiedType('m2')">
                         <input type="radio" name="unified_type" value="m2" style="display:none;">
-                        <i data-lucide="camera" style="margin: 0 auto 0.75rem; color: #4f46e5; width: 32px; height: 32px;"></i>
+                        <i data-lucide="camera" style="margin: 0 auto 0.75rem; color: #0F38D9; width: 32px; height: 32px;"></i>
                         <div style="font-weight: 600; font-size: 0.875rem;">Comprovação<br>Física</div>
                     </label>
                 </div>
@@ -966,7 +966,7 @@ ${Sidebar()}
             </form>
 
             ${state.error ? `
-                <div style="margin-top: 1.5rem; padding: 1rem; background: rgba(239, 68, 68, 0.1); border-radius: var(--radius-sm); border-left: 3px solid var(--error); display: flex; gap: 0.75rem; align-items: flex-start;">
+                <div style="margin-top: 1.5rem; padding: 1rem; background: rgba(255, 88, 7, 0.1); border-radius: var(--radius-sm); border-left: 3px solid var(--error); display: flex; gap: 0.75rem; align-items: flex-start;">
                     <i data-lucide="alert-circle" style="width: 18px; color: var(--error); flex-shrink: 0; margin-top: 2px;"></i>
                     <div>
                         <p class="text-sm" style="color: var(--error); font-weight: 600; margin-bottom: 2px;">Falha na importação</p>
@@ -1061,7 +1061,7 @@ ${Sidebar()}
         </header>
 
         <!-- NOVO: Descritivo de Esteira -->
-        <div class="card mb-4" style="background: rgba(37, 99, 235, 0.03); border-left: 4px solid var(--primary); padding: 1.25rem;">
+        <div class="card mb-4" style="background: rgba(21, 71, 255, 0.03); border-left: 4px solid var(--primary); padding: 1.25rem;">
             <div style="display: flex; gap: 1rem; align-items: flex-start;">
                 <div style="background: var(--primary); color: white; padding: 0.5rem; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
                     <i data-lucide="info" style="width: 18px;"></i>
@@ -1183,7 +1183,7 @@ ${Sidebar()}
 
                 <div class="card">
                     <h3 class="h2 mb-4">Análise de Conformidade</h3>
-                    <div style="padding: 1rem; background: ${doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') ? 'rgba(239, 68, 68, 0.05)' : 'var(--bg-sidebar)'}; border-radius: var(--radius-sm); border-left: 3px solid ${doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') ? 'var(--error)' : 'var(--primary)'};">
+                    <div style="padding: 1rem; background: ${doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') ? 'rgba(255, 88, 7, 0.05)' : 'var(--bg-sidebar)'}; border-radius: var(--radius-sm); border-left: 3px solid ${doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') ? 'var(--error)' : 'var(--primary)'};">
                         <p class="text-sm" style="line-height: 1.6; color: var(--text-primary);">
                             ${doc.status.includes('bloqueado') || doc.status.includes('divergencia') || doc.status === 'revisao_manual' ?
             `<strong>Atenção:</strong><br>${doc.justification || doc.just_erro || 'Documento requer análise manual devido a divergências ou baixa confiança no OCR.'}` :
@@ -1201,7 +1201,7 @@ ${Sidebar()}
                         
                         
                         <!-- Box do Comprovante -->
-                        <div style="padding: 1rem; border: 1px dashed var(--border-light); border-radius: var(--radius-sm); background: ${doc.data_pagamento || doc.status === 'aguardando_conciliacao_bancaria' || state.currentComprovante ? 'rgba(16, 185, 129, 0.05)' : 'transparent'};">
+                        <div style="padding: 1rem; border: 1px dashed var(--border-light); border-radius: var(--radius-sm); background: ${doc.data_pagamento || doc.status === 'aguardando_conciliacao_bancaria' || state.currentComprovante ? 'rgba(21, 71, 255, 0.05)' : 'transparent'};">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                                 <span class="text-xs" style="font-weight: 600; text-transform: uppercase;">1. Comprovante</span>
                                 ${doc.data_pagamento || doc.status === 'aguardando_conciliacao_bancaria' || state.currentComprovante ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : (state.isUploadingComprovante ? '<i data-lucide="loader" class="spin" style="width: 16px; color: var(--primary);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>')}
@@ -1227,7 +1227,7 @@ ${Sidebar()}
                         </div>
 
                         <!-- Box do Extrato -->
-                        <div style="padding: 1rem; border: 1px dashed var(--border-light); border-radius: var(--radius-sm); background: ${['aguardando_d3', 'liberado_rpa_airtop', 'enviado_salic', 'concluido'].includes(doc.status) ? 'rgba(37, 99, 235, 0.05)' : 'transparent'};">
+                        <div style="padding: 1rem; border: 1px dashed var(--border-light); border-radius: var(--radius-sm); background: ${['aguardando_d3', 'liberado_rpa_airtop', 'enviado_salic', 'concluido'].includes(doc.status) ? 'rgba(21, 71, 255, 0.05)' : 'transparent'};">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                                 <span class="text-xs" style="font-weight: 600; text-transform: uppercase;">2. Extrato Bancário</span>
                                 ${['aguardando_d3', 'enviado_salic', 'concluido'].includes(doc.status) ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--primary);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>'}
@@ -1251,7 +1251,7 @@ ${Sidebar()}
                                 ${['enviado_salic', 'concluido'].includes(doc.status) ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : (doc.status === 'erro_rpa' ? '<i data-lucide="alert-circle" style="width: 16px; color: var(--error);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>')}
                             </div>
                             ${doc.status === 'liberado_rpa_airtop' ?
-            `<button class="btn btn-primary" style="width: 100%; font-size: 11px; padding: 0.5rem; background: linear-gradient(135deg, #059669 0%, #10b981 100%); border: none; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);" onclick="window.handleEnviarSalic('${doc.id}')" ${state.loading ? 'disabled' : ''}>
+            `<button class="btn btn-primary" style="width: 100%; font-size: 11px; padding: 0.5rem; background: linear-gradient(135deg, #1547FF 0%, #1547FF 100%); border: none; box-shadow: 0 4px 12px rgba(21, 71, 255, 0.2);" onclick="window.handleEnviarSalic('${doc.id}')" ${state.loading ? 'disabled' : ''}>
                                     <i data-lucide="plus-circle" style="width: 14px;"></i>
                                     Adicionar documento no SALIC
                                  </button>` :
@@ -1427,11 +1427,11 @@ window.openUnifiedUploadModal = function() {
 };
 
 window.selectUnifiedType = function(type) {
-    document.getElementById('label-tipo-nf').style.borderColor = type === 'nf' ? '#f59e0b' : 'var(--border-light)';
-    document.getElementById('label-tipo-nf').style.background = type === 'nf' ? '#fffbeb' : '#fff';
+    document.getElementById('label-tipo-nf').style.borderColor = type === 'nf' ? '#FF5807' : 'var(--border-light)';
+    document.getElementById('label-tipo-nf').style.background = type === 'nf' ? '#E3E8FF' : '#fff';
     
-    document.getElementById('label-tipo-m2').style.borderColor = type === 'm2' ? '#4f46e5' : 'var(--border-light)';
-    document.getElementById('label-tipo-m2').style.background = type === 'm2' ? '#eef2ff' : '#fff';
+    document.getElementById('label-tipo-m2').style.borderColor = type === 'm2' ? '#0F38D9' : 'var(--border-light)';
+    document.getElementById('label-tipo-m2').style.background = type === 'm2' ? '#E3E8FF' : '#fff';
 
     document.getElementById('unified-fields-nf').style.display = type === 'nf' ? 'block' : 'none';
     document.getElementById('unified-fields-m2').style.display = type === 'm2' ? 'block' : 'none';
@@ -1441,9 +1441,9 @@ window.selectUnifiedType = function(type) {
     btn.setAttribute('data-type', type);
     
     if (type === 'nf') {
-        btn.style.background = 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)';
+        btn.style.background = 'linear-gradient(135deg, #FF5807 0%, #FF5807 100%)';
     } else {
-        btn.style.background = 'linear-gradient(135deg, #4f46e5 0%, #3730a3 100%)';
+        btn.style.background = 'linear-gradient(135deg, #0F38D9 0%, #0F38D9 100%)';
     }
 };
 
@@ -2144,7 +2144,7 @@ const OrcamentoView = () => {
     `;
 
     const progressContent = state.importState ? `
-        <div class="card mb-6" style="background: rgba(37, 99, 235, 0.05); border-color: var(--primary); padding: 1.5rem;">
+        <div class="card mb-6" style="background: rgba(21, 71, 255, 0.05); border-color: var(--primary); padding: 1.5rem;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
                 <div style="display: flex; align-items: center; gap: 0.75rem;">
                     <i data-lucide="${state.importState === 'concluido' ? 'check-circle' : (state.importState === 'erro' ? 'alert-circle' : 'loader-2')}" 
@@ -3015,9 +3015,9 @@ ${Sidebar()}
                     <input type="text" id="bb-developer-key" placeholder="6f8f..." value="${state.settings.bb_developer_key || ''}" required>
                 </div>
 
-                <div style="padding: 1rem; background: #fffcf0; border-radius: var(--radius-sm); margin-bottom: 1.5rem; display: flex; gap: 0.75rem; align-items: flex-start; border: 1px solid #ffeeba;">
-                    <i data-lucide="info" style="width: 18px; color: #856404; flex-shrink: 0;"></i>
-                    <p class="text-xs" style="color: #856404; line-height: 1.5;">
+                <div style="padding: 1rem; background: #FF5807; border-radius: var(--radius-sm); margin-bottom: 1.5rem; display: flex; gap: 0.75rem; align-items: flex-start; border: 1px solid #FF5807;">
+                    <i data-lucide="info" style="width: 18px; color: #FFFFFF; flex-shrink: 0;"></i>
+                    <p class="text-xs" style="color: #FFFFFF; line-height: 1.5;">
                         <strong>Nota Técnica:</strong> Essa integração requer um certificado digital (.key/.pem) configurado no servidor do n8n para autenticação mTLS (Segurança Bancária).
                     </p>
                 </div>
@@ -3596,8 +3596,8 @@ function initFinanceiroCharts() {
             datasets: [{
                 data: data,
                 backgroundColor: [
-                    '#2563eb', '#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe',
-                    '#1d4ed8', '#1e40af', '#1e3a8a', '#172554'
+                    '#1547FF', '#1547FF', '#8EA3FF', '#C6D0FF', '#C6D0FF',
+                    '#0F38D9', '#1547FF', '#0F38D9', '#0F38D9'
                 ],
                 borderWidth: 0,
                 hoverOffset: 4

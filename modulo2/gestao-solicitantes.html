@@ -6,6 +6,7 @@
     <title>PrestAI M2 — Gestão de Solicitantes</title>
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
@@ -69,7 +70,7 @@
         .form-control:focus, .form-select:focus {
             outline: none;
             border-color: var(--m2-accent);
-            box-shadow: 0 0 0 4px rgba(99,102,241,0.1);
+            box-shadow: 0 0 0 4px rgba(21, 71, 255,0.1);
         }
 
         .data-table {
@@ -82,7 +83,7 @@
         .data-table th {
             text-align: left;
             padding: 1rem;
-            background: #f8fafc;
+            background: #F5F0E8;
             color: var(--text-secondary);
             font-weight: 700;
             border-bottom: 2px solid var(--border-light);
@@ -96,12 +97,12 @@
         }
 
         .data-table tr:hover td {
-            background: #f8fafc;
+            background: #F5F0E8;
         }
 
         .btn-remove {
-            background: #fee2e2;
-            color: #dc2626;
+            background: #FF5807;
+            color: #FF5807;
             border: none;
             padding: 0.5rem;
             border-radius: var(--radius-md);
@@ -113,7 +114,7 @@
         }
 
         .btn-remove:hover {
-            background: #f87171;
+            background: #FF5807;
             color: white;
         }
 
@@ -131,8 +132,8 @@
             transform: translateY(150%); transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
         .toast-notification.show { transform: translateY(0); }
-        .toast-notification.success { background: #10b981; }
-        .toast-notification.error { background: #ef4444; }
+        .toast-notification.success { background: #1547FF; }
+        .toast-notification.error { background: #FF5807; }
     </style>
 </head>
 <body>

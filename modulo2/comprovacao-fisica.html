@@ -9,6 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -42,7 +43,7 @@
         .evidence-preview {
             width: 100%;
             height: 180px;
-            background: #f1f5f9;
+            background: #E3E8FF;
             border-radius: var(--radius-md);
             display: flex;
             align-items: center;
@@ -98,9 +99,9 @@
             z-index: 2;
         }
         
-        .score-high { color: #10b981; }
-        .score-mid { color: #f59e0b; }
-        .score-low { color: #ef4444; }
+        .score-high { color: #1547FF; }
+        .score-mid { color: #FF5807; }
+        .score-low { color: #FF5807; }
 
         .upload-zone {
             border: 2px dashed var(--border-light);
@@ -114,7 +115,7 @@
         
         .upload-zone:hover {
             border-color: var(--m2-accent);
-            background: rgba(99, 102, 241, 0.05);
+            background: rgba(21, 71, 255, 0.05);
         }
 
         /* Status badges */
@@ -133,14 +134,14 @@
             height: 6px;
             border-radius: 50%;
         }
-        .status-pendente { background: #fef3c7; color: #92400e; }
-        .status-pendente::before { background: #f59e0b; }
-        .status-aprovada { background: #d1fae5; color: #065f46; }
-        .status-aprovada::before { background: #10b981; }
-        .status-reprovada { background: #fee2e2; color: #991b1b; }
-        .status-reprovada::before { background: #ef4444; }
-        .status-pendente_complemento { background: #fef9c3; color: #854d0e; }
-        .status-pendente_complemento::before { background: #eab308; }
+        .status-pendente { background: #FF5807; color: #FFFFFF; }
+        .status-pendente::before { background: #FF5807; }
+        .status-aprovada { background: #1547FF; color: #70FF00; }
+        .status-aprovada::before { background: #1547FF; }
+        .status-reprovada { background: #FF5807; color: #FFFFFF; }
+        .status-reprovada::before { background: #FF5807; }
+        .status-pendente_complemento { background: #FF5807; color: #FFFFFF; }
+        .status-pendente_complemento::before { background: #FF5807; }
 
         /* Action buttons on cards */
         .card-actions {
@@ -148,7 +149,7 @@
             gap: 0.5rem;
             margin-top: 0.75rem;
             padding-top: 0.75rem;
-            border-top: 1px solid #f1f5f9;
+            border-top: 1px solid #E3E8FF;
         }
 
         .btn-approve {
@@ -156,8 +157,8 @@
             padding: 0.5rem;
             border: none;
             border-radius: var(--radius-sm);
-            background: #d1fae5;
-            color: #065f46;
+            background: #1547FF;
+            color: #70FF00;
             font-weight: 600;
             font-size: 0.8rem;
             cursor: pointer;
@@ -167,15 +168,15 @@
             gap: 0.3rem;
             transition: all 0.2s;
         }
-        .btn-approve:hover { background: #a7f3d0; }
+        .btn-approve:hover { background: #1547FF; }
 
         .btn-reject {
             flex: 1;
             padding: 0.5rem;
             border: none;
             border-radius: var(--radius-sm);
-            background: #fee2e2;
-            color: #991b1b;
+            background: #FF5807;
+            color: #FFFFFF;
             font-weight: 600;
             font-size: 0.8rem;
             cursor: pointer;
@@ -185,15 +186,15 @@
             gap: 0.3rem;
             transition: all 0.2s;
         }
-        .btn-reject:hover { background: #fecaca; }
+        .btn-reject:hover { background: #FF5807; }
 
         .btn-complement {
             flex: 1;
             padding: 0.5rem;
             border: none;
             border-radius: var(--radius-sm);
-            background: #fef9c3;
-            color: #854d0e;
+            background: #FF5807;
+            color: #FFFFFF;
             font-weight: 600;
             font-size: 0.8rem;
             cursor: pointer;
@@ -203,10 +204,10 @@
             gap: 0.3rem;
             transition: all 0.2s;
         }
-        .btn-complement:hover { background: #fef08a; }
+        .btn-complement:hover { background: #FF5807; }
 
-        .btn-fs-complement { background: #eab308; color: white; }
-        .btn-fs-complement:hover { background: #ca8a04; }
+        .btn-fs-complement { background: #FF5807; color: white; }
+        .btn-fs-complement:hover { background: #FF5807; }
 
         .spin { animation: spin 1s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
@@ -285,10 +286,10 @@
             transition: all 0.2s;
         }
 
-        .btn-fs-approve { background: #10b981; color: white; }
-        .btn-fs-approve:hover { background: #059669; }
-        .btn-fs-reject { background: #ef4444; color: white; }
-        .btn-fs-reject:hover { background: #dc2626; }
+        .btn-fs-approve { background: #1547FF; color: white; }
+        .btn-fs-approve:hover { background: #70FF00; }
+        .btn-fs-reject { background: #FF5807; color: white; }
+        .btn-fs-reject:hover { background: #FF5807; }
         .btn-fs-close { background: rgba(255,255,255,0.15); color: white; }
         .btn-fs-close:hover { background: rgba(255,255,255,0.25); }
 
@@ -332,7 +333,7 @@
         .meta-tag {
             font-size: 0.7rem;
             padding: 0.15rem 0.5rem;
-            background: #f1f5f9;
+            background: #E3E8FF;
             border-radius: 999px;
             color: var(--text-secondary);
         }
@@ -403,7 +404,7 @@
     <!-- Modal Motivo de Reprovação -->
     <div class="modal-reject-overlay" id="modal-reject">
         <div class="modal-reject-content">
-            <h3 style="margin-bottom: 0.5rem; color: #991b1b;">
+            <h3 style="margin-bottom: 0.5rem; color: #FFFFFF;">
                 <i data-lucide="alert-triangle" style="width: 20px; height: 20px; vertical-align: middle;"></i>
                 Reprovar Evidência
             </h3>
@@ -414,7 +415,7 @@
                 style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-family: inherit; resize: vertical; margin-bottom: 1rem;"></textarea>
             <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
                 <button onclick="closeRejectModal()" style="padding: 0.5rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: white; cursor: pointer; font-weight: 500;">Cancelar</button>
-                <button onclick="confirmReject()" style="padding: 0.5rem 1rem; border: none; border-radius: var(--radius-sm); background: #ef4444; color: white; cursor: pointer; font-weight: 600;">Confirmar Reprovação</button>
+                <button onclick="confirmReject()" style="padding: 0.5rem 1rem; border: none; border-radius: var(--radius-sm); background: #FF5807; color: white; cursor: pointer; font-weight: 600;">Confirmar Reprovação</button>
             </div>
         </div>
     </div>
@@ -422,7 +423,7 @@
     <!-- Modal Solicitar Complemento -->
     <div class="modal-reject-overlay" id="modal-complement">
         <div class="modal-reject-content">
-            <h3 style="margin-bottom: 0.5rem; color: #854d0e;">
+            <h3 style="margin-bottom: 0.5rem; color: #FFFFFF;">
                 <i data-lucide="help-circle" style="width: 20px; height: 20px; vertical-align: middle;"></i>
                 Solicitar Complemento
             </h3>
@@ -433,7 +434,7 @@
                 style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-family: inherit; resize: vertical; margin-bottom: 1rem;"></textarea>
             <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
                 <button onclick="closeComplementModal()" style="padding: 0.5rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: white; cursor: pointer; font-weight: 500;">Cancelar</button>
-                <button onclick="confirmComplement()" style="padding: 0.5rem 1rem; border: none; border-radius: var(--radius-sm); background: #eab308; color: white; cursor: pointer; font-weight: 600;">Solicitar Complemento</button>
+                <button onclick="confirmComplement()" style="padding: 0.5rem 1rem; border: none; border-radius: var(--radius-sm); background: #FF5807; color: white; cursor: pointer; font-weight: 600;">Solicitar Complemento</button>
             </div>
         </div>
     </div>
@@ -603,8 +604,8 @@
                 const showMotivo = (ev.status_validacao === 'reprovada' || ev.status_validacao === 'pendente_complemento') && motivoMsg;
                 const motivoLabel = ev.status_validacao === 'pendente_complemento' ? 'Complemento solicitado' : 'Motivo';
                 const motivoStyle = ev.status_validacao === 'pendente_complemento'
-                    ? 'background: #fef9c3; color: #854d0e;'
-                    : 'background: #fef2f2; color: #991b1b;';
+                    ? 'background: #FF5807; color: #FFFFFF;'
+                    : 'background: #FF5807; color: #FFFFFF;';
 
                 return `
                     <div class="glass-card evidence-card" onclick="openFullscreen('${ev.id}')">
@@ -685,7 +686,7 @@
                     <div style="text-align: center; color: white;">
                         <i data-lucide="file" style="width: 64px; height: 64px; margin-bottom: 1rem;"></i>
                         <p>Pré-visualização indisponível.</p>
-                        <a href="${url}" target="_blank" style="color: #818cf8; margin-top: 0.5rem; display: inline-block;">Abrir em nova aba</a>
+                        <a href="${url}" target="_blank" style="color: #8EA3FF; margin-top: 0.5rem; display: inline-block;">Abrir em nova aba</a>
                     </div>
                 `;
             } else {
@@ -924,7 +925,7 @@
             const t = document.getElementById('toast');
             if (!t) return;
             t.innerText = msg;
-            t.style.background = type === 'success' ? '#10b981' : (type === 'error' ? '#ef4444' : '#3b82f6');
+            t.style.background = type === 'success' ? '#1547FF' : (type === 'error' ? '#FF5807' : '#1547FF');
             t.style.transform = 'translateY(0)';
             setTimeout(() => t.style.transform = 'translateY(150%)', 4000);
         }
