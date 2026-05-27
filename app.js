@@ -3265,12 +3265,11 @@ window.handleVincularRubrica = async function (documentId, projectId, valorDespe
 
         if (error) throw error;
 
-        // Atualiza o doc: rubrica nova (texto), status processando, limpa erro anterior.
         // O webhook do n8n provavelmente le de documents.rubrica — sem isso, ele revalidaria
         // contra a rubrica antiga.
         await supabaseClient
             .from('documents')
-            .update({ rubrica: rubricaNome, status: 'processing_ocr', just_erro: null })
+            .update({ rubrica: rubricaNome, rubrica_id_fk: rubricaId, status: 'processing_ocr', just_erro: null })
             .eq('id', documentId);
 
         window.showToast('Rubrica atualizada! Revalidando com o n8n...', 'info');
@@ -4378,9 +4377,22 @@ function dispararOcr(documentId, filePath) {
 
 window.handleUpload = async function (file) {
     const projectId = document.getElementById('project-selector').value;
-    const rubrica = document.getElementById('rubrica-input') ? document.getElementById('rubrica-input').value : null;
+    const rubricaInput = document.getElementById('rubrica-input') ? document.getElementById('rubrica-input').value : null;
 
     if (!file || !projectId) return alert("Selecione um projeto e um arquivo PDF!");
+
+    let rubricaIdFk = null;
+    let rubricaTexto = rubricaInput;
+    if (rubricaInput && state.rubricas_disponiveis) {
+        const r = state.rubricas_disponiveis.find(r => {
+            const label = r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome;
+            return label === rubricaInput || r.nome === rubricaInput;
+        });
+        if (r) {
+            rubricaIdFk = r.id;
+            rubricaTexto = r.nome;
+        }
+    }
 
     state.loading = true;
     render();
@@ -4388,7 +4400,8 @@ window.handleUpload = async function (file) {
     try {
         const dbData = await subirParaStorage(file, projectId, {
             status: 'processing_ocr',
-            rubrica: rubrica || null,
+            rubrica: rubricaTexto || null,
+            rubrica_id_fk: rubricaIdFk,
             tipo_documento: 'nf'
         });
         dispararOcr(dbData.id, dbData.file_path);
@@ -4476,8 +4489,21 @@ window.handleLoteFilesSelected = async function (fileList) {
 
 window.handleProcessarLoteItem = async function (documentId) {
     const input = document.getElementById(`lote-rubrica-${documentId}`);
-    const rubrica = input ? input.value.trim() : '';
-    if (!rubrica) return alert("Escolha a rubrica antes de processar.");
+    const rubricaInput = input ? input.value.trim() : '';
+    if (!rubricaInput) return alert("Escolha a rubrica antes de processar.");
+
+    let rubricaIdFk = null;
+    let rubricaTexto = rubricaInput;
+    if (state.rubricas_disponiveis) {
+        const r = state.rubricas_disponiveis.find(r => {
+            const label = r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome;
+            return label === rubricaInput || r.nome === rubricaInput;
+        });
+        if (r) {
+            rubricaIdFk = r.id;
+            rubricaTexto = r.nome;
+        }
+    }
 
     const doc = state.uploadLoteQueue.find(d => d.id === documentId);
     if (!doc) return;
@@ -4488,7 +4514,7 @@ window.handleProcessarLoteItem = async function (documentId) {
     try {
         const { error } = await supabaseClient
             .from('documents')
-            .update({ rubrica: rubrica, status: 'processing_ocr' })
+            .update({ rubrica: rubricaTexto, rubrica_id_fk: rubricaIdFk, status: 'processing_ocr' })
             .eq('id', documentId);
         if (error) throw error;
 
@@ -4508,10 +4534,23 @@ window.handleProcessarTodosLote = async function () {
     const itensComRubrica = state.uploadLoteQueue
         .map(doc => {
             const input = document.getElementById(`lote-rubrica-${doc.id}`);
-            const rubrica = input ? input.value.trim() : '';
-            return { doc, rubrica };
+            const rubricaInput = input ? input.value.trim() : '';
+            
+            let rubricaIdFk = null;
+            let rubricaTexto = rubricaInput;
+            if (rubricaInput && state.rubricas_disponiveis) {
+                const r = state.rubricas_disponiveis.find(r => {
+                    const label = r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome;
+                    return label === rubricaInput || r.nome === rubricaInput;
+                });
+                if (r) {
+                    rubricaIdFk = r.id;
+                    rubricaTexto = r.nome;
+                }
+            }
+            return { doc, rubricaTexto, rubricaIdFk, hasInput: !!rubricaInput };
         })
-        .filter(x => x.rubrica);
+        .filter(x => x.hasInput);
 
     if (itensComRubrica.length === 0) {
         return alert("Preencha a rubrica em pelo menos um arquivo.");
@@ -4522,10 +4561,10 @@ window.handleProcessarTodosLote = async function () {
     render();
 
     const resultados = await Promise.allSettled(
-        itensComRubrica.map(async ({ doc, rubrica }) => {
+        itensComRubrica.map(async ({ doc, rubricaTexto, rubricaIdFk }) => {
             const { error } = await supabaseClient
                 .from('documents')
-                .update({ rubrica: rubrica, status: 'processing_ocr' })
+                .update({ rubrica: rubricaTexto, rubrica_id_fk: rubricaIdFk, status: 'processing_ocr' })
                 .eq('id', doc.id);
             if (error) throw error;
             dispararOcr(doc.id, doc.file_path);
