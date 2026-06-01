@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Importar Projeto do SALIC (PDF)</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m2-shared.css">
+
+    <style>
+        .salic-container { max-width: 980px; width: 100%; margin: 0 auto; }
+
+        .salic-header { margin-bottom: 2rem; }
+
+        .state-panel { display: none; }
+        .state-panel.active { display: block; }
+
+        /* ESTADO 1 — Upload */
+        .upload-zone {
+            border: 2px dashed var(--border-light);
+            padding: 3.5rem 2rem;
+            border-radius: var(--radius-lg);
+            margin: 1.5rem 0;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+            background: white;
+        }
+        .upload-zone:hover { border-color: var(--m2-accent); background: #F5F8FF; }
+        .upload-zone.dragover { border-color: var(--m2-accent); background: #EEF3FF; }
+
+        .file-pill {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            background: #EEF3FF; color: var(--m2-accent);
+            padding: 0.5rem 1rem; border-radius: 999px;
+            font-size: 0.875rem; font-weight: 600; margin-top: 1rem;
+        }
+
+        /* ESTADO 2 — Processando */
+        .processing-box {
+            background: white; border: 1px solid var(--border-light);
+            border-radius: var(--radius-lg); padding: 3.5rem 2rem;
+            text-align: center; box-shadow: var(--shadow-md);
+        }
+        .processing-box .spin { width: 48px; height: 48px; color: var(--m2-accent); margin-bottom: 1rem; }
+        .processing-steps { margin-top: 1.5rem; color: var(--text-muted); font-size: 0.875rem; }
+
+        /* ESTADO 3 — Revisão */
+        .review-section {
+            background: white; border: 1px solid var(--border-light);
+            border-radius: var(--radius-md); padding: 1.5rem;
+            margin-bottom: 1.25rem; box-shadow: var(--shadow-sm);
+        }
+        .review-section h3 {
+            font-size: 0.8rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.05em; color: var(--text-secondary);
+            margin: 0 0 1rem 0; display: flex; align-items: center; gap: 0.5rem;
+        }
+        .review-section h3 i { width: 18px; height: 18px; color: var(--m2-accent); }
+        .field-block { margin-bottom: 1rem; }
+        .field-label { font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+        .field-value { font-size: 0.95rem; color: var(--text-primary); margin-top: 0.25rem; white-space: pre-wrap; }
+        .field-value.muted { color: var(--text-muted); font-style: italic; }
+
+        .data-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+        .data-table th, .data-table td { text-align: left; padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border-light); vertical-align: top; }
+        .data-table th { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); font-weight: 700; }
+        .tag-list { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+        .tag { background: #F1F5F9; border-radius: 6px; padding: 0.15rem 0.5rem; font-size: 0.8rem; color: var(--text-secondary); }
+
+        .empty-mini { color: var(--text-muted); font-style: italic; font-size: 0.85rem; }
+
+        .alert-error {
+            background: #FEF2F2; border: 1px solid #FECACA; color: #991B1B;
+            padding: 1rem 1.25rem; border-radius: var(--radius-md);
+            margin: 1rem 0; font-size: 0.9rem; display: flex; align-items: flex-start; gap: 0.75rem;
+        }
+
+        .actions-bar { display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem; }
+    </style>
+</head>
+<body>
+    <main class="main-content">
+        <div class="salic-container">
+            <div class="salic-header">
+                <a href="projeto-setup.html" style="display:inline-flex; align-items:center; gap:0.4rem; color:var(--text-secondary); text-decoration:none; font-size:0.875rem; font-weight:600; margin-bottom:1rem;">
+                    <i data-lucide="arrow-left" style="width:16px;"></i> Voltar para Projetos
+                </a>
+                <h1 style="font-size: 2rem; font-weight: 800; color: var(--text-primary); margin: 0.5rem 0;">
+                    Importar do SALIC via PDF
+                </h1>
+                <p style="color: var(--text-secondary); font-size: 1.05rem;">
+                    Envie o PDF do projeto exportado do SALIC. O texto é lido por OCR e
+                    estruturado automaticamente para revisão.
+                </p>
+            </div>
+
+            <!-- ════════════ ESTADO 1 — Upload ════════════ -->
+            <section class="state-panel active" id="state-upload">
+                <div class="upload-zone" id="dropzone" onclick="document.getElementById('pdf-input').click()">
+                    <i data-lucide="file-up" style="width: 40px; height: 40px; color: var(--m2-accent); margin-bottom: 0.75rem;"></i>
+                    <div style="font-weight: 700; font-size: 1.05rem;">Clique ou arraste o PDF aqui</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">Apenas arquivos .pdf — até ~20 MB</div>
+                    <input type="file" id="pdf-input" style="display: none;" accept="application/pdf,.pdf" onchange="onFileSelected(this.files[0])">
+                    <div id="selected-file" style="display:none;"></div>
+                </div>
+                <div class="actions-bar">
+                    <button class="btn-m2" id="btn-processar" disabled onclick="iniciarProcessamento()">
+                        <i data-lucide="scan-line" style="width:16px;"></i> Processar PDF
+                    </button>
+                </div>
+            </section>
+
+            <!-- ════════════ ESTADO 2 — Processando ════════════ -->
+            <section class="state-panel" id="state-processing">
+                <div class="processing-box">
+                    <i data-lucide="loader" class="spin"></i>
+                    <h2 style="font-size: 1.25rem; font-weight: 700; margin: 0;">Processando PDF via OCR…</h2>
+                    <p style="color: var(--text-secondary); margin-top: 0.5rem;">
+                        Isso pode levar até 2 minutos. Não feche esta janela.
+                    </p>
+                    <div class="processing-steps">
+                        <div>📄 Enviando arquivo &nbsp;•&nbsp; 🔍 Lendo texto (OCR) &nbsp;•&nbsp; 🤖 Estruturando dados</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ════════════ ESTADO 3 — Revisão ════════════ -->
+            <section class="state-panel" id="state-review">
+                <div class="alert-error" id="review-error" style="display:none;"></div>
+                <div id="review-content"><!-- preenchido via JS --></div>
+                <div class="actions-bar">
+                    <button class="btn-m2 btn-m2-outline" onclick="resetParaUpload()">
+                        <i data-lucide="rotate-ccw" style="width:16px;"></i> Importar outro PDF
+                    </button>
+                    <button class="btn-m2" onclick="concluir()">
+                        <i data-lucide="check" style="width:16px;"></i> Concluir e ir ao Dashboard
+                    </button>
+                </div>
+            </section>
+
+            <!-- ════════════ ERRO ════════════ -->
+            <section class="state-panel" id="state-error">
+                <div class="alert-error" id="error-message">
+                    <i data-lucide="alert-triangle" style="width:20px; flex-shrink:0;"></i>
+                    <span id="error-text">Ocorreu um erro ao processar o PDF.</span>
+                </div>
+                <div class="actions-bar">
+                    <button class="btn-m2 btn-m2-outline" onclick="resetParaUpload()">Recomeçar</button>
+                    <button class="btn-m2" onclick="iniciarProcessamento(true)">
+                        <i data-lucide="refresh-cw" style="width:16px;"></i> Tentar novamente
+                    </button>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper.js"></script>
+    <script>
+        let currentProjectId = null;
+        let selectedFile = null;
+        let lastImportId = null;
+        let lastFilePath = null;
+
+        const PROCESS_TIMEOUT_MS = 150000; // 150s (AbortController)
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            renderSidebar();
+            if (window.lucide) window.lucide.createIcons();
+
+            currentProjectId = (window.ProjectManager && ProjectManager.getSelected()) || null;
+            if (!currentProjectId) {
+                alert('Selecione um projeto antes de importar o PDF.');
+                window.location.href = 'projeto-setup.html';
+                return;
+            }
+
+            setupDragAndDrop();
+        });
+
+        function showState(id) {
+            document.querySelectorAll('.state-panel').forEach(p => p.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        function escapeHtml(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            })[c]);
+        }
+
+        // ─────────── ESTADO 1: seleção de arquivo ───────────
+        function setupDragAndDrop() {
+            const dz = document.getElementById('dropzone');
+            ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => {
+                e.preventDefault(); dz.classList.add('dragover');
+            }));
+            ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, e => {
+                e.preventDefault(); dz.classList.remove('dragover');
+            }));
+            dz.addEventListener('drop', e => {
+                const f = e.dataTransfer.files && e.dataTransfer.files[0];
+                if (f) onFileSelected(f);
+            });
+        }
+
+        function onFileSelected(file) {
+            if (!file) return;
+            if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+                alert('Selecione um arquivo PDF.');
+                return;
+            }
+            selectedFile = file;
+            const el = document.getElementById('selected-file');
+            el.style.display = 'block';
+            el.innerHTML = `<div class="file-pill"><i data-lucide="file-check" style="width:16px;"></i> ${escapeHtml(file.name)} (${(file.size/1024/1024).toFixed(1)} MB)</div>`;
+            document.getElementById('btn-processar').disabled = false;
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        function resetParaUpload() {
+            selectedFile = null;
+            lastImportId = null;
+            lastFilePath = null;
+            document.getElementById('pdf-input').value = '';
+            document.getElementById('selected-file').style.display = 'none';
+            document.getElementById('selected-file').innerHTML = '';
+            document.getElementById('btn-processar').disabled = true;
+            showState('state-upload');
+        }
+
+        function sanitizeName(name) {
+            return String(name).replace(/[^a-zA-Z0-9._-]/g, '_').slice(-80);
+        }
+
+        // ─────────── ESTADO 2: upload + processamento ───────────
+        // retry=true reaproveita o import/arquivo já enviado (apenas re-dispara o endpoint).
+        async function iniciarProcessamento(retry = false) {
+            showState('state-processing');
+
+            try {
+                const sb = await window.initSupabase();
+
+                // Em retry, reutiliza o import e o arquivo já existentes.
+                if (!retry || !lastImportId || !lastFilePath) {
+                    if (!selectedFile) {
+                        resetParaUpload();
+                        return;
+                    }
+
+                    const orgId = await getCurrentOrgId(currentProjectId);
+
+                    // 1. Upload do PDF para o bucket 'salic-imports'
+                    const filePath = `${currentProjectId}/${Date.now()}-${sanitizeName(selectedFile.name)}`;
+                    const { error: upErr } = await sb.storage
+                        .from('salic-imports')
+                        .upload(filePath, selectedFile, { contentType: 'application/pdf', upsert: false });
+                    if (upErr) throw new Error('Falha no upload do PDF: ' + upErr.message);
+                    lastFilePath = filePath;
+
+                    // 2. INSERT em project_salic_imports (status='pendente')
+                    const { data: imp, error: impErr } = await sb
+                        .from('project_salic_imports')
+                        .insert([{
+                            project_id: currentProjectId,
+                            organization_id: orgId,
+                            file_path: filePath,
+                            status: 'pendente'
+                        }])
+                        .select()
+                        .single();
+                    if (impErr || !imp) throw new Error('Falha ao registrar a importação: ' + (impErr?.message || ''));
+                    lastImportId = imp.id;
+                }
+
+                // 3. Chama o endpoint (síncrono) com timeout via AbortController
+                const controller = new AbortController();
+                const t = setTimeout(() => controller.abort(), PROCESS_TIMEOUT_MS);
+
+                let resp;
+                try {
+                    resp = await fetch('/api/m2/processar-pdf-salic', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        signal: controller.signal,
+                        body: JSON.stringify({
+                            import_id: lastImportId,
+                            project_id: currentProjectId,
+                            file_path: lastFilePath
+                        })
+                    });
+                } catch (e) {
+                    if (e.name === 'AbortError') {
+                        throw new Error('O processamento excedeu o tempo limite (150s). Tente novamente com um PDF menor.');
+                    }
+                    throw e;
+                } finally {
+                    clearTimeout(t);
+                }
+
+                const out = await resp.json().catch(() => ({}));
+                if (!resp.ok || !out.success) {
+                    throw new Error(out.error || `Erro ${resp.status} ao processar o PDF.`);
+                }
+
+                // 5. Renderiza a tela de revisão (ESTADO 3)
+                renderReview(out.data);
+                showState('state-review');
+
+            } catch (err) {
+                console.error('[processar-pdf-salic]', err);
+                document.getElementById('error-text').textContent = err.message || 'Erro desconhecido.';
+                showState('state-error');
+            }
+        }
+
+        // ─────────── ESTADO 3: revisão dos dados extraídos ───────────
+        function v(value) {
+            if (value == null || String(value).trim() === '') {
+                return '<span class="field-value muted">Não informado</span>';
+            }
+            return `<span class="field-value">${escapeHtml(value)}</span>`;
+        }
+
+        function renderReview(data) {
+            data = data || {};
+            const sec = [];
+
+            // Síntese / objetivos / justificativa
+            sec.push(`
+                <div class="review-section">
+                    <h3><i data-lucide="file-text"></i> Síntese & Objetivos</h3>
+                    <div class="field-block"><div class="field-label">Síntese</div>${v(data.sintese)}</div>
+                    <div class="field-block"><div class="field-label">Objetivo Geral</div>${v(data.objetivo_geral)}</div>
+                    <div class="field-block"><div class="field-label">Objetivos Específicos</div>
+                        ${(data.objetivos_especificos && data.objetivos_especificos.length)
+                            ? `<div class="tag-list">${data.objetivos_especificos.map(o => `<span class="tag">${escapeHtml(o)}</span>`).join('')}</div>`
+                            : '<span class="empty-mini">Nenhum</span>'}
+                    </div>
+                    <div class="field-block"><div class="field-label">Justificativa</div>${v(data.justificativa)}</div>
+                    <div class="field-block"><div class="field-label">Período</div>${v(data.periodo_inicio)} &nbsp;→&nbsp; ${v(data.periodo_fim)}</div>
+                </div>
+            `);
+
+            // Etapas de trabalho
+            sec.push(buildTableSection('list-checks', 'Etapas de Trabalho', data.etapas_trabalho, [
+                { h: 'Nome', f: r => escapeHtml(r.nome || '—') },
+                { h: 'Duração (meses)', f: r => escapeHtml(r.duracao_meses ?? '—') },
+                { h: 'Objetivo', f: r => escapeHtml(r.objetivo || '—') },
+                { h: 'Atividades', f: r => (r.atividades && r.atividades.length) ? `<div class="tag-list">${r.atividades.map(a => `<span class="tag">${escapeHtml(a)}</span>`).join('')}</div>` : '—' }
+            ]));
+
+            // Locais de realização
+            sec.push(buildTableSection('map-pin', 'Locais de Realização', data.locais_realizacao, [
+                { h: 'País', f: r => escapeHtml(r.pais || '—') },
+                { h: 'UF', f: r => escapeHtml(r.uf || '—') },
+                { h: 'Cidade', f: r => escapeHtml(r.cidade || '—') }
+            ]));
+
+            // Deslocamentos
+            sec.push(buildTableSection('plane', 'Deslocamentos', data.deslocamentos, [
+                { h: 'Origem', f: r => escapeHtml([r.origem_cidade, r.origem_uf].filter(Boolean).join('/') || '—') },
+                { h: 'Destino', f: r => escapeHtml([r.destino_cidade, r.destino_uf].filter(Boolean).join('/') || '—') },
+                { h: 'Qtd.', f: r => escapeHtml(r.quantidade ?? '—') }
+            ]));
+
+            // Plano de divulgação
+            sec.push(buildTableSection('megaphone', 'Plano de Divulgação', data.plano_divulgacao, [
+                { h: 'Tipo de Mídia', f: r => escapeHtml(r.tipo_midia || '—') },
+                { h: 'Descrição', f: r => escapeHtml(r.descricao || '—') },
+                { h: 'Veículo', f: r => escapeHtml(r.veiculo || '—') },
+                { h: 'Qtd.', f: r => escapeHtml(r.quantidade ?? '—') }
+            ]));
+
+            // Produtos
+            sec.push(buildTableSection('package', 'Produtos', data.produtos, [
+                { h: 'Nome', f: r => escapeHtml(r.nome || '—') },
+                { h: 'Descrição', f: r => escapeHtml(r.descricao || '—') }
+            ]));
+
+            // Ficha técnica
+            sec.push(buildTableSection('users', 'Ficha Técnica', data.ficha_tecnica, [
+                { h: 'Nome', f: r => escapeHtml(r.nome || '—') },
+                { h: 'Função', f: r => escapeHtml(r.funcao || '—') }
+            ]));
+
+            document.getElementById('review-content').innerHTML = `
+                <div class="alert-error" style="background:#ECFDF5; border-color:#A7F3D0; color:#065F46;">
+                    <i data-lucide="check-circle" style="width:20px; flex-shrink:0;"></i>
+                    <span>PDF processado com sucesso. Revise os dados extraídos abaixo — eles já foram salvos no projeto.</span>
+                </div>
+                ${sec.join('')}
+            `;
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        function buildTableSection(icon, titulo, rows, cols) {
+            rows = Array.isArray(rows) ? rows : [];
+            const body = rows.length
+                ? `<table class="data-table">
+                       <thead><tr>${cols.map(c => `<th>${c.h}</th>`).join('')}</tr></thead>
+                       <tbody>${rows.map(r => `<tr>${cols.map(c => `<td>${c.f(r)}</td>`).join('')}</tr>`).join('')}</tbody>
+                   </table>`
+                : '<div class="empty-mini">Nenhum item encontrado.</div>';
+            return `<div class="review-section"><h3><i data-lucide="${icon}"></i> ${titulo}</h3>${body}</div>`;
+        }
+
+        function concluir() {
+            window.location.href = 'financeiro.html';
+        }
+    </script>
+</body>
+</html>
