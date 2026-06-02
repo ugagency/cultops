@@ -1689,9 +1689,24 @@ ${Sidebar()}
                 <div class="card">
                     <h3 class="h2 mb-4">Dados Extraídos</h3>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
-                        <div class="info-item">
-                            <label>Solicitante (CNPJ)</label>
-                            <p class="text-sm" style="font-weight: 600;">${doc.cnpj_emissor || '---'}</p>
+                        <div class="info-item" ${!doc.cnpj_emissor ? 'style="grid-column: 1 / -1;"' : ''}>
+                            <label>Solicitante (CNPJ/CPF)</label>
+                            ${doc.cnpj_emissor
+                                ? `<p class="text-sm" style="font-weight: 600;">${doc.cnpj_emissor}</p>`
+                                : `<div style="margin-top: 0.5rem; padding: 0.875rem; background: rgba(245, 158, 11, 0.06); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-sm);">
+                                    <p style="font-size: 12px; color: #d97706; font-weight: 600; margin-bottom: 0.75rem;">⚠️ CNPJ não identificado pelo OCR. Preencha manualmente.</p>
+                                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                                        <input type="text" id="input-cnpj-emissor" placeholder="Digite o CNPJ ou CPF"
+                                            style="padding: 0.5rem 0.75rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: var(--radius-sm); width: 100%; box-sizing: border-box;">
+                                        ${!doc.nome_emissor
+                                            ? '<input type="text" id="input-nome-emissor" placeholder="Nome do fornecedor" style="padding: 0.5rem 0.75rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: var(--radius-sm); width: 100%; box-sizing: border-box;">'
+                                            : ''}
+                                        <button class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 12px; margin-top: 0.25rem;" onclick="window.salvarCnpjEmissor('${doc.id}')">
+                                            Salvar CNPJ
+                                        </button>
+                                    </div>
+                                </div>`
+                            }
                         </div>
                         <div class="info-item">
                             <label>Valor Total</label>
@@ -3148,6 +3163,45 @@ window.handleCreateRubrica = async function () {
         state.loading = false;
         render();
     }
+};
+
+window.salvarCnpjEmissor = async function (documentId) {
+    const cnpjInput = document.getElementById('input-cnpj-emissor');
+    const nomeInput = document.getElementById('input-nome-emissor');
+    const cnpjRaw = cnpjInput?.value || '';
+    const cnpjLimpo = cnpjRaw.replace(/\D/g, '');
+    const nomeValor = nomeInput?.value?.trim() || null;
+
+    if (cnpjLimpo.length !== 11 && cnpjLimpo.length !== 14) {
+        showToast('CNPJ deve ter 14 dígitos ou CPF 11 dígitos', 'error');
+        return;
+    }
+
+    const { data: doc } = await supabaseClient
+        .from('documents')
+        .select('status, rubrica, rubrica_id_fk')
+        .eq('id', documentId)
+        .single();
+
+    const updateFields = { cnpj_emissor: cnpjLimpo };
+    if (nomeValor) updateFields.nome_emissor = nomeValor;
+
+    if (doc?.status === 'aguardando_rubrica' && (doc?.rubrica || doc?.rubrica_id_fk)) {
+        updateFields.status = 'aguardando_conciliacao_bancaria';
+    }
+
+    const { error } = await supabaseClient
+        .from('documents')
+        .update(updateFields)
+        .eq('id', documentId);
+
+    if (error) {
+        showToast('Erro ao salvar: ' + error.message, 'error');
+        return;
+    }
+
+    showToast('CNPJ salvo com sucesso', 'success');
+    fetchDocumentDetails(documentId);
 };
 
 async function fetchDocumentDetails(id, silent = false) {
