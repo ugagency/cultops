@@ -2611,6 +2611,36 @@ window.handleUpdatePassword = async function () {
     }
 };
 
+window.handleTrocarSenha = async function () {
+    const novaSenha = document.getElementById('cfg-nova-senha')?.value || '';
+    const confirma  = document.getElementById('cfg-confirma-senha')?.value || '';
+
+    if (novaSenha !== confirma) {
+        showToast('As senhas não coincidem.', 'error');
+        return;
+    }
+    if (novaSenha.length < 6) {
+        showToast('A senha deve ter pelo menos 6 caracteres.', 'error');
+        return;
+    }
+
+    state.loading = true;
+    render();
+
+    try {
+        const { error } = await supabaseClient.auth.updateUser({ password: novaSenha });
+        if (error) throw error;
+        showToast('Senha alterada com sucesso!', 'success');
+        document.getElementById('cfg-nova-senha').value = '';
+        document.getElementById('cfg-confirma-senha').value = '';
+    } catch (err) {
+        showToast('Erro ao alterar senha: ' + err.message, 'error');
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
+
 
 const FinanceiroView = () => {
     let totalExecutado = 0;
@@ -3860,43 +3890,6 @@ ${Sidebar()}
     </header>
 
     <div style="max-width: 800px;">
-        <!-- Credenciais Banco do Brasil -->
-        <div class="card mb-4" style="border-left: 4px solid #fff100;">
-            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem;">
-                <img src="https://upload.wikimedia.org/wikipedia/pt/thumb/3/3b/Logo_Banco_do_Brasil.png/300px-Logo_Banco_do_Brasil.png" style="width: 24px;" alt="BB">
-                <h3 class="h2">Integração Banco do Brasil (API)</h3>
-            </div>
-            <p class="text-xs mb-4">Credenciais do Portal do Desenvolvedor BB para consulta automática de extratos.</p>
-
-            <form onsubmit="event.preventDefault(); window.handleSaveBBSettings();">
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-                    <div class="form-group">
-                        <label>Client ID</label>
-                        <input type="text" id="bb-client-id" placeholder="eyJhbGci..." value="${state.settings.bb_client_id || ''}" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Client Secret</label>
-                        <input type="password" id="bb-client-secret" placeholder="••••••••" value="${state.settings.bb_client_secret ? '********' : ''}" required>
-                    </div>
-                </div>
-                <div class="form-group mb-4">
-                    <label>Developer Application Key (X-Developer-Key)</label>
-                    <input type="text" id="bb-developer-key" placeholder="6f8f..." value="${state.settings.bb_developer_key || ''}" required>
-                </div>
-
-                <div style="padding: 1rem; background: #fffcf0; border-radius: var(--radius-sm); margin-bottom: 1.5rem; display: flex; gap: 0.75rem; align-items: flex-start; border: 1px solid #ffeeba;">
-                    <i data-lucide="info" style="width: 18px; color: #856404; flex-shrink: 0;"></i>
-                    <p class="text-xs" style="color: #856404; line-height: 1.5;">
-                        <strong>Nota Técnica:</strong> Essa integração requer um certificado digital (.key/.pem) configurado no servidor do n8n para autenticação mTLS (Segurança Bancária).
-                    </p>
-                </div>
-
-                <button class="btn btn-primary" style="background: #0038A8;">
-                    ${state.loading ? 'Salvando...' : 'Salvar Credenciais BB'}
-                </button>
-            </form>
-        </div>
-
         <!-- Credenciais SALIC -->
         <div class="card mb-4">
             <h3 class="h2 mb-4">Conexão SALIC (Gov.br)</h3>
@@ -3923,6 +3916,30 @@ ${Sidebar()}
 
                 <button class="btn btn-primary">
                     ${state.loading ? 'Salvando...' : 'Salvar credenciais SALIC'}
+                </button>
+            </form>
+        </div>
+
+        <!-- Trocar Senha -->
+        <div class="card mb-4">
+            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.25rem;">
+                <i data-lucide="lock" style="width: 18px; color: var(--primary);"></i>
+                <h3 class="h2">Trocar senha de acesso</h3>
+            </div>
+            <p class="text-xs mb-4" style="color: var(--text-secondary);">Defina uma nova senha para o seu login no Prestaí.</p>
+            <form onsubmit="event.preventDefault(); window.handleTrocarSenha();">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+                    <div class="form-group">
+                        <label>Nova senha</label>
+                        <input type="password" id="cfg-nova-senha" placeholder="Mínimo 6 caracteres" minlength="6" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Confirmar nova senha</label>
+                        <input type="password" id="cfg-confirma-senha" placeholder="Repita a senha" minlength="6" required>
+                    </div>
+                </div>
+                <button class="btn btn-primary" type="submit">
+                    ${state.loading ? 'Salvando...' : 'Salvar nova senha'}
                 </button>
             </form>
         </div>
