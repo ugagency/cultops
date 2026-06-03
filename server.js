@@ -242,8 +242,8 @@ app.post('/api/gestor/set-role',
             const roleAnterior = before.user.app_metadata?.role || before.user.user_metadata?.role || null;
 
             const { error: updErr } = await supabase.auth.admin.updateUserById(targetUserId, {
-                app_metadata:  { ...(before.user.app_metadata  || {}), role },
-                user_metadata: { ...(before.user.user_metadata || {}), role }
+                app_metadata:  { ...(before.user.app_metadata  || {}), role, org_id: callerOrgId },
+                user_metadata: { ...(before.user.user_metadata || {}), role, org_id: callerOrgId }
             });
             if (updErr) throw updErr;
 
@@ -288,8 +288,8 @@ app.post('/api/gestor/criar-analista',
                 email,
                 password,
                 email_confirm: true,
-                user_metadata: { role: 'analista', nome: nome || null },
-                app_metadata: { role: 'analista', org_id: orgId }
+                user_metadata: { role: 'analista', nome: nome || null, org_id: orgId },
+                app_metadata:  { role: 'analista', org_id: orgId }
             });
             if (createErr) throw createErr;
 
