@@ -1589,6 +1589,15 @@ ${Sidebar()}
         if (activeIndex > 5) activeIndex = 5;
     }
 
+    const camposPendentes = {
+        cnpj:   !doc.cnpj_emissor,
+        nome:   !doc.nome_emissor,
+        valor:  !doc.valor || Number(doc.valor) === 0,
+        data:   !doc.data_emissao,
+        numero: !doc.numero_nf
+    };
+    camposPendentes.algum = Object.values(camposPendentes).some(Boolean);
+
     return `
 ${Sidebar()}
     <main class="main-content view-content">
@@ -1689,24 +1698,9 @@ ${Sidebar()}
                 <div class="card">
                     <h3 class="h2 mb-4">Dados Extraídos</h3>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
-                        <div class="info-item" ${!doc.cnpj_emissor ? 'style="grid-column: 1 / -1;"' : ''}>
+                        <div class="info-item">
                             <label>Solicitante (CNPJ/CPF)</label>
-                            ${doc.cnpj_emissor
-                                ? `<p class="text-sm" style="font-weight: 600;">${doc.cnpj_emissor}</p>`
-                                : `<div style="margin-top: 0.5rem; padding: 0.875rem; background: rgba(245, 158, 11, 0.06); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-sm);">
-                                    <p style="font-size: 12px; color: #d97706; font-weight: 600; margin-bottom: 0.75rem;">⚠️ CNPJ não identificado pelo OCR. Preencha manualmente.</p>
-                                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                                        <input type="text" id="input-cnpj-emissor" placeholder="Digite o CNPJ ou CPF"
-                                            style="padding: 0.5rem 0.75rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: var(--radius-sm); width: 100%; box-sizing: border-box;">
-                                        ${!doc.nome_emissor
-                                            ? '<input type="text" id="input-nome-emissor" placeholder="Nome do fornecedor" style="padding: 0.5rem 0.75rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: var(--radius-sm); width: 100%; box-sizing: border-box;">'
-                                            : ''}
-                                        <button class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 12px; margin-top: 0.25rem;" onclick="window.salvarCnpjEmissor('${doc.id}')">
-                                            Salvar CNPJ
-                                        </button>
-                                    </div>
-                                </div>`
-                            }
+                            <p class="text-sm" style="font-weight: 600;">${doc.cnpj_emissor || '---'}</p>
                         </div>
                         <div class="info-item">
                             <label>Valor Total</label>
@@ -1717,10 +1711,49 @@ ${Sidebar()}
                             <p class="text-sm">${doc.data_emissao ? new Date(doc.data_emissao).toLocaleDateString('pt-BR') : '---'}</p>
                         </div>
                         <div class="info-item">
+                            <label>Nr. Comprovante</label>
+                            <p class="text-sm" style="font-weight: 600;">${doc.numero_nf || '---'}</p>
+                        </div>
+                        <div class="info-item">
                             <label>Protocolo SALIC</label>
                             <p class="text-sm">${doc.protocolo_salic || '---'}</p>
                         </div>
                     </div>
+
+                    ${camposPendentes.algum ? `
+                    <div style="margin-top: 1.5rem; padding: 1rem; background: #FFFBEB; border: 1px solid #FDE68A; border-radius: var(--radius-sm);">
+                        <p style="font-size: 12px; font-weight: 700; color: #92400E; margin-bottom: 0.875rem;">⚠️ Campos pendentes — preencher manualmente</p>
+                        <div style="display: flex; flex-direction: column; gap: 0.625rem;">
+                            ${camposPendentes.cnpj ? `<div>
+                                <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">CNPJ/CPF do fornecedor</label>
+                                <input type="text" id="input-cnpj-emissor" placeholder="Ex: 04.823.360/0001-44"
+                                    style="padding: 0.5rem 0.75rem; font-size: 13px; border: 1px solid #FDE68A; border-radius: var(--radius-sm); width: 100%; box-sizing: border-box; background: white;">
+                            </div>` : ''}
+                            ${camposPendentes.nome ? `<div>
+                                <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Nome do fornecedor</label>
+                                <input type="text" id="input-nome-emissor" placeholder="Razão social ou nome"
+                                    style="padding: 0.5rem 0.75rem; font-size: 13px; border: 1px solid #FDE68A; border-radius: var(--radius-sm); width: 100%; box-sizing: border-box; background: white;">
+                            </div>` : ''}
+                            ${camposPendentes.valor ? `<div>
+                                <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Valor total</label>
+                                <input type="number" id="input-valor" placeholder="Ex: 1310.31" step="0.01" min="0.01"
+                                    style="padding: 0.5rem 0.75rem; font-size: 13px; border: 1px solid #FDE68A; border-radius: var(--radius-sm); width: 100%; box-sizing: border-box; background: white;">
+                            </div>` : ''}
+                            ${camposPendentes.data ? `<div>
+                                <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Data de emissão</label>
+                                <input type="date" id="input-data-emissao" max="${new Date().toISOString().split('T')[0]}"
+                                    style="padding: 0.5rem 0.75rem; font-size: 13px; border: 1px solid #FDE68A; border-radius: var(--radius-sm); width: 100%; box-sizing: border-box; background: white;">
+                            </div>` : ''}
+                            ${camposPendentes.numero ? `<div>
+                                <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Nr. do comprovante</label>
+                                <input type="text" id="input-numero-nf" placeholder="Ex: 505, 042803"
+                                    style="padding: 0.5rem 0.75rem; font-size: 13px; border: 1px solid #FDE68A; border-radius: var(--radius-sm); width: 100%; box-sizing: border-box; background: white;">
+                            </div>` : ''}
+                            <button class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 12px; margin-top: 0.25rem;" onclick="window.salvarCamposManuais('${doc.id}')">
+                                Salvar campos
+                            </button>
+                        </div>
+                    </div>` : ''}
 
                     <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-subtle);">
                         <label>Rubrica Orçamentária</label>
@@ -3165,28 +3198,66 @@ window.handleCreateRubrica = async function () {
     }
 };
 
-window.salvarCnpjEmissor = async function (documentId) {
-    const cnpjInput = document.getElementById('input-cnpj-emissor');
-    const nomeInput = document.getElementById('input-nome-emissor');
-    const cnpjRaw = cnpjInput?.value || '';
-    const cnpjLimpo = cnpjRaw.replace(/\D/g, '');
-    const nomeValor = nomeInput?.value?.trim() || null;
+window.salvarCamposManuais = async function (documentId) {
+    const updateFields = {};
+    const erros = [];
 
-    if (cnpjLimpo.length !== 11 && cnpjLimpo.length !== 14) {
-        showToast('CNPJ deve ter 14 dígitos ou CPF 11 dígitos', 'error');
-        return;
+    const cnpjInput = document.getElementById('input-cnpj-emissor');
+    if (cnpjInput?.value) {
+        const cnpjLimpo = cnpjInput.value.replace(/\D/g, '');
+        if (cnpjLimpo.length !== 11 && cnpjLimpo.length !== 14) {
+            erros.push('CNPJ deve ter 14 dígitos ou CPF 11 dígitos');
+        } else {
+            updateFields.cnpj_emissor = cnpjLimpo;
+        }
     }
+
+    const nomeInput = document.getElementById('input-nome-emissor');
+    if (nomeInput?.value?.trim()) updateFields.nome_emissor = nomeInput.value.trim();
+
+    const valorInput = document.getElementById('input-valor');
+    if (valorInput?.value) {
+        const valorLimpo = parseFloat(valorInput.value.replace(',', '.'));
+        if (isNaN(valorLimpo) || valorLimpo <= 0) {
+            erros.push('Valor deve ser maior que zero');
+        } else {
+            updateFields.valor = valorLimpo;
+        }
+    }
+
+    const dataInput = document.getElementById('input-data-emissao');
+    if (dataInput?.value) {
+        const data = new Date(dataInput.value);
+        if (isNaN(data.getTime())) {
+            erros.push('Data inválida');
+        } else if (data > new Date()) {
+            erros.push('Data não pode ser futura');
+        } else {
+            updateFields.data_emissao = dataInput.value;
+        }
+    }
+
+    const nrInput = document.getElementById('input-numero-nf');
+    if (nrInput?.value?.trim()) updateFields.numero_nf = nrInput.value.trim();
+
+    if (erros.length > 0) { showToast(erros.join('. '), 'error'); return; }
+    if (Object.keys(updateFields).length === 0) { showToast('Nenhum campo preenchido', 'error'); return; }
 
     const { data: doc } = await supabaseClient
         .from('documents')
-        .select('status, rubrica, rubrica_id_fk')
+        .select('status, rubrica, rubrica_id_fk, cnpj_emissor, valor, data_emissao')
         .eq('id', documentId)
         .single();
 
-    const updateFields = { cnpj_emissor: cnpjLimpo };
-    if (nomeValor) updateFields.nome_emissor = nomeValor;
+    const merged = {
+        cnpj_emissor:  updateFields.cnpj_emissor  || doc?.cnpj_emissor,
+        valor:         updateFields.valor          || doc?.valor,
+        data_emissao:  updateFields.data_emissao   || doc?.data_emissao,
+        rubrica_id_fk: doc?.rubrica_id_fk
+    };
 
-    if (doc?.status === 'aguardando_rubrica' && (doc?.rubrica || doc?.rubrica_id_fk)) {
+    if (doc?.status === 'aguardando_rubrica'
+        && merged.cnpj_emissor && merged.valor && merged.data_emissao && merged.rubrica_id_fk) {
         updateFields.status = 'aguardando_conciliacao_bancaria';
     }
 
@@ -3195,12 +3266,9 @@ window.salvarCnpjEmissor = async function (documentId) {
         .update(updateFields)
         .eq('id', documentId);
 
-    if (error) {
-        showToast('Erro ao salvar: ' + error.message, 'error');
-        return;
-    }
+    if (error) { showToast('Erro ao salvar: ' + error.message, 'error'); return; }
 
-    showToast('CNPJ salvo com sucesso', 'success');
+    showToast('Campos salvos com sucesso', 'success');
     fetchDocumentDetails(documentId);
 };
 
