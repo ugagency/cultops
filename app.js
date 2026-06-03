@@ -120,6 +120,16 @@ const state = {
     salicLoteProgress: { current: 0, total: 0 }
 };
 
+function userCanDelete() {
+    const role = state.user?.app_metadata?.role || state.user?.user_metadata?.role;
+    return role === 'admin';
+}
+
+function userIsGestorOrAbove() {
+    const role = state.user?.app_metadata?.role || state.user?.user_metadata?.role;
+    return role === 'admin' || role === 'gestor';
+}
+
 const STATUS_MAP = {
     // Status Gerais NF
     'uploaded': {
@@ -236,7 +246,7 @@ const Sidebar = () => `
             <i data-lucide="settings"></i>
             <span>Configurações</span>
         </a>
-        ${(state.user?.app_metadata?.role === 'gestor' || state.user?.user_metadata?.role === 'gestor') ? `
+        ${userCanDelete() ? `
         <a class="nav-item ${state.currentView === 'equipe' ? 'active' : ''}" onclick="window.navigate('equipe')">
             <i data-lucide="user-cog"></i>
             <span>Equipe</span>
@@ -776,10 +786,10 @@ ${Sidebar()}
                 </select>
             </div>
             <button class="btn btn-secondary" onclick="window.clearFilters()">Limpar filtros</button>
-            <button class="btn btn-secondary" id="btn-excluir-lote-dashboard" style="display: none; background: var(--error); color: white; border: none; align-items: center; gap: 0.25rem;" onclick="window.handleDeleteSelectedDocuments()">
+            ${userCanDelete() ? `<button class="btn btn-secondary" id="btn-excluir-lote-dashboard" style="display: none; background: var(--error); color: white; border: none; align-items: center; gap: 0.25rem;" onclick="window.handleDeleteSelectedDocuments()">
                 <i data-lucide="trash-2" style="width: 16px;"></i>
                 Excluir Selecionados (<span id="count-excluir-lote-dashboard">0</span>)
-            </button>
+            </button>` : ''}
             <button class="btn btn-primary" onclick="window.navigate('upload')">
                 <i data-lucide="upload-cloud"></i>
                 Enviar nota
@@ -1798,7 +1808,7 @@ ${Sidebar()}
                         </p>
                     </div>
 
-                    ${(doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') || doc.status === 'revisao_manual') ? `
+                    ${(doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') || doc.status === 'revisao_manual') && userCanDelete() ? `
                     <div style="margin-top: 1rem; padding: 1rem; background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-sm);">
                         <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
                             <i data-lucide="alert-triangle" style="width: 16px; color: #d97706; flex-shrink: 0;"></i>
@@ -1973,6 +1983,11 @@ ${Sidebar()}
 // --- Handlers & API ---
 
 window.handleForcarAvanco = async function (docId, currentStatus) {
+    if (!userCanDelete()) {
+        showToast('Apenas administradores podem forçar o avanço de status.', 'error');
+        return;
+    }
+
     const nextStatus = {
         'revisao_manual': 'aguardando_conformidade',
         'bloqueado_conformidade': 'aguardando_comprovante',
@@ -3172,6 +3187,10 @@ async function fetchRubricaVersions(projectId) {
 }
 
 window.handleCreateRubrica = async function () {
+    if (!userIsGestorOrAbove()) {
+        showToast('Sem permissão para criar rubricas.', 'error');
+        return;
+    }
     if (!supabaseClient || !state.filters.project) return;
 
     const nome = document.getElementById('rubrica-nome').value;
@@ -3348,6 +3367,10 @@ async function fetchDocumentDetails(id, silent = false) {
 }
 
 window.handleVincularRubrica = async function (documentId, projectId, valorDespesa) {
+    if (!userIsGestorOrAbove()) {
+        showToast('Sem permissão para vincular rubrica.', 'error');
+        return;
+    }
     // O input agora e autocomplete (datalist). Resolve o texto digitado de volta
     // para a rubrica do state (compara com "codigo - nome" e tambem com o nome puro).
     const inputEl = document.getElementById('vincular-rubrica-input');
@@ -3500,6 +3523,10 @@ window.updateSort = function (value) {
 };
 
 window.handleDeleteDocument = async function (id, filePath) {
+    if (!userCanDelete()) {
+        showToast('Apenas administradores podem excluir documentos.', 'error');
+        return;
+    }
     if (!confirm("Tem certeza que deseja excluir este documento? Esta ação não pode ser desfeita.")) return;
 
     state.loading = true;
@@ -3561,6 +3588,10 @@ window.handleDashboardDocCheckboxChange = function () {
 };
 
 window.handleDeleteSelectedDocuments = async function () {
+    if (!userCanDelete()) {
+        showToast('Apenas administradores podem excluir documentos.', 'error');
+        return;
+    }
     const checkboxes = document.querySelectorAll('.chk-doc-dashboard:checked');
     if (checkboxes.length === 0) return;
 
