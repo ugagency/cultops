@@ -120,14 +120,16 @@ const state = {
     salicLoteProgress: { current: 0, total: 0 }
 };
 
+function getUserRole() {
+    return state.user?.app_metadata?.role || state.user?.user_metadata?.role || null;
+}
+
 function userCanDelete() {
-    const role = state.user?.app_metadata?.role || state.user?.user_metadata?.role;
-    return role === 'admin';
+    return getUserRole() === 'admin';
 }
 
 function userIsGestorOrAbove() {
-    const role = state.user?.app_metadata?.role || state.user?.user_metadata?.role;
-    return role === 'admin' || role === 'gestor';
+    return ['admin', 'gestor'].includes(getUserRole());
 }
 
 const STATUS_MAP = {
@@ -921,7 +923,7 @@ ${Sidebar()}
                                         <i data-lucide="bar-chart-3" style="width: 16px;"></i>
                                     </button>
                                     ${(() => {
-        const role = state.user?.app_metadata?.role || state.user?.user_metadata?.role;
+        const role = getUserRole();
         return (role === 'gestor' || role === 'analista') ? `
                                     <button class="btn btn-secondary" style="padding: 0.4rem;" title="Baixar Laudo Excel" onclick="window.generateLaudoExcel('${p.id}')">
                                         <i data-lucide="file-spreadsheet" style="width: 16px;"></i>
@@ -929,7 +931,7 @@ ${Sidebar()}
                                     ` : '';
     })()}
 
-                                    ${state.user?.user_metadata?.role === 'admin' ? `
+                                    ${userCanDelete() ? `
                                         <button class="btn btn-secondary" style="padding: 0.4rem; color: var(--error);" title="Excluir Projeto" onclick="window.handleDeleteProject('${p.id}', '${p.nome}')">
                                             <i data-lucide="trash-2" style="width: 16px;"></i>
                                         </button>
@@ -1627,7 +1629,7 @@ ${Sidebar()}
                     ${(STATUS_MAP[doc.status] || {}).label || doc.status}
                 </div>
                 ${(() => {
-        const role = state.user?.app_metadata?.role || state.user?.user_metadata?.role;
+        const role = getUserRole();
         return (role === 'gestor' || role === 'analista') ? `
                 <button class="btn btn-secondary" title="Baixar Laudo Excel desta NF" onclick="window.generateLaudoExcelDoc('${doc.id}')">
                     <i data-lucide="file-spreadsheet" style="width: 16px;"></i>
@@ -2447,7 +2449,7 @@ window.handleLogin = async function () {
         }
 
         state.user = data.user;
-        state.userStatus = 'gestor';
+        state.userStatus = getUserRole() || 'gestor';
         await syncOrgMetadata();
         window.navigate('dashboard');
     } catch (error) {
@@ -2549,7 +2551,7 @@ window.handleRegister = async function () {
 };
 
 window.handleLogout = async function () {
-    const wasFornecedor = state.user?.user_metadata?.role === 'fornecedor';
+    const wasFornecedor = getUserRole() === 'fornecedor';
     await supabaseClient.auth.signOut();
     state.user = null;
     state.userStatus = null;
@@ -3450,8 +3452,7 @@ async function fetchProjects() {
 
     // Só bloqueia se a role for EXPLICITAMENTE 'fornecedor'
     // Contas antigas sem role são tratadas como gestor
-    const role = state.user.user_metadata?.role;
-    if (role === 'fornecedor') {
+    if (getUserRole() === 'fornecedor') {
         state.userStatus = 'fornecedor';
         state.projects = [];
         render();
@@ -3813,7 +3814,7 @@ window.handleRubricaUpload = async function (file) {
 
 window.handleDeleteProject = async function (id, nome) {
     // Trava de segurança: Verifica se o usuário é admin
-    if (state.user?.user_metadata?.role !== 'admin') {
+    if (!userCanDelete()) {
         showToast("Acesso negado: Apenas administradores podem excluir projetos.", 'error');
         return;
     }
@@ -5300,7 +5301,7 @@ async function init() {
         const { data: { session } } = await supabaseClient.auth.getSession();
         if (session) {
             state.user = session.user;
-            const role = session.user.user_metadata?.role;
+            const role = getUserRole();
             state.userStatus = role || 'gestor';
 
             // Carregar dados iniciais baseados na role, ignorando isSolicitanteMode da URL se logado

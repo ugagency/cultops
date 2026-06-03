@@ -242,7 +242,8 @@ app.post('/api/gestor/set-role',
             const roleAnterior = before.user.app_metadata?.role || before.user.user_metadata?.role || null;
 
             const { error: updErr } = await supabase.auth.admin.updateUserById(targetUserId, {
-                app_metadata: { ...(before.user.app_metadata || {}), role }
+                app_metadata:  { ...(before.user.app_metadata  || {}), role },
+                user_metadata: { ...(before.user.user_metadata || {}), role }
             });
             if (updErr) throw updErr;
 
