@@ -175,7 +175,7 @@ app.post('/api/salic/inserir', async (req, res) => {
 const ROLES_VALIDOS = ['analista', 'gestor', 'fornecedor'];
 
 app.get('/api/gestor/usuarios',
-    requireAuth, requireRole('gestor'),
+    requireAuth, requireRole('gestor', 'admin'),
     async (req, res) => {
         try {
             const orgId = req.user.app_metadata?.org_id;
@@ -209,7 +209,7 @@ app.get('/api/gestor/usuarios',
 );
 
 app.post('/api/gestor/set-role',
-    requireAuth, requireRole('gestor'),
+    requireAuth, requireRole('gestor', 'admin'),
     async (req, res) => {
         const { targetUserId, role } = req.body || {};
         if (!targetUserId || !role) {
@@ -268,7 +268,7 @@ app.post('/api/gestor/set-role',
 // POST /api/gestor/criar-analista (S1-C)
 // Cria um usuário com role 'analista', já vinculado à org do gestor que está chamando.
 app.post('/api/gestor/criar-analista',
-    requireAuth, requireRole('gestor'),
+    requireAuth, requireRole('gestor', 'admin'),
     async (req, res) => {
         const { email, password, nome } = req.body || {};
         if (!email || !password) {

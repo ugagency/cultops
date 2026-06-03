@@ -3063,6 +3063,10 @@ window.navigate = async function (view, id = null) {
     } else if (view === 'configuracoes') {
         await fetchSettings();
     } else if (view === 'equipe') {
+        if (!userCanDelete()) {
+            showToast('Acesso restrito a administradores.', 'error');
+            return;
+        }
         await fetchEquipe();
     }
 
@@ -4116,6 +4120,12 @@ window.handleSetRole = async function () {
         if (!resp.ok) throw new Error(json.error || 'Falha ao alterar perfil.');
         window.showToast('Perfil atualizado com sucesso.', 'success');
         document.getElementById('modal-equipe-role').style.display = 'none';
+        // Se o admin alterou o próprio role, atualiza o state com a sessão nova
+        if (targetUserId === state.user?.id) {
+            await supabaseClient.auth.refreshSession();
+            const { data: { session: refreshed } } = await supabaseClient.auth.getSession();
+            if (refreshed) state.user = refreshed.user;
+        }
         await fetchEquipe();
         render();
     } catch (err) {
