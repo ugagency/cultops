@@ -274,13 +274,12 @@ function dateOrNull(v) {
     return v.trim();
 }
 
-// PASSO 4 — OCR via Mistral. Tolera tanto a resposta de chat/completions
-// (choices[].message.content) quanto a do endpoint dedicado de OCR (pages[]).
+// PASSO 4 — OCR via endpoint dedicado Mistral /v1/ocr
 async function runMistralOcr(pdfBase64, apiKey) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 90000);
     try {
-        const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
+        const response = await fetch('https://api.mistral.ai/v1/ocr', {
             method: 'POST',
             signal: controller.signal,
             headers: {
@@ -289,19 +288,10 @@ async function runMistralOcr(pdfBase64, apiKey) {
             },
             body: JSON.stringify({
                 model: 'mistral-ocr-latest',
-                messages: [{
-                    role: 'user',
-                    content: [
-                        {
-                            type: 'document_url',
-                            document_url: `data:application/pdf;base64,${pdfBase64}`
-                        },
-                        {
-                            type: 'text',
-                            text: 'Extraia todo o texto deste documento mantendo a estrutura.'
-                        }
-                    ]
-                }]
+                document: {
+                    type: 'document_url',
+                    document_url: `data:application/pdf;base64,${pdfBase64}`
+                }
             })
         });
 
@@ -311,15 +301,13 @@ async function runMistralOcr(pdfBase64, apiKey) {
         }
 
         const result = await response.json();
-        let texto = result?.choices?.[0]?.message?.content;
-        // Fallback para o formato do endpoint dedicado /v1/ocr (pages[].markdown)
-        if (!texto && Array.isArray(result?.pages)) {
-            texto = result.pages.map(p => p.markdown || p.text || '').join('\n\n');
+        // Resposta do /v1/ocr: { pages: [{ markdown, index }, ...] }
+        if (!Array.isArray(result?.pages) || !result.pages.length) {
+            throw new Error('OCR não retornou páginas.');
         }
-        if (!texto || !String(texto).trim()) {
-            throw new Error('OCR não retornou texto.');
-        }
-        return String(texto);
+        const texto = result.pages.map(p => p.markdown || p.text || '').join('\n\n');
+        if (!texto.trim()) throw new Error('OCR não retornou texto.');
+        return texto;
     } finally {
         clearTimeout(timeout);
     }
@@ -474,14 +462,13 @@ async function persistirDadosSalic(dados, ctx) {
 }
 
 app.post('/api/m2/processar-pdf-salic', async (req, res) => {
-    // Timeout do endpoint: 120s (download grande + OCR + IA pode demorar)
     req.setTimeout(120000);
     res.setTimeout(120000);
 
-    const { import_id, project_id, file_path } = req.body || {};
+    const { project_id, file_path, user_id } = req.body || {};
 
-    if (!import_id || !project_id || !file_path) {
-        return res.status(400).json({ error: 'Parâmetros obrigatórios: import_id, project_id, file_path.' });
+    if (!project_id || !file_path) {
+        return res.status(400).json({ error: 'Parâmetros obrigatórios: project_id, file_path.' });
     }
 
     const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
@@ -489,15 +476,12 @@ app.post('/api/m2/processar-pdf-salic', async (req, res) => {
         return res.status(500).json({ error: 'MISTRAL_API_KEY não configurada no servidor.' });
     }
 
+    let import_id = null;
+
     try {
-        console.log(`[SALIC-PDF] Iniciando importação ${import_id} (projeto ${project_id})`);
+        console.log(`[SALIC-PDF] Iniciando importação para projeto ${project_id}`);
 
-        // 1. status = processando
-        await supabase.from('project_salic_imports')
-            .update({ status: 'processando', erro_mensagem: null, updated_at: new Date().toISOString() })
-            .eq('id', import_id);
-
-        // Descobre a organização do projeto (para multi-tenant nos inserts)
+        // Descobre a organização do projeto
         const { data: proj, error: projError } = await supabase
             .from('projects')
             .select('organization_id')
@@ -506,7 +490,33 @@ app.post('/api/m2/processar-pdf-salic', async (req, res) => {
         if (projError || !proj) throw new Error('Projeto não encontrado no banco de dados.');
         const organization_id = proj.organization_id;
 
-        // 2. Download do PDF do bucket 'salic-imports' (service_role)
+        // Marca importações anteriores como substituido (cleanup automático ao reimportar)
+        await supabase.from('project_salic_imports')
+            .update({ status: 'substituido' })
+            .eq('project_id', project_id)
+            .in('status', ['pendente', 'processando', 'processado', 'revisado', 'erro']);
+
+        // Cria o registro de importação via service_role (sem RLS)
+        const { data: imp, error: impErr } = await supabase
+            .from('project_salic_imports')
+            .insert([{
+                project_id,
+                organization_id,
+                file_path,
+                status: 'pendente',
+                importado_por: user_id || null
+            }])
+            .select()
+            .single();
+        if (impErr || !imp) throw new Error('Erro ao criar registro de importação: ' + (impErr?.message || ''));
+        import_id = imp.id;
+
+        // 1. status = processando
+        await supabase.from('project_salic_imports')
+            .update({ status: 'processando', erro_mensagem: null })
+            .eq('id', import_id);
+
+        // 2. Download do PDF do bucket (service_role)
         const { data: blob, error: dlError } = await supabase.storage
             .from('salic-imports')
             .download(file_path);
@@ -521,29 +531,135 @@ app.post('/api/m2/processar-pdf-salic', async (req, res) => {
 
         // 4. OCR via Mistral
         const textoOcr = await runMistralOcr(pdfBase64, MISTRAL_API_KEY);
-        console.log(`[SALIC-PDF] OCR concluído (${textoOcr.length} caracteres). Estruturando JSON...`);
+        console.log(`[SALIC-PDF] OCR concluído (${textoOcr.length} chars). Estruturando JSON...`);
 
-        // 5 + 6. Estruturar em JSON (com parse seguro)
+        // 5. Estruturar em JSON
         const jsonParsed = await estruturarSalicJson(textoOcr, MISTRAL_API_KEY);
 
-        // 7. status = processado + dados_extraidos
+        // 6. status = processado + dados_extraidos
         await supabase.from('project_salic_imports')
-            .update({ status: 'processado', dados_extraidos: jsonParsed, updated_at: new Date().toISOString() })
+            .update({ status: 'processado', dados_extraidos: jsonParsed })
             .eq('id', import_id);
 
-        // 8. INSERT nas tabelas de destino
+        // 7. INSERT nas tabelas de destino
         await persistirDadosSalic(jsonParsed, { project_id, organization_id, import_id });
 
         console.log(`[SALIC-PDF] Importação ${import_id} concluída com sucesso.`);
-
-        // 9. Retorno
-        return res.json({ success: true, data: jsonParsed });
+        return res.json({ success: true, data: jsonParsed, import_id });
 
     } catch (error) {
         console.error('[SALIC-PDF] Erro:', error.message);
-        await supabase.from('project_salic_imports')
-            .update({ status: 'erro', erro_mensagem: error.message, updated_at: new Date().toISOString() })
-            .eq('id', import_id);
+        if (import_id) {
+            await supabase.from('project_salic_imports')
+                .update({ status: 'erro', erro_mensagem: error.message })
+                .eq('id', import_id);
+        }
+        return res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Salva a revisão dos dados extraídos do PDF SALIC.
+ * POST /api/m2/salvar-revisao-salic
+ * Body: { project_id, import_id, user_id, etapas, locais, deslocamentos, divulgacao, complementar }
+ */
+app.post('/api/m2/salvar-revisao-salic', async (req, res) => {
+    const { project_id, import_id, user_id, etapas, locais, deslocamentos, divulgacao, complementar } = req.body || {};
+
+    if (!project_id || !import_id) {
+        return res.status(400).json({ error: 'project_id e import_id são obrigatórios.' });
+    }
+
+    try {
+        const { data: proj, error: projError } = await supabase
+            .from('projects')
+            .select('organization_id')
+            .eq('id', project_id)
+            .single();
+        if (projError || !proj) throw new Error('Projeto não encontrado.');
+        const organization_id = proj.organization_id;
+        const base = { project_id, organization_id, import_id };
+
+        // Limpar registros anteriores deste projeto
+        const tabelas = [
+            'project_etapas_trabalho', 'project_locais_realizacao',
+            'project_deslocamentos', 'project_plano_divulgacao', 'project_dados_complementares'
+        ];
+        for (const t of tabelas) {
+            await supabase.from(t).delete().eq('project_id', project_id);
+        }
+
+        if (etapas?.length) {
+            const { error } = await supabase.from('project_etapas_trabalho').insert(
+                etapas.map(e => ({
+                    ...base,
+                    nome: e.nome || null,
+                    duracao_meses: e.duracao_meses ?? null,
+                    objetivo: e.objetivo || null,
+                    atividades: Array.isArray(e.atividades) ? e.atividades : [],
+                    ordem: e.ordem || 0
+                }))
+            );
+            if (error) throw new Error('Erro ao salvar etapas: ' + error.message);
+        }
+
+        if (locais?.length) {
+            const { error } = await supabase.from('project_locais_realizacao').insert(
+                locais.map(l => ({ ...base, pais: l.pais || null, uf: l.uf || null, cidade: l.cidade || null }))
+            );
+            if (error) throw new Error('Erro ao salvar locais: ' + error.message);
+        }
+
+        if (deslocamentos?.length) {
+            const { error } = await supabase.from('project_deslocamentos').insert(
+                deslocamentos.map(d => ({
+                    ...base,
+                    origem_uf: d.origem_uf || null, origem_cidade: d.origem_cidade || null,
+                    destino_uf: d.destino_uf || null, destino_cidade: d.destino_cidade || null,
+                    quantidade: d.quantidade ?? 1
+                }))
+            );
+            if (error) throw new Error('Erro ao salvar deslocamentos: ' + error.message);
+        }
+
+        if (divulgacao?.length) {
+            const { error } = await supabase.from('project_plano_divulgacao').insert(
+                divulgacao.map(d => ({
+                    ...base,
+                    tipo_midia: d.tipo_midia || null,
+                    descricao: d.descricao || null,
+                    veiculo: d.veiculo || null,
+                    quantidade: d.quantidade ?? null
+                }))
+            );
+            if (error) throw new Error('Erro ao salvar plano de divulgação: ' + error.message);
+        }
+
+        const { error: errComp } = await supabase.from('project_dados_complementares').insert([{
+            ...base,
+            sintese: complementar?.sintese || null,
+            objetivo_geral: complementar?.objetivo_geral || null,
+            objetivos_especificos: Array.isArray(complementar?.objetivos_especificos) ? complementar.objetivos_especificos : [],
+            justificativa: complementar?.justificativa || null,
+            periodo_inicio: dateOrNull(complementar?.periodo_inicio),
+            periodo_fim: dateOrNull(complementar?.periodo_fim),
+            produtos: Array.isArray(complementar?.produtos) ? complementar.produtos : [],
+            ficha_tecnica: Array.isArray(complementar?.ficha_tecnica) ? complementar.ficha_tecnica : []
+        }]);
+        if (errComp) throw new Error('Erro ao salvar dados complementares: ' + errComp.message);
+
+        const revisado_em = new Date().toISOString();
+        await supabase.from('project_salic_imports').update({
+            status: 'revisado',
+            revisado_por: user_id || null,
+            revisado_em
+        }).eq('id', import_id);
+
+        console.log(`[SALIC-REVISAO] Projeto ${project_id}, import ${import_id} revisado.`);
+        return res.json({ success: true, revisado_em });
+
+    } catch (error) {
+        console.error('[SALIC-REVISAO] Erro:', error.message);
         return res.status(500).json({ error: error.message });
     }
 });

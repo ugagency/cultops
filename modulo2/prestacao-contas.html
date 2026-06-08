@@ -307,6 +307,40 @@
                             <input type="checkbox" id="toggle-liberado" onchange="toggleLiberadoEnvio(this.checked)" style="width: 20px; height: 20px; cursor: pointer;">
                         </div>
                     </div>
+
+                    <!-- PRE-11: Saldo remanescente (V023/Art.70 IN23) -->
+                    <div class="check-item" id="pre-11">
+                        <div class="check-icon loading"><i data-lucide="loader" class="spin"></i></div>
+                        <div class="check-text" id="pre-11-text">Saldo remanescente zerado ou com comprovante de recolhimento ao FNC</div>
+                    </div>
+
+                    <!-- PRE-12: Autorização acesso fiscal (V024/Art.70) — manual -->
+                    <div class="check-item" id="pre-12" style="background: #FFFBE6; border-color: #F59E0B; align-items: flex-start; flex-direction: column; gap: 0.75rem;">
+                        <div style="display: flex; align-items: center; gap: 1rem; width: 100%;">
+                            <div class="check-icon" id="pre-12-icon" style="background: #FEF3C7; color: #B45309; flex-shrink: 0;">
+                                <i data-lucide="alert-triangle"></i>
+                            </div>
+                            <div style="flex: 1; min-width: 0;">
+                                <div class="check-text" style="margin-bottom: 0.15rem;">Autorização de acesso a documentos fiscais concedida ao MinC</div>
+                                <div id="pre-12-status" style="font-size: 0.78rem; color: var(--text-secondary);">Pendente confirmação</div>
+                            </div>
+                        </div>
+                        <div id="pre-12-action" style="padding-left: 2.75rem; width: 100%;">
+                            <p style="font-size: 0.78rem; color: var(--text-secondary); margin: 0 0 0.5rem; line-height: 1.4;">
+                                Confirme que autorizou o acesso do MinC aos documentos fiscais da empresa via CNPJ no portal gov.br
+                            </p>
+                            <label style="display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">
+                                <input type="checkbox" id="toggle-acesso-fiscal" onchange="toggleAcessoFiscal(this.checked)" style="width: 18px; height: 18px; cursor: pointer;">
+                                Confirmar autorização
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- PRE-13: Limites percentuais IN23 (V001-V005) -->
+                    <div class="check-item" id="pre-13">
+                        <div class="check-icon loading"><i data-lucide="loader" class="spin"></i></div>
+                        <div class="check-text" id="pre-13-text">Limites percentuais da IN23 respeitados (captação, divulgação, administração)</div>
+                    </div>
                 </div>
 
                 <div id="gerar-container">
@@ -487,6 +521,46 @@
             return isOk;
         }
 
+        function fmtBRL(v) {
+            return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        }
+
+        function categorizeRubrica(r) {
+            if (r.categoria) return String(r.categoria).toLowerCase().trim();
+            const text = ((r.nome || '') + ' ' + (r.codigo || '')).toLowerCase();
+            if (/proponente/.test(text)) return 'proponente';
+            if (/administr/.test(text)) return 'administracao';
+            if (/divulg|comunic|acessib/.test(text)) return 'divulgacao';
+            if (/captaç|captac|capta|remunera/.test(text)) return 'captacao';
+            return 'outros';
+        }
+
+        async function toggleAcessoFiscal(checked) {
+            if (!currentProjectId) return;
+            const iconEl = document.getElementById('pre-12-icon');
+            if (iconEl) { iconEl.className = 'check-icon loading'; iconEl.innerHTML = '<i data-lucide="loader" class="spin"></i>'; }
+            if (window.lucide) window.lucide.createIcons();
+
+            const { data: { user } } = await sbClient.auth.getUser();
+            const confirmadoNome = checked
+                ? (user.user_metadata?.full_name || user.user_metadata?.name || user.email || user.id)
+                : null;
+            const { error } = await sbClient.from('project_checklist').update({
+                acesso_fiscal_autorizado: checked,
+                acesso_fiscal_confirmado_por: checked ? user.id : null,
+                acesso_fiscal_confirmado_em: checked ? new Date().toISOString() : null,
+                acesso_fiscal_confirmado_nome: confirmadoNome
+            }).eq('project_id', currentProjectId);
+
+            if (error) {
+                showToast('Erro ao salvar: ' + error.message, 'error');
+                const toggleEl = document.getElementById('toggle-acesso-fiscal');
+                if (toggleEl) toggleEl.checked = !checked;
+            } else {
+                await rodarChecklist();
+            }
+        }
+
         async function toggleLiberadoEnvio(checked) {
             if (!currentProjectId) return;
             document.getElementById('pre-10').querySelector('.check-icon').className = 'check-icon loading';
@@ -538,19 +612,29 @@
             
             // P10: project_checklist
             let q10_ok = false;
-            const { data: chk, error: chkErr } = await sbClient.from('project_checklist').select('liberado_envio_minc').eq('project_id', pid).single();
+            let chkAll = null;
+            const { data: chk, error: chkErr } = await sbClient.from('project_checklist')
+                .select('liberado_envio_minc, acesso_fiscal_autorizado, acesso_fiscal_confirmado_por, acesso_fiscal_confirmado_em, acesso_fiscal_confirmado_nome')
+                .eq('project_id', pid).single();
             if (chkErr && chkErr.code === 'PGRST116') {
-                await sbClient.from('project_checklist').insert({ project_id: pid, liberado_envio_minc: false });
+                await sbClient.from('project_checklist').insert({ project_id: pid, liberado_envio_minc: false, acesso_fiscal_autorizado: false });
             } else if (chk) {
                 q10_ok = chk.liberado_envio_minc;
+                chkAll = chk;
             }
-            
-            // Sincroniza o checkbox
+
+            // Sincroniza o checkbox PRE-10
             const toggleEl = document.getElementById('toggle-liberado');
             if (toggleEl) toggleEl.checked = q10_ok;
 
-            const results = await Promise.all([q1, q2, q3, q4, q5, q6, q7, q8, q9]);
-            
+            const [results, rubricasRes, projValRes, despExecRes, docFncCount] = await Promise.all([
+                Promise.all([q1, q2, q3, q4, q5, q6, q7, q8, q9]),
+                sbClient.from('rubricas').select('nome, codigo, categoria, valor_aprovado, valor_utilizado').eq('project_id', pid),
+                sbClient.from('projects').select('valor_captado').eq('id', pid).single(),
+                sbClient.from('despesas').select('valor').eq('project_id', pid).in('status', ['enviado_salic', 'concluido', 'liberado_rpa', 'aguardando_d3']),
+                getCount(sbClient.from('documents').select('*', { count: 'exact', head: true }).eq('project_id', pid).eq('tipo', 'recolhimento_fnc'))
+            ]);
+
             let allOk = true;
             allOk &= updateCheckItem('pre-01', results[0] === 0);
             allOk &= updateCheckItem('pre-02', results[1] === 0);
@@ -562,6 +646,66 @@
             allOk &= updateCheckItem('pre-08', results[7] === 0);
             allOk &= updateCheckItem('pre-09', results[8] === 0);
             allOk &= updateCheckItem('pre-10', q10_ok);
+
+            // PRE-11: saldo remanescente (V023/Art.70 IN23)
+            const rubricas11 = rubricasRes.data || [];
+            const totalAprovado11 = rubricas11.reduce((s, r) => s + Number(r.valor_aprovado || 0), 0);
+            const totalExecutado11 = (despExecRes.data || []).reduce((s, d) => s + Number(d.valor || 0), 0);
+            const saldoRem = totalAprovado11 - totalExecutado11;
+            const pre11_ok = saldoRem <= 0 || docFncCount > 0;
+            const textEl11 = document.getElementById('pre-11-text');
+            if (textEl11) {
+                textEl11.textContent = pre11_ok
+                    ? 'Saldo remanescente zerado ou com comprovante de recolhimento ao FNC'
+                    : `Há saldo remanescente de ${fmtBRL(saldoRem)}. É necessário recolher ao FNC ou anexar comprovante.`;
+            }
+            allOk &= updateCheckItem('pre-11', pre11_ok);
+
+            // PRE-12: acesso fiscal (V024/Art.70) — manual
+            const pre12_ok = chkAll?.acesso_fiscal_autorizado === true;
+            const toggleAcessoEl = document.getElementById('toggle-acesso-fiscal');
+            if (toggleAcessoEl) toggleAcessoEl.checked = pre12_ok;
+            const iconEl12 = document.getElementById('pre-12-icon');
+            const statusEl12 = document.getElementById('pre-12-status');
+            const actionEl12 = document.getElementById('pre-12-action');
+            const cardEl12 = document.getElementById('pre-12');
+            if (pre12_ok && chkAll) {
+                const confirmedAt = chkAll.acesso_fiscal_confirmado_em ? formatDateStr(chkAll.acesso_fiscal_confirmado_em) : '?';
+                const confirmedBy = chkAll.acesso_fiscal_confirmado_nome || 'analista';
+                if (statusEl12) statusEl12.textContent = `Confirmado por ${confirmedBy} em ${confirmedAt}`;
+                if (actionEl12) actionEl12.style.display = 'none';
+                if (iconEl12) { iconEl12.className = 'check-icon ok'; iconEl12.style.background = ''; iconEl12.style.color = ''; iconEl12.innerHTML = '<i data-lucide="check"></i>'; }
+                if (cardEl12) { cardEl12.style.background = '#F5F0E8'; cardEl12.style.borderColor = 'var(--border-light)'; }
+            } else {
+                if (statusEl12) statusEl12.textContent = 'Pendente confirmação';
+                if (actionEl12) actionEl12.style.display = 'block';
+                if (iconEl12) { iconEl12.className = 'check-icon'; iconEl12.style.background = '#FEF3C7'; iconEl12.style.color = '#B45309'; iconEl12.innerHTML = '<i data-lucide="alert-triangle"></i>'; }
+                if (cardEl12) { cardEl12.style.background = '#FFFBE6'; cardEl12.style.borderColor = '#F59E0B'; }
+            }
+            if (window.lucide) window.lucide.createIcons();
+            allOk &= pre12_ok;
+
+            // PRE-13: limites percentuais IN23 (V001-V005)
+            const valorCaptado13 = Number((projValRes.data || {}).valor_captado || 0);
+            const sums13 = { administracao: 0, divulgacao: 0, captacao: 0, proponente: 0 };
+            for (const r of rubricas11) {
+                const cat = categorizeRubrica(r);
+                if (sums13[cat] !== undefined) sums13[cat] += Number(r.valor_utilizado || 0);
+            }
+            const limCaptacao13 = totalAprovado11 > 0 ? Math.min(totalAprovado11 * 0.10, 150000) : 0;
+            const excedidas13 = [];
+            if (limCaptacao13 > 0 && sums13.captacao > limCaptacao13) excedidas13.push('Captação');
+            if (totalAprovado11 > 0 && sums13.divulgacao > totalAprovado11 * 0.20) excedidas13.push('Divulgação');
+            if (totalAprovado11 > 0 && sums13.administracao > totalAprovado11 * 0.15) excedidas13.push('Administração');
+            if (valorCaptado13 > 0 && sums13.proponente > valorCaptado13 * 0.20) excedidas13.push('Proponente');
+            const pre13_ok = excedidas13.length === 0;
+            const textEl13 = document.getElementById('pre-13-text');
+            if (textEl13) {
+                textEl13.textContent = pre13_ok
+                    ? 'Limites percentuais da IN23 respeitados (captação, divulgação, administração)'
+                    : `Categorias com limite excedido: ${excedidas13.join(', ')}`;
+            }
+            allOk &= updateCheckItem('pre-13', pre13_ok);
 
             const btnGerar = document.getElementById('btn-gerar');
             const feedback = document.getElementById('gerar-feedback');

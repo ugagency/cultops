@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PrestAI — Importar Projeto do SALIC (PDF)</title>
+    <title>PrestAI — Dados do Projeto SALIC</title>
 
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -14,176 +14,426 @@
     <link rel="stylesheet" href="m2-shared.css">
 
     <style>
-        .salic-container { max-width: 980px; width: 100%; margin: 0 auto; }
+        .page-container { max-width: 1000px; width: 100%; margin: 0 auto; padding-bottom: 90px; }
 
-        .salic-header { margin-bottom: 2rem; }
+        /* PRONAC selector */
+        .project-selector-bar {
+            display: flex; align-items: center; gap: 0.75rem;
+            background: white; border: 1px solid var(--border-light);
+            border-radius: 12px; padding: 0.625rem 1rem;
+            margin-bottom: 1.5rem; box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.06));
+        }
+        .project-selector-bar select {
+            border: none; outline: none; font-size: 0.9rem; font-weight: 600;
+            color: var(--text-primary); background: transparent; flex: 1; cursor: pointer;
+        }
 
+        /* State panels */
         .state-panel { display: none; }
         .state-panel.active { display: block; }
 
-        /* ESTADO 1 — Upload */
+        /* Upload */
         .upload-zone {
-            border: 2px dashed var(--border-light);
-            padding: 3.5rem 2rem;
-            border-radius: var(--radius-lg);
-            margin: 1.5rem 0;
-            cursor: pointer;
-            transition: all 0.2s;
-            text-align: center;
-            background: white;
+            border: 2px dashed var(--border-light, #e2e8f0);
+            padding: 3.5rem 2rem; border-radius: var(--radius-lg, 16px);
+            margin: 1.5rem 0; cursor: pointer; transition: all 0.2s;
+            text-align: center; background: white;
         }
-        .upload-zone:hover { border-color: var(--m2-accent); background: #F5F8FF; }
-        .upload-zone.dragover { border-color: var(--m2-accent); background: #EEF3FF; }
-
+        .upload-zone:hover, .upload-zone.dragover {
+            border-color: var(--m2-accent, #6366f1); background: #F5F8FF;
+        }
         .file-pill {
             display: inline-flex; align-items: center; gap: 0.5rem;
-            background: #EEF3FF; color: var(--m2-accent);
+            background: #EEF3FF; color: var(--m2-accent, #6366f1);
             padding: 0.5rem 1rem; border-radius: 999px;
             font-size: 0.875rem; font-weight: 600; margin-top: 1rem;
         }
 
-        /* ESTADO 2 — Processando */
+        /* Processing */
         .processing-box {
-            background: white; border: 1px solid var(--border-light);
-            border-radius: var(--radius-lg); padding: 3.5rem 2rem;
-            text-align: center; box-shadow: var(--shadow-md);
+            background: white; border: 1px solid var(--border-light, #e2e8f0);
+            border-radius: var(--radius-lg, 16px); padding: 4rem 2rem;
+            text-align: center; box-shadow: var(--shadow-md, 0 4px 16px rgba(0,0,0,0.08));
         }
-        .processing-box .spin { width: 48px; height: 48px; color: var(--m2-accent); margin-bottom: 1rem; }
-        .processing-steps { margin-top: 1.5rem; color: var(--text-muted); font-size: 0.875rem; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .spin-icon { animation: spin 1.2s linear infinite; display: inline-block; }
 
-        /* ESTADO 3 — Revisão */
-        .review-section {
-            background: white; border: 1px solid var(--border-light);
-            border-radius: var(--radius-md); padding: 1.5rem;
-            margin-bottom: 1.25rem; box-shadow: var(--shadow-sm);
-        }
-        .review-section h3 {
-            font-size: 0.8rem; font-weight: 700; text-transform: uppercase;
-            letter-spacing: 0.05em; color: var(--text-secondary);
-            margin: 0 0 1rem 0; display: flex; align-items: center; gap: 0.5rem;
-        }
-        .review-section h3 i { width: 18px; height: 18px; color: var(--m2-accent); }
-        .field-block { margin-bottom: 1rem; }
-        .field-label { font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
-        .field-value { font-size: 0.95rem; color: var(--text-primary); margin-top: 0.25rem; white-space: pre-wrap; }
-        .field-value.muted { color: var(--text-muted); font-style: italic; }
-
-        .data-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
-        .data-table th, .data-table td { text-align: left; padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border-light); vertical-align: top; }
-        .data-table th { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); font-weight: 700; }
-        .tag-list { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-        .tag { background: #F1F5F9; border-radius: 6px; padding: 0.15rem 0.5rem; font-size: 0.8rem; color: var(--text-secondary); }
-
-        .empty-mini { color: var(--text-muted); font-style: italic; font-size: 0.85rem; }
-
+        /* Alerts */
         .alert-error {
             background: #FEF2F2; border: 1px solid #FECACA; color: #991B1B;
-            padding: 1rem 1.25rem; border-radius: var(--radius-md);
-            margin: 1rem 0; font-size: 0.9rem; display: flex; align-items: flex-start; gap: 0.75rem;
+            padding: 0.875rem 1.25rem; border-radius: var(--radius-md, 12px);
+            display: flex; align-items: flex-start; gap: 0.75rem; font-size: 0.9rem; margin-bottom: 1rem;
         }
 
-        .actions-bar { display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem; }
+        /* Tabs */
+        .tab-bar {
+            display: flex; border-bottom: 2px solid var(--border-light, #e2e8f0);
+            margin-bottom: 1.5rem; gap: 0; overflow-x: auto;
+        }
+        .tab-btn {
+            padding: 0.75rem 1.25rem; font-size: 0.875rem; font-weight: 600;
+            color: var(--text-secondary, #64748b); background: none; border: none;
+            border-bottom: 2px solid transparent; margin-bottom: -2px;
+            cursor: pointer; white-space: nowrap; transition: all 0.15s;
+        }
+        .tab-btn.active { color: var(--m2-accent, #6366f1); border-bottom-color: var(--m2-accent, #6366f1); }
+        .tab-btn:hover:not(.active) { color: var(--text-primary, #0f172a); }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+
+        /* Etapa cards */
+        .etapa-card {
+            background: white; border: 1px solid var(--border-light, #e2e8f0);
+            border-radius: var(--radius-md, 12px); padding: 1.25rem;
+            margin-bottom: 1rem; box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.06));
+        }
+        .etapa-card-header {
+            display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;
+        }
+        .etapa-number {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 28px; height: 28px; background: var(--m2-accent, #6366f1);
+            color: white; border-radius: 50%; font-size: 0.75rem; font-weight: 700; flex-shrink: 0;
+        }
+
+        /* Form fields */
+        .field-group { display: flex; flex-direction: column; gap: 0.3rem; }
+        .field-label {
+            font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.04em; color: var(--text-muted, #94a3b8);
+        }
+        .field-input, .field-textarea, .field-select {
+            border: 1px solid var(--border-light, #e2e8f0); border-radius: 8px;
+            padding: 0.5rem 0.75rem; font-size: 0.875rem; color: var(--text-primary, #0f172a);
+            font-family: inherit; transition: border-color 0.15s; background: white;
+            width: 100%; box-sizing: border-box;
+        }
+        .field-input:focus, .field-textarea:focus, .field-select:focus {
+            outline: none; border-color: var(--m2-accent, #6366f1);
+        }
+        .field-textarea { resize: vertical; min-height: 80px; }
+
+        /* Tags editor (atividades) */
+        .tags-editor {
+            display: flex; flex-wrap: wrap; gap: 0.4rem;
+            padding: 0.4rem; border: 1px solid var(--border-light, #e2e8f0);
+            border-radius: 8px; min-height: 44px; background: white;
+            cursor: text; transition: border-color 0.15s;
+        }
+        .tags-editor:focus-within { border-color: var(--m2-accent, #6366f1); }
+        .tag-item {
+            display: inline-flex; align-items: center; gap: 0.25rem;
+            background: #EEF3FF; color: var(--m2-accent, #6366f1);
+            padding: 0.2rem 0.5rem; border-radius: 6px; font-size: 0.8rem; font-weight: 500;
+        }
+        .tag-remove {
+            background: none; border: none; cursor: pointer;
+            color: var(--m2-accent, #6366f1); padding: 0;
+            display: flex; opacity: 0.5; line-height: 1;
+        }
+        .tag-remove:hover { opacity: 1; }
+        .tag-input-inline {
+            border: none; outline: none; font-size: 0.8rem;
+            color: var(--text-primary, #0f172a); min-width: 120px;
+            flex: 1; background: transparent; font-family: inherit; padding: 0.1rem 0;
+        }
+
+        /* Editable tables */
+        .edit-table-wrap {
+            overflow-x: auto; border: 1px solid var(--border-light, #e2e8f0);
+            border-radius: var(--radius-md, 12px); background: white;
+        }
+        .edit-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+        .edit-table th {
+            font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em;
+            color: var(--text-muted, #94a3b8); font-weight: 700; padding: 0.6rem 0.75rem;
+            border-bottom: 1px solid var(--border-light, #e2e8f0); background: #FAFAFA; text-align: left;
+        }
+        .edit-table td { padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--border-light, #e2e8f0); vertical-align: middle; }
+        .edit-table tr:last-child td { border-bottom: none; }
+        .cell-input {
+            border: 1px solid transparent; border-radius: 6px; padding: 0.35rem 0.5rem;
+            font-size: 0.85rem; width: 100%; box-sizing: border-box;
+            font-family: inherit; background: transparent; transition: border-color 0.15s;
+        }
+        .cell-input:focus { outline: none; border-color: var(--m2-accent, #6366f1); background: white; }
+        .cell-select {
+            border: 1px solid transparent; border-radius: 6px; padding: 0.35rem 0.5rem;
+            font-size: 0.85rem; font-family: inherit; background: transparent; cursor: pointer; width: 100%;
+        }
+        .cell-select:focus { outline: none; border-color: var(--m2-accent, #6366f1); background: white; }
+        .btn-remove-row {
+            background: none; border: none; cursor: pointer; color: #CBD5E1;
+            display: flex; padding: 0.25rem; border-radius: 6px; transition: all 0.15s;
+        }
+        .btn-remove-row:hover { color: #EF4444; background: #FEE2E2; }
+
+        /* Objetivos específicos */
+        .obj-item { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; }
+        .obj-item .field-input { flex: 1; }
+
+        /* Section divider */
+        .section-divider {
+            font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.05em; color: var(--text-muted, #94a3b8);
+            margin: 1.75rem 0 1rem; display: flex; align-items: center; gap: 0.75rem;
+        }
+        .section-divider::after { content: ''; flex: 1; height: 1px; background: var(--border-light, #e2e8f0); }
+
+        /* Fixed footer */
+        .review-footer {
+            position: fixed; bottom: 0; left: var(--sidebar-width, 260px); right: 0;
+            background: white; border-top: 1px solid var(--border-light, #e2e8f0);
+            padding: 0.875rem 2rem; display: flex; align-items: center;
+            justify-content: space-between; gap: 1rem; z-index: 100;
+            box-shadow: 0 -4px 24px rgba(0,0,0,0.05);
+        }
+        .footer-info { font-size: 0.8rem; color: var(--text-muted, #94a3b8); line-height: 1.6; }
+        .footer-actions { display: flex; gap: 0.75rem; flex-shrink: 0; }
+
+        /* Toast */
+        #toast-container {
+            position: fixed; bottom: 80px; right: 2rem;
+            display: flex; flex-direction: column; gap: 0.5rem; z-index: 9999;
+        }
+        .toast {
+            background: #1E293B; color: white; padding: 0.75rem 1.25rem;
+            border-radius: 10px; font-size: 0.875rem; font-weight: 500;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.15); animation: slideIn 0.2s ease;
+        }
+        .toast.success { background: #10B981; }
+        .toast.error { background: #EF4444; }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        /* Grid helpers */
+        .grid-2 { display: grid; grid-template-columns: 1fr 160px; gap: 1rem; }
+        .grid-date { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
     </style>
 </head>
 <body>
     <main class="main-content">
-        <div class="salic-container">
-            <div class="salic-header">
-                <a href="projeto-setup.html" style="display:inline-flex; align-items:center; gap:0.4rem; color:var(--text-secondary); text-decoration:none; font-size:0.875rem; font-weight:600; margin-bottom:1rem;">
-                    <i data-lucide="arrow-left" style="width:16px;"></i> Voltar para Projetos
-                </a>
-                <h1 style="font-size: 2rem; font-weight: 800; color: var(--text-primary); margin: 0.5rem 0;">
-                    Importar do SALIC via PDF
-                </h1>
-                <p style="color: var(--text-secondary); font-size: 1.05rem;">
-                    Envie o PDF do projeto exportado do SALIC. O texto é lido por OCR e
-                    estruturado automaticamente para revisão.
+        <div class="page-container">
+
+            <!-- PRONAC Selector -->
+            <div class="project-selector-bar">
+                <i data-lucide="folder-kanban" style="width:18px;height:18px;color:var(--m2-accent,#6366f1);flex-shrink:0;"></i>
+                <select id="project-selector" onchange="onProjectChange(this.value)">
+                    <option value="">Carregando projetos...</option>
+                </select>
+            </div>
+
+            <!-- Page header -->
+            <div style="margin-bottom:2rem;">
+                <h1 style="font-size:1.875rem;font-weight:800;color:var(--text-primary);margin:0 0 0.25rem;">Dados do Projeto SALIC</h1>
+                <p id="page-subtitle" style="color:var(--text-secondary);font-size:1rem;margin:0;">
+                    Importe o PDF exportado do SALIC em Dados do Projeto → botão Imprimir
                 </p>
             </div>
 
-            <!-- ════════════ ESTADO 1 — Upload ════════════ -->
+            <!-- ═══════════ ESTADO 1 — Upload ═══════════ -->
             <section class="state-panel active" id="state-upload">
                 <div class="upload-zone" id="dropzone" onclick="document.getElementById('pdf-input').click()">
-                    <i data-lucide="file-up" style="width: 40px; height: 40px; color: var(--m2-accent); margin-bottom: 0.75rem;"></i>
-                    <div style="font-weight: 700; font-size: 1.05rem;">Clique ou arraste o PDF aqui</div>
-                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">Apenas arquivos .pdf — até ~20 MB</div>
-                    <input type="file" id="pdf-input" style="display: none;" accept="application/pdf,.pdf" onchange="onFileSelected(this.files[0])">
-                    <div id="selected-file" style="display:none;"></div>
+                    <i data-lucide="file-up" style="width:44px;height:44px;color:var(--m2-accent,#6366f1);margin-bottom:0.75rem;"></i>
+                    <div style="font-weight:700;font-size:1.05rem;">Clique ou arraste o PDF aqui</div>
+                    <div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.25rem;">Apenas arquivos .pdf — até 20 MB</div>
+                    <div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.125rem;">PDF exportado em SALIC → Dados do Projeto → Imprimir</div>
+                    <input type="file" id="pdf-input" style="display:none;" accept="application/pdf,.pdf" onchange="onFileSelected(this.files[0])">
+                    <div id="selected-file"></div>
                 </div>
-                <div class="actions-bar">
+                <div style="display:flex;justify-content:flex-end;margin-top:0.5rem;">
                     <button class="btn-m2" id="btn-processar" disabled onclick="iniciarProcessamento()">
                         <i data-lucide="scan-line" style="width:16px;"></i> Processar PDF
                     </button>
                 </div>
             </section>
 
-            <!-- ════════════ ESTADO 2 — Processando ════════════ -->
+            <!-- ═══════════ ESTADO 2 — Processando ═══════════ -->
             <section class="state-panel" id="state-processing">
                 <div class="processing-box">
-                    <i data-lucide="loader" class="spin"></i>
-                    <h2 style="font-size: 1.25rem; font-weight: 700; margin: 0;">Processando PDF via OCR…</h2>
-                    <p style="color: var(--text-secondary); margin-top: 0.5rem;">
-                        Isso pode levar até 2 minutos. Não feche esta janela.
-                    </p>
-                    <div class="processing-steps">
-                        <div>📄 Enviando arquivo &nbsp;•&nbsp; 🔍 Lendo texto (OCR) &nbsp;•&nbsp; 🤖 Estruturando dados</div>
+                    <div class="spin-icon" style="width:48px;height:48px;color:var(--m2-accent,#6366f1);margin:0 auto 1rem;">
+                        <i data-lucide="loader-2" style="width:48px;height:48px;"></i>
+                    </div>
+                    <h2 style="font-size:1.25rem;font-weight:700;margin:0;">Processando PDF via OCR…</h2>
+                    <p style="color:var(--text-secondary);margin-top:0.5rem;">Isso pode levar até 2 minutos. Não feche esta janela.</p>
+                    <div style="margin-top:1.25rem;color:var(--text-muted);font-size:0.875rem;">
+                        📄 Enviando arquivo &nbsp;•&nbsp; 🔍 Lendo texto (OCR) &nbsp;•&nbsp; 🤖 Estruturando dados
                     </div>
                 </div>
             </section>
 
-            <!-- ════════════ ESTADO 3 — Revisão ════════════ -->
-            <section class="state-panel" id="state-review">
-                <div class="alert-error" id="review-error" style="display:none;"></div>
-                <div id="review-content"><!-- preenchido via JS --></div>
-                <div class="actions-bar">
-                    <button class="btn-m2 btn-m2-outline" onclick="resetParaUpload()">
-                        <i data-lucide="rotate-ccw" style="width:16px;"></i> Importar outro PDF
-                    </button>
-                    <button class="btn-m2" onclick="concluir()">
-                        <i data-lucide="check" style="width:16px;"></i> Concluir e ir ao Dashboard
-                    </button>
-                </div>
-            </section>
-
-            <!-- ════════════ ERRO ════════════ -->
+            <!-- ═══════════ ESTADO — Erro ═══════════ -->
             <section class="state-panel" id="state-error">
-                <div class="alert-error" id="error-message">
-                    <i data-lucide="alert-triangle" style="width:20px; flex-shrink:0;"></i>
-                    <span id="error-text">Ocorreu um erro ao processar o PDF.</span>
+                <div class="alert-error">
+                    <i data-lucide="alert-triangle" style="width:20px;flex-shrink:0;margin-top:0.1rem;"></i>
+                    <div>
+                        <div style="font-weight:600;">Erro no processamento</div>
+                        <div id="error-text" style="margin-top:0.2rem;"></div>
+                    </div>
                 </div>
-                <div class="actions-bar">
-                    <button class="btn-m2 btn-m2-outline" onclick="resetParaUpload()">Recomeçar</button>
+                <div style="display:flex;justify-content:flex-end;gap:0.75rem;">
+                    <button class="btn-m2 btn-m2-outline" onclick="resetParaUpload()">Cancelar</button>
                     <button class="btn-m2" onclick="iniciarProcessamento(true)">
                         <i data-lucide="refresh-cw" style="width:16px;"></i> Tentar novamente
                     </button>
                 </div>
             </section>
-        </div>
+
+            <!-- ═══════════ ESTADO 3 — Revisão ═══════════ -->
+            <section class="state-panel" id="state-review">
+                <div class="tab-bar">
+                    <button class="tab-btn active" onclick="showTab('tab-etapas', this)">Etapas de Trabalho</button>
+                    <button class="tab-btn" onclick="showTab('tab-locais', this)">Local de Realização</button>
+                    <button class="tab-btn" onclick="showTab('tab-divulgacao', this)">Plano de Divulgação</button>
+                    <button class="tab-btn" onclick="showTab('tab-complementar', this)">Dados Complementares</button>
+                </div>
+
+                <!-- Tab 1: Etapas -->
+                <div class="tab-panel active" id="tab-etapas">
+                    <div id="etapas-list"></div>
+                    <button class="btn-m2 btn-m2-outline" onclick="addEtapa()" style="margin-top:0.25rem;">
+                        <i data-lucide="plus" style="width:16px;"></i> Adicionar Etapa
+                    </button>
+                </div>
+
+                <!-- Tab 2: Locais + Deslocamentos -->
+                <div class="tab-panel" id="tab-locais">
+                    <div class="edit-table-wrap">
+                        <table class="edit-table">
+                            <thead>
+                                <tr>
+                                    <th>País</th><th>UF</th><th>Cidade</th><th style="width:40px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="locais-tbody"></tbody>
+                        </table>
+                    </div>
+                    <button class="btn-m2 btn-m2-outline" onclick="addLocal()" style="margin-top:0.75rem;">
+                        <i data-lucide="plus" style="width:16px;"></i> Adicionar Local
+                    </button>
+
+                    <div class="section-divider">Deslocamentos</div>
+
+                    <div class="edit-table-wrap">
+                        <table class="edit-table">
+                            <thead>
+                                <tr>
+                                    <th>Origem UF</th><th>Origem Cidade</th>
+                                    <th>Destino UF</th><th>Destino Cidade</th>
+                                    <th>Qtd</th><th style="width:40px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="deslocamentos-tbody"></tbody>
+                        </table>
+                    </div>
+                    <button class="btn-m2 btn-m2-outline" onclick="addDeslocamento()" style="margin-top:0.75rem;">
+                        <i data-lucide="plus" style="width:16px;"></i> Adicionar Deslocamento
+                    </button>
+                </div>
+
+                <!-- Tab 3: Divulgação -->
+                <div class="tab-panel" id="tab-divulgacao">
+                    <div class="edit-table-wrap">
+                        <table class="edit-table">
+                            <thead>
+                                <tr>
+                                    <th>Tipo de Mídia</th><th>Descrição</th>
+                                    <th>Veículo</th><th>Qtd</th><th style="width:40px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="divulgacao-tbody"></tbody>
+                        </table>
+                    </div>
+                    <button class="btn-m2 btn-m2-outline" onclick="addDivulgacao()" style="margin-top:0.75rem;">
+                        <i data-lucide="plus" style="width:16px;"></i> Adicionar Item
+                    </button>
+                </div>
+
+                <!-- Tab 4: Dados Complementares -->
+                <div class="tab-panel" id="tab-complementar">
+                    <div style="display:grid;gap:1rem;">
+                        <div class="field-group">
+                            <label class="field-label">Síntese</label>
+                            <textarea class="field-textarea" id="comp-sintese" rows="4"></textarea>
+                        </div>
+                        <div class="field-group">
+                            <label class="field-label">Objetivo Geral</label>
+                            <textarea class="field-textarea" id="comp-objetivo-geral" rows="4"></textarea>
+                        </div>
+                        <div class="field-group">
+                            <label class="field-label">Objetivos Específicos</label>
+                            <div id="objs-list"></div>
+                            <button class="btn-m2 btn-m2-outline" onclick="addObjetivoEspecifico()" style="margin-top:0.5rem;align-self:flex-start;">
+                                <i data-lucide="plus" style="width:14px;"></i> Adicionar objetivo
+                            </button>
+                        </div>
+                        <div class="field-group">
+                            <label class="field-label">Justificativa</label>
+                            <textarea class="field-textarea" id="comp-justificativa" rows="4"></textarea>
+                        </div>
+                        <div class="grid-date">
+                            <div class="field-group">
+                                <label class="field-label">Período Início</label>
+                                <input type="date" class="field-input" id="comp-periodo-inicio">
+                            </div>
+                            <div class="field-group">
+                                <label class="field-label">Período Fim</label>
+                                <input type="date" class="field-input" id="comp-periodo-fim">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </div><!-- /page-container -->
     </main>
+
+    <!-- Fixed review footer -->
+    <div class="review-footer" id="review-footer" style="display:none;">
+        <div class="footer-info" id="footer-info"></div>
+        <div class="footer-actions">
+            <button class="btn-m2 btn-m2-outline" onclick="reimportarPdf()">
+                <i data-lucide="upload" style="width:15px;"></i> Reimportar PDF
+            </button>
+            <button class="btn-m2" id="btn-salvar" onclick="salvarRevisao()">
+                <i data-lucide="save" style="width:15px;"></i> Salvar Revisão
+            </button>
+        </div>
+    </div>
+
+    <div id="toast-container"></div>
 
     <script src="../config.js"></script>
     <script src="supabase-helper.js"></script>
     <script>
+        // ─── State ───────────────────────────────────────────────────
         let currentProjectId = null;
-        let selectedFile = null;
-        let lastImportId = null;
-        let lastFilePath = null;
+        let currentImportId  = null;
+        let currentImportMeta = null;
+        let selectedFile  = null;
+        let lastFilePath  = null;
+        let lastImportId  = null;
 
-        const PROCESS_TIMEOUT_MS = 150000; // 150s (AbortController)
+        const PROCESS_TIMEOUT_MS = 150000;
+        const TIPOS_MIDIA = [
+            'TV','Rádio','Internet/Redes Sociais',
+            'Jornal/Revista','Material Gráfico','Outdoor/Banner','Outro'
+        ];
 
-        document.addEventListener('DOMContentLoaded', async () => {
-            renderSidebar();
-            if (window.lucide) window.lucide.createIcons();
+        // ─── Helpers ─────────────────────────────────────────────────
+        function escapeHtml(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+                ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c]
+            );
+        }
 
-            currentProjectId = (window.ProjectManager && ProjectManager.getSelected()) || null;
-            if (!currentProjectId) {
-                alert('Selecione um projeto antes de importar o PDF.');
-                window.location.href = 'projeto-setup.html';
-                return;
-            }
-
-            setupDragAndDrop();
-        });
+        function showToast(msg, type = 'default') {
+            const c = document.getElementById('toast-container');
+            const t = document.createElement('div');
+            t.className = 'toast ' + type;
+            t.textContent = msg;
+            c.appendChild(t);
+            setTimeout(() => t.remove(), 3500);
+        }
 
         function showState(id) {
             document.querySelectorAll('.state-panel').forEach(p => p.classList.remove('active'));
@@ -191,100 +441,163 @@
             if (window.lucide) window.lucide.createIcons();
         }
 
-        function escapeHtml(s) {
-            return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
-                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-            })[c]);
+        function showTab(tabId, btn) {
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            btn.classList.add('active');
+            if (window.lucide) window.lucide.createIcons();
         }
 
-        // ─────────── ESTADO 1: seleção de arquivo ───────────
+        // ─── Init ─────────────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', async () => {
+            renderSidebar();
+            setupDragAndDrop();
+            if (window.lucide) window.lucide.createIcons();
+            await populateProjectSelector();
+        });
+
+        async function populateProjectSelector() {
+            const sb = await initSupabase();
+            if (!sb) return;
+            const { data, error } = await sb.from('projects').select('id, pronac, nome').order('nome');
+            const sel = document.getElementById('project-selector');
+            if (!error && data && data.length) {
+                sel.innerHTML = '<option value="">Selecione um projeto...</option>' +
+                    data.map(p => `<option value="${p.id}">${escapeHtml(p.pronac)} — ${escapeHtml(p.nome)}</option>`).join('');
+            } else {
+                sel.innerHTML = '<option value="">Nenhum projeto encontrado</option>';
+            }
+            const saved = ProjectManager.getSelected();
+            if (saved) {
+                sel.value = saved;
+                if (sel.value) await onProjectChange(saved);
+            }
+        }
+
+        async function onProjectChange(projectId) {
+            currentProjectId = projectId || null;
+            if (projectId) {
+                ProjectManager.setSelected(projectId);
+                await checkExistingImport(projectId);
+            } else {
+                document.getElementById('review-footer').style.display = 'none';
+                document.getElementById('page-subtitle').style.display = '';
+                showState('state-upload');
+            }
+        }
+
+        async function checkExistingImport(projectId) {
+            const sb = await initSupabase();
+            if (!sb) return;
+            const { data, error } = await sb
+                .from('project_salic_imports')
+                .select('*')
+                .eq('project_id', projectId)
+                .in('status', ['processado', 'revisado'])
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            if (!error && data) {
+                currentImportId   = data.id;
+                currentImportMeta = data;
+                renderReview(data.dados_extraidos || {});
+                updateFooterInfo(data);
+                document.getElementById('review-footer').style.display = 'flex';
+                document.getElementById('page-subtitle').style.display = 'none';
+                // Reset tabs to first
+                document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.getElementById('tab-etapas').classList.add('active');
+                document.querySelector('.tab-btn').classList.add('active');
+                showState('state-review');
+            } else {
+                currentImportId   = null;
+                currentImportMeta = null;
+                document.getElementById('review-footer').style.display = 'none';
+                document.getElementById('page-subtitle').style.display = '';
+                showState('state-upload');
+            }
+        }
+
+        function updateFooterInfo(meta) {
+            const el = document.getElementById('footer-info');
+            if (!meta) { el.innerHTML = ''; return; }
+            const dtCriacao = meta.created_at
+                ? new Date(meta.created_at).toLocaleString('pt-BR') : '—';
+            let html = `Importado em ${dtCriacao}`;
+            if (meta.revisado_em) {
+                const dtRevisao = new Date(meta.revisado_em).toLocaleString('pt-BR');
+                html += `<br>Última revisão: ${dtRevisao}`;
+            }
+            el.innerHTML = html;
+        }
+
+        // ─── Upload / Processing ──────────────────────────────────────
         function setupDragAndDrop() {
             const dz = document.getElementById('dropzone');
-            ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => {
-                e.preventDefault(); dz.classList.add('dragover');
-            }));
-            ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, e => {
-                e.preventDefault(); dz.classList.remove('dragover');
-            }));
+            ['dragenter','dragover'].forEach(ev =>
+                dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('dragover'); })
+            );
+            ['dragleave','drop'].forEach(ev =>
+                dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('dragover'); })
+            );
             dz.addEventListener('drop', e => {
-                const f = e.dataTransfer.files && e.dataTransfer.files[0];
+                const f = e.dataTransfer.files?.[0];
                 if (f) onFileSelected(f);
             });
         }
 
         function onFileSelected(file) {
             if (!file) return;
-            if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-                alert('Selecione um arquivo PDF.');
-                return;
-            }
+            const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+            if (!isPdf) { showToast('Selecione um arquivo PDF.', 'error'); return; }
+            if (file.size > 20 * 1024 * 1024) { showToast('O arquivo deve ter no máximo 20 MB.', 'error'); return; }
             selectedFile = file;
-            const el = document.getElementById('selected-file');
-            el.style.display = 'block';
-            el.innerHTML = `<div class="file-pill"><i data-lucide="file-check" style="width:16px;"></i> ${escapeHtml(file.name)} (${(file.size/1024/1024).toFixed(1)} MB)</div>`;
+            document.getElementById('selected-file').innerHTML =
+                `<div class="file-pill">
+                    <i data-lucide="file-check" style="width:15px;"></i>
+                    ${escapeHtml(file.name)} (${(file.size/1024/1024).toFixed(1)} MB)
+                </div>`;
             document.getElementById('btn-processar').disabled = false;
             if (window.lucide) window.lucide.createIcons();
         }
 
+        function sanitizeName(n) { return String(n).replace(/[^a-zA-Z0-9._-]/g,'_').slice(-80); }
+
         function resetParaUpload() {
-            selectedFile = null;
-            lastImportId = null;
-            lastFilePath = null;
+            selectedFile = null; lastImportId = null; lastFilePath = null;
             document.getElementById('pdf-input').value = '';
-            document.getElementById('selected-file').style.display = 'none';
             document.getElementById('selected-file').innerHTML = '';
             document.getElementById('btn-processar').disabled = true;
+            document.getElementById('page-subtitle').style.display = '';
             showState('state-upload');
         }
 
-        function sanitizeName(name) {
-            return String(name).replace(/[^a-zA-Z0-9._-]/g, '_').slice(-80);
-        }
-
-        // ─────────── ESTADO 2: upload + processamento ───────────
-        // retry=true reaproveita o import/arquivo já enviado (apenas re-dispara o endpoint).
         async function iniciarProcessamento(retry = false) {
+            if (!currentProjectId) { showToast('Selecione um projeto primeiro.', 'error'); return; }
             showState('state-processing');
+            document.getElementById('review-footer').style.display = 'none';
 
             try {
-                const sb = await window.initSupabase();
+                const sb = await initSupabase();
+                const { data: { user } } = await sb.auth.getUser();
 
-                // Em retry, reutiliza o import e o arquivo já existentes.
-                if (!retry || !lastImportId || !lastFilePath) {
-                    if (!selectedFile) {
-                        resetParaUpload();
-                        return;
-                    }
-
-                    const orgId = await getCurrentOrgId(currentProjectId);
-
-                    // 1. Upload do PDF para o bucket 'salic-imports'
+                // Upload do arquivo apenas se não for retry (ou se não tiver path salvo)
+                if (!retry || !lastFilePath) {
+                    if (!selectedFile) { resetParaUpload(); return; }
                     const filePath = `${currentProjectId}/${Date.now()}-${sanitizeName(selectedFile.name)}`;
                     const { error: upErr } = await sb.storage
                         .from('salic-imports')
                         .upload(filePath, selectedFile, { contentType: 'application/pdf', upsert: false });
-                    if (upErr) throw new Error('Falha no upload do PDF: ' + upErr.message);
+                    if (upErr) throw new Error('Falha no upload: ' + upErr.message);
                     lastFilePath = filePath;
-
-                    // 2. INSERT em project_salic_imports (status='pendente')
-                    const { data: imp, error: impErr } = await sb
-                        .from('project_salic_imports')
-                        .insert([{
-                            project_id: currentProjectId,
-                            organization_id: orgId,
-                            file_path: filePath,
-                            status: 'pendente'
-                        }])
-                        .select()
-                        .single();
-                    if (impErr || !imp) throw new Error('Falha ao registrar a importação: ' + (impErr?.message || ''));
-                    lastImportId = imp.id;
                 }
 
-                // 3. Chama o endpoint (síncrono) com timeout via AbortController
+                // O servidor cria o registro em project_salic_imports (service_role, sem RLS)
                 const controller = new AbortController();
-                const t = setTimeout(() => controller.abort(), PROCESS_TIMEOUT_MS);
-
+                const timer = setTimeout(() => controller.abort(), PROCESS_TIMEOUT_MS);
                 let resp;
                 try {
                     resp = await fetch('/api/m2/processar-pdf-salic', {
@@ -292,28 +605,22 @@
                         headers: { 'Content-Type': 'application/json' },
                         signal: controller.signal,
                         body: JSON.stringify({
-                            import_id: lastImportId,
                             project_id: currentProjectId,
-                            file_path: lastFilePath
+                            file_path: lastFilePath,
+                            user_id: user?.id || null
                         })
                     });
                 } catch (e) {
-                    if (e.name === 'AbortError') {
-                        throw new Error('O processamento excedeu o tempo limite (150s). Tente novamente com um PDF menor.');
-                    }
+                    if (e.name === 'AbortError') throw new Error('Processamento excedeu 150s. Tente com um PDF menor.');
                     throw e;
-                } finally {
-                    clearTimeout(t);
-                }
+                } finally { clearTimeout(timer); }
 
                 const out = await resp.json().catch(() => ({}));
-                if (!resp.ok || !out.success) {
-                    throw new Error(out.error || `Erro ${resp.status} ao processar o PDF.`);
-                }
+                if (!resp.ok || !out.success) throw new Error(out.error || `Erro ${resp.status}`);
 
-                // 5. Renderiza a tela de revisão (ESTADO 3)
-                renderReview(out.data);
-                showState('state-review');
+                lastImportId   = out.import_id;
+                currentImportId = out.import_id;
+                await checkExistingImport(currentProjectId);
 
             } catch (err) {
                 console.error('[processar-pdf-salic]', err);
@@ -322,99 +629,314 @@
             }
         }
 
-        // ─────────── ESTADO 3: revisão dos dados extraídos ───────────
-        function v(value) {
-            if (value == null || String(value).trim() === '') {
-                return '<span class="field-value muted">Não informado</span>';
-            }
-            return `<span class="field-value">${escapeHtml(value)}</span>`;
-        }
-
+        // ─── Render Review ────────────────────────────────────────────
         function renderReview(data) {
             data = data || {};
-            const sec = [];
-
-            // Síntese / objetivos / justificativa
-            sec.push(`
-                <div class="review-section">
-                    <h3><i data-lucide="file-text"></i> Síntese & Objetivos</h3>
-                    <div class="field-block"><div class="field-label">Síntese</div>${v(data.sintese)}</div>
-                    <div class="field-block"><div class="field-label">Objetivo Geral</div>${v(data.objetivo_geral)}</div>
-                    <div class="field-block"><div class="field-label">Objetivos Específicos</div>
-                        ${(data.objetivos_especificos && data.objetivos_especificos.length)
-                            ? `<div class="tag-list">${data.objetivos_especificos.map(o => `<span class="tag">${escapeHtml(o)}</span>`).join('')}</div>`
-                            : '<span class="empty-mini">Nenhum</span>'}
-                    </div>
-                    <div class="field-block"><div class="field-label">Justificativa</div>${v(data.justificativa)}</div>
-                    <div class="field-block"><div class="field-label">Período</div>${v(data.periodo_inicio)} &nbsp;→&nbsp; ${v(data.periodo_fim)}</div>
-                </div>
-            `);
-
-            // Etapas de trabalho
-            sec.push(buildTableSection('list-checks', 'Etapas de Trabalho', data.etapas_trabalho, [
-                { h: 'Nome', f: r => escapeHtml(r.nome || '—') },
-                { h: 'Duração (meses)', f: r => escapeHtml(r.duracao_meses ?? '—') },
-                { h: 'Objetivo', f: r => escapeHtml(r.objetivo || '—') },
-                { h: 'Atividades', f: r => (r.atividades && r.atividades.length) ? `<div class="tag-list">${r.atividades.map(a => `<span class="tag">${escapeHtml(a)}</span>`).join('')}</div>` : '—' }
-            ]));
-
-            // Locais de realização
-            sec.push(buildTableSection('map-pin', 'Locais de Realização', data.locais_realizacao, [
-                { h: 'País', f: r => escapeHtml(r.pais || '—') },
-                { h: 'UF', f: r => escapeHtml(r.uf || '—') },
-                { h: 'Cidade', f: r => escapeHtml(r.cidade || '—') }
-            ]));
-
-            // Deslocamentos
-            sec.push(buildTableSection('plane', 'Deslocamentos', data.deslocamentos, [
-                { h: 'Origem', f: r => escapeHtml([r.origem_cidade, r.origem_uf].filter(Boolean).join('/') || '—') },
-                { h: 'Destino', f: r => escapeHtml([r.destino_cidade, r.destino_uf].filter(Boolean).join('/') || '—') },
-                { h: 'Qtd.', f: r => escapeHtml(r.quantidade ?? '—') }
-            ]));
-
-            // Plano de divulgação
-            sec.push(buildTableSection('megaphone', 'Plano de Divulgação', data.plano_divulgacao, [
-                { h: 'Tipo de Mídia', f: r => escapeHtml(r.tipo_midia || '—') },
-                { h: 'Descrição', f: r => escapeHtml(r.descricao || '—') },
-                { h: 'Veículo', f: r => escapeHtml(r.veiculo || '—') },
-                { h: 'Qtd.', f: r => escapeHtml(r.quantidade ?? '—') }
-            ]));
-
-            // Produtos
-            sec.push(buildTableSection('package', 'Produtos', data.produtos, [
-                { h: 'Nome', f: r => escapeHtml(r.nome || '—') },
-                { h: 'Descrição', f: r => escapeHtml(r.descricao || '—') }
-            ]));
-
-            // Ficha técnica
-            sec.push(buildTableSection('users', 'Ficha Técnica', data.ficha_tecnica, [
-                { h: 'Nome', f: r => escapeHtml(r.nome || '—') },
-                { h: 'Função', f: r => escapeHtml(r.funcao || '—') }
-            ]));
-
-            document.getElementById('review-content').innerHTML = `
-                <div class="alert-error" style="background:#ECFDF5; border-color:#A7F3D0; color:#065F46;">
-                    <i data-lucide="check-circle" style="width:20px; flex-shrink:0;"></i>
-                    <span>PDF processado com sucesso. Revise os dados extraídos abaixo — eles já foram salvos no projeto.</span>
-                </div>
-                ${sec.join('')}
-            `;
+            renderEtapas(data.etapas_trabalho || []);
+            renderLocais(data.locais_realizacao || []);
+            renderDeslocamentos(data.deslocamentos || []);
+            renderDivulgacao(data.plano_divulgacao || []);
+            document.getElementById('comp-sintese').value         = data.sintese || '';
+            document.getElementById('comp-objetivo-geral').value  = data.objetivo_geral || '';
+            document.getElementById('comp-justificativa').value   = data.justificativa || '';
+            document.getElementById('comp-periodo-inicio').value  = data.periodo_inicio || '';
+            document.getElementById('comp-periodo-fim').value     = data.periodo_fim || '';
+            renderObjetivosEspecificos(data.objetivos_especificos || []);
             if (window.lucide) window.lucide.createIcons();
         }
 
-        function buildTableSection(icon, titulo, rows, cols) {
-            rows = Array.isArray(rows) ? rows : [];
-            const body = rows.length
-                ? `<table class="data-table">
-                       <thead><tr>${cols.map(c => `<th>${c.h}</th>`).join('')}</tr></thead>
-                       <tbody>${rows.map(r => `<tr>${cols.map(c => `<td>${c.f(r)}</td>`).join('')}</tr>`).join('')}</tbody>
-                   </table>`
-                : '<div class="empty-mini">Nenhum item encontrado.</div>';
-            return `<div class="review-section"><h3><i data-lucide="${icon}"></i> ${titulo}</h3>${body}</div>`;
+        // ─── Tab 1: Etapas ────────────────────────────────────────────
+        function renderEtapas(etapas) {
+            document.getElementById('etapas-list').innerHTML = '';
+            etapas.forEach((e, i) => _appendEtapaCard(e, i));
         }
 
-        function concluir() {
-            window.location.href = 'financeiro.html';
+        function _appendEtapaCard(etapa, idx) {
+            const atividades = Array.isArray(etapa.atividades) ? etapa.atividades : [];
+            const card = document.createElement('div');
+            card.className = 'etapa-card';
+            card.dataset.idx = idx;
+            card.innerHTML = `
+                <div class="etapa-card-header">
+                    <div style="display:flex;align-items:center;gap:0.75rem;">
+                        <span class="etapa-number">${idx + 1}</span>
+                        <span style="font-size:0.8rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;">Etapa</span>
+                    </div>
+                    <button class="btn-remove-row" onclick="removeEtapa(this)" title="Remover etapa">
+                        <i data-lucide="trash-2" style="width:16px;"></i>
+                    </button>
+                </div>
+                <div class="grid-2" style="margin-bottom:0.75rem;">
+                    <div class="field-group">
+                        <label class="field-label">Nome da Etapa</label>
+                        <input type="text" class="field-input etapa-nome" value="${escapeHtml(etapa.nome || '')}">
+                    </div>
+                    <div class="field-group">
+                        <label class="field-label">Duração (meses)</label>
+                        <input type="number" class="field-input etapa-duracao" min="1" value="${escapeHtml(etapa.duracao_meses ?? '')}">
+                    </div>
+                </div>
+                <div class="field-group" style="margin-bottom:0.75rem;">
+                    <label class="field-label">Objetivo</label>
+                    <textarea class="field-textarea etapa-objetivo" rows="3">${escapeHtml(etapa.objetivo || '')}</textarea>
+                </div>
+                <div class="field-group">
+                    <label class="field-label">Atividades <span style="font-weight:400;text-transform:none;letter-spacing:0;">(Enter para adicionar)</span></label>
+                    <div class="tags-editor" onclick="this.querySelector('.tag-input-inline')?.focus()">
+                        ${atividades.map((a) =>
+                            `<span class="tag-item">${escapeHtml(a)}<button class="tag-remove" type="button" onclick="this.closest('.tag-item').remove()"><i data-lucide="x" style="width:12px;"></i></button></span>`
+                        ).join('')}
+                        <input class="tag-input-inline" placeholder="Adicionar atividade…" onkeydown="onAtividadeKeydown(event)">
+                    </div>
+                </div>`;
+            document.getElementById('etapas-list').appendChild(card);
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        function addEtapa() {
+            const idx = document.querySelectorAll('.etapa-card').length;
+            _appendEtapaCard({ nome:'', duracao_meses:null, objetivo:'', atividades:[] }, idx);
+            renumberEtapas();
+        }
+
+        function removeEtapa(btn) { btn.closest('.etapa-card').remove(); renumberEtapas(); }
+
+        function renumberEtapas() {
+            document.querySelectorAll('.etapa-card').forEach((c, i) => {
+                c.dataset.idx = i;
+                c.querySelector('.etapa-number').textContent = i + 1;
+            });
+        }
+
+        function onAtividadeKeydown(e) {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            const val = e.target.value.trim();
+            if (!val) return;
+            const tag = document.createElement('span');
+            tag.className = 'tag-item';
+            tag.innerHTML = `${escapeHtml(val)}<button class="tag-remove" type="button" onclick="this.closest('.tag-item').remove()"><i data-lucide="x" style="width:12px;"></i></button>`;
+            e.target.closest('.tags-editor').insertBefore(tag, e.target);
+            e.target.value = '';
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        function getEtapasData() {
+            return Array.from(document.querySelectorAll('.etapa-card')).map((card, i) => ({
+                nome: card.querySelector('.etapa-nome').value.trim(),
+                duracao_meses: parseInt(card.querySelector('.etapa-duracao').value) || null,
+                objetivo: card.querySelector('.etapa-objetivo').value.trim(),
+                atividades: Array.from(card.querySelectorAll('.tag-item')).map(t =>
+                    t.childNodes[0].textContent.trim()
+                ),
+                ordem: i + 1
+            }));
+        }
+
+        // ─── Tab 2: Locais ─────────────────────────────────────────────
+        function renderLocais(locais) {
+            document.getElementById('locais-tbody').innerHTML = '';
+            locais.forEach(l => _appendLocalRow(l));
+        }
+
+        function _appendLocalRow(l) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input class="cell-input" value="${escapeHtml(l.pais || 'Brasil')}"></td>
+                <td><input class="cell-input" style="width:60px;" value="${escapeHtml(l.uf || '')}"></td>
+                <td><input class="cell-input" value="${escapeHtml(l.cidade || '')}"></td>
+                <td><button class="btn-remove-row" onclick="this.closest('tr').remove()"><i data-lucide="x" style="width:14px;"></i></button></td>`;
+            document.getElementById('locais-tbody').appendChild(tr);
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        function addLocal() { _appendLocalRow({ pais:'Brasil', uf:'', cidade:'' }); }
+
+        function getLocaisData() {
+            return Array.from(document.querySelectorAll('#locais-tbody tr')).map(tr => {
+                const inp = tr.querySelectorAll('input');
+                return { pais: inp[0]?.value.trim() || 'Brasil', uf: inp[1]?.value.trim() || '', cidade: inp[2]?.value.trim() || '' };
+            });
+        }
+
+        // ─── Tab 2: Deslocamentos ──────────────────────────────────────
+        function renderDeslocamentos(deslocamentos) {
+            document.getElementById('deslocamentos-tbody').innerHTML = '';
+            deslocamentos.forEach(d => _appendDeslocamentoRow(d));
+        }
+
+        function _appendDeslocamentoRow(d) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input class="cell-input" style="width:60px;" value="${escapeHtml(d.origem_uf || '')}"></td>
+                <td><input class="cell-input" value="${escapeHtml(d.origem_cidade || '')}"></td>
+                <td><input class="cell-input" style="width:60px;" value="${escapeHtml(d.destino_uf || '')}"></td>
+                <td><input class="cell-input" value="${escapeHtml(d.destino_cidade || '')}"></td>
+                <td><input class="cell-input" type="number" style="width:70px;" value="${escapeHtml(d.quantidade ?? 1)}"></td>
+                <td><button class="btn-remove-row" onclick="this.closest('tr').remove()"><i data-lucide="x" style="width:14px;"></i></button></td>`;
+            document.getElementById('deslocamentos-tbody').appendChild(tr);
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        function addDeslocamento() {
+            _appendDeslocamentoRow({ origem_uf:'', origem_cidade:'', destino_uf:'', destino_cidade:'', quantidade:1 });
+        }
+
+        function getDeslocamentosData() {
+            return Array.from(document.querySelectorAll('#deslocamentos-tbody tr')).map(tr => {
+                const inp = tr.querySelectorAll('input');
+                return {
+                    origem_uf:      inp[0]?.value.trim() || '',
+                    origem_cidade:  inp[1]?.value.trim() || '',
+                    destino_uf:     inp[2]?.value.trim() || '',
+                    destino_cidade: inp[3]?.value.trim() || '',
+                    quantidade:     parseInt(inp[4]?.value) || 1
+                };
+            });
+        }
+
+        // ─── Tab 3: Divulgação ─────────────────────────────────────────
+        function renderDivulgacao(itens) {
+            document.getElementById('divulgacao-tbody').innerHTML = '';
+            itens.forEach(i => _appendDivulgacaoRow(i));
+        }
+
+        function _appendDivulgacaoRow(item) {
+            const opts = TIPOS_MIDIA.map(t =>
+                `<option value="${t}" ${item.tipo_midia === t ? 'selected' : ''}>${t}</option>`
+            ).join('');
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><select class="cell-select"><option value="">Selecione…</option>${opts}</select></td>
+                <td><input class="cell-input" value="${escapeHtml(item.descricao || '')}"></td>
+                <td><input class="cell-input" value="${escapeHtml(item.veiculo || '')}"></td>
+                <td><input class="cell-input" type="number" style="width:70px;" value="${escapeHtml(item.quantidade ?? '')}"></td>
+                <td><button class="btn-remove-row" onclick="this.closest('tr').remove()"><i data-lucide="x" style="width:14px;"></i></button></td>`;
+            document.getElementById('divulgacao-tbody').appendChild(tr);
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        function addDivulgacao() {
+            _appendDivulgacaoRow({ tipo_midia:'', descricao:'', veiculo:'', quantidade:null });
+        }
+
+        function getDivulgacaoData() {
+            return Array.from(document.querySelectorAll('#divulgacao-tbody tr')).map(tr => {
+                const sel = tr.querySelector('select');
+                const inp = tr.querySelectorAll('input');
+                return {
+                    tipo_midia: sel?.value || '',
+                    descricao:  inp[0]?.value.trim() || '',
+                    veiculo:    inp[1]?.value.trim() || '',
+                    quantidade: parseInt(inp[2]?.value) || null
+                };
+            });
+        }
+
+        // ─── Tab 4: Dados Complementares ───────────────────────────────
+        function renderObjetivosEspecificos(objs) {
+            document.getElementById('objs-list').innerHTML = '';
+            objs.forEach(o => _appendObjetivoRow(o));
+        }
+
+        function _appendObjetivoRow(texto) {
+            const div = document.createElement('div');
+            div.className = 'obj-item';
+            div.innerHTML = `
+                <input type="text" class="field-input" value="${escapeHtml(texto || '')}">
+                <button class="btn-remove-row" onclick="this.closest('.obj-item').remove()">
+                    <i data-lucide="x" style="width:14px;"></i>
+                </button>`;
+            document.getElementById('objs-list').appendChild(div);
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        function addObjetivoEspecifico() { _appendObjetivoRow(''); }
+
+        function getComplementarData() {
+            return {
+                sintese:               document.getElementById('comp-sintese').value.trim(),
+                objetivo_geral:        document.getElementById('comp-objetivo-geral').value.trim(),
+                objetivos_especificos: Array.from(document.querySelectorAll('#objs-list input'))
+                                           .map(i => i.value.trim()).filter(Boolean),
+                justificativa:         document.getElementById('comp-justificativa').value.trim(),
+                periodo_inicio:        document.getElementById('comp-periodo-inicio').value || null,
+                periodo_fim:           document.getElementById('comp-periodo-fim').value || null
+            };
+        }
+
+        // ─── Salvar Revisão (via servidor — service_role, sem RLS) ────
+        async function salvarRevisao() {
+            if (!currentProjectId || !currentImportId) {
+                showToast('Selecione um projeto primeiro.', 'error'); return;
+            }
+            const btn = document.getElementById('btn-salvar');
+            const orig = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spin-icon" style="display:inline-flex;"><i data-lucide="loader-2" style="width:15px;height:15px;"></i></span> Salvando…';
+            if (window.lucide) window.lucide.createIcons();
+
+            try {
+                const sb = await initSupabase();
+                const { data: { user } } = await sb.auth.getUser();
+
+                const payload = {
+                    project_id:  currentProjectId,
+                    import_id:   currentImportId,
+                    user_id:     user?.id || null,
+                    etapas:      getEtapasData(),
+                    locais:      getLocaisData(),
+                    deslocamentos: getDeslocamentosData(),
+                    divulgacao:  getDivulgacaoData(),
+                    complementar: {
+                        ...getComplementarData(),
+                        produtos:      currentImportMeta?.dados_extraidos?.produtos || [],
+                        ficha_tecnica: currentImportMeta?.dados_extraidos?.ficha_tecnica || []
+                    }
+                };
+
+                const resp = await fetch('/api/m2/salvar-revisao-salic', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const out = await resp.json().catch(() => ({}));
+                if (!resp.ok || !out.success) throw new Error(out.error || `Erro ${resp.status}`);
+
+                currentImportMeta = { ...currentImportMeta, status: 'revisado', revisado_em: out.revisado_em };
+                updateFooterInfo(currentImportMeta);
+                showToast('Dados salvos com sucesso!', 'success');
+
+            } catch (err) {
+                console.error('[salvarRevisao]', err);
+                showToast(err.message || 'Erro ao salvar.', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = orig;
+                if (window.lucide) window.lucide.createIcons();
+            }
+        }
+
+        // ─── Reimportar PDF ────────────────────────────────────────────
+        // Não precisa de DB call: o servidor marca o import anterior como
+        // 'substituido' automaticamente ao criar um novo em processar-pdf-salic.
+        function reimportarPdf() {
+            if (!confirm('Isso substituirá os dados atuais importados. Deseja continuar?')) return;
+            currentImportId   = null;
+            currentImportMeta = null;
+            selectedFile      = null;
+            lastImportId      = null;
+            lastFilePath      = null;
+            document.getElementById('pdf-input').value = '';
+            document.getElementById('selected-file').innerHTML = '';
+            document.getElementById('btn-processar').disabled = true;
+            document.getElementById('review-footer').style.display = 'none';
+            document.getElementById('page-subtitle').style.display = '';
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById('tab-etapas').classList.add('active');
+            document.querySelector('.tab-btn').classList.add('active');
+            showState('state-upload');
         }
     </script>
 </body>

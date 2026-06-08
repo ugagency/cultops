@@ -92,6 +92,7 @@ function renderSidebar() {
     // Lista de itens de navegação interna do M2
     const navItems = [
         { label: 'Projetos', icon: 'folder-kanban', path: 'projeto-setup.html' },
+        { label: 'Dados do Projeto', icon: 'file-text', path: 'dados-projeto-salic.html' },
         { label: 'Dashboard', icon: 'layout-dashboard', path: 'financeiro.html' },
         { label: 'Rubricas', icon: 'pie-chart', path: 'rubricas.html' },
         { label: 'Contratos', icon: 'file-text', path: 'contratos.html' },
