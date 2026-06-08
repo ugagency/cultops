@@ -729,6 +729,14 @@
 
         // ============ APPROVE / REJECT ============
 
+        function notificarEvidencia(evidencia_id, novo_status, analista_id) {
+            fetch('/api/m2/evidencia/notificar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ evidencia_id, novo_status, analista_id })
+            }).catch(e => console.warn('[notificar-evidencia]', e.message));
+        }
+
         async function approveEvidence(evidenceId) {
             const sb = await initSupabase();
             const { data: { user } } = await sb.auth.getUser();
@@ -744,6 +752,7 @@
                 showToast('Erro ao aprovar: ' + error.message, 'error');
                 return;
             }
+            notificarEvidencia(evidenceId, 'aprovada', user?.id);
             showToast('Evidência aprovada.', 'success');
             // Realtime cuidará do reload; sem fallback manual
         }
@@ -782,6 +791,7 @@
                 showToast('Erro ao reprovar: ' + error.message, 'error');
                 return;
             }
+            notificarEvidencia(pendingRejectId, 'reprovada', user?.id);
             closeRejectModal();
             showToast('Evidência reprovada.', 'success');
         }
@@ -820,6 +830,7 @@
                 showToast('Erro ao solicitar complemento: ' + error.message, 'error');
                 return;
             }
+            notificarEvidencia(pendingComplementId, 'pendente_complemento', user?.id);
             closeComplementModal();
             showToast('Complemento solicitado.', 'success');
         }

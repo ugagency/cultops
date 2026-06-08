@@ -4,6 +4,107 @@ const cors = require('cors');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 const { executarInsercaoSalic } = require('./salic_insertion.cjs');
+const { Resend } = require('resend');
+
+// ─── Resend ───────────────────────────────────────────────────────────────────
+const resend = process.env.RESEND_API_KEY
+    ? new Resend(process.env.RESEND_API_KEY)
+    : null;
+const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
+
+async function sendEmail({ to, subject, html }) {
+    if (!resend) {
+        console.warn('[Resend] RESEND_API_KEY não configurada — e-mail ignorado.');
+        return false;
+    }
+    try {
+        const { data, error } = await resend.emails.send({ from: FROM_EMAIL, to, subject, html });
+        if (error) { console.error('[Resend] Erro ao enviar:', error); return false; }
+        console.log('[Resend] E-mail enviado:', data.id);
+        return true;
+    } catch (err) {
+        console.error('[Resend] Exceção:', err.message);
+        return false;
+    }
+}
+
+// ─── Templates de e-mail ──────────────────────────────────────────────────────
+function _emailBase(corHeader, titulo, corpo) {
+    return `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#F5F5F5;padding:24px">
+  <div style="background:#1547FF;padding:24px;border-radius:8px 8px 0 0">
+    <h1 style="color:#70FF00;margin:0;font-size:20px">prestaí</h1>
+  </div>
+  <div style="background:#ffffff;padding:24px;border-radius:0 0 8px 8px">
+    <h2 style="color:${corHeader};margin:0 0 16px">${titulo}</h2>
+    ${corpo}
+    <p style="color:#666;font-size:12px;margin:24px 0 0;border-top:1px solid #eee;padding-top:16px">
+      prestaí · Prestação de Contas Inteligente
+    </p>
+  </div>
+</div>`;
+}
+
+function _tabelaEvidencia(rows) {
+    return `<table style="width:100%;border-collapse:collapse;margin:16px 0">${rows.map(([k, v]) =>
+        `<tr><td style="padding:8px;background:#F5F5F5;color:#666;font-size:13px;width:40%">${k}</td>
+             <td style="padding:8px;font-size:13px">${v}</td></tr>`
+    ).join('')}</table>`;
+}
+
+function emailEvidenciaAprovada({ nomeArquivo, nomeProjeto, pronac, aprovadoPor, dataAprovacao }) {
+    const corpo = `<p style="color:#333;margin:0 0 8px">Sua evidência foi analisada e aprovada.</p>
+        ${_tabelaEvidencia([['Arquivo', `<strong>${nomeArquivo}</strong>`], ['Projeto', nomeProjeto], ['PRONAC', pronac], ['Aprovado por', aprovadoPor], ['Data', dataAprovacao]])}`;
+    return {
+        subject: `✅ Evidência aprovada — ${nomeProjeto}`,
+        html: _emailBase('#1547FF', 'Evidência aprovada ✅', corpo)
+    };
+}
+
+function emailEvidenciaReprovada({ nomeArquivo, nomeProjeto, pronac, motivoReprovacao, reprovadoPor, dataReprovacao }) {
+    const bloco = `<div style="background:#fee2e2;padding:12px;border-radius:6px;border-left:4px solid #dc2626;margin:16px 0">
+        <p style="margin:0;color:#991b1b;font-size:13px;font-weight:bold">Motivo da reprovação:</p>
+        <p style="margin:4px 0 0;color:#7f1d1d;font-size:13px">${motivoReprovacao}</p></div>`;
+    const corpo = `<p style="color:#333;margin:0 0 8px">Sua evidência foi analisada e reprovada. Por favor, faça o reenvio com as correções indicadas.</p>
+        ${bloco}${_tabelaEvidencia([['Arquivo', `<strong>${nomeArquivo}</strong>`], ['Projeto', nomeProjeto], ['PRONAC', pronac], ['Reprovado por', reprovadoPor], ['Data', dataReprovacao]])}`;
+    return {
+        subject: `❌ Evidência reprovada — ${nomeProjeto}`,
+        html: _emailBase('#dc2626', 'Evidência reprovada ❌', corpo)
+    };
+}
+
+function emailComplementoSolicitado({ nomeArquivo, nomeProjeto, pronac, descricaoComplemento }) {
+    const bloco = `<div style="background:#fef9c3;padding:12px;border-radius:6px;border-left:4px solid #d97706;margin:16px 0">
+        <p style="margin:0;color:#854d0e;font-size:13px;font-weight:bold">O que precisa ser complementado:</p>
+        <p style="margin:4px 0 0;color:#713f12;font-size:13px">${descricaoComplemento}</p></div>`;
+    const corpo = `<p style="color:#333;margin:0 0 8px">O analista solicitou informações adicionais para sua evidência.</p>
+        ${bloco}${_tabelaEvidencia([['Arquivo', `<strong>${nomeArquivo}</strong>`], ['Projeto', nomeProjeto], ['PRONAC', pronac]])}`;
+    return {
+        subject: `⚠️ Complemento solicitado — ${nomeProjeto}`,
+        html: _emailBase('#d97706', 'Complemento solicitado ⚠️', corpo)
+    };
+}
+
+function emailAlertaGuiaVencendo({ nomeProjeto, pronac, guias }) {
+    const linhas = guias.map(g => `<tr>
+        <td style="padding:8px;font-size:13px">${g.tipo_imposto}</td>
+        <td style="padding:8px;font-size:13px">${g.competencia}</td>
+        <td style="padding:8px;font-size:13px;font-weight:bold">R$ ${Number(g.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+        <td style="padding:8px;font-size:13px;color:#dc2626;font-weight:bold">${new Date(g.data_vencimento).toLocaleDateString('pt-BR')}</td>
+    </tr>`).join('');
+    const tabela = `<table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:13px">
+        <thead><tr style="background:#F5F5F5">
+            <th style="padding:8px;text-align:left;color:#666">Tipo</th>
+            <th style="padding:8px;text-align:left;color:#666">Competência</th>
+            <th style="padding:8px;text-align:left;color:#666">Valor</th>
+            <th style="padding:8px;text-align:left;color:#dc2626">Vencimento</th>
+        </tr></thead><tbody>${linhas}</tbody></table>`;
+    const corpo = `<p style="color:#333;margin:0 0 16px">As seguintes guias de imposto vencem nos próximos 7 dias:</p>${tabela}`;
+    return {
+        subject: `⏰ ${guias.length} guia(s) vencendo em breve — ${nomeProjeto}`,
+        html: _emailBase('#d97706', '⏰ Guias vencendo em 7 dias', corpo)
+    };
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -703,6 +804,127 @@ app.post('/api/m2/gerar-relatorio', async (req, res) => {
     } catch (error) {
         console.error('[REPORT PROXY ERROR]', error);
         res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/m2/evidencia/notificar
+// Chamado pelo frontend (fire-and-forget) após UPDATE em physical_evidences.
+// Busca dados e envia o e-mail adequado ao solicitante.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/api/m2/evidencia/notificar', async (req, res) => {
+    const { evidencia_id, novo_status, analista_id } = req.body || {};
+    if (!evidencia_id || !novo_status) {
+        return res.status(400).json({ error: 'evidencia_id e novo_status são obrigatórios.' });
+    }
+
+    // Responde imediatamente — e-mail é fire-and-forget
+    res.json({ ok: true });
+
+    try {
+        const { data: ev, error: evErr } = await supabase
+            .from('physical_evidences')
+            .select('file_name, motivo_reprovacao, enviado_por, projects(nome, pronac)')
+            .eq('id', evidencia_id)
+            .single();
+        if (evErr || !ev) { console.warn('[notificar-evidencia] evidência não encontrada', evErr); return; }
+
+        const { data: { user: destinatario } } = await supabase.auth.admin.getUserById(ev.enviado_por);
+        if (!destinatario?.email) { console.warn('[notificar-evidencia] sem e-mail para', ev.enviado_por); return; }
+
+        const nomeAnalista = analista_id
+            ? await supabase.auth.admin.getUserById(analista_id)
+                .then(r => r.data?.user?.user_metadata?.name || r.data?.user?.email || 'Analista')
+            : 'Analista';
+
+        const projeto = ev.projects || {};
+        const hoje = new Date().toLocaleDateString('pt-BR');
+
+        let emailData;
+        if (novo_status === 'aprovada') {
+            emailData = emailEvidenciaAprovada({
+                nomeArquivo: ev.file_name, nomeProjeto: projeto.nome, pronac: projeto.pronac,
+                aprovadoPor: nomeAnalista, dataAprovacao: hoje
+            });
+        } else if (novo_status === 'reprovada') {
+            emailData = emailEvidenciaReprovada({
+                nomeArquivo: ev.file_name, nomeProjeto: projeto.nome, pronac: projeto.pronac,
+                motivoReprovacao: ev.motivo_reprovacao || '—',
+                reprovadoPor: nomeAnalista, dataReprovacao: hoje
+            });
+        } else if (novo_status === 'pendente_complemento') {
+            emailData = emailComplementoSolicitado({
+                nomeArquivo: ev.file_name, nomeProjeto: projeto.nome, pronac: projeto.pronac,
+                descricaoComplemento: ev.motivo_reprovacao || '—'
+            });
+        } else {
+            return;
+        }
+
+        await sendEmail({ to: destinatario.email, ...emailData });
+    } catch (err) {
+        console.error('[notificar-evidencia] Erro:', err.message);
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/m2/cron-alerta-guias
+// Chamado diariamente pelo pg_cron às 11h.
+// Envia alertas de guias vencendo em 7 dias aos gestores/analistas.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/api/m2/cron-alerta-guias', async (req, res) => {
+    if (req.headers['x-cron-secret'] !== process.env.CRON_SECRET) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    try {
+        const hoje = new Date().toISOString().split('T')[0];
+        const em7dias = new Date();
+        em7dias.setDate(em7dias.getDate() + 7);
+        const em7diasStr = em7dias.toISOString().split('T')[0];
+
+        const { data: guias, error: guiasErr } = await supabase
+            .from('tax_guides')
+            .select('tipo_imposto, competencia, valor, data_vencimento, projects(id, nome, pronac, organization_id)')
+            .eq('status', 'pendente')
+            .gte('data_vencimento', hoje)
+            .lte('data_vencimento', em7diasStr);
+
+        if (guiasErr) throw guiasErr;
+        if (!guias?.length) return res.json({ enviados: 0, mensagem: 'Nenhuma guia vencendo.' });
+
+        // Agrupar por projeto
+        const porProjeto = {};
+        guias.forEach(g => {
+            const pid = g.projects?.id;
+            if (!pid) return;
+            if (!porProjeto[pid]) porProjeto[pid] = { projeto: g.projects, guias: [] };
+            porProjeto[pid].guias.push(g);
+        });
+
+        let totalEnviados = 0;
+        for (const { projeto, guias: guiasProjeto } of Object.values(porProjeto)) {
+            const { data: orgUsers } = await supabase
+                .from('organization_users')
+                .select('user_id')
+                .eq('organization_id', projeto.organization_id)
+                .in('role', ['gestor', 'analista', 'admin']);
+
+            for (const ou of orgUsers || []) {
+                const { data: { user } } = await supabase.auth.admin.getUserById(ou.user_id);
+                if (!user?.email) continue;
+                const emailData = emailAlertaGuiaVencendo({
+                    nomeProjeto: projeto.nome, pronac: projeto.pronac, guias: guiasProjeto
+                });
+                await sendEmail({ to: user.email, ...emailData });
+                totalEnviados++;
+            }
+        }
+
+        res.json({ enviados: totalEnviados });
+    } catch (err) {
+        console.error('[cron-alerta-guias] Erro:', err.message);
+        res.status(500).json({ error: err.message });
     }
 });
 
