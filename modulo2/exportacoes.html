@@ -992,33 +992,19 @@
             btn.disabled = marcados === 0 || !currentProjectId;
         }
 
-        // Busca NFs direto no bucket 'documentos', sem depender de file_path no DB.
-        // O M1 armazena arquivos em documentos/{project_id}/arquivo — sem gravar o path na tabela documents.
-        async function listarNFsBucket(pid) {
-            const { data, error } = await sbClient.storage
-                .from('documentos')
-                .list(pid, { limit: 1000, sortBy: { column: 'name', order: 'asc' } });
-            if (error) {
-                console.warn('[listarNFsBucket]', error.message);
-                return [];
-            }
-            // Filtra apenas arquivos (id !== null) e exclui entradas de pasta
-            return (data || [])
-                .filter(f => f.id && f.name && !f.name.endsWith('/'))
-                .map(f => ({
-                    file_path: `${pid}/${f.name}`,
-                    name: f.name,
-                    mime_type: (f.metadata && f.metadata.mimetype) || null
-                }));
-        }
-
         async function buscarArquivosZIP(tipo, pid) {
             if (tipo === 'nfs') {
-                const arquivos = await listarNFsBucket(pid);
-                return arquivos.map(f => ({
+                const { data, error } = await sbClient
+                    .from('documents')
+                    .select('file_path, name')
+                    .eq('project_id', pid)
+                    .not('file_path', 'is', null)
+                    .order('created_at', { ascending: true });
+                if (error) throw error;
+                return (data || []).map(d => ({
                     tipo, bucket: ZIP_BUCKETS.nfs,
-                    file_path: f.file_path,
-                    file_name: f.name
+                    file_path: d.file_path,
+                    file_name: d.name || 'documento'
                 }));
             }
             if (tipo === 'contratos') {
@@ -1650,8 +1636,10 @@
 
             const pid = currentProjectId;
             try {
-                const [nfs, contratosRes, guiasRes, evidenciasRes, relatorioRes] = await Promise.all([
-                    listarNFsBucket(pid),
+                const [nfsRes, contratosRes, guiasRes, evidenciasRes, relatorioRes] = await Promise.all([
+                    sbClient.from('documents').select('id, file_path, name, mime_type')
+                        .eq('project_id', pid)
+                        .not('file_path', 'is', null),
                     sbClient.from('contracts').select('id, arquivo_path, numero')
                         .eq('project_id', pid).not('arquivo_path', 'is', null),
                     sbClient.from('tax_guides').select('id, arquivo_guia_path, tipo_imposto')
@@ -1665,7 +1653,7 @@
                         .order('versao', { ascending: false }).limit(1)
                 ]);
 
-                // nfs já é array (listarNFsBucket retorna direto)
+                const nfs = nfsRes.data || [];
                 const contratos = contratosRes.data || [];
                 const guias = guiasRes.data || [];
                 const evidencias = evidenciasRes.data || [];
