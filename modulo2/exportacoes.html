@@ -1142,7 +1142,7 @@
                     try {
                         const { data, error } = await sbClient.storage
                             .from(item.bucket)
-                            .download(item.file_path);
+                            .download((item.file_path || '').trim());
                         if (error || !data) {
                             falhas++;
                             console.warn('[ZIP download falhou]', item.bucket, item.file_path, error);
@@ -1638,9 +1638,8 @@
             try {
                 const [nfsRes, contratosRes, guiasRes, evidenciasRes, relatorioRes] = await Promise.all([
                     sbClient.from('documents')
-                        .select('id, file_path, mime_type, name, valor, data_pagamento, fornecedor_nome, status, numero_nf')
+                        .select('id, file_path, name')
                         .eq('project_id', pid)
-                        .in('status', ['aprovado','concluido','liberado_rpa','aguardando_d3','enviado_salic'])
                         .not('file_path', 'is', null),
                     sbClient.from('contracts').select('id, arquivo_path, numero')
                         .eq('project_id', pid).not('arquivo_path', 'is', null),
