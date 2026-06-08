@@ -1637,8 +1637,10 @@
             const pid = currentProjectId;
             try {
                 const [nfsRes, contratosRes, guiasRes, evidenciasRes, relatorioRes] = await Promise.all([
-                    sbClient.from('documents').select('id, file_path, name, mime_type')
+                    sbClient.from('documents')
+                        .select('id, file_path, mime_type, name, valor, data_pagamento, fornecedor_nome, status, numero_nf')
                         .eq('project_id', pid)
+                        .in('status', ['aprovado','concluido','liberado_rpa','aguardando_d3','enviado_salic'])
                         .not('file_path', 'is', null),
                     sbClient.from('contracts').select('id, arquivo_path, numero')
                         .eq('project_id', pid).not('arquivo_path', 'is', null),
@@ -1730,7 +1732,7 @@
 
         async function _mesclarArquivo(rawPath, nome, bucket, pdfFinal, fontBold, font) {
             const { PDFDocument, rgb } = PDFLib;
-            const cleanPath = _cleanStoragePath(rawPath);
+            const cleanPath = _cleanStoragePath((rawPath || '').trim());
 
             const { data: urlData, error: urlErr } = await sbClient.storage.from(bucket).createSignedUrl(cleanPath, 3600);
             if (urlErr || !urlData) throw new Error('URL falhou: ' + (urlErr?.message || 'sem dados'));
