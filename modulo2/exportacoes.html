@@ -1753,10 +1753,8 @@
                 } catch (e) {
                     throw new Error('PDF inválido ou criptografado: ' + e.message);
                 }
-                const pages = await pdfFinal.copyPagesFrom(
-                    extDoc,
-                    Array.from({ length: extDoc.getPageCount() }, (_, i) => i)
-                );
+                const indices = Array.from({ length: extDoc.getPageCount() }, (_, i) => i);
+                const pages = await pdfFinal.copyPages(extDoc, indices);
                 pages.forEach(p => pdfFinal.addPage(p));
             } else if (isPng || isJpg) {
                 const page = pdfFinal.addPage([595, 842]);
