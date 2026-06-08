@@ -78,6 +78,113 @@ window.alert = (message) => {
     console.log("Alert interceptado:", message);
 };
 
+// ─── IN 23/2025 — helpers ────────────────────────────────────────────────────
+
+function categorizeRubrica(r) {
+    if (r.categoria) return r.categoria;
+    const texto = ((r.nome || '') + ' ' + (r.codigo || '')).toLowerCase();
+    if (texto.includes('proponente'))                                   return 'proponente';
+    if (texto.includes('administr'))                                    return 'administracao';
+    if (texto.includes('divulg') || texto.includes('comunic') || texto.includes('acessib')) return 'divulgacao';
+    if (texto.includes('capta')  || texto.includes('remunera'))         return 'captacao';
+    return 'outros';
+}
+
+function calcularRegrasIN23(rubricas, valorProjeto, valorCaptado, documentos) {
+    const totais = { captacao: 0, divulgacao: 0, administracao: 0, proponente: 0 };
+    (rubricas || []).forEach(r => {
+        const cat = categorizeRubrica(r);
+        if (totais[cat] !== undefined) totais[cat] += Number(r.valor_utilizado) || 0;
+    });
+
+    const regras = [
+        { id: 'R001', tipo: 'erro',  label: 'Remuneração de Captação',                       executado: totais.captacao,      limite: Math.min((valorProjeto || 0) * 0.10, 150000) },
+        { id: 'R002', tipo: 'erro',  label: 'Divulgação / Comunicação / Acessibilidade',      executado: totais.divulgacao,    limite: (valorProjeto || 0) * 0.20 },
+        { id: 'R003', tipo: 'erro',  label: 'Custos de Administração',                        executado: totais.administracao, limite: (valorProjeto || 0) * 0.15 },
+        { id: 'R004', tipo: 'aviso', label: 'Remuneração do Proponente',                      executado: totais.proponente,    limite: (valorCaptado  || 0) * 0.20 },
+    ];
+
+    regras.forEach(r => {
+        r.percentual = r.limite > 0 ? Math.round((r.executado / r.limite) * 100) : 0;
+        r.status = r.percentual >= 100 ? 'excedido' : r.percentual >= 80 ? 'atencao' : 'ok';
+    });
+
+    if (valorCaptado > 0 && (documentos || []).length > 0) {
+        const porFornecedor = {};
+        documentos.forEach(d => {
+            const chave = d.cnpj_emissor || d.nome_emissor || 'desconhecido';
+            porFornecedor[chave] = (porFornecedor[chave] || 0) + (Number(d.valor) || 0);
+        });
+        const limite = valorCaptado * 0.30;
+        const lista = Object.entries(porFornecedor)
+            .map(([nome, total]) => ({ nome, total, percentual: Math.round((total / valorCaptado) * 100), status: total > limite ? 'excedido' : 'ok' }))
+            .sort((a, b) => b.total - a.total);
+        regras.push({
+            id: 'R005', tipo: 'aviso', label: 'Concentração por Fornecedor (> 30% do captado)',
+            fornecedores: lista, excedidos: lista.filter(f => f.status === 'excedido'),
+            status: lista.some(f => f.status === 'excedido') ? 'excedido' : 'ok',
+        });
+    }
+    return regras;
+}
+
+function renderIN23(rubricas, valorProjeto, valorCaptado, documentos) {
+    const regras = calcularRegrasIN23(rubricas, valorProjeto, valorCaptado, documentos);
+
+    const container = document.createElement('div');
+    container.id = 'painel-in23';
+    container.style.cssText = 'margin:16px 0;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden';
+
+    const header = document.createElement('div');
+    header.style.cssText = 'background:#1A3A5C;color:white;padding:12px 16px;font-weight:600;font-size:14px';
+    header.textContent = 'Conformidade IN 23/2025';
+    container.appendChild(header);
+
+    const body = document.createElement('div');
+    body.style.padding = '12px 16px';
+
+    regras.filter(r => r.id !== 'R005').forEach(r => {
+        const cor = r.status === 'excedido' ? '#ef4444' : r.status === 'atencao' ? '#f59e0b' : '#22c55e';
+        const row = document.createElement('div');
+        row.style.marginBottom = '12px';
+        row.innerHTML = `
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
+            <span>${r.label} <span style="font-size:10px;color:#94a3b8">(${r.tipo === 'erro' ? 'limite obrigatório' : 'limite recomendado'})</span></span>
+            <span style="color:${cor};font-weight:600">${r.percentual}% ${r.status === 'excedido' ? '⚠️' : ''}</span>
+          </div>
+          <div style="background:#f1f5f9;border-radius:4px;height:8px;overflow:hidden">
+            <div style="background:${cor};width:${Math.min(r.percentual, 100)}%;height:100%;transition:width 0.3s"></div>
+          </div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:2px">
+            R$ ${r.executado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} de R$ ${r.limite.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </div>`;
+        body.appendChild(row);
+    });
+
+    const r5 = regras.find(r => r.id === 'R005');
+    if (r5?.excedidos?.length > 0) {
+        const aviso = document.createElement('div');
+        aviso.style.cssText = 'background:#fef3c7;border-left:3px solid #f59e0b;padding:8px 12px;font-size:12px;margin-top:8px;border-radius:0 4px 4px 0';
+        aviso.innerHTML = '<strong>⚠️ Fornecedor acima de 30% do captado:</strong><br>' +
+            r5.excedidos.map(f => `${f.nome}: ${f.percentual}% (R$ ${f.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`).join('<br>');
+        body.appendChild(aviso);
+    }
+
+    container.appendChild(body);
+    return container;
+}
+
+function mountIN23Panel() {
+    const mount = document.getElementById('in23-panel-mount');
+    if (!mount || !state.in23ProjectFinanceiro) return;
+    const vProjeto = parseFloat(state.in23ProjectFinanceiro.valor_aprovado) || 0;
+    const vCaptado = parseFloat(state.in23ProjectFinanceiro.valor_captado)  || 0;
+    const panel = renderIN23(state.rubricas, vProjeto, vCaptado, state.in23DocumentosConferidos || []);
+    mount.innerHTML = '';
+    mount.appendChild(panel);
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 const isSolicitanteMode = window.location.pathname.includes('solicitante') || window.location.hash.includes('solicitante') || window.location.search.includes('solicitante');
 
 const state = {
@@ -117,7 +224,9 @@ const state = {
     salicLoteQueue: [],          // [{id, name, status, error, project_name}]
     salicLoteRunning: false,
     salicLoteCancelled: false,
-    salicLoteProgress: { current: 0, total: 0 }
+    salicLoteProgress: { current: 0, total: 0 },
+    in23ProjectFinanceiro: null,
+    in23DocumentosConferidos: []
 };
 
 function getUserRole() {
@@ -2982,6 +3091,7 @@ const OrcamentoView = () => {
                     ${instructionsAndUpload}
                     ${progressContent}
                     ${rubricasContent}
+                    <div id="in23-panel-mount"></div>
                 </div>
             `}
         </main>
@@ -3082,6 +3192,12 @@ window.navigate = async function (view, id = null) {
         if (state.filters.project) {
             await fetchRubricas(state.filters.project);
             await fetchRubricaVersions(state.filters.project);
+            const [{ data: projFin }, { data: docsConf }] = await Promise.all([
+                supabaseClient.from('projects').select('valor_aprovado, valor_captado').eq('id', state.filters.project).single(),
+                supabaseClient.from('documents').select('nome_emissor, cnpj_emissor, valor').eq('project_id', state.filters.project).in('status', ['liberado_rpa_airtop', 'enviado_salic', 'concluido'])
+            ]);
+            state.in23ProjectFinanceiro = projFin || null;
+            state.in23DocumentosConferidos = docsConf || [];
         }
     } else if (view === 'details' && id) {
         await fetchDocumentDetails(id);
@@ -3101,6 +3217,7 @@ window.navigate = async function (view, id = null) {
     }
 
     render();
+    if (view === 'orcamento' || view === 'financeiro') mountIN23Panel();
     window.scrollTo(0, 0);
 };
 
@@ -4819,6 +4936,33 @@ window.handleEnviarSalic = async function (documentId) {
 
         // 1. Atualizar Status para processando ou mantendo em fila
         // (O n8n vai mudar para 'enviado_salic' ou 'erro_rpa')
+
+        // Validação IN 23/2025 antes do envio ao SALIC
+        const [
+            { data: rubricasProjeto },
+            { data: projFinanc },
+            { data: docsConferidos },
+        ] = await Promise.all([
+            supabaseClient.from('rubricas').select('nome, codigo, categoria, valor_utilizado').eq('project_id', doc.project_id),
+            supabaseClient.from('projects').select('valor_aprovado, valor_captado').eq('id', doc.project_id).single(),
+            supabaseClient.from('documents').select('nome_emissor, cnpj_emissor, valor').eq('project_id', doc.project_id).in('status', ['liberado_rpa_airtop', 'enviado_salic', 'concluido']),
+        ]);
+
+        const vProjeto = parseFloat(projFinanc?.valor_aprovado) || 0;
+        const vCaptado = parseFloat(projFinanc?.valor_captado)  || 0;
+        const regrasIN23 = calcularRegrasIN23(rubricasProjeto, vProjeto, vCaptado, docsConferidos);
+
+        const errosIN23 = regrasIN23.filter(r => ['R001', 'R002', 'R003'].includes(r.id) && r.status === 'excedido');
+        if (errosIN23.length > 0) {
+            const msgs = errosIN23.map(r => `${r.label} (${r.percentual}% do limite)`).join('; ');
+            showToast(`Envio bloqueado — IN 23/2025: ${msgs}`, 'error');
+            return;
+        }
+
+        const avisosIN23 = regrasIN23.filter(r => ['R004', 'R005'].includes(r.id) && r.status === 'excedido');
+        if (avisosIN23.length > 0) {
+            showToast(`Atenção IN 23/2025: ${avisosIN23.map(r => r.label).join(', ')} acima do recomendado`, 'warning');
+        }
 
         // 2. Notificar API local para Inserção no SALIC
         console.log(`[RPA] Disparando envio para o servidor local: ${CONFIG.SALIC_API_URL}...`);
