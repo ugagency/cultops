@@ -228,7 +228,8 @@ const state = {
     in23ProjectFinanceiro: null,
     in23DocumentosConferidos: [],
     juntarPdfFiles: [],
-    juntarPdfLoading: false
+    juntarPdfLoading: false,
+    juntarPdfInModal: false
 };
 
 function getUserRole() {
@@ -1109,6 +1110,12 @@ ${Sidebar()}
                         <p class="text-xs" style="color: var(--text-muted); margin-top: 0.5rem;">Apenas arquivos PDF são aceitos.</p>
                 </div>
 
+                <div style="text-align: center; margin-top: 8px;">
+                    <button onclick="window.openFerramentasModal()"
+                        style="background: none; border: none; cursor: pointer; color: #64748b; font-size: 12px; text-decoration: underline; padding: 4px 8px;">
+                        🔧 Precisa juntar arquivos antes de subir? Clique aqui
+                    </button>
+                </div>
 
                 ${state.loading ? `<p class="text-xs mt-4" style="color: var(--primary); text-align: center;">Enviando arquivo, aguarde...</p>` : ''}
             </div>
@@ -5204,24 +5211,8 @@ ${Sidebar()}
 </main>
 `;
 
-const JuntarPDFView = () => `
-${Sidebar()}
-<main class="main-content view-content">
-    <header class="content-header">
-        <div style="display: flex; align-items: center; gap: 1rem;">
-            <button class="btn btn-secondary" onclick="window.navigate('ferramentas')" style="padding: 0.5rem;">
-                <i data-lucide="arrow-left" style="width: 18px;"></i>
-            </button>
-            <div>
-                <p class="text-xs" style="color: var(--text-muted); margin-bottom: 0.25rem;">
-                    <span onclick="window.navigate('ferramentas')" style="cursor: pointer; color: var(--primary);">Ferramentas</span>
-                    &rsaquo; Juntar PDF
-                </p>
-                <h1>Juntar arquivos em PDF</h1>
-            </div>
-        </div>
-    </header>
-
+function juntarPDFBodyHTML() {
+    return `
     <div id="juntar-drop-zone"
          style="border: 2px dashed var(--border-color); border-radius: var(--radius); padding: 3rem 2rem; text-align: center; cursor: pointer; transition: border-color 0.2s, background 0.2s; background: var(--bg-card); margin-bottom: 1.5rem;"
          ondragover="event.preventDefault(); this.style.borderColor='var(--primary)'; this.style.background='#eff6ff';"
@@ -5243,7 +5234,6 @@ ${Sidebar()}
         <div id="juntar-pdf-list">
             ${state.juntarPdfFiles.map((file, i) => {
                 const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
-                const isImg = !isPdf;
                 const icon = isPdf ? 'file-text' : 'image';
                 const iconColor = isPdf ? 'var(--primary)' : '#f59e0b';
                 const size = file.size < 1024 * 1024
@@ -5281,10 +5271,122 @@ ${Sidebar()}
         </button>
     </div>
     ` : ''}
+    `;
+}
+
+const JuntarPDFView = () => `
+${Sidebar()}
+<main class="main-content view-content">
+    <header class="content-header">
+        <div style="display: flex; align-items: center; gap: 1rem;">
+            <button class="btn btn-secondary" onclick="window.navigate('ferramentas')" style="padding: 0.5rem;">
+                <i data-lucide="arrow-left" style="width: 18px;"></i>
+            </button>
+            <div>
+                <p class="text-xs" style="color: var(--text-muted); margin-bottom: 0.25rem;">
+                    <span onclick="window.navigate('ferramentas')" style="cursor: pointer; color: var(--primary);">Ferramentas</span>
+                    &rsaquo; Juntar PDF
+                </p>
+                <h1>Juntar arquivos em PDF</h1>
+            </div>
+        </div>
+    </header>
+
+    ${juntarPDFBodyHTML()}
 </main>
 `;
 
 // ─── Ferramentas — handlers ───────────────────────────────────────────────────
+
+function refreshJuntarPdfView() {
+    if (state.juntarPdfInModal) {
+        const content = document.getElementById('juntar-pdf-modal-content');
+        if (content) {
+            content.innerHTML = juntarPDFBodyHTML();
+            if (window.lucide) window.lucide.createIcons();
+        }
+    } else {
+        render();
+    }
+}
+
+function closeFerramentasModal() {
+    document.getElementById('ferramentas-modal-overlay')?.remove();
+    state.juntarPdfInModal = false;
+}
+
+window.openFerramentasModal = function () {
+    state.juntarPdfInModal = true;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'ferramentas-modal-overlay';
+    overlay.style.cssText = [
+        'position: fixed',
+        'inset: 0',
+        'background: rgba(0,0,0,0.5)',
+        'z-index: 1000',
+        'display: flex',
+        'align-items: center',
+        'justify-content: center',
+        'padding: 16px',
+    ].join(';');
+
+    const modal = document.createElement('div');
+    modal.style.cssText = [
+        'background: white',
+        'border-radius: 12px',
+        'width: 100%',
+        'max-width: 680px',
+        'max-height: 90vh',
+        'overflow-y: auto',
+        'display: flex',
+        'flex-direction: column',
+    ].join(';');
+
+    const header = document.createElement('div');
+    header.style.cssText = [
+        'display: flex',
+        'justify-content: space-between',
+        'align-items: center',
+        'padding: 16px 20px',
+        'border-bottom: 1px solid #e2e8f0',
+        'position: sticky',
+        'top: 0',
+        'background: white',
+        'z-index: 1',
+    ].join(';');
+    header.innerHTML = `
+        <div>
+            <span style="font-weight:600;font-size:16px">🔧 Juntar arquivos em PDF</span>
+            <div style="font-size:12px;color:#94a3b8;margin-top:2px">Após gerar o PDF, feche este painel e faça o upload normalmente</div>
+        </div>
+        <button onclick="closeFerramentasModal()"
+            style="background:none;border:none;cursor:pointer;font-size:20px;color:#94a3b8;padding:4px 8px;border-radius:4px">✕</button>
+    `;
+
+    const content = document.createElement('div');
+    content.id = 'juntar-pdf-modal-content';
+    content.style.cssText = 'padding: 20px; flex: 1;';
+    content.innerHTML = juntarPDFBodyHTML();
+
+    modal.appendChild(header);
+    modal.appendChild(content);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    if (window.lucide) window.lucide.createIcons();
+
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) closeFerramentasModal();
+    });
+
+    document.addEventListener('keydown', function onEsc(e) {
+        if (e.key === 'Escape') {
+            closeFerramentasModal();
+            document.removeEventListener('keydown', onEsc);
+        }
+    });
+};
 
 window.handleJuntarPdfDrop = function (event) {
     window.handleJuntarPdfAddFiles(Array.from(event.dataTransfer.files));
@@ -5323,17 +5425,17 @@ window.handleJuntarPdfAddFiles = function (files) {
         }
         state.juntarPdfFiles.push(file);
     }
-    render();
+    refreshJuntarPdfView();
 };
 
 window.handleJuntarPdfRemove = function (index) {
     state.juntarPdfFiles.splice(index, 1);
-    render();
+    refreshJuntarPdfView();
 };
 
 window.handleJuntarPdfLimpar = function () {
     state.juntarPdfFiles = [];
-    render();
+    refreshJuntarPdfView();
 };
 
 window._juntarDragIndex = null;
@@ -5349,7 +5451,7 @@ window.juntarPdfDropReorder = function (event, targetIndex) {
     const [moved] = state.juntarPdfFiles.splice(fromIndex, 1);
     state.juntarPdfFiles.splice(targetIndex, 0, moved);
     window._juntarDragIndex = null;
-    render();
+    refreshJuntarPdfView();
 };
 
 window.juntarPdfDragEnd = function () {
@@ -5367,7 +5469,7 @@ window.handleGerarPDFUnificado = async function () {
         return;
     }
     state.juntarPdfLoading = true;
-    render();
+    refreshJuntarPdfView();
     try {
         const bytes = await gerarPDFUnificado(state.juntarPdfFiles);
         const blob = new Blob([bytes], { type: 'application/pdf' });
@@ -5383,7 +5485,7 @@ window.handleGerarPDFUnificado = async function () {
         window.showToast('Erro ao gerar PDF: ' + err.message, 'error');
     } finally {
         state.juntarPdfLoading = false;
-        render();
+        refreshJuntarPdfView();
     }
 };
 
