@@ -226,7 +226,9 @@ const state = {
     salicLoteCancelled: false,
     salicLoteProgress: { current: 0, total: 0 },
     in23ProjectFinanceiro: null,
-    in23DocumentosConferidos: []
+    in23DocumentosConferidos: [],
+    juntarPdfFiles: [],
+    juntarPdfLoading: false
 };
 
 function getUserRole() {
@@ -357,6 +359,12 @@ const Sidebar = () => `
             <i data-lucide="settings"></i>
             <span>Configurações</span>
         </a>
+        ${userIsGestorOrAbove() ? `
+        <a class="nav-item ${['ferramentas', 'ferramentas_juntar_pdf'].includes(state.currentView) ? 'active' : ''}" onclick="window.navigate('ferramentas')">
+            <i data-lucide="wrench"></i>
+            <span>Ferramentas</span>
+        </a>
+        ` : ''}
         ${userCanDelete() ? `
         <a class="nav-item ${state.currentView === 'equipe' ? 'active' : ''}" onclick="window.navigate('equipe')">
             <i data-lucide="user-cog"></i>
@@ -3214,6 +3222,11 @@ window.navigate = async function (view, id = null) {
             return;
         }
         await fetchEquipe();
+    } else if (view === 'ferramentas' || view === 'ferramentas_juntar_pdf') {
+        if (!userIsGestorOrAbove()) {
+            showToast('Acesso restrito a gestores e administradores.', 'error');
+            return;
+        }
     }
 
     render();
@@ -5161,6 +5174,259 @@ ${Sidebar()}
 `;
 
 
+// ─── Ferramentas ─────────────────────────────────────────────────────────────
+
+const FerramentasView = () => `
+${Sidebar()}
+<main class="main-content view-content">
+    <header class="content-header">
+        <h1>Ferramentas</h1>
+        <p class="page-subtitle">Utilitários para facilitar seu trabalho no Prestaí.</p>
+    </header>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1.5rem;">
+        <div class="card" style="cursor: pointer; transition: box-shadow 0.2s;" onclick="window.navigate('ferramentas_juntar_pdf')">
+            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                <div style="width: 48px; height: 48px; background: #eff6ff; border-radius: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                    <i data-lucide="file-stack" style="width: 24px; height: 24px; color: var(--primary);"></i>
+                </div>
+                <div>
+                    <h3 class="h2">Juntar arquivos</h3>
+                    <p class="text-xs" style="color: var(--text-muted);">PDF, PNG e JPG em um único PDF</p>
+                </div>
+            </div>
+            <p class="text-sm" style="color: var(--text-secondary); margin-bottom: 1.5rem;">Combine múltiplos arquivos PDF, PNG e JPG em um único PDF, direto no navegador — sem servidor.</p>
+            <button class="btn btn-primary" style="width: 100%;" onclick="event.stopPropagation(); window.navigate('ferramentas_juntar_pdf')">
+                Abrir ferramenta
+            </button>
+        </div>
+    </div>
+</main>
+`;
+
+const JuntarPDFView = () => `
+${Sidebar()}
+<main class="main-content view-content">
+    <header class="content-header">
+        <div style="display: flex; align-items: center; gap: 1rem;">
+            <button class="btn btn-secondary" onclick="window.navigate('ferramentas')" style="padding: 0.5rem;">
+                <i data-lucide="arrow-left" style="width: 18px;"></i>
+            </button>
+            <div>
+                <p class="text-xs" style="color: var(--text-muted); margin-bottom: 0.25rem;">
+                    <span onclick="window.navigate('ferramentas')" style="cursor: pointer; color: var(--primary);">Ferramentas</span>
+                    &rsaquo; Juntar PDF
+                </p>
+                <h1>Juntar arquivos em PDF</h1>
+            </div>
+        </div>
+    </header>
+
+    <div id="juntar-drop-zone"
+         style="border: 2px dashed var(--border-color); border-radius: var(--radius); padding: 3rem 2rem; text-align: center; cursor: pointer; transition: border-color 0.2s, background 0.2s; background: var(--bg-card); margin-bottom: 1.5rem;"
+         ondragover="event.preventDefault(); this.style.borderColor='var(--primary)'; this.style.background='#eff6ff';"
+         ondragleave="this.style.borderColor=''; this.style.background='';"
+         ondrop="event.preventDefault(); this.style.borderColor=''; this.style.background=''; window.handleJuntarPdfDrop(event);"
+         onclick="window.handleJuntarPdfSelectFiles()">
+        <i data-lucide="upload-cloud" style="width: 48px; height: 48px; color: var(--primary); margin-bottom: 1rem;"></i>
+        <p style="font-weight: 600; margin-bottom: 0.5rem;">Arraste arquivos aqui ou clique para selecionar</p>
+        <p class="text-xs" style="color: var(--text-muted);">Aceita: PDF, PNG, JPG, JPEG &bull; Máximo 10 MB por arquivo &bull; Até 20 arquivos</p>
+    </div>
+    <input type="file" id="juntar-pdf-input" multiple accept=".pdf,.png,.jpg,.jpeg" style="display: none;" onchange="window.handleJuntarPdfInputChange(event)">
+
+    ${state.juntarPdfFiles.length > 0 ? `
+    <div class="card" style="margin-bottom: 1.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3 class="h2">${state.juntarPdfFiles.length} arquivo${state.juntarPdfFiles.length !== 1 ? 's' : ''} adicionado${state.juntarPdfFiles.length !== 1 ? 's' : ''}</h3>
+            <p class="text-xs" style="color: var(--text-muted);">Arraste as linhas para reordenar</p>
+        </div>
+        <div id="juntar-pdf-list">
+            ${state.juntarPdfFiles.map((file, i) => {
+                const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+                const isImg = !isPdf;
+                const icon = isPdf ? 'file-text' : 'image';
+                const iconColor = isPdf ? 'var(--primary)' : '#f59e0b';
+                const size = file.size < 1024 * 1024
+                    ? (file.size / 1024).toFixed(1) + ' KB'
+                    : (file.size / (1024 * 1024)).toFixed(1) + ' MB';
+                return `<div class="juntar-pdf-item"
+                     draggable="true"
+                     ondragstart="window.juntarPdfDragStart(event, ${i})"
+                     ondragover="event.preventDefault(); document.querySelectorAll('.juntar-pdf-item').forEach((el,idx)=>{ el.style.background = idx===${i} ? 'var(--bg-sidebar)' : ''; });"
+                     ondragleave="this.style.background='';"
+                     ondrop="event.preventDefault(); document.querySelectorAll('.juntar-pdf-item').forEach(el=>el.style.background=''); window.juntarPdfDropReorder(event, ${i});"
+                     ondragend="window.juntarPdfDragEnd();"
+                     style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; border-bottom: 1px solid var(--border-subtle); cursor: grab; transition: background 0.15s; user-select: none;">
+                    <i data-lucide="grip-vertical" style="width: 16px; color: var(--text-muted); flex-shrink: 0;"></i>
+                    <i data-lucide="${icon}" style="width: 18px; color: ${iconColor}; flex-shrink: 0;"></i>
+                    <span style="flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${file.name}">${file.name}</span>
+                    <span class="text-xs" style="color: var(--text-muted); flex-shrink: 0;">${size}</span>
+                    <button class="btn btn-secondary" style="padding: 4px 8px; flex-shrink: 0; color: var(--error);" onclick="window.handleJuntarPdfRemove(${i})">
+                        <i data-lucide="x" style="width: 14px;"></i>
+                    </button>
+                </div>`;
+            }).join('')}
+        </div>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <button class="btn btn-secondary" onclick="window.handleJuntarPdfLimpar()">
+            <i data-lucide="trash-2" style="width: 16px;"></i>
+            Limpar tudo
+        </button>
+        <button class="btn btn-primary" onclick="window.handleGerarPDFUnificado()" ${state.juntarPdfFiles.length < 2 || state.juntarPdfLoading ? 'disabled' : ''} style="${state.juntarPdfLoading ? 'opacity: 0.75;' : ''}">
+            ${state.juntarPdfLoading
+                ? '<i data-lucide="loader" style="width: 16px;"></i>&nbsp;Gerando PDF...'
+                : '<i data-lucide="download" style="width: 16px;"></i>&nbsp;Gerar PDF único'}
+        </button>
+    </div>
+    ` : ''}
+</main>
+`;
+
+// ─── Ferramentas — handlers ───────────────────────────────────────────────────
+
+window.handleJuntarPdfDrop = function (event) {
+    window.handleJuntarPdfAddFiles(Array.from(event.dataTransfer.files));
+};
+
+window.handleJuntarPdfSelectFiles = function () {
+    const input = document.getElementById('juntar-pdf-input');
+    if (input) input.click();
+};
+
+window.handleJuntarPdfInputChange = function (event) {
+    window.handleJuntarPdfAddFiles(Array.from(event.target.files));
+    event.target.value = '';
+};
+
+window.handleJuntarPdfAddFiles = function (files) {
+    const TIPOS_ACEITOS = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
+    const EXT_ACEITAS = ['pdf', 'png', 'jpg', 'jpeg'];
+    const MAX_TAMANHO = 10 * 1024 * 1024;
+    const MAX_ARQUIVOS = 20;
+
+    for (const file of files) {
+        const ext = file.name.split('.').pop().toLowerCase();
+        const tipoOk = TIPOS_ACEITOS.includes(file.type) || EXT_ACEITAS.includes(ext);
+        if (!tipoOk) {
+            window.showToast(`Tipo não suportado: use PDF, PNG ou JPG (${file.name})`, 'error');
+            continue;
+        }
+        if (file.size > MAX_TAMANHO) {
+            window.showToast(`Arquivo muito grande (máx 10 MB): ${file.name}`, 'error');
+            continue;
+        }
+        if (state.juntarPdfFiles.length >= MAX_ARQUIVOS) {
+            window.showToast(`Limite de ${MAX_ARQUIVOS} arquivos atingido`, 'warning');
+            break;
+        }
+        state.juntarPdfFiles.push(file);
+    }
+    render();
+};
+
+window.handleJuntarPdfRemove = function (index) {
+    state.juntarPdfFiles.splice(index, 1);
+    render();
+};
+
+window.handleJuntarPdfLimpar = function () {
+    state.juntarPdfFiles = [];
+    render();
+};
+
+window._juntarDragIndex = null;
+
+window.juntarPdfDragStart = function (event, index) {
+    window._juntarDragIndex = index;
+    event.dataTransfer.effectAllowed = 'move';
+};
+
+window.juntarPdfDropReorder = function (event, targetIndex) {
+    const fromIndex = window._juntarDragIndex;
+    if (fromIndex === null || fromIndex === targetIndex) return;
+    const [moved] = state.juntarPdfFiles.splice(fromIndex, 1);
+    state.juntarPdfFiles.splice(targetIndex, 0, moved);
+    window._juntarDragIndex = null;
+    render();
+};
+
+window.juntarPdfDragEnd = function () {
+    window._juntarDragIndex = null;
+    document.querySelectorAll('.juntar-pdf-item').forEach(el => { el.style.background = ''; });
+};
+
+window.handleGerarPDFUnificado = async function () {
+    if (state.juntarPdfFiles.length < 2) {
+        window.showToast('Adicione pelo menos 2 arquivos para gerar o PDF.', 'warning');
+        return;
+    }
+    if (!window.PDFLib) {
+        window.showToast('PDF-lib ainda não carregou. Aguarde um momento e tente novamente.', 'error');
+        return;
+    }
+    state.juntarPdfLoading = true;
+    render();
+    try {
+        const bytes = await gerarPDFUnificado(state.juntarPdfFiles);
+        const blob = new Blob([bytes], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'documentos_unificados.pdf';
+        a.click();
+        URL.revokeObjectURL(url);
+        window.showToast('PDF gerado com sucesso — verifique seus downloads', 'success');
+    } catch (err) {
+        console.error('Erro ao gerar PDF:', err);
+        window.showToast('Erro ao gerar PDF: ' + err.message, 'error');
+    } finally {
+        state.juntarPdfLoading = false;
+        render();
+    }
+};
+
+async function gerarPDFUnificado(arquivos) {
+    const { PDFDocument } = PDFLib;
+    const pdfFinal = await PDFDocument.create();
+
+    for (const arquivo of arquivos) {
+        const arrayBuffer = await arquivo.arrayBuffer();
+        const tipo = arquivo.type || '';
+        const nome = arquivo.name.toLowerCase();
+
+        const isPdf = tipo === 'application/pdf' || nome.endsWith('.pdf');
+        const isPng  = tipo === 'image/png'  || nome.endsWith('.png');
+        const isJpg  = tipo === 'image/jpeg' || tipo === 'image/jpg' || nome.endsWith('.jpg') || nome.endsWith('.jpeg');
+
+        if (isPdf) {
+            const pdfOrigem = await PDFDocument.load(arrayBuffer);
+            const paginas = await pdfFinal.copyPages(pdfOrigem, pdfOrigem.getPageIndices());
+            paginas.forEach(p => pdfFinal.addPage(p));
+        } else if (isPng || isJpg) {
+            const img = isPng
+                ? await pdfFinal.embedPng(arrayBuffer)
+                : await pdfFinal.embedJpg(arrayBuffer);
+
+            const pagina = pdfFinal.addPage([595, 842]);
+            const { width, height } = img.scale(1);
+            const margemH = 40;
+            const margemV = 40;
+            const maxW = 595 - margemH * 2;
+            const maxH = 842 - margemV * 2;
+            const escala = Math.min(maxW / width, maxH / height, 1);
+            const w = width * escala;
+            const h = height * escala;
+            pagina.drawImage(img, { x: (595 - w) / 2, y: (842 - h) / 2, width: w, height: h });
+        }
+    }
+
+    return await pdfFinal.save();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 function render() {
     let content = '';
 
@@ -5241,6 +5507,12 @@ function render() {
             break;
         case 'configuracoes':
             content = ConfiguracoesView();
+            break;
+        case 'ferramentas':
+            content = FerramentasView();
+            break;
+        case 'ferramentas_juntar_pdf':
+            content = JuntarPDFView();
             break;
         default:
             content = LoginView();
