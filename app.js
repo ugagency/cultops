@@ -5259,6 +5259,24 @@ function juntarPDFBodyHTML() {
         </div>
     </div>
 
+    <div style="margin-bottom: 12px;">
+        <label style="display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; color: #374151;">
+            Nome do arquivo gerado
+        </label>
+        <div style="display: flex; align-items: center; gap: 0;">
+            <input
+                type="text"
+                id="juntar-pdf-nome"
+                placeholder="documentos_unificados"
+                value="documentos_unificados"
+                style="flex: 1; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px 0 0 6px; font-size: 14px; outline: none;"
+            />
+            <span style="padding: 8px 10px; background: #f1f5f9; border: 1px solid #e2e8f0; border-left: none; border-radius: 0 6px 6px 0; font-size: 13px; color: #64748b;">
+                .pdf
+            </span>
+        </div>
+    </div>
+
     <div style="display: flex; justify-content: space-between; align-items: center;">
         <button class="btn btn-secondary" onclick="window.handleJuntarPdfLimpar()">
             <i data-lucide="trash-2" style="width: 16px;"></i>
@@ -5476,7 +5494,10 @@ window.handleGerarPDFUnificado = async function () {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'documentos_unificados.pdf';
+        const inputNome = document.getElementById('juntar-pdf-nome');
+        const nomeDigitado = inputNome?.value?.trim() || 'documentos_unificados';
+        const nomeFinal = nomeDigitado.replace(/\.pdf$/i, '');
+        a.download = nomeFinal + '.pdf';
         a.click();
         URL.revokeObjectURL(url);
         window.showToast('PDF gerado com sucesso — verifique seus downloads', 'success');
