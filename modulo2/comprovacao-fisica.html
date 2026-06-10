@@ -337,6 +337,59 @@
             border-radius: 999px;
             color: var(--text-secondary);
         }
+
+        .badge-rubrica {
+            font-size: 0.7rem;
+            padding: 0.2rem 0.6rem;
+            background: #dbeafe;
+            color: #1d4ed8;
+            border-radius: 999px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+        .badge-sem-rubrica {
+            font-size: 0.7rem;
+            padding: 0.2rem 0.6rem;
+            background: #f1f5f9;
+            color: #64748b;
+            border-radius: 999px;
+            font-weight: 500;
+        }
+        .status-enviada_salic { background: #dcfce7; color: #166534; }
+        .status-enviada_salic::before { background: #16a34a; }
+        .status-erro_rpa { background: #fee2e2; color: #991b1b; }
+        .status-erro_rpa::before { background: #dc2626; }
+
+        .char-counter {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-align: right;
+            margin-top: 0.25rem;
+        }
+
+        .btn-salic {
+            flex: 1;
+            padding: 0.5rem;
+            border: none;
+            border-radius: var(--radius-sm);
+            background: #1547FF;
+            color: white;
+            font-weight: 600;
+            font-size: 0.8rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.3rem;
+            transition: all 0.2s;
+        }
+        .btn-salic:disabled {
+            background: #e2e8f0;
+            color: #94a3b8;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body>
@@ -368,6 +421,20 @@
                     <option value="peca_marketing">Peça de Marketing / Clipagem</option>
                     <option value="outros">Outros</option>
                 </select>
+            </div>
+            <div style="margin-bottom: 1rem;">
+                <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.4rem;">Rubrica vinculada</label>
+                <select id="gestor-rubrica" onchange="handleRubricaChange()" style="width: 100%; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white;">
+                    <option value="">— Selecione uma rubrica —</option>
+                </select>
+            </div>
+            <div style="margin-bottom: 1rem;">
+                <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.4rem;">Observações</label>
+                <textarea id="gestor-observacoes" rows="3" maxlength="500"
+                    placeholder="Ex: Registro fotográfico do espetáculo X realizado em DD/MM/AAAA. Comprovação da rubrica de Produção."
+                    oninput="updateCharCounter()"
+                    style="width: 100%; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-family: inherit; resize: vertical; font-size: 0.9rem; box-sizing: border-box;"></textarea>
+                <div class="char-counter" id="obs-char-counter">0/500</div>
             </div>
             <div class="upload-zone" onclick="document.getElementById('file-input').click()">
                 <i data-lucide="image-plus" style="width: 48px; height: 48px; color: var(--m2-accent); margin-bottom: 1rem;"></i>
@@ -448,6 +515,7 @@
         let currentProjectId = ProjectManager.getSelected();
         let allProjects = [];
         let allEvidences = [];
+        let allRubricas = [];
         let signedUrls = {};
         let pendingRejectId = null;
         let pendingComplementId = null;
@@ -461,6 +529,7 @@
             if (currentProjectId) {
                 document.getElementById('project-select').value = currentProjectId;
                 await loadEvidences();
+                await loadRubricas();
                 setupRealtime(currentProjectId);
             }
         });
@@ -491,6 +560,7 @@
             ProjectManager.setSelected(id);
             await teardownRealtime();
             await loadEvidences();
+            await loadRubricas();
             if (id) setupRealtime(id);
         }
 
@@ -519,13 +589,63 @@
                 .subscribe();
         }
 
+        async function loadRubricas() {
+            const select = document.getElementById('gestor-rubrica');
+            select.innerHTML = '<option value="">— Selecione uma rubrica —</option>';
+            allRubricas = [];
+            if (!currentProjectId) return;
+
+            const sb = await initSupabase();
+            const { data, error } = await sb
+                .from('rubricas')
+                .select('id, nome, codigo, valor_aprovado')
+                .eq('project_id', currentProjectId)
+                .order('codigo', { ascending: true });
+
+            if (error) { console.error('[loadRubricas]', error); return; }
+            allRubricas = data || [];
+            allRubricas.forEach(r => {
+                const opt = document.createElement('option');
+                opt.value = r.id;
+                opt.textContent = `${r.codigo || ''} — ${r.nome}`;
+                select.appendChild(opt);
+            });
+        }
+
+        function handleRubricaChange() {
+            const rubricaId = document.getElementById('gestor-rubrica').value;
+            if (!rubricaId) return;
+            const rubrica = allRubricas.find(r => r.id === rubricaId);
+            if (!rubrica) return;
+            const tipoVal = document.getElementById('gestor-tipo-evidencia').value || 'evidência';
+            const tipoLabel = tipoVal.replace(/_/g, ' ');
+            const hoje = new Date().toLocaleDateString('pt-BR');
+            const ta = document.getElementById('gestor-observacoes');
+            ta.value = `Comprovação da rubrica ${rubrica.nome} — ${tipoLabel} de ${hoje}.`;
+            updateCharCounter();
+        }
+
+        function updateCharCounter() {
+            const ta = document.getElementById('gestor-observacoes');
+            const counter = document.getElementById('obs-char-counter');
+            if (ta && counter) counter.textContent = `${ta.value.length}/500`;
+        }
+
         async function loadEvidences() {
             if (!currentProjectId) return;
-            
+
             const sb = await initSupabase();
             const { data, error } = await sb
                 .from('physical_evidences')
-                .select('*')
+                .select(`
+                    *,
+                    rubricas (
+                        id,
+                        nome,
+                        codigo,
+                        valor_aprovado
+                    )
+                `)
                 .eq('project_id', currentProjectId)
                 .order('criado_em', { ascending: false });
 
@@ -590,7 +710,7 @@
                 return;
             }
 
-            container.innerHTML = evidences.map((ev, idx) => {
+            container.innerHTML = evidences.map((ev) => {
                 const scoreClass = ev.ia_score >= 80 ? 'score-high' : (ev.ia_score >= 50 ? 'score-mid' : 'score-low');
                 const isImage = isImageFile(ev.file_path);
                 const url = signedUrls[ev.file_path] || '';
@@ -598,14 +718,17 @@
                     ev.status_validacao === 'aprovada' ? 'Aprovada' :
                     ev.status_validacao === 'reprovada' ? 'Reprovada' :
                     ev.status_validacao === 'pendente_complemento' ? 'Complemento solicitado' :
+                    ev.status_validacao === 'enviada_salic' ? 'Enviada ao SALIC' :
+                    ev.status_validacao === 'erro_rpa' ? 'Erro no envio RPA' :
                     'Pendente';
                 const isReviewable = ev.status_validacao === 'pendente' || ev.status_validacao === 'pendente_complemento';
                 const motivoMsg = ev.motivo_reprovacao || '';
                 const showMotivo = (ev.status_validacao === 'reprovada' || ev.status_validacao === 'pendente_complemento') && motivoMsg;
                 const motivoLabel = ev.status_validacao === 'pendente_complemento' ? 'Complemento solicitado' : 'Motivo';
-                const motivoStyle = ev.status_validacao === 'pendente_complemento'
-                    ? 'background: #FF5807; color: #FFFFFF;'
-                    : 'background: #FF5807; color: #FFFFFF;';
+                const rubrica = ev.rubricas;
+                const descTrunc = ev.descricao
+                    ? (ev.descricao.length > 80 ? ev.descricao.slice(0, 80) + '...' : ev.descricao)
+                    : null;
 
                 return `
                     <div class="glass-card evidence-card" onclick="openFullscreen('${ev.id}')">
@@ -626,9 +749,18 @@
                             ${ev.file_name ? `<span class="meta-tag">${escapeHtml(ev.file_name)}</span>` : ''}
                         </div>
 
-                        <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
-                            ${escapeHtml(ev.descricao || '')}
+                        <div style="margin-bottom: 0.4rem;">
+                            ${rubrica
+                                ? `<span class="badge-rubrica"><i data-lucide="tag" style="width:10px;height:10px;"></i> ${escapeHtml((rubrica.codigo ? rubrica.codigo + ' — ' : '') + rubrica.nome)}</span>`
+                                : `<span class="badge-sem-rubrica">Sem rubrica</span>`
+                            }
                         </div>
+
+                        ${descTrunc ? `
+                        <div style="font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 0.5rem; font-style: italic;"
+                             title="${escapeHtml(ev.descricao)}">
+                            ${escapeHtml(descTrunc)}
+                        </div>` : ''}
 
                         <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
                             <span class="status-badge status-${ev.status_validacao || 'pendente'}">${statusLabel}</span>
@@ -636,7 +768,7 @@
                         </div>
 
                         ${showMotivo ? `
-                            <div style="margin-top: 0.5rem; padding: 0.5rem; border-radius: var(--radius-sm); font-size: 0.75rem; ${motivoStyle}">
+                            <div style="margin-top: 0.5rem; padding: 0.5rem; border-radius: var(--radius-sm); font-size: 0.75rem; background: #FF5807; color: #FFFFFF;">
                                 <strong>${motivoLabel}:</strong> ${escapeHtml(motivoMsg)}
                             </div>
                         ` : ''}
@@ -654,10 +786,30 @@
                                 </button>
                             </div>
                         ` : ''}
+
+                        ${ev.status_validacao === 'aprovada' ? `
+                        <div class="card-actions" onclick="event.stopPropagation()">
+                            <button class="btn-salic"
+                                data-salic-id="${ev.id}"
+                                ${!ev.rubrica_id_fk ? 'disabled title="Vincule uma rubrica antes de enviar"' : `onclick="enviarAoSalic('${ev.id}')"`}>
+                                <i data-lucide="upload" style="width:14px;height:14px;"></i> Enviar ao SALIC
+                            </button>
+                        </div>
+                        ` : ''}
+
+                        ${ev.status_validacao === 'erro_rpa' ? `
+                        <div class="card-actions" onclick="event.stopPropagation()">
+                            <button class="btn-salic"
+                                data-salic-id="${ev.id}"
+                                ${!ev.rubrica_id_fk ? 'disabled title="Vincule uma rubrica antes de enviar"' : `onclick="enviarAoSalic('${ev.id}')"`}>
+                                <i data-lucide="refresh-cw" style="width:14px;height:14px;"></i> Tentar novamente
+                            </button>
+                        </div>
+                        ` : ''}
                     </div>
                 `;
             }).join('');
-            
+
             if (window.lucide) window.lucide.createIcons();
         }
 
@@ -855,6 +1007,8 @@
             }
 
             const tipoSelecionado = document.getElementById('gestor-tipo-evidencia').value;
+            const rubricaSelecionadaId = document.getElementById('gestor-rubrica')?.value || null;
+            const observacoesTexto = document.getElementById('gestor-observacoes')?.value?.trim() || null;
             let sucessos = 0, falhas = 0;
 
             for (const file of files) {
@@ -894,6 +1048,8 @@
                     organization_id: orgId,
                     enviado_por: user?.id || null,
                     tipo_evidencia: tipoSelecionado,
+                    descricao: observacoesTexto || null,
+                    rubrica_id_fk: rubricaSelecionadaId || null,
                     file_path: filePath,
                     file_name: file.name,
                     file_size: file.size,
@@ -921,6 +1077,44 @@
             }
             // Realtime já dispara loadEvidences; mas se a sub não estiver ativa, fazemos um refresh manual
             if (!evidencesChannel) await loadEvidences();
+        }
+
+        async function enviarAoSalic(evidenciaId) {
+            if (!confirm('Enviar esta evidência ao SALIC?')) return;
+
+            const btn = document.querySelector(`[data-salic-id="${evidenciaId}"]`);
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i data-lucide="loader-2" style="width:14px;height:14px;" class="spin"></i> Enviando...';
+                if (window.lucide) window.lucide.createIcons();
+            }
+
+            const sb = await initSupabase();
+            const { data: { user } } = await sb.auth.getUser();
+
+            try {
+                const res = await fetch('/api/salic/comprovar-fisico', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ evidenciaId, userId: user?.id })
+                });
+
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({ message: res.statusText }));
+                    throw new Error(err.message || 'Erro desconhecido');
+                }
+
+                const idx = allEvidences.findIndex(e => e.id === evidenciaId);
+                if (idx !== -1) allEvidences[idx].status_validacao = 'enviada_salic';
+                showToast('Evidência enviada ao SALIC', 'success');
+                renderEvidences(allEvidences);
+            } catch (e) {
+                await sb.from('physical_evidences').update({ status_validacao: 'erro_rpa' }).eq('id', evidenciaId);
+                const idx = allEvidences.findIndex(e => e.id === evidenciaId);
+                if (idx !== -1) allEvidences[idx].status_validacao = 'erro_rpa';
+                showToast('Erro no envio: ' + e.message, 'error');
+                renderEvidences(allEvidences);
+            }
         }
 
         function escapeHtml(s) {
