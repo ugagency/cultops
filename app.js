@@ -2843,30 +2843,10 @@ ${Sidebar()}
         </div>
     </div>
 
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
-        <div class="card">
-            <h3 class="h2 mb-4">Execução por Rubrica</h3>
-            <div style="height: 300px;">
-                ${chartLabels.length > 0 ? '<canvas id="rubricasChart"></canvas>' : '<p class="text-sm" style="text-align: center; padding-top: 4rem; color: var(--text-muted);">Sem dados para o gráfico.</p>'}
-            </div>
-        </div>
-        <div class="card">
-            <h3 class="h2 mb-1">Status de Conformidade</h3>
-            <p class="text-xs" style="color: var(--text-muted); margin-bottom: 1.5rem; line-height: 1.4;">Resumo da saúde jurídica e operacional do seu projeto perante o SALIC e a análise automática IA.</p>
-            <div style="display: flex; flex-direction: column; gap: 1rem; padding-top: 0.5rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span class="text-sm">Documentos validados</span>
-                    <span class="badge status-completed">Bom</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span class="text-sm">Certidões negativas</span>
-                    <span class="badge status-completed">Regular</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span class="text-sm">Pendências SALIC</span>
-                    <span class="badge status-pending">1 pendência</span>
-                </div>
-            </div>
+    <div class="card">
+        <h3 class="h2 mb-4">Execução por Rubrica</h3>
+        <div style="height: 300px;">
+            ${chartLabels.length > 0 ? '<canvas id="rubricasChart"></canvas>' : '<p class="text-sm" style="text-align: center; padding-top: 4rem; color: var(--text-muted);">Sem dados para o gráfico.</p>'}
         </div>
     </div>
 </main>
