@@ -416,10 +416,9 @@
             <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem;">
                 <label style="font-weight: 600; font-size: 0.9rem; white-space: nowrap;">Tipo:</label>
                 <select id="gestor-tipo-evidencia" style="flex: 1; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white;">
-                    <option value="foto_evento">Foto do Evento</option>
-                    <option value="relatorio_objeto">Relatório de Cumprimento do Objeto</option>
-                    <option value="peca_marketing">Peça de Marketing / Clipagem</option>
-                    <option value="outros">Outros</option>
+                    <option value="fotos">Fotos</option>
+                    <option value="videos">Vídeos</option>
+                    <option value="arquivos">Arquivos</option>
                 </select>
             </div>
             <div style="margin-bottom: 1rem;">
@@ -607,7 +606,7 @@
             allRubricas.forEach(r => {
                 const opt = document.createElement('option');
                 opt.value = r.id;
-                opt.textContent = `${r.codigo || ''} — ${r.nome}`;
+                opt.textContent = r.codigo ? `${r.codigo} - ${r.nome}` : r.nome;
                 select.appendChild(opt);
             });
         }
@@ -751,7 +750,7 @@
 
                         <div style="margin-bottom: 0.4rem;">
                             ${rubrica
-                                ? `<span class="badge-rubrica"><i data-lucide="tag" style="width:10px;height:10px;"></i> ${escapeHtml((rubrica.codigo ? rubrica.codigo + ' — ' : '') + rubrica.nome)}</span>`
+                                ? `<span class="badge-rubrica"><i data-lucide="tag" style="width:10px;height:10px;"></i> ${escapeHtml(rubrica.codigo ? rubrica.codigo + ' - ' + rubrica.nome : rubrica.nome)}</span>`
                                 : `<span class="badge-sem-rubrica">Sem rubrica</span>`
                             }
                         </div>

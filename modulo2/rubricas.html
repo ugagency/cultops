@@ -499,7 +499,9 @@
                         <div style="font-weight: 700; color: var(--text-secondary);">${r.codigo || '---'}</div>
 
                         <div>
-                            <div style="font-weight: 700; color: var(--text-primary);">${escapeHtml(r.nome)}</div>
+                            <div style="font-weight: 700; color: var(--text-primary);">
+                                ${r.codigo ? `<span style="color: var(--m2-accent); font-family: monospace; font-size: 0.85em;">[${r.codigo}]</span> ` : ''}${escapeHtml(r.nome)}
+                            </div>
                             <div class="text-xs" style="color: var(--text-muted);">${escapeHtml(r.etapa || 'Fase de Execução')}</div>
                         </div>
 
