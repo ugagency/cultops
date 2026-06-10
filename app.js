@@ -1014,7 +1014,7 @@ ${Sidebar()}
                         <th>PRONAC</th>
                         <th>Projeto / Proponente</th>
                         <th>UF</th>
-                        <th>Valor Captado</th>
+                        <th>Valor Aprovado</th>
                         <th>Data importação Prestaí</th>
                         <th style="text-align: right;">Ações</th>
                     </tr>
@@ -1029,7 +1029,7 @@ ${Sidebar()}
                             </td>
                             <td class="text-sm">${p.uf || '---'}</td>
                             <td class="text-sm" style="font-weight: 600; color: var(--success);">
-                                R$ ${(p.valor_captado ? parseFloat(p.valor_captado) : 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                R$ ${(p.valor_aprovado ? parseFloat(p.valor_aprovado) : 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                             </td>
                             <td class="text-sm">${new Date(p.created_at).toLocaleDateString('pt-BR')}</td>
                             <td style="text-align: right;">
