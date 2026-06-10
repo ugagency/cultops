@@ -185,6 +185,25 @@ function mountIN23Panel() {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Converte valores financeiros do banco independente do formato (BR ou numérico)
+function parseValorBR(v) {
+    if (v === null || v === undefined || v === '') return 0;
+    if (typeof v === 'number') return v;
+    const s = String(v).trim();
+    // Formato BR com vírgula decimal: "1.234.567,89" ou "1.234,56"
+    if (s.includes(',')) {
+        return parseFloat(s.replace(/\./g, '').replace(',', '.')) || 0;
+    }
+    const dots = (s.match(/\./g) || []).length;
+    // Múltiplos pontos → separadores de milhar BR: "1.234.567"
+    if (dots > 1) return parseFloat(s.replace(/\./g, '')) || 0;
+    // Ponto único com exatamente 3 dígitos depois → milhar BR: "1.500"
+    if (dots === 1 && s.split('.')[1].length === 3) {
+        return parseFloat(s.replace('.', '')) || 0;
+    }
+    return parseFloat(s) || 0;
+}
+
 const isSolicitanteMode = window.location.pathname.includes('solicitante') || window.location.hash.includes('solicitante') || window.location.search.includes('solicitante');
 
 const state = {
@@ -1029,7 +1048,7 @@ ${Sidebar()}
                             </td>
                             <td class="text-sm">${p.uf || '---'}</td>
                             <td class="text-sm" style="font-weight: 600; color: var(--success);">
-                                R$ ${(p.valor_aprovado ? parseFloat(p.valor_aprovado) : 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                R$ ${parseValorBR(p.valor_aprovado).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                             </td>
                             <td class="text-sm">${new Date(p.created_at).toLocaleDateString('pt-BR')}</td>
                             <td style="text-align: right;">
