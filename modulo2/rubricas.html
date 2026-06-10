@@ -451,7 +451,7 @@
                 .from('rubricas')
                 .select('*')
                 .eq('project_id', currentProjectId)
-                .order('codigo');
+                .order('rubrica_id');
 
             if (error) {
                 console.error("Erro ao carregar rubricas:", error);
@@ -496,11 +496,11 @@
 
                 return `
                     <div class="glass-card rubrica-card">
-                        <div style="font-weight: 700; color: var(--text-secondary);">${r.codigo || '---'}</div>
+                        <div style="font-weight: 700; color: var(--text-secondary);">${r.rubrica_id || '---'}</div>
 
                         <div>
                             <div style="font-weight: 700; color: var(--text-primary);">
-                                ${r.codigo ? `<span style="color: var(--m2-accent); font-family: monospace; font-size: 0.85em;">[${r.codigo}]</span> ` : ''}${escapeHtml(r.nome)}
+                                ${r.rubrica_id ? `<span style="color: var(--m2-accent); font-family: monospace; font-size: 0.85em;">[${r.rubrica_id}]</span> ` : ''}${escapeHtml(r.nome)}
                             </div>
                             <div class="text-xs" style="color: var(--text-muted);">${escapeHtml(r.etapa || 'Fase de Execução')}</div>
                         </div>

@@ -423,9 +423,12 @@
             </div>
             <div style="margin-bottom: 1rem;">
                 <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.4rem;">Rubrica vinculada</label>
-                <select id="gestor-rubrica" onchange="handleRubricaChange()" style="width: 100%; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white;">
-                    <option value="">— Selecione uma rubrica —</option>
-                </select>
+                <input type="text" id="gestor-rubrica" list="rubrica-datalist"
+                    placeholder="Digite para buscar rubricas..."
+                    oninput="handleRubricaChange()"
+                    autocomplete="off"
+                    style="width: 100%; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white; box-sizing: border-box;">
+                <datalist id="rubrica-datalist"></datalist>
             </div>
             <div style="margin-bottom: 1rem;">
                 <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.4rem;">Observações</label>
@@ -589,32 +592,37 @@
         }
 
         async function loadRubricas() {
-            const select = document.getElementById('gestor-rubrica');
-            select.innerHTML = '<option value="">— Selecione uma rubrica —</option>';
+            const datalist = document.getElementById('rubrica-datalist');
+            const input = document.getElementById('gestor-rubrica');
+            datalist.innerHTML = '';
             allRubricas = [];
             if (!currentProjectId) return;
 
             const sb = await initSupabase();
             const { data, error } = await sb
                 .from('rubricas')
-                .select('id, nome, codigo, valor_aprovado')
+                .select('id, nome, rubrica_id, valor_aprovado')
                 .eq('project_id', currentProjectId)
-                .order('codigo', { ascending: true });
+                .order('rubrica_id', { ascending: true });
 
             if (error) { console.error('[loadRubricas]', error); return; }
             allRubricas = data || [];
             allRubricas.forEach(r => {
                 const opt = document.createElement('option');
-                opt.value = r.id;
-                opt.textContent = r.codigo ? `${r.codigo} - ${r.nome}` : r.nome;
-                select.appendChild(opt);
+                opt.value = r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome;
+                datalist.appendChild(opt);
             });
+            if (input) input.placeholder = allRubricas.length > 0
+                ? `Digite para buscar entre ${allRubricas.length} rubricas...`
+                : 'Sem rubricas disponíveis';
         }
 
         function handleRubricaChange() {
-            const rubricaId = document.getElementById('gestor-rubrica').value;
-            if (!rubricaId) return;
-            const rubrica = allRubricas.find(r => r.id === rubricaId);
+            const inputText = document.getElementById('gestor-rubrica').value;
+            const rubrica = allRubricas.find(r => {
+                const label = r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome;
+                return label === inputText || r.nome === inputText;
+            });
             if (!rubrica) return;
             const tipoVal = document.getElementById('gestor-tipo-evidencia').value || 'evidência';
             const tipoLabel = tipoVal.replace(/_/g, ' ');
@@ -641,7 +649,7 @@
                     rubricas (
                         id,
                         nome,
-                        codigo,
+                        rubrica_id,
                         valor_aprovado
                     )
                 `)
@@ -750,7 +758,7 @@
 
                         <div style="margin-bottom: 0.4rem;">
                             ${rubrica
-                                ? `<span class="badge-rubrica"><i data-lucide="tag" style="width:10px;height:10px;"></i> ${escapeHtml(rubrica.codigo ? rubrica.codigo + ' - ' + rubrica.nome : rubrica.nome)}</span>`
+                                ? `<span class="badge-rubrica"><i data-lucide="tag" style="width:10px;height:10px;"></i> ${escapeHtml(rubrica.rubrica_id ? rubrica.rubrica_id + ' - ' + rubrica.nome : rubrica.nome)}</span>`
                                 : `<span class="badge-sem-rubrica">Sem rubrica</span>`
                             }
                         </div>
@@ -1006,7 +1014,12 @@
             }
 
             const tipoSelecionado = document.getElementById('gestor-tipo-evidencia').value;
-            const rubricaSelecionadaId = document.getElementById('gestor-rubrica')?.value || null;
+            const rubricaInputText = document.getElementById('gestor-rubrica')?.value || '';
+            const rubricaObj = allRubricas.find(r => {
+                const label = r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome;
+                return label === rubricaInputText || r.nome === rubricaInputText;
+            });
+            const rubricaSelecionadaId = rubricaObj?.id || null;
             const observacoesTexto = document.getElementById('gestor-observacoes')?.value?.trim() || null;
             let sucessos = 0, falhas = 0;
 
