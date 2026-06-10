@@ -189,13 +189,37 @@ async function executarComprovacaoFisica(config) {
             }, selector, value);
         }
 
-        // PASSO 3: Menu → Comprovação Física
+        // PASSO 3: Menu → Comprovação Física (collapsible-header Materialize)
         console.log('[SALIC M2] Acessando Comprovação Física...');
-        await clicarItem(page, 'ísica');
+        await page.evaluate(() => {
+            const spans = Array.from(
+                document.querySelectorAll('li.bold a.collapsible-header span')
+            );
+            const span = spans.find(s => s.textContent.trim() === 'Comprovação Física');
+            if (span) {
+                span.closest('a.collapsible-header').click();
+                console.log('[RPA] Comprovação Física clicada');
+            } else {
+                console.warn('[RPA] Comprovação Física não encontrada');
+            }
+        });
+        await wait(1500);
 
-        // PASSO 4: Relatório Trimestral
+        // PASSO 4: Relatório Trimestral (link dentro do collapsible-body expandido)
         console.log('[SALIC M2] Clicando em Relatório Trimestral...');
-        await clicarItem(page, 'elatório Trimestral');
+        await page.evaluate(() => {
+            const links = Array.from(
+                document.querySelectorAll('div.collapsible-body a[title="Ir para"]')
+            );
+            const link = links.find(a => a.textContent.trim() === 'Relatório Trimestral');
+            if (link) {
+                link.click();
+                console.log('[RPA] Relatório Trimestral clicado');
+            } else {
+                console.warn('[RPA] Relatório Trimestral não encontrado');
+            }
+        });
+        await wait(2000);
 
         // PASSO 5: Status não cadastrado
         console.log('[SALIC M2] Selecionando "não cadastrado"...');
