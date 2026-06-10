@@ -248,7 +248,8 @@ const state = {
     in23DocumentosConferidos: [],
     juntarPdfFiles: [],
     juntarPdfLoading: false,
-    juntarPdfInModal: false
+    juntarPdfInModal: false,
+    financeiroGrupoAtivo: null
 };
 
 function getUserRole() {
@@ -330,6 +331,26 @@ const STATUS_MAP = {
         label: 'Aguardando Rubrica',
         class: 'status-pending',
         description: 'Aguardando rubrica: Documento enviado em lote, aguardando o usuário escolher a rubrica antes de iniciar o processamento.'
+    },
+    'validating': {
+        label: 'Validando',
+        class: 'status-processing',
+        description: 'Validando: dados extraídos pelo OCR estão sendo verificados antes de avançar no fluxo.'
+    },
+    'validated': {
+        label: 'Validado',
+        class: 'status-pending',
+        description: 'Validado: OCR concluído e dados conferidos, aguardando próxima etapa do fluxo.'
+    },
+    'divergencia_valor': {
+        label: 'Divergência de Valor',
+        class: 'status-error',
+        description: 'Divergência de valor: o valor do comprovante não corresponde ao valor da nota fiscal.'
+    },
+    'divergencia_beneficiario': {
+        label: 'Divergência de Beneficiário',
+        class: 'status-error',
+        description: 'Divergência de beneficiário: o fornecedor do comprovante não corresponde ao da nota fiscal.'
     }
 };
 
@@ -2785,30 +2806,88 @@ window.handleTrocarSenha = async function () {
 };
 
 
+const GRUPOS_STATUS = {
+    concluidos: {
+        label: 'Concluídos / Enviados',
+        statuses: ['enviado_salic', 'concluido'],
+        cor: 'var(--success)',
+        bg: '#f0fdf4',
+        border: '#bbf7d0',
+        icone: 'check-circle'
+    },
+    em_andamento: {
+        label: 'Em andamento',
+        statuses: ['uploaded', 'processing_ocr', 'validating', 'validated', 'aguardando_conformidade',
+                   'aguardando_comprovante', 'aguardando_conciliacao_bancaria', 'aguardando_d3',
+                   'liberado_rpa_airtop', 'aguardando_rubrica'],
+        cor: 'var(--primary)',
+        bg: '#eff6ff',
+        border: '#bfdbfe',
+        icone: 'clock'
+    },
+    atencao: {
+        label: 'Requer atenção',
+        statuses: ['bloqueado_conformidade', 'revisao_manual', 'erro_rpa', 'divergencia_valor', 'divergencia_beneficiario'],
+        cor: 'var(--error)',
+        bg: '#fef2f2',
+        border: '#fecaca',
+        icone: 'alert-triangle'
+    }
+};
+
 const FinanceiroView = () => {
     let totalExecutado = 0;
-    let pendentesConformidade = 0;
-    let pendentesConciliacao = 0;
     const chartLabels = [];
     const chartData = [];
 
     state.rubricas.forEach(r => {
         let rubricaTotal = 0;
-        if (r.despesas && r.despesas.length > 0) {
-            r.despesas.forEach(d => {
-                rubricaTotal += parseFloat(d.valor || 0);
-                if (d.status_conformidade === 'pendente') pendentesConformidade++;
-                if (d.conciliado === false || d.conciliado === null) pendentesConciliacao++;
-            });
-        }
-        if (rubricaTotal > 0) {
-            chartLabels.push(r.nome);
-            chartData.push(rubricaTotal);
-        }
+        (r.despesas || []).forEach(d => { rubricaTotal += parseFloat(d.valor || 0); });
+        if (rubricaTotal > 0) { chartLabels.push(r.nome); chartData.push(rubricaTotal); }
         totalExecutado += rubricaTotal;
     });
 
     state.chartData = { labels: chartLabels, data: chartData };
+
+    const docs = state.documents || [];
+    const grupoAtivo = state.financeiroGrupoAtivo;
+
+    const contagens = {};
+    const docsPorGrupo = {};
+    Object.entries(GRUPOS_STATUS).forEach(([key, g]) => {
+        const lista = docs.filter(d => g.statuses.includes(d.status));
+        contagens[key] = lista.length;
+        docsPorGrupo[key] = lista;
+    });
+
+    const renderListaDocs = (key) => {
+        const g = GRUPOS_STATUS[key];
+        const lista = docsPorGrupo[key];
+        if (!lista || lista.length === 0) {
+            return `<p class="text-sm" style="text-align:center;padding:1.5rem;color:var(--text-muted);">Nenhum documento neste grupo.</p>`;
+        }
+        return lista.map(d => {
+            const sm = STATUS_MAP[d.status] || { label: d.status, class: 'status-pending' };
+            const nome = d.nome_emissor || d.name || '---';
+            const valor = d.valor ? 'R$ ' + parseValorBR(d.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '---';
+            const data = d.created_at ? new Date(d.created_at).toLocaleDateString('pt-BR') : '---';
+            const proj = state.projects.find(p => p.id === d.project_id);
+            return `
+            <div style="display:flex;align-items:center;gap:1rem;padding:0.75rem 1rem;border-bottom:1px solid var(--border-subtle);">
+                <i data-lucide="file-text" style="width:16px;color:${g.cor};flex-shrink:0;"></i>
+                <div style="flex:1;min-width:0;">
+                    <p style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${nome}</p>
+                    ${proj && !state.filters.project ? `<p class="text-xs" style="color:var(--text-muted);">${proj.pronac} — ${proj.nome}</p>` : ''}
+                </div>
+                <span class="text-xs" style="color:var(--text-muted);flex-shrink:0;">${data}</span>
+                <span class="text-xs" style="color:var(--text-muted);flex-shrink:0;">${valor}</span>
+                <span class="badge ${sm.class}" style="flex-shrink:0;">${sm.label}</span>
+                <button class="btn btn-secondary" style="padding:4px 8px;flex-shrink:0;" onclick="window.navigate('details','${d.id}')">
+                    <i data-lucide="eye" style="width:14px;"></i>
+                </button>
+            </div>`;
+        }).join('');
+    };
 
     return `
 ${Sidebar()}
@@ -2828,20 +2907,39 @@ ${Sidebar()}
         </div>
     </header>
 
-    <div class="metrics-grid">
+    <div class="metrics-grid" style="margin-bottom:1.5rem;">
         <div class="card metric-card">
-            <p class="metric-label">Total Executado</p>
+            <p class="metric-label">Total Executado (rubricas)</p>
             <div class="metric-value">R$ ${totalExecutado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
         </div>
-        <div class="card metric-card">
-            <p class="metric-label">Pendente Conformidade</p>
-            <div class="metric-value" style="color: var(--warning);">${pendentesConformidade}</div>
-        </div>
-        <div class="card metric-card">
-            <p class="metric-label">Pendente Conciliação</p>
-            <div class="metric-value" style="color: var(--error);">${pendentesConciliacao}</div>
-        </div>
     </div>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1.5rem;">
+        ${Object.entries(GRUPOS_STATUS).map(([key, g]) => `
+        <div onclick="window.toggleFinanceiroGrupo('${key}')"
+             style="background:${grupoAtivo === key ? g.bg : 'var(--bg-card)'};border:2px solid ${grupoAtivo === key ? g.cor : g.border};border-radius:var(--radius);padding:1.25rem;cursor:pointer;transition:all 0.15s;">
+            <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;">
+                <i data-lucide="${g.icone}" style="width:20px;color:${g.cor};"></i>
+                <span style="font-size:13px;font-weight:600;color:${g.cor};">${g.label}</span>
+            </div>
+            <div style="font-size:2rem;font-weight:700;color:${g.cor};">${contagens[key]}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">documento${contagens[key] !== 1 ? 's' : ''} ${grupoAtivo === key ? '▲ fechar' : '▼ ver lista'}</div>
+        </div>`).join('')}
+    </div>
+
+    ${grupoAtivo ? `
+    <div class="card" style="margin-bottom:1.5rem;overflow:hidden;">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:1rem 1.25rem;border-bottom:1px solid var(--border-subtle);background:${GRUPOS_STATUS[grupoAtivo].bg};">
+            <div style="display:flex;align-items:center;gap:0.5rem;">
+                <i data-lucide="${GRUPOS_STATUS[grupoAtivo].icone}" style="width:16px;color:${GRUPOS_STATUS[grupoAtivo].cor};"></i>
+                <span style="font-weight:600;font-size:14px;color:${GRUPOS_STATUS[grupoAtivo].cor};">${GRUPOS_STATUS[grupoAtivo].label}</span>
+                <span class="text-xs" style="color:var(--text-muted);">(${contagens[grupoAtivo]} documento${contagens[grupoAtivo] !== 1 ? 's' : ''})</span>
+            </div>
+            <button class="btn btn-secondary" style="padding:4px 8px;font-size:12px;" onclick="window.toggleFinanceiroGrupo('${grupoAtivo}')">Fechar</button>
+        </div>
+        <div>${renderListaDocs(grupoAtivo)}</div>
+    </div>
+    ` : ''}
 
     <div class="card">
         <h3 class="h2 mb-4">Execução por Rubrica</h3>
@@ -3202,6 +3300,11 @@ window.navigate = async function (view, id = null) {
         await fetchCatalogoRubricas();
         if (id) state.filters.project = id;
         else if (!state.filters.project && state.projects.length > 0) state.filters.project = state.projects[0].id;
+
+        if (view === 'financeiro') {
+            state.financeiroGrupoAtivo = null;
+            await fetchDocuments();
+        }
 
         if (state.filters.project) {
             await fetchRubricas(state.filters.project);
@@ -5453,6 +5556,11 @@ window.handleJuntarPdfRemove = function (index) {
 window.handleJuntarPdfLimpar = function () {
     state.juntarPdfFiles = [];
     refreshJuntarPdfView();
+};
+
+window.toggleFinanceiroGrupo = function (grupo) {
+    state.financeiroGrupoAtivo = state.financeiroGrupoAtivo === grupo ? null : grupo;
+    render();
 };
 
 window._juntarDragIndex = null;
