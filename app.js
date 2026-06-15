@@ -359,8 +359,8 @@ const STATUS_MAP = {
 const Sidebar = () => `
 <aside class="sidebar">
     <div class="sidebar-logo">
-        <img class="sidebar-logo-full" src="/PAI-Logo-Azul.png" alt="Prestaí" style="height:28px;width:auto;">
-        <img class="sidebar-logo-icon" src="/PAI-Icone-Azul.png" alt="Prestaí" style="height:28px;width:auto;">
+        <img class="sidebar-logo-full" src="PAI-Logo-Azul.png" alt="Prestaí" style="height:28px;width:auto;">
+        <img class="sidebar-logo-icon" src="PAI-Icone-Azul.png" alt="Prestaí" style="height:28px;width:auto;">
     </div>
     
     <nav class="sidebar-nav">
@@ -461,7 +461,7 @@ const LoginView = () => `
 <div class="login-view view-content">
     <div class="card login-card">
         <div style="text-align: center; margin-bottom: 2rem;">
-            <img src="/PAI-Logo-Azul.png" alt="Prestaí" style="height:48px;width:auto;margin-bottom:0.75rem;">
+            <img src="PAI-Logo-Azul.png" alt="Prestaí" style="height:48px;width:auto;margin-bottom:0.75rem;">
             <p style="color: var(--text-muted); font-size: 0.875rem;">Acesse sua conta</p>
         </div>
         
@@ -505,7 +505,7 @@ const RegisterView = () => `
 <div class="login-view view-content">
     <div class="card login-card">
         <div style="text-align: center; margin-bottom: 2rem;">
-            <img src="/PAI-Logo-Azul.png" alt="Prestaí" style="height:48px;width:auto;margin-bottom:0.75rem;">
+            <img src="PAI-Logo-Azul.png" alt="Prestaí" style="height:48px;width:auto;margin-bottom:0.75rem;">
             <p style="color: var(--text-muted); font-size: 0.875rem;">Crie sua conta gratuita</p>
         </div>
         
@@ -572,7 +572,7 @@ const ForgotPasswordView = () => `
 <div class="login-view view-content">
     <div class="card login-card">
         <div style="text-align: center; margin-bottom: 2rem;">
-            <img src="/PAI-Logo-Azul.png" alt="Prestaí" style="height:48px;width:auto;margin-bottom:0.75rem;">
+            <img src="PAI-Logo-Azul.png" alt="Prestaí" style="height:48px;width:auto;margin-bottom:0.75rem;">
             <h3 class="h2">Recuperar Senha</h3>
             <p style="color: var(--text-muted); font-size: 0.875rem; margin-top: 0.5rem;">Enviaremos um link para o seu e-mail</p>
         </div>
@@ -601,7 +601,7 @@ const UpdatePasswordView = () => `
 <div class="login-view view-content">
     <div class="card login-card">
         <div style="text-align: center; margin-bottom: 2rem;">
-            <img src="/PAI-Logo-Azul.png" alt="Prestaí" style="height:48px;width:auto;margin-bottom:0.75rem;">
+            <img src="PAI-Logo-Azul.png" alt="Prestaí" style="height:48px;width:auto;margin-bottom:0.75rem;">
             <h3 class="h2">Nova Senha</h3>
             <p style="color: var(--text-muted); font-size: 0.875rem; margin-top: 0.5rem;">Defina sua nova senha de acesso</p>
         </div>
