@@ -107,9 +107,8 @@ function renderSidebar() {
     const currentFile = window.location.pathname.split('/').pop();
 
     sidebar.innerHTML = `
-        <div class="logo" style="display: flex; align-items: center; gap: 0.75rem; font-weight: 800; color: var(--m2-accent); font-size: 1.25rem; padding-bottom: 0.5rem; margin-bottom: 1rem;">
-            <i data-lucide="shield-check"></i> 
-            <span>PrestAI M2</span>
+        <div class="logo" style="display: flex; align-items: center; padding-bottom: 0.5rem; margin-bottom: 1rem;">
+            <img src="../PAI-Logo-Azul.png" alt="Prestaí" style="height:28px;width:auto;">
         </div>
         <nav style="display: flex; flex-direction: column; gap: 0.5rem; flex: 1;">
             ${navItems.map(item => {
