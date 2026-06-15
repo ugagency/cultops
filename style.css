@@ -95,11 +95,11 @@ h1, h2, h3, h4, h5, h6,
 .sidebar-logo {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
     padding: 0 0.75rem 2rem;
-    font-weight: 700;
-    font-size: 1.25rem;
-    color: var(--primary);
+}
+
+.sidebar-logo-icon {
+    display: none;
 }
 
 .sidebar-nav {
@@ -438,9 +438,16 @@ textarea:focus {
         padding: 1.5rem 0.5rem;
     }
 
-    .sidebar-logo span,
     .nav-item span {
         display: none;
+    }
+
+    .sidebar-logo-full {
+        display: none;
+    }
+
+    .sidebar-logo-icon {
+        display: block;
     }
 
     .main-content {
