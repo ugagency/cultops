@@ -222,7 +222,8 @@ const state = {
         startDate: '',
         endDate: '',
         search: '',
-        sort: 'date_desc'
+        sort: 'date_desc',
+        status: ''
     },
     all_solicitantes: [],
     vinculos_solicitantes: [],
@@ -923,6 +924,27 @@ ${Sidebar()}
                 <select onchange="window.updateFilters('project', this.value)">
                     <option value="">Todos os projetos</option>
                     ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
+                </select>
+            </div>
+            <div style="min-width: 180px;">
+                <select onchange="window.updateFilters('status', this.value)">
+                    <option value="">Todos os status</option>
+                    <option value="uploaded" ${state.filters.status === 'uploaded' ? 'selected' : ''}>Enviado</option>
+                    <option value="processing_ocr" ${state.filters.status === 'processing_ocr' ? 'selected' : ''}>Em Processamento</option>
+                    <option value="aguardando_comprovante" ${state.filters.status === 'aguardando_comprovante' ? 'selected' : ''}>Falta Comprovante</option>
+                    <option value="aguardando_conciliacao_bancaria" ${state.filters.status === 'aguardando_conciliacao_bancaria' ? 'selected' : ''}>Falta Conciliação</option>
+                    <option value="aguardando_d3" ${state.filters.status === 'aguardando_d3' ? 'selected' : ''}>Em carência (D-3)</option>
+                    <option value="liberado_rpa_airtop" ${state.filters.status === 'liberado_rpa_airtop' ? 'selected' : ''}>Pronto para envio</option>
+                    <option value="enviado_salic" ${state.filters.status === 'enviado_salic' ? 'selected' : ''}>Enviado ao SALIC</option>
+                    <option value="concluido" ${state.filters.status === 'concluido' ? 'selected' : ''}>Concluído</option>
+                    <option value="aguardando_conformidade" ${state.filters.status === 'aguardando_conformidade' ? 'selected' : ''}>Em Auditoria IA</option>
+                    <option value="bloqueado_conformidade" ${state.filters.status === 'bloqueado_conformidade' ? 'selected' : ''}>Bloqueado</option>
+                    <option value="revisao_manual" ${state.filters.status === 'revisao_manual' ? 'selected' : ''}>Revisão Manual</option>
+                    <option value="erro_rpa" ${state.filters.status === 'erro_rpa' ? 'selected' : ''}>Erro no Envio</option>
+                    <option value="validating" ${state.filters.status === 'validating' ? 'selected' : ''}>Validando</option>
+                    <option value="validated" ${state.filters.status === 'validated' ? 'selected' : ''}>Validado</option>
+                    <option value="divergencia_valor" ${state.filters.status === 'divergencia_valor' ? 'selected' : ''}>Divergência de Valor</option>
+                    <option value="divergencia_beneficiario" ${state.filters.status === 'divergencia_beneficiario' ? 'selected' : ''}>Divergência de Beneficiário</option>
                 </select>
             </div>
             <div style="min-width: 180px;">
@@ -3264,6 +3286,8 @@ window.navigate = async function (view, id = null) {
     state.error = null; // Limpa erros ao navegar
 
     if (view === 'dashboard') {
+        state.filters.project = '';
+        state.filters.status = '';
         await fetchProjects(); // Sempre recarrega projetos ao voltar ao dashboard
         await fetchDocuments();
     } else if (view === 'solicitante_dashboard') {
@@ -3744,6 +3768,10 @@ async function fetchDocuments() {
         query = query.eq('project_id', state.filters.project);
     }
 
+    if (state.filters.status) {
+        query = query.eq('status', state.filters.status);
+    }
+
     if (state.filters.search) {
         const term = state.filters.search.trim();
         query = query.ilike('name', `%${term}%`);
@@ -3775,7 +3803,7 @@ window.updateFilters = function (key, value) {
 };
 
 window.clearFilters = function () {
-    state.filters = { project: '', startDate: '', endDate: '', search: '', sort: 'date_desc' };
+    state.filters = { project: '', startDate: '', endDate: '', search: '', sort: 'date_desc', status: '' };
     fetchDocuments().then(render);
 };
 
