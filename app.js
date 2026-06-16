@@ -5288,7 +5288,7 @@ ${Sidebar()}
                     <i data-lucide="file-stack" style="width: 24px; height: 24px; color: var(--primary);"></i>
                 </div>
                 <div>
-                    <h3 class="h2">Juntar arquivos</h3>
+                    <h3 class="h2">Consolidar PDFs</h3>
                     <p class="text-xs" style="color: var(--text-muted);">PDF, PNG e JPG em um único PDF</p>
                 </div>
             </div>
@@ -5393,9 +5393,9 @@ ${Sidebar()}
             <div>
                 <p class="text-xs" style="color: var(--text-muted); margin-bottom: 0.25rem;">
                     <span onclick="window.navigate('ferramentas')" style="cursor: pointer; color: var(--primary);">Ferramentas</span>
-                    &rsaquo; Juntar PDF
+                    &rsaquo; Consolidar PDFs
                 </p>
-                <h1>Juntar arquivos em PDF</h1>
+                <h1>Consolidar PDFs</h1>
             </div>
         </div>
     </header>
