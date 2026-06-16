@@ -427,6 +427,10 @@ const Sidebar = () => `
                 <p style="font-size: 11px; color: var(--text-secondary);">Gestor</p>
             </div>
         </div>
+        <a class="nav-item" href="/module-selector.html" style="color: var(--primary);">
+            <i data-lucide="grid-2x2"></i>
+            <span>Trocar Módulo</span>
+        </a>
         <a class="nav-item" onclick="window.handleLogout()" style="color: var(--error);">
             <i data-lucide="log-out"></i>
             <span>Sair</span>
