@@ -1,0 +1,1151 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Comprovação Física (Evidências)</title>
+    
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Supabase JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m2-shared.css">
+    
+    <style>
+        .evidence-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+        
+        .evidence-card {
+            position: relative;
+            cursor: pointer;
+            overflow: hidden;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .evidence-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 32px rgba(0,0,0,0.1);
+        }
+        
+        .evidence-preview {
+            width: 100%;
+            height: 180px;
+            background: #E3E8FF;
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1rem;
+            color: var(--text-muted);
+            background-size: cover;
+            background-position: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .evidence-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: var(--radius-md);
+        }
+
+        .preview-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(0,0,0,0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.2s;
+            border-radius: var(--radius-md);
+        }
+
+        .evidence-card:hover .preview-overlay {
+            opacity: 1;
+        }
+
+        .preview-overlay i {
+            color: white;
+            width: 32px;
+            height: 32px;
+        }
+        
+        .ia-score-badge {
+            position: absolute;
+            top: 0.75rem;
+            right: 0.75rem;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.75rem;
+            font-weight: 700;
+            backdrop-filter: blur(4px);
+            z-index: 2;
+        }
+        
+        .score-high { color: #1547FF; }
+        .score-mid { color: #FF5807; }
+        .score-low { color: #FF5807; }
+
+        .upload-zone {
+            border: 2px dashed var(--border-light);
+            border-radius: var(--radius-lg);
+            padding: 3rem;
+            text-align: center;
+            background: var(--glass-bg);
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        
+        .upload-zone:hover {
+            border-color: var(--m2-accent);
+            background: rgba(21, 71, 255, 0.05);
+        }
+
+        /* Status badges */
+        .status-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+        .status-badge::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+        .status-pendente { background: #FF5807; color: #FFFFFF; }
+        .status-pendente::before { background: #FF5807; }
+        .status-aprovada { background: #1547FF; color: #70FF00; }
+        .status-aprovada::before { background: #1547FF; }
+        .status-reprovada { background: #FF5807; color: #FFFFFF; }
+        .status-reprovada::before { background: #FF5807; }
+        .status-pendente_complemento { background: #FF5807; color: #FFFFFF; }
+        .status-pendente_complemento::before { background: #FF5807; }
+
+        /* Action buttons on cards */
+        .card-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid #E3E8FF;
+        }
+
+        .btn-approve {
+            flex: 1;
+            padding: 0.5rem;
+            border: none;
+            border-radius: var(--radius-sm);
+            background: #1547FF;
+            color: #70FF00;
+            font-weight: 600;
+            font-size: 0.8rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.3rem;
+            transition: all 0.2s;
+        }
+        .btn-approve:hover { background: #1547FF; }
+
+        .btn-reject {
+            flex: 1;
+            padding: 0.5rem;
+            border: none;
+            border-radius: var(--radius-sm);
+            background: #FF5807;
+            color: #FFFFFF;
+            font-weight: 600;
+            font-size: 0.8rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.3rem;
+            transition: all 0.2s;
+        }
+        .btn-reject:hover { background: #FF5807; }
+
+        .btn-complement {
+            flex: 1;
+            padding: 0.5rem;
+            border: none;
+            border-radius: var(--radius-sm);
+            background: #FF5807;
+            color: #FFFFFF;
+            font-weight: 600;
+            font-size: 0.8rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.3rem;
+            transition: all 0.2s;
+        }
+        .btn-complement:hover { background: #FF5807; }
+
+        .btn-fs-complement { background: #FF5807; color: white; }
+        .btn-fs-complement:hover { background: #FF5807; }
+
+        .spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+        /* Fullscreen Modal */
+        .modal-fullscreen {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(8px);
+            z-index: 10000;
+            display: none;
+            flex-direction: column;
+        }
+
+        .modal-fullscreen.active {
+            display: flex;
+        }
+
+        .modal-fs-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.5rem;
+            background: rgba(0,0,0,0.5);
+            color: white;
+        }
+
+        .modal-fs-header h3 {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .modal-fs-body {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            overflow: auto;
+        }
+
+        .modal-fs-body img {
+            max-width: 95%;
+            max-height: 85vh;
+            border-radius: 8px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+
+        .modal-fs-body iframe,
+        .modal-fs-body embed {
+            width: 80%;
+            height: 85vh;
+            border: none;
+            border-radius: 8px;
+        }
+
+        .modal-fs-footer {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            padding: 1rem 1.5rem;
+            background: rgba(0,0,0,0.5);
+        }
+
+        .modal-fs-footer .btn-action {
+            padding: 0.65rem 1.5rem;
+            border: none;
+            border-radius: var(--radius-sm);
+            font-weight: 700;
+            font-size: 0.875rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            transition: all 0.2s;
+        }
+
+        .btn-fs-approve { background: #1547FF; color: white; }
+        .btn-fs-approve:hover { background: #70FF00; }
+        .btn-fs-reject { background: #FF5807; color: white; }
+        .btn-fs-reject:hover { background: #FF5807; }
+        .btn-fs-close { background: rgba(255,255,255,0.15); color: white; }
+        .btn-fs-close:hover { background: rgba(255,255,255,0.25); }
+
+        .modal-fs-info {
+            color: rgba(255,255,255,0.7);
+            font-size: 0.8rem;
+        }
+
+        /* Reject reason modal */
+        .modal-reject-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(4px);
+            z-index: 10001;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-reject-overlay.active {
+            display: flex;
+        }
+
+        .modal-reject-content {
+            background: white;
+            padding: 2rem;
+            border-radius: var(--radius-lg);
+            width: 100%;
+            max-width: 450px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        .evidence-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .meta-tag {
+            font-size: 0.7rem;
+            padding: 0.15rem 0.5rem;
+            background: #E3E8FF;
+            border-radius: 999px;
+            color: var(--text-secondary);
+        }
+
+        .badge-rubrica {
+            font-size: 0.7rem;
+            padding: 0.2rem 0.6rem;
+            background: #dbeafe;
+            color: #1d4ed8;
+            border-radius: 999px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+        .badge-sem-rubrica {
+            font-size: 0.7rem;
+            padding: 0.2rem 0.6rem;
+            background: #f1f5f9;
+            color: #64748b;
+            border-radius: 999px;
+            font-weight: 500;
+        }
+        .status-enviada_salic { background: #dcfce7; color: #166534; }
+        .status-enviada_salic::before { background: #16a34a; }
+        .status-erro_rpa { background: #fee2e2; color: #991b1b; }
+        .status-erro_rpa::before { background: #dc2626; }
+
+        .char-counter {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-align: right;
+            margin-top: 0.25rem;
+        }
+
+        .btn-salic {
+            flex: 1;
+            padding: 0.5rem;
+            border: none;
+            border-radius: var(--radius-sm);
+            background: #1547FF;
+            color: white;
+            font-weight: 600;
+            font-size: 0.8rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.3rem;
+            transition: all 0.2s;
+        }
+        .btn-salic:disabled {
+            background: #e2e8f0;
+            color: #94a3b8;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="toast-notification" id="toast" style="position: fixed; bottom: 2.5rem; right: 2.5rem; padding: 1.25rem 2rem; border-radius: var(--radius-md); color: white; font-weight: 700; font-size: 0.95rem; z-index: 10002; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); transform: translateY(150%); transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);"></div>
+
+    <main class="main-content">
+        <header class="page-header">
+            <div>
+                <h1>Comprovação Física</h1>
+                <p style="color: var(--text-secondary);">Gestão de fotos, clipagem e relatórios de execução do objeto.</p>
+            </div>
+            
+            <div style="display: flex; gap: 1rem; align-items: center;">
+                <div class="project-selector-container">
+                    <i data-lucide="briefcase" style="width: 18px; color: var(--text-secondary);"></i>
+                    <select id="project-select" onchange="handleProjectChange(this.value)">
+                        <option value="">Selecione um Projeto (PRONAC)...</option>
+                    </select>
+                </div>
+            </div>
+        </header>
+
+        <div class="glass-card mb-4">
+            <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem;">
+                <label style="font-weight: 600; font-size: 0.9rem; white-space: nowrap;">Tipo:</label>
+                <select id="gestor-tipo-evidencia" style="flex: 1; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white;">
+                    <option value="fotos">Fotos</option>
+                    <option value="videos">Vídeos</option>
+                    <option value="arquivos">Arquivos</option>
+                </select>
+            </div>
+            <div style="margin-bottom: 1rem;">
+                <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.4rem;">Rubrica vinculada</label>
+                <input type="text" id="gestor-rubrica" list="rubrica-datalist"
+                    placeholder="Digite para buscar rubricas..."
+                    oninput="handleRubricaChange()"
+                    autocomplete="off"
+                    style="width: 100%; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white; box-sizing: border-box;">
+                <datalist id="rubrica-datalist"></datalist>
+            </div>
+            <div style="margin-bottom: 1rem;">
+                <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.4rem;">Observações</label>
+                <textarea id="gestor-observacoes" rows="3" maxlength="500"
+                    placeholder="Ex: Registro fotográfico do espetáculo X realizado em DD/MM/AAAA. Comprovação da rubrica de Produção."
+                    oninput="updateCharCounter()"
+                    style="width: 100%; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-family: inherit; resize: vertical; font-size: 0.9rem; box-sizing: border-box;"></textarea>
+                <div class="char-counter" id="obs-char-counter">0/500</div>
+            </div>
+            <div class="upload-zone" onclick="document.getElementById('file-input').click()">
+                <i data-lucide="image-plus" style="width: 48px; height: 48px; color: var(--m2-accent); margin-bottom: 1rem;"></i>
+                <h3 class="h3">Clique ou arraste evidências para upload</h3>
+                <p class="text-sm color-muted">PDF, JPG, PNG ou MP4 (Máx 50MB)</p>
+                <input type="file" id="file-input" style="display: none;" multiple accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.mp4" onchange="handleFileUpload(this.files)">
+            </div>
+        </div>
+
+        <div id="evidence-list" class="evidence-grid">
+            <!-- Evidence cards will be injected here -->
+        </div>
+    </main>
+
+    <!-- Modal Fullscreen -->
+    <div class="modal-fullscreen" id="modal-fullscreen">
+        <div class="modal-fs-header">
+            <div>
+                <h3 id="fs-title">Evidência</h3>
+                <div class="modal-fs-info" id="fs-info"></div>
+            </div>
+            <button class="btn-action btn-fs-close" onclick="closeFullscreen()" style="border: none;">
+                <i data-lucide="x" style="width: 18px; height: 18px;"></i> Fechar
+            </button>
+        </div>
+        <div class="modal-fs-body" id="fs-body">
+            <!-- Content injected dynamically -->
+        </div>
+        <div class="modal-fs-footer" id="fs-footer">
+            <!-- Action buttons injected dynamically -->
+        </div>
+    </div>
+
+    <!-- Modal Motivo de Reprovação -->
+    <div class="modal-reject-overlay" id="modal-reject">
+        <div class="modal-reject-content">
+            <h3 style="margin-bottom: 0.5rem; color: #FFFFFF;">
+                <i data-lucide="alert-triangle" style="width: 20px; height: 20px; vertical-align: middle;"></i>
+                Reprovar Evidência
+            </h3>
+            <p style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                Informe o motivo da reprovação. O solicitante receberá esta mensagem.
+            </p>
+            <textarea id="reject-reason" rows="3" placeholder="Ex: Imagem desfocada, conteúdo ilegível, não corresponde ao projeto..."
+                style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-family: inherit; resize: vertical; margin-bottom: 1rem;"></textarea>
+            <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+                <button onclick="closeRejectModal()" style="padding: 0.5rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: white; cursor: pointer; font-weight: 500;">Cancelar</button>
+                <button onclick="confirmReject()" style="padding: 0.5rem 1rem; border: none; border-radius: var(--radius-sm); background: #FF5807; color: white; cursor: pointer; font-weight: 600;">Confirmar Reprovação</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Solicitar Complemento -->
+    <div class="modal-reject-overlay" id="modal-complement">
+        <div class="modal-reject-content">
+            <h3 style="margin-bottom: 0.5rem; color: #FFFFFF;">
+                <i data-lucide="help-circle" style="width: 20px; height: 20px; vertical-align: middle;"></i>
+                Solicitar Complemento
+            </h3>
+            <p style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                Descreva o que precisa ser complementado. O solicitante receberá esta mensagem e poderá reenviar a evidência.
+            </p>
+            <textarea id="complement-reason" rows="3" placeholder="Ex: Anexe a nota fiscal correspondente, envie a foto com data e local visíveis..."
+                style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-family: inherit; resize: vertical; margin-bottom: 1rem;"></textarea>
+            <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+                <button onclick="closeComplementModal()" style="padding: 0.5rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: white; cursor: pointer; font-weight: 500;">Cancelar</button>
+                <button onclick="confirmComplement()" style="padding: 0.5rem 1rem; border: none; border-radius: var(--radius-sm); background: #FF5807; color: white; cursor: pointer; font-weight: 600;">Solicitar Complemento</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper.js"></script>
+    <script>
+        const MIME_ACEITOS = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
+        const TAMANHO_MAX = 50 * 1024 * 1024; // 50MB
+
+        let currentProjectId = ProjectManager.getSelected();
+        let allProjects = [];
+        let allEvidences = [];
+        let allRubricas = [];
+        let signedUrls = {};
+        let pendingRejectId = null;
+        let pendingComplementId = null;
+        let evidencesChannel = null;
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            renderSidebar();
+            await initSupabase();
+            await populateProjectSelect();
+
+            if (currentProjectId) {
+                document.getElementById('project-select').value = currentProjectId;
+                await loadEvidences();
+                await loadRubricas();
+                setupRealtime(currentProjectId);
+            }
+        });
+
+        // Keyboard shortcut: ESC to close modals
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeFullscreen();
+                closeRejectModal();
+                closeComplementModal();
+            }
+        });
+
+        async function populateProjectSelect() {
+            const projects = await loadProjects();
+            allProjects = projects;
+            const select = document.getElementById('project-select');
+            projects.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.textContent = `${p.pronac} - ${p.nome}`;
+                select.appendChild(opt);
+            });
+        }
+
+        async function handleProjectChange(id) {
+            currentProjectId = id;
+            ProjectManager.setSelected(id);
+            await teardownRealtime();
+            await loadEvidences();
+            await loadRubricas();
+            if (id) setupRealtime(id);
+        }
+
+        async function teardownRealtime() {
+            if (evidencesChannel) {
+                try {
+                    const sb = await initSupabase();
+                    await sb.removeChannel(evidencesChannel);
+                } catch (e) {
+                    console.warn('[teardownRealtime]', e);
+                }
+                evidencesChannel = null;
+            }
+        }
+
+        async function setupRealtime(pid) {
+            const sb = await initSupabase();
+            evidencesChannel = sb
+                .channel(`evidencias-${pid}`)
+                .on('postgres_changes', {
+                    event: '*',
+                    schema: 'public',
+                    table: 'physical_evidences',
+                    filter: `project_id=eq.${pid}`
+                }, () => { loadEvidences(); })
+                .subscribe();
+        }
+
+        async function loadRubricas() {
+            const datalist = document.getElementById('rubrica-datalist');
+            const input = document.getElementById('gestor-rubrica');
+            datalist.innerHTML = '';
+            allRubricas = [];
+            if (!currentProjectId) return;
+
+            const sb = await initSupabase();
+            const { data, error } = await sb
+                .from('rubricas')
+                .select('id, nome, rubrica_id, valor_aprovado')
+                .eq('project_id', currentProjectId)
+                .order('rubrica_id', { ascending: true });
+
+            if (error) { console.error('[loadRubricas]', error); return; }
+            allRubricas = data || [];
+            allRubricas.forEach(r => {
+                const opt = document.createElement('option');
+                opt.value = r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome;
+                datalist.appendChild(opt);
+            });
+            if (input) input.placeholder = allRubricas.length > 0
+                ? `Digite para buscar entre ${allRubricas.length} rubricas...`
+                : 'Sem rubricas disponíveis';
+        }
+
+        function handleRubricaChange() {
+            const inputText = document.getElementById('gestor-rubrica').value;
+            const rubrica = allRubricas.find(r => {
+                const label = r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome;
+                return label === inputText || r.nome === inputText;
+            });
+            if (!rubrica) return;
+            const tipoVal = document.getElementById('gestor-tipo-evidencia').value || 'evidência';
+            const tipoLabel = tipoVal.replace(/_/g, ' ');
+            const hoje = new Date().toLocaleDateString('pt-BR');
+            const ta = document.getElementById('gestor-observacoes');
+            ta.value = `Comprovação da rubrica ${rubrica.nome} — ${tipoLabel} de ${hoje}.`;
+            updateCharCounter();
+        }
+
+        function updateCharCounter() {
+            const ta = document.getElementById('gestor-observacoes');
+            const counter = document.getElementById('obs-char-counter');
+            if (ta && counter) counter.textContent = `${ta.value.length}/500`;
+        }
+
+        async function loadEvidences() {
+            if (!currentProjectId) return;
+
+            const sb = await initSupabase();
+            const { data, error } = await sb
+                .from('physical_evidences')
+                .select(`
+                    *,
+                    rubricas (
+                        id,
+                        nome,
+                        rubrica_id,
+                        valor_aprovado
+                    )
+                `)
+                .eq('project_id', currentProjectId)
+                .order('criado_em', { ascending: false });
+
+            if (error) {
+                console.error("Erro ao carregar evidências:", error);
+                return;
+            }
+
+            allEvidences = data || [];
+            
+            // Generate signed URLs for all file paths
+            await generateSignedUrls(sb, allEvidences);
+
+            renderEvidences(allEvidences);
+        }
+
+        async function generateSignedUrls(sb, evidences) {
+            signedUrls = {};
+            const paths = evidences.map(ev => ev.file_path).filter(Boolean);
+            
+            if (paths.length === 0) return;
+
+            // Batch create signed URLs (valid for 1 hour)
+            const { data, error } = await sb.storage
+                .from('physical-evidences')
+                .createSignedUrls(paths, 3600);
+
+            if (error) {
+                console.error("Erro ao gerar URLs assinadas:", error);
+                return;
+            }
+
+            (data || []).forEach(item => {
+                if (item.signedUrl) {
+                    signedUrls[item.path] = item.signedUrl;
+                }
+            });
+        }
+
+        function isImageFile(filePath) {
+            if (!filePath) return false;
+            const ext = filePath.split('.').pop().toLowerCase();
+            return ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
+        }
+
+        function isPdfFile(filePath) {
+            if (!filePath) return false;
+            return filePath.split('.').pop().toLowerCase() === 'pdf';
+        }
+
+        function renderEvidences(evidences) {
+            const container = document.getElementById('evidence-list');
+            if (!evidences || evidences.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1/-1;">
+                        <i data-lucide="image" style="width: 48px; height: 48px; color: var(--text-muted); margin-bottom: 1rem;"></i>
+                        <h3>Sem evidências cadastradas</h3>
+                        <p>Faça o upload da primeira comprovação de execução deste projeto.</p>
+                    </div>
+                `;
+                if (window.lucide) window.lucide.createIcons();
+                return;
+            }
+
+            container.innerHTML = evidences.map((ev) => {
+                const scoreClass = ev.ia_score >= 80 ? 'score-high' : (ev.ia_score >= 50 ? 'score-mid' : 'score-low');
+                const isImage = isImageFile(ev.file_path);
+                const url = signedUrls[ev.file_path] || '';
+                const statusLabel =
+                    ev.status_validacao === 'aprovada' ? 'Aprovada' :
+                    ev.status_validacao === 'reprovada' ? 'Reprovada' :
+                    ev.status_validacao === 'pendente_complemento' ? 'Complemento solicitado' :
+                    ev.status_validacao === 'enviada_salic' ? 'Enviada ao SALIC' :
+                    ev.status_validacao === 'erro_rpa' ? 'Erro no envio RPA' :
+                    'Pendente';
+                const isReviewable = ev.status_validacao === 'pendente' || ev.status_validacao === 'pendente_complemento';
+                const motivoMsg = ev.motivo_reprovacao || '';
+                const showMotivo = (ev.status_validacao === 'reprovada' || ev.status_validacao === 'pendente_complemento') && motivoMsg;
+                const motivoLabel = ev.status_validacao === 'pendente_complemento' ? 'Complemento solicitado' : 'Motivo';
+                const rubrica = ev.rubricas;
+                const descTrunc = ev.descricao
+                    ? (ev.descricao.length > 80 ? ev.descricao.slice(0, 80) + '...' : ev.descricao)
+                    : null;
+
+                return `
+                    <div class="glass-card evidence-card" onclick="openFullscreen('${ev.id}')">
+                        ${ev.ia_score ? `<div class="ia-score-badge">IA: <span class="${scoreClass}">${ev.ia_score}%</span></div>` : ''}
+
+                        <div class="evidence-preview">
+                            ${isImage && url
+                                ? `<img src="${url}" alt="${escapeHtml(ev.file_name || 'Evidência')}" loading="lazy">`
+                                : `<i data-lucide="${isPdfFile(ev.file_path) ? 'file-text' : 'file'}" style="width: 40px; height: 40px;"></i>`
+                            }
+                            <div class="preview-overlay">
+                                <i data-lucide="maximize-2"></i>
+                            </div>
+                        </div>
+
+                        <div class="evidence-meta">
+                            <span class="meta-tag">${escapeHtml((ev.tipo_evidencia || 'outros').replace(/_/g, ' '))}</span>
+                            ${ev.file_name ? `<span class="meta-tag">${escapeHtml(ev.file_name)}</span>` : ''}
+                        </div>
+
+                        <div style="margin-bottom: 0.4rem;">
+                            ${rubrica
+                                ? `<span class="badge-rubrica"><i data-lucide="tag" style="width:10px;height:10px;"></i> ${escapeHtml(rubrica.rubrica_id ? rubrica.rubrica_id + ' - ' + rubrica.nome : rubrica.nome)}</span>`
+                                : `<span class="badge-sem-rubrica">Sem rubrica</span>`
+                            }
+                        </div>
+
+                        ${descTrunc ? `
+                        <div style="font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 0.5rem; font-style: italic;"
+                             title="${escapeHtml(ev.descricao)}">
+                            ${escapeHtml(descTrunc)}
+                        </div>` : ''}
+
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+                            <span class="status-badge status-${ev.status_validacao || 'pendente'}">${statusLabel}</span>
+                            <span style="font-size: 0.7rem; color: var(--text-muted);">${formatDate(ev.criado_em)}</span>
+                        </div>
+
+                        ${showMotivo ? `
+                            <div style="margin-top: 0.5rem; padding: 0.5rem; border-radius: var(--radius-sm); font-size: 0.75rem; background: #FF5807; color: #FFFFFF;">
+                                <strong>${motivoLabel}:</strong> ${escapeHtml(motivoMsg)}
+                            </div>
+                        ` : ''}
+
+                        ${isReviewable ? `
+                            <div class="card-actions" onclick="event.stopPropagation()">
+                                <button class="btn-approve" onclick="approveEvidence('${ev.id}')">
+                                    <i data-lucide="check" style="width: 14px; height: 14px;"></i> Aprovar
+                                </button>
+                                <button class="btn-complement" onclick="openComplementModal('${ev.id}')">
+                                    <i data-lucide="help-circle" style="width: 14px; height: 14px;"></i> Complemento
+                                </button>
+                                <button class="btn-reject" onclick="openRejectModal('${ev.id}')">
+                                    <i data-lucide="x" style="width: 14px; height: 14px;"></i> Reprovar
+                                </button>
+                            </div>
+                        ` : ''}
+
+                        ${ev.status_validacao === 'aprovada' ? `
+                        <div class="card-actions" onclick="event.stopPropagation()">
+                            <button class="btn-salic"
+                                data-salic-id="${ev.id}"
+                                ${!ev.rubrica_id_fk ? 'disabled title="Vincule uma rubrica antes de enviar"' : `onclick="enviarAoSalic('${ev.id}')"`}>
+                                <i data-lucide="upload" style="width:14px;height:14px;"></i> Enviar ao SALIC
+                            </button>
+                        </div>
+                        ` : ''}
+
+                        ${ev.status_validacao === 'erro_rpa' ? `
+                        <div class="card-actions" onclick="event.stopPropagation()">
+                            <button class="btn-salic"
+                                data-salic-id="${ev.id}"
+                                ${!ev.rubrica_id_fk ? 'disabled title="Vincule uma rubrica antes de enviar"' : `onclick="enviarAoSalic('${ev.id}')"`}>
+                                <i data-lucide="refresh-cw" style="width:14px;height:14px;"></i> Tentar novamente
+                            </button>
+                        </div>
+                        ` : ''}
+                    </div>
+                `;
+            }).join('');
+
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        // ============ FULLSCREEN MODAL ============
+
+        function openFullscreen(evidenceId) {
+            const ev = allEvidences.find(e => e.id === evidenceId);
+            if (!ev) return;
+
+            const url = signedUrls[ev.file_path] || '';
+            const isImage = isImageFile(ev.file_path);
+            const isPdf = isPdfFile(ev.file_path);
+
+            // Title
+            document.getElementById('fs-title').textContent = ev.file_name || ev.tipo_evidencia || 'Evidência';
+            document.getElementById('fs-info').textContent = `${(ev.tipo_evidencia || '').replace('_', ' ')} · ${formatDate(ev.criado_em)} · ${ev.status_validacao}`;
+
+            // Body content
+            const body = document.getElementById('fs-body');
+            if (isImage && url) {
+                body.innerHTML = `<img src="${url}" alt="${ev.file_name || 'Evidência'}">`;
+            } else if (isPdf && url) {
+                body.innerHTML = `<embed src="${url}" type="application/pdf">`;
+            } else if (url) {
+                body.innerHTML = `
+                    <div style="text-align: center; color: white;">
+                        <i data-lucide="file" style="width: 64px; height: 64px; margin-bottom: 1rem;"></i>
+                        <p>Pré-visualização indisponível.</p>
+                        <a href="${url}" target="_blank" style="color: #8EA3FF; margin-top: 0.5rem; display: inline-block;">Abrir em nova aba</a>
+                    </div>
+                `;
+            } else {
+                body.innerHTML = `<div style="color: white; text-align: center;"><p>Arquivo não disponível.</p></div>`;
+            }
+
+            // Footer actions
+            const footer = document.getElementById('fs-footer');
+            const isReviewable = ev.status_validacao === 'pendente' || ev.status_validacao === 'pendente_complemento';
+            if (isReviewable) {
+                footer.innerHTML = `
+                    <button class="btn-action btn-fs-approve" onclick="approveEvidence('${ev.id}'); closeFullscreen();">
+                        <i data-lucide="check-circle" style="width: 16px;"></i> Aprovar
+                    </button>
+                    <button class="btn-action btn-fs-complement" onclick="closeFullscreen(); openComplementModal('${ev.id}');">
+                        <i data-lucide="help-circle" style="width: 16px;"></i> Solicitar complemento
+                    </button>
+                    <button class="btn-action btn-fs-reject" onclick="closeFullscreen(); openRejectModal('${ev.id}');">
+                        <i data-lucide="x-circle" style="width: 16px;"></i> Reprovar
+                    </button>
+                    <a href="${url}" target="_blank" class="btn-action btn-fs-close" style="text-decoration: none;">
+                        <i data-lucide="external-link" style="width: 16px;"></i> Abrir original
+                    </a>
+                `;
+            } else {
+                footer.innerHTML = `
+                    <a href="${url}" target="_blank" class="btn-action btn-fs-close" style="text-decoration: none;">
+                        <i data-lucide="external-link" style="width: 16px;"></i> Abrir original
+                    </a>
+                `;
+            }
+
+            document.getElementById('modal-fullscreen').classList.add('active');
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        function closeFullscreen() {
+            document.getElementById('modal-fullscreen').classList.remove('active');
+        }
+
+        // ============ APPROVE / REJECT ============
+
+        function notificarEvidencia(evidencia_id, novo_status, analista_id) {
+            fetch('/api/m2/evidencia/notificar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ evidencia_id, novo_status, analista_id })
+            }).catch(e => console.warn('[notificar-evidencia]', e.message));
+        }
+
+        async function approveEvidence(evidenceId) {
+            const sb = await initSupabase();
+            const { data: { user } } = await sb.auth.getUser();
+
+            const { error } = await sb.from('physical_evidences').update({
+                status_validacao: 'aprovada',
+                motivo_reprovacao: null,
+                validado_por: user?.id || null,
+                validado_em: new Date().toISOString()
+            }).eq('id', evidenceId);
+
+            if (error) {
+                showToast('Erro ao aprovar: ' + error.message, 'error');
+                return;
+            }
+            notificarEvidencia(evidenceId, 'aprovada', user?.id);
+            showToast('Evidência aprovada.', 'success');
+            // Realtime cuidará do reload; sem fallback manual
+        }
+
+        function openRejectModal(evidenceId) {
+            pendingRejectId = evidenceId;
+            document.getElementById('reject-reason').value = '';
+            document.getElementById('modal-reject').classList.add('active');
+        }
+
+        function closeRejectModal() {
+            pendingRejectId = null;
+            document.getElementById('modal-reject').classList.remove('active');
+        }
+
+        async function confirmReject() {
+            if (!pendingRejectId) return;
+
+            const motivo = document.getElementById('reject-reason').value.trim();
+            if (motivo.length < 3) {
+                showToast('Informe o motivo da reprovação.', 'error');
+                return;
+            }
+
+            const sb = await initSupabase();
+            const { data: { user } } = await sb.auth.getUser();
+
+            const { error } = await sb.from('physical_evidences').update({
+                status_validacao: 'reprovada',
+                motivo_reprovacao: motivo,
+                validado_por: user?.id || null,
+                validado_em: new Date().toISOString()
+            }).eq('id', pendingRejectId);
+
+            if (error) {
+                showToast('Erro ao reprovar: ' + error.message, 'error');
+                return;
+            }
+            notificarEvidencia(pendingRejectId, 'reprovada', user?.id);
+            closeRejectModal();
+            showToast('Evidência reprovada.', 'success');
+        }
+
+        function openComplementModal(evidenceId) {
+            pendingComplementId = evidenceId;
+            document.getElementById('complement-reason').value = '';
+            document.getElementById('modal-complement').classList.add('active');
+            setTimeout(() => document.getElementById('complement-reason').focus(), 50);
+        }
+
+        function closeComplementModal() {
+            pendingComplementId = null;
+            document.getElementById('modal-complement').classList.remove('active');
+        }
+
+        async function confirmComplement() {
+            if (!pendingComplementId) return;
+            const descricao = document.getElementById('complement-reason').value.trim();
+            if (descricao.length < 5) {
+                showToast('Descreva o que precisa ser complementado (mín. 5 caracteres).', 'error');
+                return;
+            }
+
+            const sb = await initSupabase();
+            const { data: { user } } = await sb.auth.getUser();
+
+            const { error } = await sb.from('physical_evidences').update({
+                status_validacao: 'pendente_complemento',
+                motivo_reprovacao: descricao,
+                validado_por: user?.id || null,
+                validado_em: new Date().toISOString()
+            }).eq('id', pendingComplementId);
+
+            if (error) {
+                showToast('Erro ao solicitar complemento: ' + error.message, 'error');
+                return;
+            }
+            notificarEvidencia(pendingComplementId, 'pendente_complemento', user?.id);
+            closeComplementModal();
+            showToast('Complemento solicitado.', 'success');
+        }
+
+        // ============ FILE UPLOAD ============
+
+        async function handleFileUpload(files) {
+            if (!currentProjectId) {
+                showToast('Selecione um projeto primeiro!', 'error');
+                return;
+            }
+            if (!files || files.length === 0) return;
+
+            const sb = await initSupabase();
+            const { data: { user } } = await sb.auth.getUser();
+
+            // Resolve orgId ANTES do loop — uma única chamada async para a fonte do JWT/projects
+            const orgId = await getCurrentOrgId(currentProjectId);
+            if (!orgId) {
+                showToast('Organização não identificada.', 'error');
+                return;
+            }
+
+            const tipoSelecionado = document.getElementById('gestor-tipo-evidencia').value;
+            const rubricaInputText = document.getElementById('gestor-rubrica')?.value || '';
+            const rubricaObj = allRubricas.find(r => {
+                const label = r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome;
+                return label === rubricaInputText || r.nome === rubricaInputText;
+            });
+            const rubricaSelecionadaId = rubricaObj?.id || null;
+            const observacoesTexto = document.getElementById('gestor-observacoes')?.value?.trim() || null;
+            let sucessos = 0, falhas = 0;
+
+            for (const file of files) {
+                // Validação de tamanho e MIME real
+                if (!MIME_ACEITOS.includes(file.type)) {
+                    showToast(`"${file.name}": formato não aceito. Use PDF, JPG ou PNG.`, 'error');
+                    falhas++;
+                    continue;
+                }
+                if (file.size > TAMANHO_MAX) {
+                    showToast(`"${file.name}": arquivo muito grande. Máximo: 50MB.`, 'error');
+                    falhas++;
+                    continue;
+                }
+
+                const fileUuid = crypto.randomUUID();
+                const fileExt = (file.name.split('.').pop() || 'bin').toLowerCase();
+                const fileName = `${fileUuid}.${fileExt}`;
+                const filePath = `${currentProjectId}/${fileName}`;
+
+                // 1. Upload para o Storage
+                const { error: uploadError } = await sb.storage
+                    .from('physical-evidences')
+                    .upload(filePath, file, { contentType: file.type });
+
+                if (uploadError) {
+                    console.error('[upload evidence]', uploadError);
+                    showToast(`"${file.name}": erro no upload — ${uploadError.message}`, 'error');
+                    falhas++;
+                    continue;
+                }
+
+                // 2. Registrar no Banco
+                const { error: dbError } = await sb.from('physical_evidences').insert([{
+                    id: fileUuid,
+                    project_id: currentProjectId,
+                    organization_id: orgId,
+                    enviado_por: user?.id || null,
+                    tipo_evidencia: tipoSelecionado,
+                    descricao: observacoesTexto || null,
+                    rubrica_id_fk: rubricaSelecionadaId || null,
+                    file_path: filePath,
+                    file_name: file.name,
+                    file_size: file.size,
+                    mime_type: file.type,
+                    status_validacao: 'pendente'
+                }]);
+
+                if (dbError) {
+                    console.error('[insert evidence]', dbError);
+                    // Limpa arquivo órfão (best-effort)
+                    sb.storage.from('physical-evidences').remove([filePath]).catch(() => {});
+                    showToast(`"${file.name}": erro ao registrar — ${dbError.message}`, 'error');
+                    falhas++;
+                    continue;
+                }
+                sucessos++;
+            }
+
+            document.getElementById('file-input').value = '';
+            if (sucessos > 0) {
+                const msg = falhas > 0
+                    ? `${sucessos} evidência(s) enviada(s), ${falhas} falha(s).`
+                    : `${sucessos} evidência(s) enviada(s).`;
+                showToast(msg, 'success');
+            }
+            // Realtime já dispara loadEvidences; mas se a sub não estiver ativa, fazemos um refresh manual
+            if (!evidencesChannel) await loadEvidences();
+        }
+
+        async function enviarAoSalic(evidenciaId) {
+            if (!confirm('Enviar esta evidência ao SALIC?')) return;
+
+            const btn = document.querySelector(`[data-salic-id="${evidenciaId}"]`);
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i data-lucide="loader-2" style="width:14px;height:14px;" class="spin"></i> Enviando...';
+                if (window.lucide) window.lucide.createIcons();
+            }
+
+            const sb = await initSupabase();
+            const { data: { user } } = await sb.auth.getUser();
+
+            try {
+                const res = await fetch('/api/salic/comprovar-fisico', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ evidenciaId, userId: user?.id })
+                });
+
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({ message: res.statusText }));
+                    throw new Error(err.message || 'Erro desconhecido');
+                }
+
+                const idx = allEvidences.findIndex(e => e.id === evidenciaId);
+                if (idx !== -1) allEvidences[idx].status_validacao = 'enviada_salic';
+                showToast('Evidência enviada ao SALIC', 'success');
+                renderEvidences(allEvidences);
+            } catch (e) {
+                await sb.from('physical_evidences').update({ status_validacao: 'erro_rpa' }).eq('id', evidenciaId);
+                const idx = allEvidences.findIndex(e => e.id === evidenciaId);
+                if (idx !== -1) allEvidences[idx].status_validacao = 'erro_rpa';
+                showToast('Erro no envio: ' + e.message, 'error');
+                renderEvidences(allEvidences);
+            }
+        }
+
+        function escapeHtml(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function showToast(msg, type = 'success') {
+            const t = document.getElementById('toast');
+            if (!t) return;
+            t.innerText = msg;
+            t.style.background = type === 'success' ? '#1547FF' : (type === 'error' ? '#FF5807' : '#1547FF');
+            t.style.transform = 'translateY(0)';
+            setTimeout(() => t.style.transform = 'translateY(150%)', 4000);
+        }
+    </script>
+</body>
+</html>

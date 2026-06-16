@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Gestão Avançada de Rubricas</title>
+    
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Supabase JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m2-shared.css">
+    
+    <style>
+        .rubrica-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+        
+        .rubrica-card {
+            display: grid;
+            grid-template-columns: 80px 2fr 1.5fr 1fr;
+            align-items: center;
+            padding: 1.25rem 1.5rem;
+        }
+        
+        .progress-container {
+            width: 100%;
+            height: 8px;
+            background: #C6D0FF;
+            border-radius: 99px;
+            overflow: hidden;
+            margin-top: 0.5rem;
+        }
+        
+        .progress-bar {
+            height: 100%;
+            border-radius: 99px;
+            transition: width 0.5s ease;
+        }
+        
+        .alerta-container {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        
+        .config-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0.25rem;
+            transition: color 0.2s;
+        }
+        
+        .config-btn:hover { color: var(--m2-accent); }
+        
+        .alert-active { color: var(--warning); filter: drop-shadow(0 0 4px rgba(255, 88, 7, 0.2)); }
+
+        .upload-progress-container {
+            margin-top: 1.5rem;
+            background: white;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-light);
+            padding: 1.5rem;
+            display: none;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .upload-progress-bar-bg {
+            width: 100%;
+            height: 8px;
+            background: #C6D0FF;
+            border-radius: 99px;
+            overflow: hidden;
+            margin-top: 1rem;
+        }
+
+        .upload-progress-bar-fill {
+            height: 100%;
+            background: var(--m2-accent);
+            border-radius: 99px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+        
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.875rem;
+        }
+        .history-table th {
+            text-align: left; padding: 1rem; background: #F5F0E8; color: var(--text-secondary);
+            font-weight: 700; border-bottom: 2px solid var(--border-light);
+        }
+        .history-table td {
+            padding: 1rem; border-bottom: 1px solid var(--border-light); color: var(--text-primary);
+        }
+        .status-badge {
+            padding: 0.25rem 0.75rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+        }
+        .status-success { background: #1547FF; color: #70FF00; }
+        .status-processing { background: #E3E8FF; color: #1547FF; }
+        .status-error { background: #FF5807; color: #FFFFFF; }
+
+        /* Pills de status da rubrica */
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.2rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            white-space: nowrap;
+            letter-spacing: 0.02em;
+        }
+        .pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; }
+        .pill-ok       { background: #1547FF; color: #70FF00; }
+        .pill-ok::before       { background: #1547FF; }
+        .pill-atencao  { background: #FF5807; color: #FFFFFF; }
+        .pill-atencao::before  { background: #FF5807; }
+        .pill-excedida { background: #FF5807; color: #FFFFFF; }
+        .pill-excedida::before { background: #FF5807; }
+
+        /* Modal genérico */
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9998;
+            padding: 1rem;
+        }
+        .modal-backdrop[hidden] { display: none; }
+        .modal-dialog {
+            background: white;
+            border-radius: var(--radius-lg);
+            padding: 1.75rem;
+            max-width: 560px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+        }
+        .modal-dialog.wide { max-width: 760px; }
+        .modal-dialog h3 {
+            margin: 0 0 1.25rem 0;
+            font-size: 1.25rem;
+            color: var(--text-primary);
+        }
+        .form-grid { display: flex; flex-direction: column; gap: 1rem; }
+        .form-grid label {
+            display: flex; flex-direction: column; gap: 0.35rem;
+            font-size: 0.78rem; font-weight: 600; color: var(--text-secondary);
+            text-transform: uppercase; letter-spacing: 0.03em;
+        }
+        .form-grid input,
+        .form-grid textarea {
+            padding: 0.7rem 0.85rem;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            font-size: 0.95rem;
+            color: var(--text-primary);
+            font-family: inherit;
+            background: white;
+            text-transform: none;
+            letter-spacing: normal;
+        }
+        .form-grid input[readonly] {
+            background: #E3E8FF;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+        .form-grid input:focus,
+        .form-grid textarea:focus {
+            outline: none;
+            border-color: var(--m2-accent);
+            box-shadow: 0 0 0 3px rgba(21, 71, 255, 0.15);
+        }
+        .modal-actions {
+            display: flex; gap: 0.75rem; justify-content: flex-end;
+            margin-top: 1.5rem;
+        }
+        .btn-modal {
+            padding: 0.7rem 1.25rem;
+            border-radius: var(--radius-md);
+            font-weight: 700;
+            font-size: 0.875rem;
+            cursor: pointer;
+            border: 1px solid transparent;
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            transition: all 0.15s;
+        }
+        .btn-modal-cancel {
+            background: white;
+            color: var(--text-secondary);
+            border-color: var(--border-light);
+        }
+        .btn-modal-cancel:hover { background: #F5F0E8; }
+        .btn-modal-primary {
+            background: linear-gradient(135deg, var(--m2-accent), var(--m2-accent-hover));
+            color: white;
+            border: none;
+        }
+        .btn-modal-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .config-btn.history-btn:hover { color: #1547FF; }
+
+        .hist-table {
+            width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 0.5rem;
+        }
+        .hist-table th {
+            text-align: left; padding: 0.65rem 0.75rem; background: #F5F0E8;
+            color: var(--text-secondary); font-size: 0.7rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.04em;
+            border-bottom: 2px solid var(--border-light);
+        }
+        .hist-table td {
+            padding: 0.75rem; border-bottom: 1px solid var(--border-light);
+            vertical-align: top;
+        }
+        .hist-table tr:last-child td { border-bottom: none; }
+        .hist-empty {
+            padding: 2rem 1rem;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+
+        .spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <main class="main-content">
+        <header class="page-header">
+            <div>
+                <h1>Gestão Avançada de Rubricas</h1>
+                <p style="color: var(--text-secondary);">Controle orçamentário, alertas de limite e histórico de readequações.</p>
+            </div>
+            
+            <div style="display: flex; gap: 1rem; align-items: center;">
+                <div class="project-selector-container">
+                    <i data-lucide="briefcase" style="width: 18px; color: var(--text-secondary);"></i>
+                    <select id="project-select" onchange="handleProjectChange(this.value)">
+                        <option value="">Selecione um Projeto (PRONAC)...</option>
+                    </select>
+                </div>
+                <button onclick="document.getElementById('file-upload-rubricas').click()" style="height: 42px; display: flex; align-items: center; gap: 0.5rem; padding: 0 1rem; border-radius: var(--radius-md); background: var(--m2-accent); color: white; border: none; font-weight: 600; cursor: pointer; transition: all 0.2s;">
+                    <i data-lucide="upload" style="width: 18px; height: 18px;"></i>
+                    Importar Planilha
+                </button>
+                <input type="file" id="file-upload-rubricas" accept=".pdf" style="display: none;" onchange="handleRubricaUpload(this.files[0])">
+            </div>
+        </header>
+        
+        <div class="toast-notification" id="toast" style="position: fixed; bottom: 2.5rem; right: 2.5rem; padding: 1.25rem 2rem; border-radius: var(--radius-md); color: white; font-weight: 700; font-size: 0.95rem; z-index: 10000; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); transform: translateY(150%); transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);"></div>
+
+        <!-- Modal de Readequação Orçamentária -->
+        <div id="readequacao-modal" class="modal-backdrop" hidden onclick="if(event.target===this) closeReadequacaoModal()">
+            <div class="modal-dialog">
+                <h3><i data-lucide="git-branch" style="width:18px; vertical-align:-3px;"></i> Nova readequação orçamentária</h3>
+                <form id="readequacao-form" class="form-grid" onsubmit="event.preventDefault(); submitReadequacao();">
+                    <label>
+                        Rubrica
+                        <input type="text" id="re-nome" readonly>
+                    </label>
+                    <label>
+                        Valor atual aprovado
+                        <input type="text" id="re-atual" readonly>
+                    </label>
+                    <label>
+                        Novo valor aprovado <span style="color:#FF5807;">*</span>
+                        <input type="number" step="0.01" min="0.01" id="re-novo" required>
+                    </label>
+                    <label>
+                        Motivo <span style="color:#FF5807;">*</span>
+                        <textarea id="re-motivo" rows="4" required placeholder="Descreva a justificativa da readequação (será registrada no histórico)..."></textarea>
+                    </label>
+                    <div class="modal-actions">
+                        <button type="button" class="btn-modal btn-modal-cancel" onclick="closeReadequacaoModal()">Cancelar</button>
+                        <button type="submit" class="btn-modal btn-modal-primary" id="re-submit">
+                            <i data-lucide="check" style="width:16px;"></i> Registrar readequação
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Modal de Histórico de Readequações -->
+        <div id="historico-modal" class="modal-backdrop" hidden onclick="if(event.target===this) closeHistoricoModal()">
+            <div class="modal-dialog wide">
+                <h3><i data-lucide="history" style="width:18px; vertical-align:-3px;"></i> Histórico de readequações</h3>
+                <p id="hist-rubrica-label" style="margin: -0.5rem 0 1rem 0; color: var(--text-secondary); font-size: 0.9rem;"></p>
+                <div id="hist-content">
+                    <div class="hist-empty"><i data-lucide="loader" class="spin"></i> Carregando…</div>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-modal btn-modal-cancel" onclick="closeHistoricoModal()">Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="upload-progress-container" id="upload-progress-container">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <i data-lucide="file-text" style="color: var(--m2-accent);"></i>
+                    <span style="font-weight: 600;" id="upload-filename">Arquivo.pdf</span>
+                </div>
+                <span id="upload-status" style="font-size: 0.875rem; color: var(--text-secondary); font-weight: 500;">Iniciando...</span>
+            </div>
+            <div class="upload-progress-bar-bg">
+                <div class="upload-progress-bar-fill" id="upload-progress-fill"></div>
+            </div>
+        </div>
+
+        <div class="glass-card" style="margin-top: 1.5rem; padding: 0;">
+            <div style="padding: 1.5rem; border-bottom: 1px solid var(--border-light); display: flex; align-items: center; gap: 0.5rem;">
+                <i data-lucide="history" style="color: var(--text-secondary);"></i>
+                <h3 style="font-size: 1.1rem; margin: 0;">Histórico de Importações</h3>
+            </div>
+            <div style="overflow-x: auto; max-height: 200px;">
+                <table class="history-table">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Arquivo</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-tbody">
+                        <tr><td colspan="3" style="text-align: center; color: var(--text-muted);">Selecione um projeto para ver o histórico.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="rubrica-list" id="rubrica-list">
+            <!-- Rubricas summary table headers -->
+            <div class="glass-card" style="margin-bottom: 0; padding: 0.75rem 1.5rem; background: var(--bg-sidebar); border-radius: var(--radius-md) var(--radius-md) 0 0; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--text-secondary);">
+                <div style="display: grid; grid-template-columns: 80px 2fr 1.5fr 1fr; gap: 1rem;">
+                    <div>Cód</div>
+                    <div>Rubrica / Nome</div>
+                    <div>Execução Orçamentária</div>
+                    <div style="text-align: right;">Alertas / Ações</div>
+                </div>
+            </div>
+            
+            <div id="rubricas-container">
+                <!-- Data will be injected here -->
+            </div>
+        </div>
+    </main>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper.js"></script>
+    <script>
+        let currentProjectId = ProjectManager.getSelected();
+        let uploadInterval = null;
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            renderSidebar();
+            await initSupabase();
+            await populateProjectSelect();
+            
+            if (currentProjectId) {
+                document.getElementById('project-select').value = currentProjectId;
+                loadRubricas();
+                loadHistory();
+            }
+        });
+
+        async function populateProjectSelect() {
+            const projects = await loadProjects();
+            const select = document.getElementById('project-select');
+            projects.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.textContent = `${p.pronac} - ${p.nome}`;
+                select.appendChild(opt);
+            });
+        }
+
+        function handleProjectChange(id) {
+            currentProjectId = id;
+            ProjectManager.setSelected(id);
+            loadRubricas();
+            loadHistory();
+        }
+
+        async function loadHistory() {
+            if (!currentProjectId) return;
+            const sb = await initSupabase();
+            const { data, error } = await sb
+                .from('documents')
+                .select('id, name, status, created_at')
+                .eq('project_id', currentProjectId)
+                .eq('tipo_documento', 'planilha_orcamentaria')
+                .order('created_at', { ascending: false });
+
+            const tbody = document.getElementById('history-tbody');
+            if (error || !data || data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: var(--text-muted);">Nenhuma importação encontrada.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = data.map(doc => {
+                let badgeClass = 'status-processing';
+                let statusLabel = 'Processando';
+                
+                if (doc.status === 'concluido' || doc.status === 'success' || doc.status === 'aguardando_conformidade' || doc.status === 'revisao_manual') {
+                    badgeClass = 'status-success';
+                    statusLabel = 'Concluído';
+                } else if (doc.status === 'erro_rpa' || doc.status === 'erro') {
+                    badgeClass = 'status-error';
+                    statusLabel = 'Erro';
+                }
+
+                return `
+                    <tr>
+                        <td>${new Date(doc.created_at).toLocaleString('pt-BR')}</td>
+                        <td style="font-weight: 500;">${doc.name}</td>
+                        <td><span class="status-badge ${badgeClass}">${statusLabel}</span></td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function loadRubricas() {
+            if (!currentProjectId) return;
+            
+            const sb = await initSupabase();
+            const { data, error } = await sb
+                .from('rubricas')
+                .select('*')
+                .eq('project_id', currentProjectId)
+                .order('rubrica_id');
+
+            if (error) {
+                console.error("Erro ao carregar rubricas:", error);
+                return;
+            }
+
+            renderRubricas(data);
+        }
+
+        function renderRubricas(rubricas) {
+            const container = document.getElementById('rubricas-container');
+            if (!rubricas || rubricas.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <i data-lucide="list" style="width: 48px; height: 48px; color: var(--text-muted); margin-bottom: 1rem;"></i>
+                        <h3>Nenhuma rubrica encontrada</h3>
+                        <p>Importe o orçamento do projeto do SALIC ou cadastre manualmente.</p>
+                    </div>
+                `;
+                if (window.lucide) window.lucide.createIcons();
+                return;
+            }
+
+            container.innerHTML = rubricas.map(r => {
+                const approved = parseFloat(r.valor_aprovado || 0);
+                const used = parseFloat(r.valor_utilizado || 0);
+                const percent = approved > 0 ? (used / approved) * 100 : 0;
+                const ratio = approved > 0 ? (used / approved) : 0;
+
+                const limite = (r.percentual_alerta != null) ? (Number(r.percentual_alerta) / 100) : 0.9;
+                const isNearingLimit = ratio >= limite && ratio < 1;
+                const isExcedida = ratio >= 1;
+                const isAlertActive = r.alerta_limite_ativo === true;
+
+                let progressColor = 'var(--m2-accent)';
+                if (isExcedida) progressColor = 'var(--error)';
+                else if (isNearingLimit) progressColor = 'var(--warning)';
+
+                let pillHtml = '<span class="pill pill-ok">OK</span>';
+                if (isExcedida) pillHtml = '<span class="pill pill-excedida">EXCEDIDA</span>';
+                else if (isNearingLimit) pillHtml = '<span class="pill pill-atencao">ATENÇÃO</span>';
+
+                return `
+                    <div class="glass-card rubrica-card">
+                        <div style="font-weight: 700; color: var(--text-secondary);">${r.rubrica_id || '---'}</div>
+
+                        <div>
+                            <div style="font-weight: 700; color: var(--text-primary);">
+                                ${r.rubrica_id ? `<span style="color: var(--m2-accent); font-family: monospace; font-size: 0.85em;">[${r.rubrica_id}]</span> ` : ''}${escapeHtml(r.nome)}
+                            </div>
+                            <div class="text-xs" style="color: var(--text-muted);">${escapeHtml(r.etapa || 'Fase de Execução')}</div>
+                        </div>
+
+                        <div style="padding-right: 2rem;">
+                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; font-weight: 600;">
+                                <span>${formatCurrency(used)}</span>
+                                <span style="color: var(--text-muted);">/ ${formatCurrency(approved)}</span>
+                            </div>
+                            <div class="progress-container">
+                                <div class="progress-bar" style="width: ${Math.min(percent, 100)}%; background: ${progressColor};"></div>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; justify-content: flex-end; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                            ${pillHtml}
+                            <div class="alerta-container ${isAlertActive && (isNearingLimit || isExcedida) ? 'alert-active' : ''}">
+                                <i data-lucide="${isAlertActive ? 'bell' : 'bell-off'}" style="width: 16px;"></i>
+                                <span>${percent.toFixed(1)}%</span>
+                            </div>
+
+                            <button class="config-btn history-btn" title="Histórico de readequações" onclick="openHistoricoModal('${r.id}', ${JSON.stringify(r.nome).replace(/"/g,'&quot;')})">
+                                <i data-lucide="history" style="width: 18px;"></i>
+                            </button>
+                            <button class="config-btn" title="Nova readequação orçamentária" onclick="openReadequacaoModal('${r.id}')">
+                                <i data-lucide="settings-2" style="width: 18px;"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // Readequação orçamentária — modal + persistência
+        // ─────────────────────────────────────────────────────────────
+        let readequacaoState = null; // { rubricaId, rubrica }
+
+        async function openReadequacaoModal(rubricaId) {
+            const sb = await initSupabase();
+            const { data: rubrica, error } = await sb
+                .from('rubricas')
+                .select('id, nome, valor_aprovado, versao_atual')
+                .eq('id', rubricaId)
+                .maybeSingle();
+
+            if (error || !rubrica) {
+                showToast('Não foi possível carregar a rubrica.', 'error');
+                return;
+            }
+
+            readequacaoState = { rubricaId, rubrica };
+            document.getElementById('re-nome').value = rubrica.nome || '';
+            document.getElementById('re-atual').value = formatCurrency(rubrica.valor_aprovado || 0);
+            document.getElementById('re-novo').value = '';
+            document.getElementById('re-motivo').value = '';
+            document.getElementById('re-submit').disabled = false;
+            document.getElementById('readequacao-modal').hidden = false;
+            if (window.lucide) window.lucide.createIcons();
+            setTimeout(() => document.getElementById('re-novo').focus(), 50);
+        }
+
+        function closeReadequacaoModal() {
+            document.getElementById('readequacao-modal').hidden = true;
+            readequacaoState = null;
+        }
+
+        async function submitReadequacao() {
+            if (!readequacaoState) return;
+            const { rubricaId, rubrica } = readequacaoState;
+
+            const novoValor = parseFloat(document.getElementById('re-novo').value);
+            const motivo = document.getElementById('re-motivo').value.trim();
+
+            if (!Number.isFinite(novoValor) || novoValor <= 0) {
+                showToast('Informe um novo valor maior que zero.', 'error');
+                return;
+            }
+            if (motivo.length < 5) {
+                showToast('Informe um motivo (mínimo 5 caracteres).', 'error');
+                return;
+            }
+
+            const valorAnterior = Number(rubrica.valor_aprovado || 0);
+            if (novoValor === valorAnterior) {
+                showToast('O novo valor é igual ao atual.', 'error');
+                return;
+            }
+
+            const submitBtn = document.getElementById('re-submit');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i data-lucide="loader" class="spin" style="width:16px;"></i> Salvando…';
+            if (window.lucide) window.lucide.createIcons();
+
+            try {
+                const sb = await initSupabase();
+                const { data: { user } } = await sb.auth.getUser();
+                const orgId = await getCurrentOrgId(currentProjectId);
+                const versaoAnterior = Number(rubrica.versao_atual || 0);
+                const novaVersao = versaoAnterior + 1;
+                const hoje = new Date().toISOString().split('T')[0]; // aprovado_em é DATE
+
+                // a/b) INSERT no histórico
+                const { error: insErr } = await sb.from('rubricas_readequacoes').insert({
+                    rubrica_id: rubricaId,
+                    project_id: currentProjectId,
+                    organization_id: orgId,
+                    versao: novaVersao,
+                    valor_anterior: valorAnterior,
+                    valor_novo: novoValor,
+                    motivo: motivo,
+                    aprovado_em: hoje,
+                    criado_por: user ? user.id : null
+                });
+                if (insErr) throw insErr;
+
+                // c) UPDATE rubrica
+                const { error: updErr } = await sb.from('rubricas')
+                    .update({ valor_aprovado: novoValor, versao_atual: novaVersao })
+                    .eq('id', rubricaId);
+                if (updErr) throw updErr;
+
+                closeReadequacaoModal();
+                showToast('Readequação registrada com sucesso.', 'success');
+                await loadRubricas();
+            } catch (err) {
+                console.error('[submitReadequacao]', err);
+                showToast('Erro ao registrar readequação: ' + (err.message || 'verifique o console'), 'error');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i data-lucide="check" style="width:16px;"></i> Registrar readequação';
+                if (window.lucide) window.lucide.createIcons();
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // Histórico de readequações
+        // ─────────────────────────────────────────────────────────────
+        async function openHistoricoModal(rubricaId, rubricaNome) {
+            document.getElementById('hist-rubrica-label').textContent = rubricaNome || '';
+            document.getElementById('hist-content').innerHTML =
+                '<div class="hist-empty"><i data-lucide="loader" class="spin"></i> Carregando…</div>';
+            document.getElementById('historico-modal').hidden = false;
+            if (window.lucide) window.lucide.createIcons();
+
+            const sb = await initSupabase();
+            const { data, error } = await sb
+                .from('rubricas_readequacoes')
+                .select('versao, valor_anterior, valor_novo, motivo, aprovado_em, criado_em')
+                .eq('rubrica_id', rubricaId)
+                .order('versao', { ascending: false });
+
+            const content = document.getElementById('hist-content');
+            if (error) {
+                content.innerHTML = `<div class="hist-empty">Erro: ${escapeHtml(error.message)}</div>`;
+                return;
+            }
+            if (!data || data.length === 0) {
+                content.innerHTML = '<div class="hist-empty">Nenhuma readequação registrada ainda para esta rubrica.</div>';
+                return;
+            }
+
+            const rows = data.map(h => `
+                <tr>
+                    <td><strong>v${h.versao}</strong></td>
+                    <td>${formatCurrency(Number(h.valor_anterior || 0))}</td>
+                    <td>${formatCurrency(Number(h.valor_novo || 0))}</td>
+                    <td style="font-size: 0.82rem; color: var(--text-secondary);">${escapeHtml(h.motivo || '—')}</td>
+                    <td>${formatHistDate(h.aprovado_em || h.criado_em)}</td>
+                </tr>
+            `).join('');
+
+            content.innerHTML = `
+                <div style="overflow-x: auto;">
+                    <table class="hist-table">
+                        <thead>
+                            <tr>
+                                <th>Versão</th>
+                                <th>De</th>
+                                <th>Para</th>
+                                <th>Motivo</th>
+                                <th>Data</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        function closeHistoricoModal() {
+            document.getElementById('historico-modal').hidden = true;
+        }
+
+        function formatHistDate(iso) {
+            if (!iso) return '—';
+            try { return new Date(iso).toLocaleDateString('pt-BR'); } catch { return '—'; }
+        }
+
+        function escapeHtml(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        // Atalho de teclado: ESC fecha modais abertos
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                if (!document.getElementById('readequacao-modal').hidden) closeReadequacaoModal();
+                if (!document.getElementById('historico-modal').hidden) closeHistoricoModal();
+            }
+        });
+
+        function showToast(msg, type = 'success') {
+            const t = document.getElementById('toast');
+            t.innerText = msg;
+            t.style.background = type === 'success' ? '#1547FF' : (type === 'error' ? '#FF5807' : '#1547FF');
+            t.style.transform = 'translateY(0)';
+            setTimeout(() => t.style.transform = 'translateY(150%)', 4000);
+        }
+
+        function setUploadProgress(percent, text) {
+            document.getElementById('upload-progress-fill').style.width = `${percent}%`;
+            document.getElementById('upload-status').textContent = text;
+        }
+
+        window.handleRubricaUpload = async function(file) {
+            if (!file) return;
+            if (!currentProjectId) {
+                showToast("Selecione um projeto primeiro!", "error");
+                return;
+            }
+
+            const project = document.getElementById('project-select').options[document.getElementById('project-select').selectedIndex].text;
+            const pronac = project.split(' - ')[0];
+
+            // Setup UI for upload
+            const container = document.getElementById('upload-progress-container');
+            container.style.display = 'block';
+            document.getElementById('upload-filename').textContent = file.name;
+            setUploadProgress(10, 'Iniciando upload...');
+
+            try {
+                const sb = await initSupabase();
+                const { data: { user } } = await sb.auth.getUser();
+
+                const fileExt = file.name.split('.').pop();
+                const fileName = `rubricas_pronac_${pronac}_${Date.now()}.${fileExt}`;
+                const filePath = `${user.id}/${fileName}`;
+
+                // 1. Upload to Supabase Storage
+                setUploadProgress(30, 'Enviando arquivo...');
+                const { error: uploadError } = await sb.storage.from('documentos').upload(filePath, file);
+                if (uploadError) throw uploadError;
+
+                // 2. Salvar registro na tabela documents (tipo planilha_orcamentaria)
+                setUploadProgress(50, 'Registrando no banco...');
+                const { data: docData, error: dbError } = await sb
+                    .from('documents')
+                    .insert({
+                        user_id: user.id,
+                        project_id: currentProjectId,
+                        name: file.name,
+                        size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
+                        file_path: filePath,
+                        status: 'processing_ocr',
+                        tipo_documento: 'planilha_orcamentaria'
+                    })
+                    .select()
+                    .single();
+
+                if (dbError) throw dbError;
+
+                // Simulate progress during webhook wait
+                let simProgress = 50;
+                uploadInterval = setInterval(() => {
+                    if (simProgress < 90) {
+                        simProgress += 2;
+                        setUploadProgress(simProgress, 'Extraindo rubricas via OCR...');
+                    }
+                }, 1000);
+
+                // 3. Notify Webhook
+                const payload = {
+                    document_id: docData.id,
+                    project_id: currentProjectId,
+                    user_id: user.id,
+                    file_path: filePath,
+                    bucket: 'documentos'
+                };
+
+                const N8N_URL = CONFIG.N8N_WEBHOOK_SALIC_IMPORT_RUBRICAS_URL || "https://automacoes-n8n.infrassys.com/webhook/uploadrubricas";
+                const response = await fetch(N8N_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                clearInterval(uploadInterval);
+
+                if (!response.ok) throw new Error("Erro no processamento do arquivo pelo servidor.");
+
+                const rawResult = await response.json();
+                const result = Array.isArray(rawResult) ? rawResult[0] : rawResult;
+
+                if (result.success || result.rubricas_importadas !== undefined) {
+                    setUploadProgress(100, 'Concluído!');
+                    
+                    // Atualiza status no banco para concluído
+                    await sb.from('documents').update({ status: 'concluido' }).eq('id', docData.id);
+                    
+                    showToast(`${result.rubricas_importadas || 'Várias'} rubricas importadas com sucesso!`, 'success');
+                    await loadRubricas();
+                    await loadHistory();
+                    
+                    setTimeout(() => { container.style.display = 'none'; }, 3000);
+                } else {
+                    await sb.from('documents').update({ status: 'erro' }).eq('id', docData.id);
+                    setUploadProgress(100, 'Erro no processamento.');
+                    document.getElementById('upload-progress-fill').style.background = 'var(--error)';
+                    console.error("Erro no processamento das rubricas:", result);
+                    showToast(result.message || "Falha ao extrair rubricas. Verifique se o PDF é a planilha do SALIC.", 'error');
+                    await loadHistory();
+                }
+            } catch (err) {
+                if (uploadInterval) clearInterval(uploadInterval);
+                setUploadProgress(100, 'Falha no upload.');
+                document.getElementById('upload-progress-fill').style.background = 'var(--error)';
+                console.error("Falha técnica no upload de rubricas:", err);
+                showToast("Erro: " + err.message, 'error');
+            } finally {
+                // Limpa o input de arquivo
+                document.getElementById('file-upload-rubricas').value = '';
+            }
+        };
+    </script>
+</body>
+</html>
