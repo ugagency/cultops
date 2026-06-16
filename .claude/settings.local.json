@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --check \"c:/Users/ulisses/OneDrive/Área de Trabalho/Cultopps/app.js\")"
+    ]
+  }
+}

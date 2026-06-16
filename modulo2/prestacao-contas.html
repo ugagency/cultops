@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI M2 — Prestação de Contas</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m2-shared.css">
+    
+    <style>
+        .pc-container {
+            max-width: 1100px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-bottom: 1rem;
+        }
+
+        .glass-card {
+            background: white;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-md);
+            padding: 2rem;
+            border: 1px solid var(--border-light);
+            transition: var(--transition);
+        }
+
+        .glass-card.highlight {
+            border-top: 4px solid var(--m2-accent);
+        }
+
+        /* Checklist */
+        .checklist-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .check-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem 1.25rem;
+            background: #F5F0E8;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-light);
+            transition: all 0.2s;
+        }
+
+        .check-icon {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .check-icon.loading { background: #C6D0FF; color: #94a3b8; }
+        .check-icon.ok { background: #1547FF; color: #70FF00; }
+        .check-icon.fail { background: #FF5807; color: #FF5807; }
+
+        .check-text {
+            flex: 1;
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .btn-gerar {
+            width: 100%;
+            padding: 1.25rem;
+            border: none;
+            border-radius: var(--radius-md);
+            background: var(--m2-accent);
+            color: white;
+            font-size: 1.1rem;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            transition: all 0.2s;
+        }
+
+        .btn-gerar:disabled {
+            background: #94a3b8;
+            cursor: not-allowed;
+            opacity: 0.8;
+        }
+        
+        .btn-gerar:not(:disabled):hover {
+            background: #0F38D9;
+            box-shadow: 0 10px 25px -5px rgba(15, 56, 217, 0.4);
+        }
+
+        .btn-autorizar {
+            width: 100%;
+            padding: 1.25rem;
+            border: none;
+            border-radius: var(--radius-md);
+            background: #FF5807;
+            color: white;
+            font-size: 1.1rem;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            transition: all 0.2s;
+        }
+
+        .btn-autorizar:disabled {
+            background: #A8FF66;
+            cursor: not-allowed;
+        }
+
+        .btn-autorizar:not(:disabled):hover {
+            background: #FF5807;
+            box-shadow: 0 10px 25px -5px rgba(255, 88, 7, 0.4);
+        }
+
+        /* History Table */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        .data-table th {
+            text-align: left;
+            padding: 1rem;
+            background: #F5F0E8;
+            color: var(--text-secondary);
+            font-weight: 700;
+            border-bottom: 2px solid var(--border-light);
+        }
+        .data-table td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-light);
+            color: var(--text-primary);
+            vertical-align: middle;
+        }
+        
+        .badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+        .badge::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+        
+        .badge-gerando { background: #E3E8FF; color: #475569; }
+        .badge-gerando::before { background: #94a3b8; }
+        .badge-pronto { background: #E3E8FF; color: #1547FF; }
+        .badge-pronto::before { background: #1547FF; }
+        .badge-autorizado { background: #1547FF; color: #70FF00; }
+        .badge-autorizado::before { background: #1547FF; }
+        .badge-substituido { background: #E3E8FF; color: #94a3b8; }
+        .badge-substituido::before { background: #cbd5e1; }
+        .badge-erro { background: #FF5807; color: #FFFFFF; }
+        .badge-erro::before { background: #FF5807; }
+
+        .btn-sm {
+            padding: 0.5rem 0.75rem;
+            border-radius: var(--radius-sm);
+            font-weight: 600;
+            font-size: 0.8rem;
+            cursor: pointer;
+            border: 1px solid transparent;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .btn-download { background: #E3E8FF; color: #334155; border-color: #C6D0FF; }
+        .btn-download:hover { background: #C6D0FF; }
+        .btn-download.disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        .btn-retry { background: #FF5807; color: #FFFFFF; }
+        .btn-retry:hover { background: #FF5807; }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+            z-index: 10000; display: none; align-items: center; justify-content: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal-content {
+            background: white; padding: 2rem; border-radius: var(--radius-lg); width: 100%; max-width: 450px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        .project-status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: var(--radius-md);
+            font-weight: 600;
+            font-size: 0.9rem;
+            background: #1547FF;
+            color: #70FF00;
+        }
+    </style>
+</head>
+<body>
+    <div class="toast-notification" id="toast" style="position: fixed; bottom: 2.5rem; right: 2.5rem; padding: 1.25rem 2rem; border-radius: var(--radius-md); color: white; font-weight: 700; font-size: 0.95rem; z-index: 10000; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); transform: translateY(150%); transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);"></div>
+
+    <main class="main-content">
+        <div class="pc-container">
+            
+            <div class="dashboard-header">
+                <div>
+                    <h1 style="font-size: 2.5rem; font-weight: 800; color: var(--text-primary); margin-bottom: 0.5rem;">Prestação de Contas</h1>
+                    <p style="color: var(--text-secondary); font-size: 1.125rem;">Geração e envio do relatório final para o MinC.</p>
+                </div>
+                
+                <div class="project-selector-container">
+                    <i data-lucide="briefcase" style="width: 18px; color: var(--text-secondary);"></i>
+                    <select id="project-select" onchange="handleProjectChange(this.value)">
+                        <option value="">Selecione um Projeto...</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Project Status Alert (Shown when Authorized or Sent) -->
+            <div id="project-status-container" style="display: none; margin-bottom: 1rem;">
+                <div class="project-status-badge" id="project-status-badge">
+                    <i data-lucide="check-circle"></i>
+                    <span id="project-status-text">Status</span>
+                </div>
+                <p style="color: var(--text-secondary); font-size: 0.875rem; margin-top: 0.5rem;" id="project-status-msg"></p>
+            </div>
+
+            <!-- SEÇÃO 1: CHECKLIST DE PRÉ-GERAÇÃO -->
+            <section class="glass-card highlight" id="section-checklist">
+                <h3 style="margin-bottom: 1.5rem; font-size: 1.25rem;">Checklist de Validação</h3>
+                
+                <div class="checklist-grid">
+                    <div class="check-item" id="pre-01">
+                        <div class="check-icon loading"><i data-lucide="loader" class="spin"></i></div>
+                        <div class="check-text">Todas despesas enviadas ao SALIC</div>
+                    </div>
+                    <div class="check-item" id="pre-02">
+                        <div class="check-icon loading"><i data-lucide="loader" class="spin"></i></div>
+                        <div class="check-text">Sem despesas bloqueadas por conformidade</div>
+                    </div>
+                    <div class="check-item" id="pre-03">
+                        <div class="check-icon loading"><i data-lucide="loader" class="spin"></i></div>
+                        <div class="check-text">Conciliação bancária 100%</div>
+                    </div>
+                    <div class="check-item" id="pre-04">
+                        <div class="check-icon loading"><i data-lucide="loader" class="spin"></i></div>
+                        <div class="check-text">Nenhuma guia de imposto vencida ou atrasada</div>
+                    </div>
+                    <div class="check-item" id="pre-05">
+                        <div class="check-icon loading"><i data-lucide="loader" class="spin"></i></div>
+                        <div class="check-text">Nenhuma evidência física pendente de validação</div>
+                    </div>
+                    <div class="check-item" id="pre-06">
+                        <div class="check-icon loading"><i data-lucide="loader" class="spin"></i></div>
+                        <div class="check-text">Evidência: Mínimo 1 "Relatório de Objeto" anexado e aprovado</div>
+                    </div>
+                    <div class="check-item" id="pre-07">
+                        <div class="check-icon loading"><i data-lucide="loader" class="spin"></i></div>
+                        <div class="check-text">Sem evidências físicas pendentes de validação</div>
+                    </div>
+                    <div class="check-item" id="pre-08">
+                        <div class="check-icon loading"><i data-lucide="loader" class="spin"></i></div>
+                        <div class="check-text">Sem contratos expirados ativos</div>
+                    </div>
+                    <div class="check-item" id="pre-09">
+                        <div class="check-icon loading"><i data-lucide="loader" class="spin"></i></div>
+                        <div class="check-text">Nenhuma parcela de contrato vencida ou atrasada</div>
+                    </div>
+                    <div class="check-item" id="pre-10" style="background: #E3E8FF; border-color: #C6D0FF;">
+                        <div class="check-icon loading"><i data-lucide="loader" class="spin"></i></div>
+                        <div class="check-text" style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                            <span>Confirmo a liberação do projeto para encerramento</span>
+                            <input type="checkbox" id="toggle-liberado" onchange="toggleLiberadoEnvio(this.checked)" style="width: 20px; height: 20px; cursor: pointer;">
+                        </div>
+                    </div>
+
+                    <!-- PRE-11: Saldo remanescente (V023/Art.70 IN23) -->
+                    <div class="check-item" id="pre-11">
+                        <div class="check-icon loading"><i data-lucide="loader" class="spin"></i></div>
+                        <div class="check-text" id="pre-11-text">Saldo remanescente zerado ou com comprovante de recolhimento ao FNC</div>
+                    </div>
+
+                    <!-- PRE-12: Autorização acesso fiscal (V024/Art.70) — manual -->
+                    <div class="check-item" id="pre-12" style="background: #FFFBE6; border-color: #F59E0B; align-items: flex-start; flex-direction: column; gap: 0.75rem;">
+                        <div style="display: flex; align-items: center; gap: 1rem; width: 100%;">
+                            <div class="check-icon" id="pre-12-icon" style="background: #FEF3C7; color: #B45309; flex-shrink: 0;">
+                                <i data-lucide="alert-triangle"></i>
+                            </div>
+                            <div style="flex: 1; min-width: 0;">
+                                <div class="check-text" style="margin-bottom: 0.15rem;">Autorização de acesso a documentos fiscais concedida ao MinC</div>
+                                <div id="pre-12-status" style="font-size: 0.78rem; color: var(--text-secondary);">Pendente confirmação</div>
+                            </div>
+                        </div>
+                        <div id="pre-12-action" style="padding-left: 2.75rem; width: 100%;">
+                            <p style="font-size: 0.78rem; color: var(--text-secondary); margin: 0 0 0.5rem; line-height: 1.4;">
+                                Confirme que autorizou o acesso do MinC aos documentos fiscais da empresa via CNPJ no portal gov.br
+                            </p>
+                            <label style="display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">
+                                <input type="checkbox" id="toggle-acesso-fiscal" onchange="toggleAcessoFiscal(this.checked)" style="width: 18px; height: 18px; cursor: pointer;">
+                                Confirmar autorização
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- PRE-13: Limites percentuais IN23 (V001-V005) -->
+                    <div class="check-item" id="pre-13">
+                        <div class="check-icon loading"><i data-lucide="loader" class="spin"></i></div>
+                        <div class="check-text" id="pre-13-text">Limites percentuais da IN23 respeitados (captação, divulgação, administração)</div>
+                    </div>
+                </div>
+
+                <div id="gerar-container">
+                    <button id="btn-gerar" class="btn-gerar" disabled onclick="gerarRelatorio()" title="Aguardando validação do checklist">
+                        <i data-lucide="file-output"></i> Gerar Relatório de Prestação de Contas
+                    </button>
+                    <p id="gerar-feedback" style="text-align: center; color: var(--text-muted); font-size: 0.875rem; margin-top: 1rem;"></p>
+                </div>
+            </section>
+
+            <!-- SEÇÃO 3: AUTORIZAÇÃO (Shown only if a valid report exists) -->
+            <section class="glass-card" id="section-autorizacao" style="display: none; border-top: 4px solid #FF5807;">
+                <h3 style="margin-bottom: 0.5rem; font-size: 1.25rem;">Autorização Final</h3>
+                <p style="color: var(--text-secondary); margin-bottom: 1.5rem; font-size: 0.95rem;">
+                    Autorize o envio deste projeto ao MinC. Após autorizar, não será mais possível lançar novas despesas ou alterar documentos.
+                </p>
+                <button id="btn-autorizar" class="btn-autorizar" onclick="openAuthModal()">
+                    <i data-lucide="send"></i> Autorizar Envio ao MinC
+                </button>
+            </section>
+
+            <!-- SEÇÃO 4: HISTÓRICO DE VERSÕES -->
+            <section class="glass-card">
+                <h3 style="margin-bottom: 1.5rem; font-size: 1.25rem;">Histórico de Versões</h3>
+                <div style="overflow-x: auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Versão</th>
+                                <th>Gerado em</th>
+                                <th>Status</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historico-tbody">
+                            <tr><td colspan="4" style="text-align:center; color: var(--text-muted);">Selecione um projeto para carregar o histórico.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Modal Autorização -->
+    <div class="modal-overlay" id="modal-auth">
+        <div class="modal-content">
+            <i data-lucide="alert-octagon" style="width: 48px; height: 48px; color: #FF5807; margin: 0 auto 1rem;"></i>
+            <h3 style="font-size: 1.25rem; margin-bottom: 0.75rem;">Confirmar Autorização</h3>
+            <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 1.5rem; line-height: 1.5;">
+                Ao autorizar, o projeto será marcado como pronto para envio ao MinC. <strong>Esta ação não pode ser desfeita</strong>.
+            </p>
+            <div style="display: flex; gap: 1rem; justify-content: center;">
+                <button class="btn-sm btn-download" style="padding: 0.75rem 1.5rem;" onclick="closeAuthModal()">Cancelar</button>
+                <button class="btn-sm" style="background: #FF5807; color: white; padding: 0.75rem 1.5rem; border: none;" onclick="confirmarAutorizacao()">Confirmar Envio</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper.js"></script>
+    <script>
+        let currentProjectId = null;
+        let currentProjectData = null;
+        let reportsSubscription = null;
+        let latestReadyReportId = null;
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            if (window.renderSidebar) window.renderSidebar();
+            
+            sbClient = await window.initSupabase();
+            if (!sbClient) return;
+
+            await carregarProjetos();
+            
+            const savedPid = ProjectManager.getSelected();
+            if (savedPid) {
+                document.getElementById('project-select').value = savedPid;
+                handleProjectChange(savedPid);
+            }
+        });
+
+        async function carregarProjetos() {
+            const { data: { user } } = await sbClient.auth.getUser();
+            const { data } = await sbClient.from('projects').select('id, pronac, nome').eq('user_id', user.id).order('created_at', { ascending: false });
+            
+            const select = document.getElementById('project-select');
+            if (data && data.length > 0) {
+                data.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.id;
+                    opt.textContent = `${p.pronac} - ${p.nome}`;
+                    select.appendChild(opt);
+                });
+            }
+        }
+
+        async function handleProjectChange(pid) {
+            currentProjectId = pid;
+            if (!pid) return;
+            ProjectManager.setSelected(pid);
+            
+            // Setup Realtime
+            setupRealtimeSubscription(pid);
+            
+            await checkProjectSetup();
+        }
+
+        async function checkProjectSetup() {
+            if (!currentProjectId) return;
+            
+            // Fetch project data
+            const { data: proj } = await sbClient.from('projects').select('*').eq('id', currentProjectId).single();
+            currentProjectData = proj;
+
+            updateProjectStatusUI();
+            
+            if (proj.status_prestacao === 'enviado_minc' || proj.status_prestacao === 'em_encerramento') {
+                // Bloquear geração se já foi autorizado ou enviado
+                disableChecklist();
+                await carregarHistorico();
+                return;
+            }
+
+            // Run checklist
+            await rodarChecklist();
+            
+            // Load History
+            await carregarHistorico();
+        }
+
+        function updateProjectStatusUI() {
+            const container = document.getElementById('project-status-container');
+            const badge = document.getElementById('project-status-badge');
+            const text = document.getElementById('project-status-text');
+            const msg = document.getElementById('project-status-msg');
+            const secAuth = document.getElementById('section-autorizacao');
+            const secChecklist = document.getElementById('section-checklist');
+
+            if (currentProjectData.status_prestacao === 'enviado_minc') {
+                container.style.display = 'block';
+                badge.style.background = '#E3E8FF'; badge.style.color = '#1547FF';
+                text.textContent = `Enviado ao MinC em ${formatDateStr(currentProjectData.data_envio_minc)}`;
+                msg.textContent = "Este projeto já foi enviado ao MinC.";
+                secAuth.style.display = 'none';
+                secChecklist.style.display = 'none';
+            } 
+            else if (currentProjectData.status_prestacao === 'em_encerramento' || currentProjectData.checklist_liberado) {
+                container.style.display = 'block';
+                badge.style.background = '#1547FF'; badge.style.color = '#70FF00';
+                text.textContent = `Autorizado para envio`;
+                msg.textContent = "Novos lançamentos bloqueados para este projeto.";
+                secAuth.style.display = 'none';
+                secChecklist.style.display = 'none';
+            } 
+            else {
+                container.style.display = 'none';
+                secChecklist.style.display = 'block';
+            }
+        }
+
+        function disableChecklist() {
+            const btn = document.getElementById('btn-gerar');
+            btn.disabled = true;
+            document.getElementById('gerar-feedback').textContent = "Operação bloqueada pelo status do projeto.";
+        }
+
+        async function getCount(query) {
+            const { count, error } = await query;
+            if (error) { console.error(error); return -1; }
+            return count;
+        }
+
+        function updateCheckItem(id, isOk) {
+            const el = document.getElementById(id).querySelector('.check-icon');
+            el.className = `check-icon ${isOk ? 'ok' : 'fail'}`;
+            el.innerHTML = `<i data-lucide="${isOk ? 'check' : 'x'}"></i>`;
+            if (window.lucide) window.lucide.createIcons();
+            return isOk;
+        }
+
+        function fmtBRL(v) {
+            return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        }
+
+        function categorizeRubrica(r) {
+            if (r.categoria) return String(r.categoria).toLowerCase().trim();
+            const text = ((r.nome || '') + ' ' + (r.codigo || '')).toLowerCase();
+            if (/proponente/.test(text)) return 'proponente';
+            if (/administr/.test(text)) return 'administracao';
+            if (/divulg|comunic|acessib/.test(text)) return 'divulgacao';
+            if (/captaç|captac|capta|remunera/.test(text)) return 'captacao';
+            return 'outros';
+        }
+
+        async function toggleAcessoFiscal(checked) {
+            if (!currentProjectId) return;
+            const iconEl = document.getElementById('pre-12-icon');
+            if (iconEl) { iconEl.className = 'check-icon loading'; iconEl.innerHTML = '<i data-lucide="loader" class="spin"></i>'; }
+            if (window.lucide) window.lucide.createIcons();
+
+            const { data: { user } } = await sbClient.auth.getUser();
+            const confirmadoNome = checked
+                ? (user.user_metadata?.full_name || user.user_metadata?.name || user.email || user.id)
+                : null;
+            const { error } = await sbClient.from('project_checklist').update({
+                acesso_fiscal_autorizado: checked,
+                acesso_fiscal_confirmado_por: checked ? user.id : null,
+                acesso_fiscal_confirmado_em: checked ? new Date().toISOString() : null,
+                acesso_fiscal_confirmado_nome: confirmadoNome
+            }).eq('project_id', currentProjectId);
+
+            if (error) {
+                showToast('Erro ao salvar: ' + error.message, 'error');
+                const toggleEl = document.getElementById('toggle-acesso-fiscal');
+                if (toggleEl) toggleEl.checked = !checked;
+            } else {
+                await rodarChecklist();
+            }
+        }
+
+        async function toggleLiberadoEnvio(checked) {
+            if (!currentProjectId) return;
+            document.getElementById('pre-10').querySelector('.check-icon').className = 'check-icon loading';
+            document.getElementById('pre-10').querySelector('.check-icon').innerHTML = '<i data-lucide="loader" class="spin"></i>';
+            if (window.lucide) window.lucide.createIcons();
+            
+            const { error } = await sbClient.from('project_checklist').update({ liberado_envio_minc: checked }).eq('project_id', currentProjectId);
+            
+            if (error) {
+                alert("Erro ao salvar: " + error.message);
+                document.getElementById('toggle-liberado').checked = !checked;
+            } else {
+                await rodarChecklist();
+            }
+        }
+
+        async function rodarChecklist() {
+            const pid = currentProjectId;
+            const today = new Date().toISOString().split('T')[0];
+
+            // P01: Todos não em ('enviado_salic','concluido')
+            const q1 = getCount(sbClient.from('despesas').select('*', { count: 'exact', head: true }).eq('project_id', pid).not('status', 'in', '("enviado_salic","concluido")'));
+            // P02: bloqueados
+            const q2 = getCount(sbClient.from('despesas').select('*', { count: 'exact', head: true }).eq('project_id', pid).eq('status', 'bloqueado_conformidade'));
+            // P03: não conciliados
+            const q3 = getCount(sbClient.from('despesas').select('*', { count: 'exact', head: true }).eq('project_id', pid).eq('conciliado', false));
+            // P04: tax_guides — atrasada OU (pendente AND vencimento < hoje)
+            // Fecha falso positivo causado pela ausência do CRON-01 (que marca pendente→atrasada)
+            const q4 = getCount(
+                sbClient.from('tax_guides').select('*', { count: 'exact', head: true })
+                    .eq('project_id', pid)
+                    .or(`status.eq.atrasada,and(status.eq.pendente,data_vencimento.lt.${today})`)
+            );
+            // P05: sem evidências físicas pendentes de validação
+            const q5 = getCount(sbClient.from('physical_evidences').select('*', { count: 'exact', head: true }).eq('project_id', pid).in('status_validacao', ['pendente','pendente_complemento']));
+            // P06: relatorio aprovado
+            const q6 = getCount(sbClient.from('physical_evidences').select('*', { count: 'exact', head: true }).eq('project_id', pid).eq('tipo_evidencia', 'relatorio_objeto').eq('status_validacao', 'aprovada'));
+            // P07: sem evidencias pendentes
+            const q7 = getCount(sbClient.from('physical_evidences').select('*', { count: 'exact', head: true }).eq('project_id', pid).in('status_validacao', ['pendente','pendente_complemento']));
+            // P08: contratos expirados
+            const q8 = getCount(sbClient.from('contracts').select('*', { count: 'exact', head: true }).eq('project_id', pid).eq('status', 'ativo').lt('data_fim', today));
+            // P09: contract_parcelas — atrasada OU (pendente AND vencimento < hoje)
+            // Fecha falso positivo causado pela ausência do CRON-03
+            const q9 = getCount(
+                sbClient.from('contract_parcelas').select('*', { count: 'exact', head: true })
+                    .eq('project_id', pid)
+                    .or(`status.eq.atrasada,and(status.eq.pendente,data_vencimento.lt.${today})`)
+            );
+            
+            // P10: project_checklist
+            let q10_ok = false;
+            let chkAll = null;
+            const { data: chk, error: chkErr } = await sbClient.from('project_checklist')
+                .select('liberado_envio_minc, acesso_fiscal_autorizado, acesso_fiscal_confirmado_por, acesso_fiscal_confirmado_em, acesso_fiscal_confirmado_nome')
+                .eq('project_id', pid).single();
+            if (chkErr && chkErr.code === 'PGRST116') {
+                await sbClient.from('project_checklist').insert({ project_id: pid, liberado_envio_minc: false, acesso_fiscal_autorizado: false });
+            } else if (chk) {
+                q10_ok = chk.liberado_envio_minc;
+                chkAll = chk;
+            }
+
+            // Sincroniza o checkbox PRE-10
+            const toggleEl = document.getElementById('toggle-liberado');
+            if (toggleEl) toggleEl.checked = q10_ok;
+
+            const [results, rubricasRes, projValRes, despExecRes, docFncCount] = await Promise.all([
+                Promise.all([q1, q2, q3, q4, q5, q6, q7, q8, q9]),
+                sbClient.from('rubricas').select('nome, codigo, categoria, valor_aprovado, valor_utilizado').eq('project_id', pid),
+                sbClient.from('projects').select('valor_captado').eq('id', pid).single(),
+                sbClient.from('despesas').select('valor').eq('project_id', pid).in('status', ['enviado_salic', 'concluido', 'liberado_rpa', 'aguardando_d3']),
+                getCount(sbClient.from('documents').select('*', { count: 'exact', head: true }).eq('project_id', pid).eq('tipo', 'recolhimento_fnc'))
+            ]);
+
+            let allOk = true;
+            allOk &= updateCheckItem('pre-01', results[0] === 0);
+            allOk &= updateCheckItem('pre-02', results[1] === 0);
+            allOk &= updateCheckItem('pre-03', results[2] === 0);
+            allOk &= updateCheckItem('pre-04', results[3] === 0);
+            allOk &= updateCheckItem('pre-05', results[4] === 0);
+            allOk &= updateCheckItem('pre-06', results[5] >= 1);
+            allOk &= updateCheckItem('pre-07', results[6] === 0);
+            allOk &= updateCheckItem('pre-08', results[7] === 0);
+            allOk &= updateCheckItem('pre-09', results[8] === 0);
+            allOk &= updateCheckItem('pre-10', q10_ok);
+
+            // PRE-11: saldo remanescente (V023/Art.70 IN23)
+            const rubricas11 = rubricasRes.data || [];
+            const totalAprovado11 = rubricas11.reduce((s, r) => s + Number(r.valor_aprovado || 0), 0);
+            const totalExecutado11 = (despExecRes.data || []).reduce((s, d) => s + Number(d.valor || 0), 0);
+            const saldoRem = totalAprovado11 - totalExecutado11;
+            const pre11_ok = saldoRem <= 0 || docFncCount > 0;
+            const textEl11 = document.getElementById('pre-11-text');
+            if (textEl11) {
+                textEl11.textContent = pre11_ok
+                    ? 'Saldo remanescente zerado ou com comprovante de recolhimento ao FNC'
+                    : `Há saldo remanescente de ${fmtBRL(saldoRem)}. É necessário recolher ao FNC ou anexar comprovante.`;
+            }
+            allOk &= updateCheckItem('pre-11', pre11_ok);
+
+            // PRE-12: acesso fiscal (V024/Art.70) — manual
+            const pre12_ok = chkAll?.acesso_fiscal_autorizado === true;
+            const toggleAcessoEl = document.getElementById('toggle-acesso-fiscal');
+            if (toggleAcessoEl) toggleAcessoEl.checked = pre12_ok;
+            const iconEl12 = document.getElementById('pre-12-icon');
+            const statusEl12 = document.getElementById('pre-12-status');
+            const actionEl12 = document.getElementById('pre-12-action');
+            const cardEl12 = document.getElementById('pre-12');
+            if (pre12_ok && chkAll) {
+                const confirmedAt = chkAll.acesso_fiscal_confirmado_em ? formatDateStr(chkAll.acesso_fiscal_confirmado_em) : '?';
+                const confirmedBy = chkAll.acesso_fiscal_confirmado_nome || 'analista';
+                if (statusEl12) statusEl12.textContent = `Confirmado por ${confirmedBy} em ${confirmedAt}`;
+                if (actionEl12) actionEl12.style.display = 'none';
+                if (iconEl12) { iconEl12.className = 'check-icon ok'; iconEl12.style.background = ''; iconEl12.style.color = ''; iconEl12.innerHTML = '<i data-lucide="check"></i>'; }
+                if (cardEl12) { cardEl12.style.background = '#F5F0E8'; cardEl12.style.borderColor = 'var(--border-light)'; }
+            } else {
+                if (statusEl12) statusEl12.textContent = 'Pendente confirmação';
+                if (actionEl12) actionEl12.style.display = 'block';
+                if (iconEl12) { iconEl12.className = 'check-icon'; iconEl12.style.background = '#FEF3C7'; iconEl12.style.color = '#B45309'; iconEl12.innerHTML = '<i data-lucide="alert-triangle"></i>'; }
+                if (cardEl12) { cardEl12.style.background = '#FFFBE6'; cardEl12.style.borderColor = '#F59E0B'; }
+            }
+            if (window.lucide) window.lucide.createIcons();
+            allOk &= pre12_ok;
+
+            // PRE-13: limites percentuais IN23 (V001-V005)
+            const valorCaptado13 = Number((projValRes.data || {}).valor_captado || 0);
+            const sums13 = { administracao: 0, divulgacao: 0, captacao: 0, proponente: 0 };
+            for (const r of rubricas11) {
+                const cat = categorizeRubrica(r);
+                if (sums13[cat] !== undefined) sums13[cat] += Number(r.valor_utilizado || 0);
+            }
+            const limCaptacao13 = totalAprovado11 > 0 ? Math.min(totalAprovado11 * 0.10, 150000) : 0;
+            const excedidas13 = [];
+            if (limCaptacao13 > 0 && sums13.captacao > limCaptacao13) excedidas13.push('Captação');
+            if (totalAprovado11 > 0 && sums13.divulgacao > totalAprovado11 * 0.20) excedidas13.push('Divulgação');
+            if (totalAprovado11 > 0 && sums13.administracao > totalAprovado11 * 0.15) excedidas13.push('Administração');
+            if (valorCaptado13 > 0 && sums13.proponente > valorCaptado13 * 0.20) excedidas13.push('Proponente');
+            const pre13_ok = excedidas13.length === 0;
+            const textEl13 = document.getElementById('pre-13-text');
+            if (textEl13) {
+                textEl13.textContent = pre13_ok
+                    ? 'Limites percentuais da IN23 respeitados (captação, divulgação, administração)'
+                    : `Categorias com limite excedido: ${excedidas13.join(', ')}`;
+            }
+            allOk &= updateCheckItem('pre-13', pre13_ok);
+
+            const btnGerar = document.getElementById('btn-gerar');
+            const feedback = document.getElementById('gerar-feedback');
+
+            if (allOk) {
+                btnGerar.disabled = false;
+                btnGerar.title = "";
+                feedback.textContent = "";
+            } else {
+                btnGerar.disabled = true;
+                btnGerar.title = "Resolva as pendências acima antes de gerar o relatório.";
+                feedback.textContent = "Resolva as pendências em vermelho para liberar a geração.";
+            }
+        }
+
+        async function gerarRelatorio() {
+            if (!currentProjectId) return;
+            
+            const btn = document.getElementById('btn-gerar');
+            btn.disabled = true;
+            document.getElementById('gerar-feedback').innerHTML = `<i data-lucide="loader" class="spin"></i> Gerando relatório... isso pode levar alguns minutos.`;
+            if (window.lucide) window.lucide.createIcons();
+
+            const { data: { user } } = await sbClient.auth.getUser();
+            const orgId = await getCurrentOrgId(currentProjectId);
+            if (!orgId) {
+                document.getElementById('gerar-feedback').textContent = 'Organização não identificada. Recarregue a página.';
+                btn.disabled = false;
+                return;
+            }
+
+            // 1. Get MAX version
+            const { data: maxVer } = await sbClient.from('relatorio_prestacao_contas')
+                .select('versao')
+                .eq('project_id', currentProjectId)
+                .order('versao', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            
+            const nova_versao = maxVer ? maxVer.versao + 1 : 1;
+
+            // 2. Mark previous as substituted
+            await sbClient.from('relatorio_prestacao_contas')
+                .update({ status: 'substituido' })
+                .eq('project_id', currentProjectId)
+                .eq('status', 'pronto');
+
+            // 3. Insert new record
+            const { data: newRel, error: insErr } = await sbClient.from('relatorio_prestacao_contas')
+                .insert({
+                    project_id: currentProjectId,
+                    organization_id: orgId,
+                    versao: nova_versao,
+                    status: 'gerando',
+                    gerado_por: user.id
+                })
+                .select('id')
+                .single();
+
+            if (insErr) {
+                alert("Erro ao criar registro: " + insErr.message);
+                btn.disabled = false;
+                return;
+            }
+
+            // 4. Call API com timeout de 5 minutos via AbortController.
+            //    Realtime continua sendo a fonte primária da atualização de status — esta
+            //    chamada só precisa marcar 'erro' explicitamente se abortar/falhar.
+            const apiUrl = (typeof CONFIG !== 'undefined' && CONFIG.N8N_WEBHOOK_CRIAR_PDF_URL)
+                ? CONFIG.N8N_WEBHOOK_CRIAR_PDF_URL
+                : '/api/m2/gerar-relatorio';
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 min
+
+            fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ project_id: currentProjectId, relatorio_id: newRel.id }),
+                signal: controller.signal
+            })
+            .catch(async (err) => {
+                console.error('[gerarRelatorio] webhook falhou', err);
+                const isTimeout = err && err.name === 'AbortError';
+                await sbClient.from('relatorio_prestacao_contas')
+                    .update({ status: 'erro' })
+                    .eq('id', newRel.id);
+                showToast(
+                    isTimeout
+                        ? 'Tempo limite excedido (5 min). Tente novamente.'
+                        : 'Falha ao acionar a geração do relatório. Tente novamente.',
+                    'error'
+                );
+                await carregarHistorico();
+            })
+            .finally(() => clearTimeout(timeoutId));
+
+            await carregarHistorico();
+        }
+
+        function showToast(msg, type = 'success') {
+            const t = document.getElementById('toast');
+            if (!t) return;
+            t.innerText = msg;
+            t.style.background = type === 'success' ? '#1547FF' : (type === 'error' ? '#FF5807' : '#1547FF');
+            t.style.transform = 'translateY(0)';
+            setTimeout(() => t.style.transform = 'translateY(150%)', 4000);
+        }
+
+        async function carregarHistorico() {
+            if (!currentProjectId) return;
+
+            const { data, error } = await sbClient.from('relatorio_prestacao_contas')
+                .select('*')
+                .eq('project_id', currentProjectId)
+                .order('versao', { ascending: false });
+
+            const tbody = document.getElementById('historico-tbody');
+            if (error || !data || data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color: var(--text-muted);">Nenhum relatório gerado ainda.</td></tr>`;
+                document.getElementById('section-autorizacao').style.display = 'none';
+                return;
+            }
+
+            // Update Auth Section visibility
+            const hasReady = data.some(r => r.status === 'pronto');
+            const isSentOrEncerramento = currentProjectData?.status_prestacao === 'enviado_minc' || currentProjectData?.status_prestacao === 'em_encerramento';
+            
+            if (hasReady && !isSentOrEncerramento) {
+                document.getElementById('section-autorizacao').style.display = 'block';
+                latestReadyReportId = data.find(r => r.status === 'pronto').id;
+            } else {
+                document.getElementById('section-autorizacao').style.display = 'none';
+            }
+
+            let html = '';
+            for (const r of data) {
+                const isGerando = r.status === 'gerando';
+                const isProntoAuth = r.status === 'pronto' || r.status === 'autorizado';
+                const isErro = r.status === 'erro';
+                const isSub = r.status === 'substituido';
+
+                let acoesHtml = '';
+                if (isProntoAuth && r.file_path) {
+                    acoesHtml = `<button class="btn-sm btn-download" onclick="downloadReport('${r.file_path}')"><i data-lucide="download"></i> Download</button>`;
+                } else if (isErro) {
+                    acoesHtml = `<button class="btn-sm btn-retry" onclick="gerarRelatorio()"><i data-lucide="refresh-cw"></i> Tentar Novamente</button>`;
+                } else if (isSub && r.file_path) {
+                    acoesHtml = `<button class="btn-sm btn-download disabled" onclick="downloadReport('${r.file_path}')"><i data-lucide="download"></i> Download</button>`;
+                } else if (isGerando) {
+                    acoesHtml = `<i data-lucide="loader" class="spin" style="color: var(--text-muted);"></i>`;
+                }
+
+                html += `
+                    <tr>
+                        <td><strong>v${r.versao}.0</strong></td>
+                        <td>${formatDateStr(r.criado_em)}</td>
+                        <td>
+                            <span class="badge badge-${r.status}">
+                                ${r.status.charAt(0).toUpperCase() + r.status.slice(1)}
+                            </span>
+                        </td>
+                        <td>${acoesHtml}</td>
+                    </tr>
+                `;
+            }
+            tbody.innerHTML = html;
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        async function downloadReport(filePath) {
+            if (!filePath) return;
+            
+            // Se o n8n salvou a URL completa em vez do path, extraímos apenas o path
+            let cleanPath = filePath;
+            if (filePath.includes('/storage/v1/object/public/')) {
+                cleanPath = filePath.split('/public/')[1].split('/').slice(1).join('/');
+            } else if (filePath.includes('/storage/v1/object/authenticated/')) {
+                cleanPath = filePath.split('/authenticated/')[1].split('/').slice(1).join('/');
+            }
+
+            console.log("[STORAGE] Tentando download de:", cleanPath);
+            
+            const { data, error } = await sbClient.storage.from('reports').createSignedUrl(cleanPath, 3600);
+            
+            if (error) {
+                console.error("[STORAGE ERROR]", error);
+                alert("Erro ao gerar link de download: " + (error.message || "Verifique o console"));
+                return;
+            }
+            window.open(data.signedUrl, '_blank');
+        }
+
+        function setupRealtimeSubscription(pid) {
+            if (reportsSubscription) {
+                sbClient.removeChannel(reportsSubscription);
+            }
+            reportsSubscription = sbClient.channel(`relatorios-${pid}`)
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'relatorio_prestacao_contas', filter: `project_id=eq.${pid}` }, payload => {
+                    carregarHistorico();
+                })
+                .subscribe();
+        }
+
+        // --- Auth flow ---
+        function openAuthModal() {
+            document.getElementById('modal-auth').classList.add('active');
+        }
+
+        function closeAuthModal() {
+            document.getElementById('modal-auth').classList.remove('active');
+        }
+
+        async function confirmarAutorizacao() {
+            if (!latestReadyReportId || !currentProjectId) return;
+            
+            const { data: { user } } = await sbClient.auth.getUser();
+
+            // 1. Update report
+            const { error: err1 } = await sbClient.from('relatorio_prestacao_contas').update({
+                status: 'autorizado',
+                autorizado_por: user.id,
+                data_autorizacao: new Date().toISOString()
+            }).eq('id', latestReadyReportId);
+
+            if (err1) { alert("Erro ao atualizar relatório: " + err1.message); return; }
+
+            // 2. Update project
+            const { error: err2 } = await sbClient.from('projects').update({
+                status_prestacao: 'em_encerramento',
+                checklist_liberado: true
+            }).eq('id', currentProjectId);
+
+            if (err2) { alert("Erro ao atualizar projeto: " + err2.message); return; }
+
+            closeAuthModal();
+            alert("Autorização realizada com sucesso!");
+            
+            await checkProjectSetup();
+        }
+
+        function formatDateStr(isoStr) {
+            if (!isoStr) return '---';
+            return new Date(isoStr).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute:'2-digit' });
+        }
+    </script>
+</body>
+</html>

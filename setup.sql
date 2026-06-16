@@ -1,309 +1,430 @@
--- ==========================================================
--- SQL SETUP PARA PRESTAÍ - UPLOAD E PROJETOS
--- ==========================================================
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
 
--- 1. Tabela de Projetos (PRONACs)
--- 1. Tabela de Projetos (PRONACs)
-CREATE TABLE IF NOT EXISTS public.projects (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
-    pronac TEXT NOT NULL,
-    nome TEXT NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-    propoente TEXT,
-    "Mecanismo" TEXT,
-    uf TEXT,
-    valor_aprovado TEXT,
-    valor_captado TEXT
+CREATE TABLE public.audit_log (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  tabela text NOT NULL,
+  registro_id uuid NOT NULL,
+  campo text NOT NULL,
+  valor_anterior text,
+  valor_novo text,
+  alterado_por uuid,
+  origem text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT audit_log_pkey PRIMARY KEY (id),
+  CONSTRAINT audit_log_alterado_por_fkey FOREIGN KEY (alterado_por) REFERENCES auth.users(id)
 );
-
--- 2. Tabela de Documentos
-CREATE TABLE IF NOT EXISTS public.documents (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
-    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE NOT NULL,
-    name TEXT NOT NULL,
-    size TEXT,
-    file_path TEXT NOT NULL,
-    status TEXT DEFAULT 'uploaded' CHECK (status IN (
-        'uploaded', 'processing_ocr', 'validating', 'validated', 
-        'bloqueado_conformidade', 'aguardando_d3', 
-        'enviado_salic', 'erro_rpa', 'concluido'
-    )),
-    valor DECIMAL(12,2),
-    cnpj_emissor TEXT,
-    data_emissao DATE,
-    data_pagamento DATE,
-    justification TEXT,
-    just_erro TEXT,
-    protocolo_salic TEXT,
-    json_extraido JSONB DEFAULT '{}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+CREATE TABLE public.catalogo_rubricas (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  nome text NOT NULL UNIQUE,
+  especificacoes text NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  cnaes_permitidos ARRAY DEFAULT '{}'::text[],
+  valor_maximo_percentual numeric,
+  exige_pessoa_juridica boolean DEFAULT true,
+  ativo boolean DEFAULT true,
+  CONSTRAINT catalogo_rubricas_pkey PRIMARY KEY (id)
 );
-
--- 3. Habilitar RLS
-ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
-ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
-
--- Políticas
-DROP POLICY IF EXISTS "Users can access their own projects" ON projects;
-DROP POLICY IF EXISTS "Users can access their own documents" ON documents;
-
--- Projetos: Gestor vê e gerencia os seus
-CREATE POLICY "Gestores inserem projetos" ON projects FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Gestores veem seus projetos" ON projects FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Gestores atualizam seus projetos" ON projects FOR UPDATE USING (auth.uid() = user_id);
-CREATE POLICY "Gestores deletam seus projetos" ON projects FOR DELETE USING (auth.uid() = user_id);
-
--- Documentos: Gestor ou dono do doc vê os seus
-CREATE POLICY "Gestor ve docs do projeto" ON documents FOR SELECT USING (
-    project_id IN (SELECT id FROM projects WHERE user_id = auth.uid())
+CREATE TABLE public.checklist_items (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  organization_id uuid,
+  checklist_id uuid NOT NULL,
+  project_id uuid NOT NULL,
+  categoria text NOT NULL CHECK (categoria = ANY (ARRAY['financeiro'::text, 'fisico'::text, 'impostos'::text, 'contratos'::text, 'rpa'::text, 'diligencias'::text])),
+  codigo text NOT NULL,
+  descricao text NOT NULL,
+  status text NOT NULL DEFAULT 'pendente'::text CHECK (status = ANY (ARRAY['ok'::text, 'bloqueado'::text, 'pendente'::text, 'nao_aplicavel'::text])),
+  link_resolucao text,
+  atualizado_em timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT checklist_items_pkey PRIMARY KEY (id),
+  CONSTRAINT checklist_items_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id),
+  CONSTRAINT checklist_items_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id),
+  CONSTRAINT checklist_items_checklist_id_fkey FOREIGN KEY (checklist_id) REFERENCES public.project_checklist(id)
 );
-CREATE POLICY "Usuarios inserem documentos" ON documents FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Usuarios atualizam documentos" ON documents FOR UPDATE USING (
-    auth.uid() = user_id OR project_id IN (SELECT id FROM projects WHERE user_id = auth.uid())
+CREATE TABLE public.contract_aditivos (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  organization_id uuid,
+  contract_id uuid NOT NULL,
+  project_id uuid NOT NULL,
+  tipo text NOT NULL CHECK (tipo = ANY (ARRAY['prazo'::text, 'valor'::text, 'supressao'::text, 'outros'::text])),
+  descricao text NOT NULL,
+  data_aditivo date NOT NULL,
+  nova_data_fim date,
+  novo_valor numeric,
+  arquivo_path text,
+  criado_em timestamp with time zone NOT NULL DEFAULT now(),
+  criado_por uuid,
+  CONSTRAINT contract_aditivos_pkey PRIMARY KEY (id),
+  CONSTRAINT contract_aditivos_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id),
+  CONSTRAINT contract_aditivos_contract_id_fkey FOREIGN KEY (contract_id) REFERENCES public.contracts(id),
+  CONSTRAINT contract_aditivos_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id),
+  CONSTRAINT contract_aditivos_criado_por_fkey FOREIGN KEY (criado_por) REFERENCES auth.users(id)
 );
-CREATE POLICY "Usuarios deletam documentos" ON documents FOR DELETE USING (
-    auth.uid() = user_id OR project_id IN (SELECT id FROM projects WHERE user_id = auth.uid())
+CREATE TABLE public.contract_parcelas (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  organization_id uuid,
+  contract_id uuid NOT NULL,
+  project_id uuid NOT NULL,
+  numero integer NOT NULL,
+  valor numeric NOT NULL,
+  data_vencimento date NOT NULL,
+  data_pagamento date,
+  document_id uuid,
+  status text NOT NULL DEFAULT 'pendente'::text CHECK (status = ANY (ARRAY['pendente'::text, 'paga'::text, 'atrasada'::text, 'cancelada'::text])),
+  criado_em timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT contract_parcelas_pkey PRIMARY KEY (id),
+  CONSTRAINT contract_parcelas_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id),
+  CONSTRAINT contract_parcelas_contract_id_fkey FOREIGN KEY (contract_id) REFERENCES public.contracts(id),
+  CONSTRAINT contract_parcelas_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id),
+  CONSTRAINT contract_parcelas_document_id_fkey FOREIGN KEY (document_id) REFERENCES public.documents(id)
 );
-
--- ==========================================================
--- INSTRUÇÕES STORAGE
--- ==========================================================
--- 1. Vá em Storage no painel do Supabase.
--- 2. Crie um novo Bucket chamado: documentos
--- 3. Edite as políticas do Bucket para permitir INSERT e SELECT para usuários autenticados.
-
--- ==========================================================
--- FASE 2: GESTÃO FINANCEIRA E ORÇAMENTO
--- ==========================================================
-
--- 3.5. Catálogo Global de Rubricas (Validação por IA)
-CREATE TABLE IF NOT EXISTS public.catalogo_rubricas (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    nome TEXT NOT NULL UNIQUE,
-    especificacoes TEXT NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+CREATE TABLE public.contracts (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  organization_id uuid,
+  project_id uuid NOT NULL,
+  fornecedor_id uuid,
+  numero text NOT NULL,
+  objeto text NOT NULL,
+  valor_total numeric NOT NULL,
+  data_inicio date NOT NULL,
+  data_fim date NOT NULL,
+  rubrica_id uuid,
+  status text NOT NULL DEFAULT 'ativo'::text CHECK (status = ANY (ARRAY['ativo'::text, 'encerrado'::text, 'suspenso'::text, 'cancelado'::text])),
+  arquivo_path text,
+  observacoes text,
+  criado_em timestamp with time zone NOT NULL DEFAULT now(),
+  criado_por uuid,
+  atualizado_em timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT contracts_pkey PRIMARY KEY (id),
+  CONSTRAINT contracts_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id),
+  CONSTRAINT contracts_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id),
+  CONSTRAINT contracts_fornecedor_id_fkey FOREIGN KEY (fornecedor_id) REFERENCES public.fornecedores(id),
+  CONSTRAINT contracts_rubrica_id_fkey FOREIGN KEY (rubrica_id) REFERENCES public.rubricas(id),
+  CONSTRAINT contracts_criado_por_fkey FOREIGN KEY (criado_por) REFERENCES auth.users(id)
 );
-
--- Inserir alguns exemplos iniciais de rubricas
-INSERT INTO public.catalogo_rubricas (nome, especificacoes) VALUES 
-('Cachê Artístico', 'Pagamento de artistas, músicos, atores. Exige nota fiscal com CNAE artístico ou recibo no caso de Pessoa Física.'),
-('Assessoria Jurídica', 'Serviços de advogados. Limitado a profissionais inscritos na OAB.'),
-('Coordenação Geral', 'Pagamento do coordenador do projeto. Sem exigência cruzada específica de fornecedor.'),
-('Aluguel de Equipamentos', 'Locação de som, luz, palco para o projeto.'),
-('Divulgação e Marketing', 'Serviços de panfletagem, tráfego pago, assessoria de imprensa.')
-ON CONFLICT (nome) DO NOTHING;
-
--- 4. Tabela de Rubricas (Fase 2)
-CREATE TABLE IF NOT EXISTS public.rubricas (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE NOT NULL,
-    nome TEXT NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-    UNIQUE(project_id, nome)
+CREATE TABLE public.despesas (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  document_id uuid NOT NULL UNIQUE,
+  rubrica_id uuid NOT NULL,
+  project_id uuid NOT NULL,
+  valor numeric NOT NULL,
+  cnpj_fornecedor text,
+  cnae_fornecedor text,
+  data_emissao date,
+  data_pagamento date,
+  status_conformidade text DEFAULT 'pendente'::text CHECK (status_conformidade = ANY (ARRAY['ok'::text, 'bloqueado'::text, 'pendente'::text])),
+  motivo_bloqueio text,
+  conciliado boolean DEFAULT false,
+  liberado_rpa boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  extrato_vinculado_id uuid,
+  fornecedor_nome text,
+  autenticacao_bancaria text,
+  status text DEFAULT 'aguardando_ocr'::text CHECK (status = ANY (ARRAY['aguardando_ocr'::text, 'aguardando_conformidade'::text, 'bloqueado_conformidade'::text, 'aguardando_conciliacao_bancaria'::text, 'aguardando_d3'::text, 'liberado_rpa_airtop'::text, 'enviado_salic'::text, 'erro_rpa'::text, 'concluido'::text])),
+  data_conciliacao timestamp with time zone,
+  data_liberacao timestamp with time zone,
+  data_salic timestamp with time zone,
+  metodo_conciliacao text CHECK (metodo_conciliacao = ANY (ARRAY['autenticacao'::text, 'valor_data_nome'::text, NULL::text])),
+  protocolo_salic text,
+  organization_id uuid,
+  tentativas_rpa integer NOT NULL DEFAULT 0,
+  CONSTRAINT despesas_pkey PRIMARY KEY (id),
+  CONSTRAINT despesas_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id),
+  CONSTRAINT despesas_document_id_fkey FOREIGN KEY (document_id) REFERENCES public.documents(id),
+  CONSTRAINT despesas_rubrica_id_fkey FOREIGN KEY (rubrica_id) REFERENCES public.rubricas(id),
+  CONSTRAINT despesas_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id)
 );
-
--- Extensões necessárias
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
--- 5. Tabela de Despesas (Fase 2)
-CREATE TABLE IF NOT EXISTS public.despesas (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    document_id UUID REFERENCES public.documents(id) ON DELETE CASCADE NOT NULL UNIQUE,
-    rubrica_id UUID REFERENCES public.rubricas(id) ON DELETE RESTRICT NOT NULL,
-    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE NOT NULL,
-    valor NUMERIC(12,2) NOT NULL,
-    cnpj_fornecedor TEXT,
-    cnae_fornecedor TEXT,
-    data_emissao DATE,
-    data_pagamento DATE,
-    status_conformidade TEXT DEFAULT 'pendente' CHECK (status_conformidade IN ('ok', 'bloqueado', 'pendente')),
-    motivo_bloqueio TEXT,
-    conciliado BOOLEAN DEFAULT false,
-    liberado_rpa BOOLEAN DEFAULT false,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+CREATE TABLE public.documents (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  project_id uuid NOT NULL,
+  name text NOT NULL,
+  size text,
+  file_path text NOT NULL,
+  status text DEFAULT 'uploaded'::text CHECK (status = ANY (ARRAY['uploaded'::text, 'processing_ocr'::text, 'validating'::text, 'validated'::text, 'aguardando_conformidade'::text, 'aguardando_comprovante'::text, 'aguardando_conciliacao_bancaria'::text, 'aguardando_d3'::text, 'liberado_rpa_airtop'::text, 'enviado_salic'::text, 'concluido'::text, 'erro_rpa'::text, 'bloqueado_conformidade'::text, 'revisao_manual'::text, 'divergencia_valor'::text, 'divergencia_beneficiario'::text])),
+  valor numeric,
+  cnpj_emissor text,
+  data_emissao date,
+  data_pagamento date,
+  justification text,
+  protocolo_salic text,
+  json_extraido jsonb DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  fornecedor_id uuid,
+  rubrica text,
+  just_erro text,
+  tipo_documento text,
+  nf_vinculada_id uuid,
+  autenticacao_bancaria text,
+  valor_pago numeric,
+  nome_emissor text,
+  numero_nf text,
+  confianca_ocr text,
+  organization_id uuid,
+  CONSTRAINT documents_pkey PRIMARY KEY (id),
+  CONSTRAINT documents_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id),
+  CONSTRAINT documents_fornecedor_id_fkey FOREIGN KEY (fornecedor_id) REFERENCES public.fornecedores(id),
+  CONSTRAINT documents_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
+  CONSTRAINT documents_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id),
+  CONSTRAINT documents_nf_vinculada_fkey FOREIGN KEY (nf_vinculada_id) REFERENCES public.documents(id)
 );
-
--- RLS para Rubricas e Despesas
-ALTER TABLE rubricas ENABLE ROW LEVEL SECURITY;
-ALTER TABLE despesas ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can access rubricas of their projects" 
-ON rubricas FOR ALL USING (project_id IN (SELECT id FROM projects WHERE user_id = auth.uid()));
-
-CREATE POLICY "Users can access despesas of their projects" 
-ON despesas FOR ALL USING (project_id IN (SELECT id FROM projects WHERE user_id = auth.uid()));
-
--- ==========================================================
--- FASE 2: SPRINT 3 - PORTAL DO SOLICITANTE
--- ==========================================================
-
--- 6. Perfis de Solicitantes (Appends over auth.users)
-CREATE TABLE IF NOT EXISTS public.fornecedores (
-    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-    cnpj TEXT UNIQUE NOT NULL,
-    razao_social TEXT NOT NULL,
-    telefone TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+CREATE TABLE public.external_credentials (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  service_name text NOT NULL,
+  identifier text NOT NULL,
+  secret text NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT external_credentials_pkey PRIMARY KEY (id),
+  CONSTRAINT external_credentials_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );
-
--- 7. Vínculo entre Solicitante e Projeto
--- IMPORTANTE: gestor_id armazenado diretamente para evitar recursão no RLS
-CREATE TABLE IF NOT EXISTS public.projeto_fornecedores (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE,
-    fornecedor_id UUID REFERENCES public.fornecedores(id) ON DELETE CASCADE,
-    gestor_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-    UNIQUE(project_id, fornecedor_id)
+CREATE TABLE public.extratos (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  project_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  file_path text NOT NULL,
+  formato text CHECK (formato = ANY (ARRAY['ofx'::text, 'csv'::text, 'pdf'::text])),
+  periodo_inicio date,
+  periodo_fim date,
+  saldo_final numeric,
+  status text DEFAULT 'processando'::text,
+  organization_id uuid,
+  CONSTRAINT extratos_pkey PRIMARY KEY (id),
+  CONSTRAINT extratos_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id),
+  CONSTRAINT extratos_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id),
+  CONSTRAINT extratos_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );
-
--- Adicionar campo de solicitante nos documentos
-ALTER TABLE public.documents ADD COLUMN IF NOT EXISTS fornecedor_id UUID REFERENCES public.fornecedores(id) ON DELETE SET NULL;
-
--- ============================================================
--- RLS SEM RECURSÃO (chave: projeto_fornecedores.gestor_id)
--- ============================================================
-
--- Documentos: limpar políticas antigas conflitantes
-DROP POLICY IF EXISTS "Dono ve os docs pelo user_id" ON documents;
-DROP POLICY IF EXISTS "Gestor ve os docs pelo project_id" ON documents;
-DROP POLICY IF EXISTS "Fornecedor ve seus docs" ON documents;
-
--- Gestor enxerga documentos do PROJETO inteiro (incluindo do solicitante)
-CREATE POLICY "Gestor acessa docs do projeto" ON documents FOR ALL
-USING (project_id IN (SELECT id FROM projects WHERE user_id = auth.uid()));
-
--- Solicitante só vê os docs que ele mesmo enviou
-CREATE POLICY "Solicitante acessa seus proprios docs" ON documents FOR SELECT
-USING (auth.uid() = fornecedor_id);
-
--- Solicitante pode inserir documentos
-CREATE POLICY "Solicitante insere doc" ON documents FOR INSERT
-WITH CHECK (auth.uid() = fornecedor_id);
-
--- ============================================================
--- RLS de Solicitantes (sem ciclo)
--- ============================================================
-ALTER TABLE fornecedores ENABLE ROW LEVEL SECURITY;
-ALTER TABLE projeto_fornecedores ENABLE ROW LEVEL SECURITY;
-
--- Solicitante gerencia seu próprio perfil
-DROP POLICY IF EXISTS "Solicitantes alteram seu perfil" ON fornecedores;
-CREATE POLICY "Solicitante gerencia seu perfil" ON fornecedores FOR ALL
-USING (auth.uid() = id);
-
--- Gestor vê todos os solicitantes para poder vinculá-los
--- Sem referenciar projects (evita ciclo)
-DROP POLICY IF EXISTS "Gestores veem todos os fornecedores para vincular" ON fornecedores;
-DROP POLICY IF EXISTS "Gestores veem fornecedores do projeto" ON fornecedores;
-CREATE POLICY "Usuario autenticado ve solicitantes" ON fornecedores FOR SELECT
-USING (auth.role() = 'authenticated');
-
--- ============================================================
--- RLS de projeto_fornecedores (SEM referenciar a tabela projects)
--- Usa gestor_id diretamente — quebra o ciclo de recursão
--- ============================================================
-DROP POLICY IF EXISTS "Fornecedores veem seus projetos convidados" ON projeto_fornecedores;
-DROP POLICY IF EXISTS "Fornecedores podem se vincular" ON projeto_fornecedores;
-DROP POLICY IF EXISTS "Gestores controlam seus projetos" ON projeto_fornecedores;
-
--- Solicitante vê seus vínculos
-CREATE POLICY "Solicitante ve seus vinculos" ON projeto_fornecedores FOR SELECT
-USING (auth.uid() = fornecedor_id);
-
--- Gestor controla seus próprios vínculos (via gestor_id, sem referenciar projects)
-CREATE POLICY "Gestor gerencia vinculos" ON projeto_fornecedores FOR ALL
-USING (auth.uid() = gestor_id);
-
--- ============================================================
--- RLS de projects: Fornecedor vê projetos dos quais foi convidado
--- Usa projeto_fornecedores.fornecedor_id (sem voltar para projects)
--- ============================================================
-DROP POLICY IF EXISTS "Fornecedores veem infos dos projetos vinculados" ON projects;
-CREATE POLICY "Fornecedor ve projetos convidado" ON projects FOR SELECT
-USING (
-    id IN (SELECT project_id FROM projeto_fornecedores WHERE fornecedor_id = auth.uid())
+CREATE TABLE public.extratos_lancamentos (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  extrato_id uuid NOT NULL,
+  project_id uuid NOT NULL,
+  fitid text NOT NULL,
+  tipo text,
+  valor numeric,
+  data_lancamento date,
+  memo text,
+  status_conciliacao text DEFAULT 'pendente'::text,
+  document_id uuid,
+  CONSTRAINT extratos_lancamentos_pkey PRIMARY KEY (id),
+  CONSTRAINT extratos_lancamentos_extrato_id_fkey FOREIGN KEY (extrato_id) REFERENCES public.extratos(id),
+  CONSTRAINT extratos_lancamentos_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id),
+  CONSTRAINT extratos_lancamentos_document_id_fkey FOREIGN KEY (document_id) REFERENCES public.documents(id)
 );
-
-
--- ============================================================
--- SPRINT 4: AUTOMAÇÃO E CREDENCIAIS EXTERNAS
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS public.external_credentials (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
-    service_name TEXT NOT NULL, -- ex: 'salic'
-    identifier TEXT NOT NULL,    -- ex: CPF
-    secret TEXT NOT NULL,        -- ex: Senha (idealmente criptografada)
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-    UNIQUE(user_id, service_name)
+CREATE TABLE public.fornecedores (
+  id uuid NOT NULL,
+  cnpj text NOT NULL UNIQUE,
+  razao_social text NOT NULL,
+  telefone text,
+  created_at timestamp with time zone DEFAULT now(),
+  organization_id uuid,
+  CONSTRAINT fornecedores_pkey PRIMARY KEY (id),
+  CONSTRAINT fornecedores_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id),
+  CONSTRAINT fornecedores_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
 );
-
-ALTER TABLE external_credentials ENABLE ROW LEVEL SECURITY;
-
--- Função para salvar credenciais com criptografia PGP
--- A chave 'sua_chave_mestra_aqui' deve ser trocada por uma variável de ambiente no n8n depois
-CREATE OR REPLACE FUNCTION upsert_external_credential(
-    p_service_name TEXT,
-    p_identifier TEXT,
-    p_secret TEXT
-) RETURNS VOID AS $$
-BEGIN
-    INSERT INTO public.external_credentials (user_id, service_name, identifier, secret, updated_at)
-    VALUES (
-        auth.uid(), 
-        p_service_name, 
-        p_identifier, 
-        encode(pgp_sym_encrypt(p_secret, 'chave_mestra_cultopps'), 'hex'), -- Criptografa e converte para HEX
-        now()
-    )
-    ON CONFLICT (user_id, service_name) 
-    DO UPDATE SET 
-        identifier = EXCLUDED.identifier,
-        secret = EXCLUDED.secret,
-        updated_at = now();
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- View para o n8n descriptografar (Protegida por RLS ou usada apenas via Service Role)
-CREATE OR REPLACE VIEW decrypted_external_credentials AS
-SELECT 
-    user_id,
-    service_name,
-    identifier,
-    pgp_sym_decrypt(decode(secret, 'hex'), 'chave_mestra_cultopps') as secret_plain
-FROM public.external_credentials;
-
-CREATE POLICY "Users can manage their own credentials" 
-ON external_credentials FOR ALL 
-USING (auth.uid() = user_id);
--- ============================================================
--- SPRINT 4: CONCILIAÇÃO BANCÁRIA
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS public.extratos_bancarios (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE NOT NULL,
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
-    data_transacao DATE NOT NULL,
-    descricao TEXT NOT NULL,
-    valor NUMERIC(12,2) NOT NULL,
-    documento_referencia TEXT, -- Numero do doc/cheque no extrato
-    conciliado_com_despesa_id UUID REFERENCES public.despesas(id) ON DELETE SET NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+CREATE TABLE public.organization_users (
+  organization_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  role text NOT NULL DEFAULT 'member'::text CHECK (role = ANY (ARRAY['owner'::text, 'admin'::text, 'member'::text])),
+  criado_em timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT organization_users_pkey PRIMARY KEY (organization_id, user_id),
+  CONSTRAINT organization_users_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id),
+  CONSTRAINT organization_users_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );
-
-ALTER TABLE extratos_bancarios ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can manage their own bank statements" 
-ON extratos_bancarios FOR ALL 
-USING (project_id IN (SELECT id FROM projects WHERE user_id = auth.uid()));
-
--- Adicionar flag de conciliação nas despesas se não existir (ajuste da fase 2)
-ALTER TABLE public.despesas ADD COLUMN IF NOT EXISTS extrato_vinculado_id UUID REFERENCES public.extratos_bancarios(id) ON DELETE SET NULL;
+CREATE TABLE public.organizations (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  nome text NOT NULL,
+  slug text NOT NULL UNIQUE,
+  modulos ARRAY NOT NULL DEFAULT '{}'::text[],
+  ativo boolean NOT NULL DEFAULT true,
+  criado_em timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT organizations_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.physical_evidences (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  organization_id uuid,
+  project_id uuid NOT NULL,
+  tipo_evidencia text NOT NULL CHECK (tipo_evidencia = ANY (ARRAY['foto_evento'::text, 'relatorio_objeto'::text, 'peca_marketing'::text, 'outros'::text])),
+  descricao text,
+  file_path text NOT NULL,
+  file_name text NOT NULL,
+  file_size bigint,
+  mime_type text,
+  enviado_por uuid,
+  enviado_via_token boolean NOT NULL DEFAULT false,
+  token_solicitante text,
+  status_validacao text NOT NULL DEFAULT 'pendente'::text CHECK (status_validacao = ANY (ARRAY['pendente'::text, 'aprovada'::text, 'reprovada'::text, 'pendente_complemento'::text])),
+  validado_por uuid,
+  validado_em timestamp with time zone,
+  motivo_reprovacao text,
+  ia_categoria text,
+  ia_score numeric,
+  criado_em timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT physical_evidences_pkey PRIMARY KEY (id),
+  CONSTRAINT physical_evidences_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id),
+  CONSTRAINT physical_evidences_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id),
+  CONSTRAINT physical_evidences_enviado_por_fkey FOREIGN KEY (enviado_por) REFERENCES auth.users(id),
+  CONSTRAINT physical_evidences_validado_por_fkey FOREIGN KEY (validado_por) REFERENCES auth.users(id)
+);
+CREATE TABLE public.project_checklist (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  organization_id uuid,
+  project_id uuid NOT NULL UNIQUE,
+  total_itens integer NOT NULL DEFAULT 0,
+  itens_ok integer NOT NULL DEFAULT 0,
+  liberado_envio_minc boolean NOT NULL DEFAULT false,
+  iniciado_em timestamp with time zone,
+  atualizado_em timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT project_checklist_pkey PRIMARY KEY (id),
+  CONSTRAINT project_checklist_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id),
+  CONSTRAINT project_checklist_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id)
+);
+CREATE TABLE public.projects (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  pronac text NOT NULL,
+  nome text NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  propoente text,
+  Mecanismo text,
+  uf text,
+  valor_aprovado text,
+  valor_captado text,
+  organization_id uuid,
+  status_prestacao text NOT NULL DEFAULT 'em_execucao'::text CHECK (status_prestacao = ANY (ARRAY['em_execucao'::text, 'em_encerramento'::text, 'enviado_minc'::text, 'aprovado'::text])),
+  checklist_liberado boolean NOT NULL DEFAULT false,
+  data_inicio_encerramento timestamp with time zone,
+  data_envio_minc timestamp with time zone,
+  protocolo_encerramento_salic text,
+  tentativas_rpa_encerramento integer NOT NULL DEFAULT 0,
+  CONSTRAINT projects_pkey PRIMARY KEY (id),
+  CONSTRAINT projects_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id),
+  CONSTRAINT projects_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.projeto_fornecedores (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  project_id uuid,
+  fornecedor_id uuid,
+  gestor_id uuid NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT projeto_fornecedores_pkey PRIMARY KEY (id),
+  CONSTRAINT projeto_fornecedores_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id),
+  CONSTRAINT projeto_fornecedores_fornecedor_id_fkey FOREIGN KEY (fornecedor_id) REFERENCES public.fornecedores(id),
+  CONSTRAINT projeto_fornecedores_gestor_id_fkey FOREIGN KEY (gestor_id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.relatorio_prestacao_contas (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  organization_id uuid,
+  project_id uuid NOT NULL,
+  versao integer NOT NULL DEFAULT 1,
+  status text NOT NULL DEFAULT 'gerando'::text CHECK (status = ANY (ARRAY['gerando'::text, 'pronto'::text, 'autorizado'::text, 'substituido'::text, 'erro'::text])),
+  file_path text,
+  gerado_por uuid,
+  autorizado_por uuid,
+  data_autorizacao timestamp with time zone,
+  criado_em timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT relatorio_prestacao_contas_pkey PRIMARY KEY (id),
+  CONSTRAINT relatorio_prestacao_contas_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id),
+  CONSTRAINT relatorio_prestacao_contas_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id),
+  CONSTRAINT relatorio_prestacao_contas_gerado_por_fkey FOREIGN KEY (gerado_por) REFERENCES auth.users(id),
+  CONSTRAINT relatorio_prestacao_contas_autorizado_por_fkey FOREIGN KEY (autorizado_por) REFERENCES auth.users(id)
+);
+CREATE TABLE public.rubricas (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  project_id uuid NOT NULL,
+  nome text NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  valor_aprovado numeric,
+  valor_utilizado numeric,
+  quantidade numeric,
+  valor_unitario numeric,
+  etapa text,
+  uf_municipio text,
+  codigo text,
+  valor_captado numeric,
+  unidade text,
+  origem text,
+  fonte text,
+  upload_versao integer DEFAULT 1,
+  upload_id uuid,
+  updated_at timestamp with time zone DEFAULT now(),
+  rubrica_id numeric,
+  organization_id uuid,
+  alerta_limite_ativo boolean NOT NULL DEFAULT true,
+  percentual_alerta numeric NOT NULL DEFAULT 90.00,
+  versao_atual integer NOT NULL DEFAULT 1,
+  CONSTRAINT rubricas_pkey PRIMARY KEY (id),
+  CONSTRAINT rubricas_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id),
+  CONSTRAINT rubricas_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id)
+);
+CREATE TABLE public.rubricas_readequacoes (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  organization_id uuid,
+  rubrica_id uuid NOT NULL,
+  project_id uuid NOT NULL,
+  versao integer NOT NULL,
+  valor_anterior numeric NOT NULL,
+  valor_novo numeric NOT NULL,
+  motivo text,
+  aprovado_em date,
+  criado_em timestamp with time zone NOT NULL DEFAULT now(),
+  criado_por uuid,
+  CONSTRAINT rubricas_readequacoes_pkey PRIMARY KEY (id),
+  CONSTRAINT rubricas_readequacoes_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id),
+  CONSTRAINT rubricas_readequacoes_rubrica_id_fkey FOREIGN KEY (rubrica_id) REFERENCES public.rubricas(id),
+  CONSTRAINT rubricas_readequacoes_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id),
+  CONSTRAINT rubricas_readequacoes_criado_por_fkey FOREIGN KEY (criado_por) REFERENCES auth.users(id)
+);
+CREATE TABLE public.rubricas_uploads (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  project_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  file_path text NOT NULL,
+  status text DEFAULT 'processing'::text CHECK (status = ANY (ARRAY['processing'::text, 'success'::text, 'error'::text])),
+  versao integer DEFAULT 1,
+  total_encontradas integer DEFAULT 0,
+  total_importadas integer DEFAULT 0,
+  total_atualizadas integer DEFAULT 0,
+  total_duplicadas integer DEFAULT 0,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT rubricas_uploads_pkey PRIMARY KEY (id),
+  CONSTRAINT rubricas_uploads_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id),
+  CONSTRAINT rubricas_uploads_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.rubricas_versions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  project_id uuid NOT NULL,
+  version_name text NOT NULL,
+  file_path text NOT NULL,
+  total_rubricas integer DEFAULT 0,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT rubricas_versions_pkey PRIMARY KEY (id),
+  CONSTRAINT rubricas_versions_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id)
+);
+CREATE TABLE public.tax_guides (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  organization_id uuid,
+  project_id uuid NOT NULL,
+  tipo_imposto text NOT NULL CHECK (tipo_imposto = ANY (ARRAY['DARF'::text, 'ISS'::text, 'INSS'::text, 'PIS'::text, 'COFINS'::text, 'CSLL'::text, 'outro'::text])),
+  codigo_receita text,
+  numero_guia text,
+  competencia text NOT NULL,
+  valor numeric NOT NULL CHECK (valor > 0::numeric),
+  data_vencimento date NOT NULL,
+  data_pagamento date,
+  status text NOT NULL DEFAULT 'pendente'::text CHECK (status = ANY (ARRAY['pendente'::text, 'paga'::text, 'atrasada'::text, 'cancelada'::text])),
+  document_id uuid,
+  arquivo_guia_path text,
+  arquivo_comprovante_path text,
+  observacoes text,
+  motivo_cancelamento text,
+  gestor_id uuid,
+  criado_em timestamp with time zone NOT NULL DEFAULT now(),
+  atualizado_em timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT tax_guides_pkey PRIMARY KEY (id),
+  CONSTRAINT tax_guides_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id),
+  CONSTRAINT tax_guides_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id),
+  CONSTRAINT tax_guides_document_id_fkey FOREIGN KEY (document_id) REFERENCES public.documents(id),
+  CONSTRAINT tax_guides_gestor_id_fkey FOREIGN KEY (gestor_id) REFERENCES auth.users(id)
+);

@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Configuração de Projeto</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m2-shared.css">
+    
+    <style>
+        .setup-container {
+            max-width: 1100px;
+            width: 100%;
+            margin: 0 auto;
+        }
+
+        .setup-header {
+            text-align: center;
+            margin-bottom: 2.5rem;
+        }
+
+        .active-projects-section {
+            margin-bottom: 3rem;
+        }
+
+        .section-heading {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin: 0 0 1rem 0;
+        }
+
+        .section-subheading {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin: 2rem 0 1rem 0;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .projects-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1rem;
+        }
+
+        .project-card {
+            background: white;
+            padding: 1.25rem;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-light);
+            box-shadow: var(--shadow-sm);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .project-card:hover {
+            border-color: var(--m2-accent);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .project-card-pronac {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .project-card-nome {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1.3;
+        }
+
+        .project-card-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 0.5rem;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .empty-projects {
+            background: white;
+            border: 1px dashed var(--border-light);
+            border-radius: var(--radius-md);
+            padding: 2.5rem 1rem;
+            text-align: center;
+            color: var(--text-muted);
+        }
+
+        .empty-projects i {
+            width: 40px;
+            height: 40px;
+            margin-bottom: 0.75rem;
+            opacity: 0.6;
+        }
+        
+        .options-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 2rem;
+            align-items: start;
+        }
+
+        .option-card {
+            background: white;
+            padding: 2rem;
+            border-radius: var(--radius-lg);
+            border: 2px solid transparent;
+            box-shadow: var(--shadow-md);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .option-card:hover {
+            border-color: var(--m2-accent);
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px -10px rgba(21, 71, 255, 0.15);
+        }
+
+        .option-card.card-disabled {
+            opacity: 0.5;
+            pointer-events: none;
+            filter: grayscale(1);
+        }
+
+        .card-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .icon-blue { background: #E3E8FF; color: #1547FF; }
+        .icon-indigo { background: #E3E8FF; color: #1547FF; }
+
+        .project-list {
+            margin-top: 1.5rem;
+            max-height: 300px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .project-item {
+            padding: 1rem;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .project-item:hover {
+            background: var(--bg-hover);
+            border-color: #1547FF;
+        }
+
+        /* Forms */
+        .form-group {
+            margin-bottom: 1.25rem;
+            text-align: left;
+        }
+        
+        .form-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        
+        .form-control {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            font-family: inherit;
+            transition: all 0.2s;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--m2-accent);
+            box-shadow: 0 0 0 3px rgba(21, 71, 255,0.1);
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(4px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+        
+        .modal-content {
+            background: white;
+            padding: 2rem;
+            border-radius: var(--radius-lg);
+            width: 100%;
+            max-width: 500px;
+            text-align: center;
+        }
+
+        .upload-zone {
+            border: 2px dashed var(--border-light);
+            padding: 3rem 2rem;
+            border-radius: var(--radius-md);
+            margin: 1.5rem 0;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .upload-zone:hover {
+            border-color: var(--m2-accent);
+            background: #F5F0E8;
+        }
+    </style>
+</head>
+<body>
+    <main class="main-content">
+        <div class="setup-container">
+            <div class="setup-header">
+                <h1 style="font-size: 2.5rem; font-weight: 800; color: var(--text-primary); margin-bottom: 0.5rem;">
+                    Projetos
+                </h1>
+                <p style="color: var(--text-secondary); font-size: 1.125rem;">
+                    Gerencie, importe ou crie projetos para a prestação de contas.
+                </p>
+            </div>
+
+            <section class="active-projects-section">
+                <h2 class="section-heading">Projetos ativos</h2>
+                <div id="active-projects-wrap">
+                    <div class="empty-projects">
+                        <i data-lucide="loader" class="spin"></i>
+                        <div>Carregando projetos…</div>
+                    </div>
+                </div>
+            </section>
+
+            <h2 class="section-subheading">Importar novo projeto</h2>
+            <div class="options-grid" id="options-container">
+                <!-- Renderizado dinamicamente via JS -->
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal Upload Rubricas -->
+    <div class="modal-overlay" id="rubricasModal">
+        <div class="modal-content glass-card">
+            <i data-lucide="file-spreadsheet" style="width: 48px; height: 48px; color: var(--success); margin: 0 auto 1rem;"></i>
+            <h3>Projeto Criado com Sucesso!</h3>
+            <p class="text-secondary" style="margin-top: 0.5rem;">Deseja importar a planilha orçamentária (XLSX/CSV) com as rubricas agora?</p>
+            
+            <div class="upload-zone" onclick="document.getElementById('planilha-input').click()">
+                <i data-lucide="upload-cloud" style="width: 32px; height: 32px; color: var(--text-muted); margin-bottom: 0.5rem;"></i>
+                <div style="font-weight: 600;">Clique para buscar arquivo</div>
+                <div style="font-size: 0.75rem; color: var(--text-muted);">Formatos aceitos: .xlsx, .csv</div>
+                <input type="file" id="planilha-input" style="display: none;" accept=".xlsx,.csv" onchange="handlePlanilhaUpload(this.files[0])">
+            </div>
+
+            <div id="upload-status" style="margin-bottom: 1rem; font-weight: 600; color: var(--m2-accent); display: none;">
+                Processando arquivo...
+            </div>
+
+            <div style="display: flex; gap: 1rem; justify-content: center; margin-top: 1.5rem;">
+                <button class="btn-m2 btn-m2-outline" onclick="goToFinanceiro()">Fazer depois</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper.js"></script>
+    <script>
+        let currentUserContext = null;
+        let pendingProjectId = null;
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            renderSidebar();
+            if (window.lucide) window.lucide.createIcons();
+            
+            // 1. Pega dados do usuário e módulos
+            currentUserContext = await getUserModules();
+            
+            if (!currentUserContext) {
+                alert("Sessão inválida. Redirecionando para login.");
+                window.location.href = '../index.html#login';
+                return;
+            }
+
+            renderSetupOptions(currentUserContext.params.modulos);
+            loadActiveProjects();
+        });
+
+        function escapeHtml(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            })[c]);
+        }
+
+        function statusBadgeClass(status) {
+            switch (String(status || '')) {
+                case 'aprovado': return 'badge-paga';
+                case 'enviado_minc': return 'badge-paga';
+                case 'em_encerramento': return 'badge-pendente';
+                case 'em_execucao':
+                default: return 'badge-pendente';
+            }
+        }
+
+        function statusLabel(status) {
+            const map = {
+                'em_execucao': 'Em execução',
+                'em_encerramento': 'Em encerramento',
+                'enviado_minc': 'Enviado ao MinC',
+                'aprovado': 'Aprovado'
+            };
+            return map[String(status || '')] || String(status || '');
+        }
+
+        function formatDate(iso) {
+            if (!iso) return '—';
+            try {
+                const d = new Date(iso);
+                return d.toLocaleDateString('pt-BR');
+            } catch (_) { return '—'; }
+        }
+
+        async function loadActiveProjects() {
+            const wrap = document.getElementById('active-projects-wrap');
+            try {
+                const sb = await window.initSupabase();
+                const orgId = await getCurrentOrgId();
+                if (!orgId) {
+                    wrap.innerHTML = `
+                        <div class="empty-projects">
+                            <i data-lucide="alert-triangle"></i>
+                            <div>Não foi possível identificar a organização.</div>
+                        </div>`;
+                    if (window.lucide) window.lucide.createIcons();
+                    return;
+                }
+
+                const { data, error } = await sb
+                    .from('projects')
+                    .select('id, nome, pronac, status_prestacao, created_at')
+                    .eq('organization_id', orgId)
+                    .order('created_at', { ascending: false });
+
+                if (error) throw error;
+
+                if (!data || data.length === 0) {
+                    wrap.innerHTML = `
+                        <div class="empty-projects">
+                            <i data-lucide="folder-open"></i>
+                            <div>Nenhum projeto importado ainda</div>
+                        </div>`;
+                    if (window.lucide) window.lucide.createIcons();
+                    return;
+                }
+
+                wrap.innerHTML = `<div class="projects-grid">${data.map(p => {
+                    const status = p.status_prestacao || 'em_execucao';
+                    return `
+                        <div class="project-card" onclick="openProject('${escapeHtml(p.id)}')">
+                            <span class="project-card-pronac">PRONAC ${escapeHtml(p.pronac || '—')}</span>
+                            <span class="project-card-nome">${escapeHtml(p.nome || 'Projeto sem nome')}</span>
+                            <div class="project-card-footer">
+                                <span class="badge-m2 ${statusBadgeClass(status)}">${escapeHtml(statusLabel(status))}</span>
+                                <span>${formatDate(p.created_at)}</span>
+                            </div>
+                        </div>`;
+                }).join('')}</div>`;
+                if (window.lucide) window.lucide.createIcons();
+            } catch (err) {
+                console.error('[loadActiveProjects]', err);
+                wrap.innerHTML = `
+                    <div class="empty-projects">
+                        <i data-lucide="alert-triangle"></i>
+                        <div>Erro ao carregar projetos.</div>
+                    </div>`;
+                if (window.lucide) window.lucide.createIcons();
+            }
+        }
+
+        function openProject(projectId) {
+            if (!projectId) return;
+            if (window.ProjectManager) ProjectManager.setSelected(projectId);
+            window.location.href = 'financeiro.html';
+        }
+
+        async function renderSetupOptions(modulos) {
+            const container = document.getElementById('options-container');
+            const hasM1 = modulos.includes('modulo_1');
+            const hasM2 = modulos.includes('modulo_2');
+
+            // Proteção: Se não tiver M2, não deveria estar aqui
+            if (!hasM2) {
+                window.location.href = '../module-selector.html';
+                return;
+            }
+
+            let html = '';
+
+            // SEÇÃO A: Visível apenas se tiver M1 + M2
+            if (hasM1 && hasM2) {
+                html += `
+                    <div class="option-card" id="card-origem-m1">
+                        <div class="card-icon icon-blue">
+                            <i data-lucide="download"></i>
+                        </div>
+                        <h3>Importar do Módulo I</h3>
+                        <p class="text-secondary" style="font-size: 0.875rem; margin-top: 0.5rem;">
+                            Utilize um projeto já aprovado e cadastrado no painel de captação.
+                        </p>
+                        
+                        <div class="project-list" id="m1-projects-list">
+                            <div style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                                <i data-lucide="loader" class="spin"></i> Carregando...
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                // Carrega logo a lista em background
+                setTimeout(() => loadM1Projects(), 100);
+            }
+
+            // SEÇÃO B: Visível para todos do M2
+            html += `
+                <div class="option-card">
+                    <div class="card-icon icon-indigo">
+                        <i data-lucide="folder-search"></i>
+                    </div>
+                    <h3>Importar do Salic</h3>
+                    <p class="text-secondary" style="font-size: 0.875rem; margin-top: 0.5rem; margin-bottom: 1.5rem;">
+                        Busque os dados automaticamente através da automação do portal Salic.
+                    </p>
+                    
+                    <form id="form-novo-projeto" onsubmit="handleSalicImport(event)">
+                        <div class="form-group">
+                            <label class="form-label">Número do PRONAC</label>
+                            <input type="text" id="p-pronac" class="form-control" required placeholder="Ex: 231456">
+                        </div>
+                        <button type="submit" class="btn-m2" style="width: 100%; margin-top: 1rem; justify-content: center;">
+                            Importar Projeto
+                        </button>
+                    </form>
+                </div>
+            `;
+
+            container.innerHTML = html;
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        // Fluxo A: Carregar projetos do M1
+        async function loadM1Projects() {
+            try {
+                const sb = await window.initSupabase();
+                const { data, error } = await sb
+                    .from('projects')
+                    .select('id, pronac, nome')
+                    .eq('user_id', currentUserContext.user.id)
+                    .order('created_at', { ascending: false });
+
+                const listContainer = document.getElementById('m1-projects-list');
+
+                if (error) throw error;
+
+                if (!data || data.length === 0) {
+                    listContainer.innerHTML = '<p class="text-muted text-sm text-center py-4">Nenhum projeto encontrado no Módulo I.</p>';
+                    return;
+                }
+
+                listContainer.innerHTML = data.map(p => `
+                    <div class="project-item" onclick="importFromM1('${p.id}')">
+                        <div>
+                            <div style="font-weight: 700; color: var(--text-primary); font-size: 0.875rem;">${p.nome}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-secondary);">PRONAC: ${p.pronac}</div>
+                        </div>
+                        <i data-lucide="chevron-right" style="color: var(--m2-accent); width: 18px;"></i>
+                    </div>
+                `).join('');
+                
+                if (window.lucide) window.lucide.createIcons();
+
+            } catch (err) {
+                console.error("Erro ao puxar projetos M1:", err);
+                document.getElementById('m1-projects-list').innerHTML = '<p class="text-error text-sm text-center py-4">Erro ao carregar lista.</p>';
+            }
+        }
+
+        // Fluxo A: Ação ao importar do M1
+        async function importFromM1(projectId) {
+            try {
+                const sb = await window.initSupabase();
+                const orgId = currentUserContext.params.id; // Precisa do ID direto... pera, loadModules retorna org.nome, vamos arrumar params no helper?
+                
+                // Buscar id real da org do user
+                const { data: orgUser } = await sb.from('organization_users').select('organization_id').eq('user_id', currentUserContext.user.id).single();
+                
+                if (orgUser && orgUser.organization_id) {
+                    // Atualiza a tabela garantindo que a organization_id está lá
+                    await sb.from('projects').update({ organization_id: orgUser.organization_id }).eq('id', projectId);
+                }
+
+                // Salva no contexto e manda pro dashboard
+                ProjectManager.setSelected(projectId);
+                window.location.href = 'financeiro.html';
+                
+            } catch (err) {
+                alert("Falha ao importar: " + err.message);
+            }
+        }
+
+        // Fluxo B: Importar do Salic (Webhook M1)
+        async function handleSalicImport(e) {
+            e.preventDefault();
+            
+            const btn = e.target.querySelector('button');
+            const oldText = btn.innerHTML;
+            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width: 16px;"></i> Importando...';
+            btn.disabled = true;
+
+            const pronacNum = document.getElementById('p-pronac').value.trim();
+
+            try {
+                if (!CONFIG.N8N_WEBHOOK_SALIC_PROJECT_URL) {
+                    throw new Error("URL do Webhook do n8n não configurada no config.js.");
+                }
+
+                // 1. Aciona o Webhook n8n para importar
+                const response = await fetch(CONFIG.N8N_WEBHOOK_SALIC_PROJECT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    mode: 'cors',
+                    body: JSON.stringify({ pronac: pronacNum, user_id: currentUserContext.user.id })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Erro no webhook interno: ${response.status}`);
+                }
+
+                const rawData = await response.json();
+                const data = Array.isArray(rawData) ? rawData[0] : rawData;
+
+                const isNotFound =
+                    (data.message && data.message.toLowerCase().includes("não encontrado")) ||
+                    (data.pronac === null && data.nome === null);
+
+                if (isNotFound || data.success === false || data.error) {
+                    throw new Error(data.message || data.error || "Projeto não encontrado no SALIC. Verifique o número.");
+                }
+
+                // 2. Busca o projeto na tabela (o n8n já gravou) para atrelar organization_id e context M2
+                const sb = await window.initSupabase();
+                
+                // Dar tempo para o banco persistir... O retorno do webhook M1 costuma ser imediato (JSON já salvo)
+                const { data: proj, error } = await sb.from('projects').select('id')
+                    .eq('pronac', pronacNum)
+                    .eq('user_id', currentUserContext.user.id)
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .single();
+                
+                if (error || !proj) {
+                    throw new Error("Sucesso no Salic, mas erro ao encontrar o projeto no banco de dados local.");
+                }
+
+                const { data: orgUser } = await sb.from('organization_users')
+                    .select('organization_id')
+                    .eq('user_id', currentUserContext.user.id)
+                    .single();
+
+                if (orgUser && orgUser.organization_id) {
+                    await sb.from('projects')
+                        .update({ organization_id: orgUser.organization_id })
+                        .eq('id', proj.id);
+                }
+
+                pendingProjectId = proj.id;
+                ProjectManager.setSelected(proj.id);
+                
+                // Abre modal para convidar upload rubricas (que o Salic não puxa)
+                document.getElementById('rubricasModal').style.display = 'flex';
+
+            } catch (err) {
+                if (err.message.includes("Crendenciais do salic não encontradas") || err.message.includes("credenciais SALIC")) {
+                    if (confirm("Você precisa configurar suas credenciais SALIC antes de importar. Deseja ir para as configurações agora?")) {
+                        window.location.href = 'configuracoes.html';
+                    }
+                } else {
+                    alert("Erro: " + err.message);
+                }
+            } finally {
+                btn.innerHTML = oldText;
+                btn.disabled = false;
+            }
+        }
+
+        // Pula upload
+        function goToFinanceiro() {
+            window.location.href = 'financeiro.html';
+        }
+
+        // Faz o upload XLSX/CSV do fluxo B
+        async function handlePlanilhaUpload(file) {
+            if (!file) return;
+
+            const statusEl = document.getElementById('upload-status');
+            statusEl.style.display = 'block';
+
+            try {
+                const reader = new FileReader();
+                reader.onload = async function(e) {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, {type: 'array'});
+                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                    // Pega direto como array de arrays
+                    const rows = XLSX.utils.sheet_to_json(firstSheet, {header: 1});
+
+                    if (rows.length < 2) {
+                        alert("Planilha vazia ou em formato desconhecido.");
+                        statusEl.style.display = 'none';
+                        return;
+                    }
+
+                    const rubricasParaInserir = [];
+                    const sb = await window.initSupabase();
+                    const { data: orgUser } = await sb.from('organization_users').select('organization_id').eq('user_id', currentUserContext.user.id).single();
+
+                    // Ignora header (i=0), lê dados. Supõe: Codigo, Nome, Etapa, Municipio, Valor
+                    // Tentativa genérica de parsing
+                    for (let i = 1; i < rows.length; i++) {
+                        const row = rows[i];
+                        if (!row || row.length === 0 || !row[0]) continue;
+                        
+                        // Adapta as colunas dependendo do padrão do Minc.
+                        // Assumindo index base: 0: item, 1: id, 2: nome, 3: etapa...
+                        // Para simplificar no protótipo, insere brute
+                        rubricasParaInserir.push({
+                            project_id: pendingProjectId,
+                            organization_id: orgUser.organization_id,
+                            codigo: String(row[0] || '0').substring(0,20),
+                            nome: String(row[1] || 'Rubrica sem nome'),
+                            etapa: String(row[2] || 'Pré-Produção'),
+                            uf_municipio: String(row[3] || 'SP'),
+                            valor_aprovado: parseFloat(String(row[4] || '0').replace('R$','').replace(/\./g,'').replace(',','.')) || 0,
+                            percentual_executado: 0
+                        });
+                    }
+
+                    if (rubricasParaInserir.length > 0) {
+                        const { error } = await sb.from('rubricas').insert(rubricasParaInserir);
+                        if (error) {
+                            alert("Erro ao salvar rubricas no banco: " + error.message);
+                        } else {
+                            alert(rubricasParaInserir.length + " rubricas importadas com sucesso!");
+                            goToFinanceiro();
+                        }
+                    } else {
+                        alert("Nenhuma rubrica válida encontrada.");
+                        statusEl.style.display = 'none';
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            } catch (err) {
+                console.error(err);
+                alert("Erro ao processar planilha.");
+                statusEl.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>

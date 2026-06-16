@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Impostos (DARF)</title>
+    
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Supabase JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m2-shared.css">
+    
+    <style>
+        .tax-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+        
+        .tax-card {
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .tax-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--m2-accent);
+        }
+        
+        .tax-card.atrasada::before { background: var(--error); }
+        .tax-card.paga::before { background: var(--success); }
+        
+        .tax-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+        }
+        
+        .tax-type {
+            font-weight: 700;
+            font-size: 1.125rem;
+            color: var(--text-primary);
+        }
+        
+        .tax-info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            font-size: 0.875rem;
+        }
+        
+        .info-label {
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+        
+        .info-value {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        
+        .tax-actions {
+            margin-top: 1.5rem;
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        /* Modal simple styling */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal-content {
+            background: white;
+            padding: 2rem;
+            border-radius: var(--radius-lg);
+            width: 100%;
+            max-width: 500px;
+            box-shadow: var(--shadow-lg);
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        /* Badges de alerta calculados no frontend (sem cron) */
+        .alert-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.2rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            white-space: nowrap;
+            margin-left: 0.5rem;
+        }
+        .alert-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; }
+        .alert-vencida   { background: #FF5807; color: #FFFFFF; }
+        .alert-vencida::before   { background: #FF5807; }
+        .alert-vencendo  { background: #FF5807; color: #FFFFFF; }
+        .alert-vencendo::before  { background: #FF5807; }
+
+        .btn-m2[disabled] {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+
+        .spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="toast-notification" id="toast" style="position: fixed; bottom: 2.5rem; right: 2.5rem; padding: 1.25rem 2rem; border-radius: var(--radius-md); color: white; font-weight: 700; font-size: 0.95rem; z-index: 10000; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); transform: translateY(150%); transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);"></div>
+
+    <main class="main-content">
+        <header class="page-header">
+            <div>
+                <h1>Impostos (DARF)</h1>
+                <p style="color: var(--text-secondary);">Controle e prestação de contas de guias tributárias do projeto.</p>
+            </div>
+            
+            <div style="display: flex; gap: 1rem; align-items: center;">
+                <div class="project-selector-container">
+                    <i data-lucide="briefcase" style="width: 18px; color: var(--text-secondary);"></i>
+                    <select id="project-select" onchange="handleProjectChange(this.value)">
+                        <option value="">Selecione um Projeto (PRONAC)...</option>
+                    </select>
+                </div>
+                
+                <button class="btn-m2 btn-m2-primary" onclick="openModal()">
+                    <i data-lucide="plus"></i>
+                    Nova Guia
+                </button>
+            </div>
+        </header>
+
+        <div id="stats-container" class="metrics-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 2rem;">
+            <!-- Stats will be injected here -->
+        </div>
+
+        <div id="taxes-list" class="tax-grid">
+            <!-- Tax cards will be injected here -->
+            <div class="empty-state" style="grid-column: 1/-1;">
+                <i data-lucide="search" style="width: 48px; height: 48px; color: var(--text-muted); margin-bottom: 1rem;"></i>
+                <h3>Nenhuma guia encontrada</h3>
+                <p>Selecione um projeto ou cadastre uma nova guia de imposto.</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal Nova Guia -->
+    <div id="modal-tax" class="modal">
+        <div class="modal-content">
+            <h2 class="h2 mb-4">Cadastrar Nova Guia (DARF)</h2>
+            <form id="tax-form" onsubmit="handleSaveTax(event)">
+                <div class="form-group mb-3">
+                    <label>Tipo de Imposto</label>
+                    <select id="tipo_imposto" required class="form-control" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm);">
+                        <option value="">Selecione o tipo</option>
+                        <option value="DARF">DARF — Documento de Arrecadação de Receitas Federais</option>
+                        <option value="ISS">ISS — Imposto Sobre Serviços</option>
+                        <option value="INSS">INSS — Instituto Nacional do Seguro Social</option>
+                        <option value="PIS">PIS — Programa de Integração Social</option>
+                        <option value="COFINS">COFINS — Contribuição para o Financiamento da Seguridade Social</option>
+                        <option value="CSLL">CSLL — Contribuição Social sobre o Lucro Líquido</option>
+                        <option value="outro">Outro</option>
+                    </select>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group mb-3">
+                        <label>Código Receita</label>
+                        <input type="text" id="codigo_receita" placeholder="Ex: 5952" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm);">
+                    </div>
+                    <div class="form-group mb-3">
+                        <label>Competência</label>
+                        <input type="month" id="competencia" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm);">
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group mb-3">
+                        <label>Valor (R$)</label>
+                        <input type="number" step="0.01" id="valor" placeholder="0,00" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm);">
+                    </div>
+                    <div class="form-group mb-3">
+                        <label>Vencimento</label>
+                        <input type="date" id="data_vencimento" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm);">
+                    </div>
+                </div>
+
+                <div class="form-group mb-3">
+                    <label>Nota Fiscal vinculada (opcional)</label>
+                    <select id="document_id" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm);">
+                        <option value="">— Nenhuma —</option>
+                    </select>
+                </div>
+
+                <div class="form-group mb-3">
+                    <label>Arquivo da guia (PDF) <span style="color: var(--text-muted); font-weight: 400; font-size: 0.8rem;">— opcional</span></label>
+                    <input type="file" id="arquivo_guia" accept="application/pdf" style="width: 100%; padding: 0.4rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: white;">
+                </div>
+
+                <div class="tax-actions" style="justify-content: flex-end; margin-top: 2rem;">
+                    <button type="button" class="btn-m2" onclick="closeModal()">Cancelar</button>
+                    <button type="submit" class="btn-m2 btn-m2-primary" id="btn-salvar-guia">Salvar Guia</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper.js"></script>
+    <script>
+        let currentProjectId = ProjectManager.getSelected();
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            renderSidebar();
+            await initSupabase();
+            await populateProjectSelect();
+            
+            if (currentProjectId) {
+                document.getElementById('project-select').value = currentProjectId;
+                loadTaxes();
+            }
+        });
+
+        async function populateProjectSelect() {
+            const projects = await loadProjects();
+            const select = document.getElementById('project-select');
+            projects.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.textContent = `${p.pronac} - ${p.nome}`;
+                select.appendChild(opt);
+            });
+        }
+
+        function handleProjectChange(id) {
+            currentProjectId = id;
+            ProjectManager.setSelected(id);
+            loadTaxes();
+        }
+
+        async function loadTaxes() {
+            if (!currentProjectId) return;
+            
+            const sb = await initSupabase();
+            const { data, error } = await sb
+                .from('tax_guides')
+                .select('*')
+                .eq('project_id', currentProjectId)
+                .order('data_vencimento', { ascending: true });
+
+            if (error) {
+                console.error("Erro ao carregar impostos:", error);
+                return;
+            }
+
+            renderTaxes(data);
+            updateStats(data);
+        }
+
+        function renderTaxes(taxes) {
+            const container = document.getElementById('taxes-list');
+            if (!taxes || taxes.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1/-1;">
+                        <i data-lucide="search" style="width: 48px; height: 48px; color: var(--text-muted); margin-bottom: 1rem;"></i>
+                        <h3>Nenhuma guia encontrada</h3>
+                        <p>Inicie o cadastro da primeira guia para este projeto cultural.</p>
+                    </div>
+                `;
+                if (window.lucide) window.lucide.createIcons();
+                return;
+            }
+
+            container.innerHTML = taxes.map(tax => {
+                const alertaHtml = computeAlertaBadge(tax);
+                const temArquivo = !!tax.arquivo_guia_path;
+                const verArquivoBtn = temArquivo
+                    ? `<button class="btn-m2" style="background: var(--bg-sidebar); border: 1px solid var(--border-light); font-size: 0.75rem;" onclick="handleVerArquivo('${tax.id}')">
+                           <i data-lucide="file-text"></i> Ver Arquivo
+                       </button>`
+                    : `<button class="btn-m2" style="background: var(--bg-sidebar); border: 1px solid var(--border-light); font-size: 0.75rem;" disabled title="Sem arquivo">
+                           <i data-lucide="file-off"></i> Sem Arquivo
+                       </button>`;
+
+                return `
+                    <div class="glass-card tax-card ${tax.status}">
+                        <div class="tax-header">
+                            <div class="tax-type">${escapeHtml(tax.tipo_imposto)}</div>
+                            <div style="display: flex; align-items: center; gap: 0.25rem; flex-wrap: wrap;">
+                                <span class="badge-m2 badge-${tax.status}">${escapeHtml(tax.status)}</span>
+                                ${alertaHtml}
+                            </div>
+                        </div>
+
+                        <div class="tax-info">
+                            <div>
+                                <div class="info-label">Cód. Receita</div>
+                                <div class="info-value">${escapeHtml(tax.codigo_receita || '—')}</div>
+                            </div>
+                            <div>
+                                <div class="info-label">Competência</div>
+                                <div class="info-value">${escapeHtml(tax.competencia || '—')}</div>
+                            </div>
+                            <div>
+                                <div class="info-label">Vencimento</div>
+                                <div class="info-value">${formatDate(tax.data_vencimento)}</div>
+                            </div>
+                            <div>
+                                <div class="info-label">Valor</div>
+                                <div class="info-value" style="color: var(--m2-accent);">${formatCurrency(tax.valor)}</div>
+                            </div>
+                        </div>
+
+                        <div class="tax-actions">
+                            ${tax.status === 'pendente' || tax.status === 'atrasada' ? `
+                                <button class="btn-m2 btn-m2-primary" style="flex: 1; font-size: 0.75rem;" onclick="handleMarkAsPaid('${tax.id}')">
+                                    <i data-lucide="check"></i> Confirmar Pagtº
+                                </button>
+                            ` : ''}
+                            ${verArquivoBtn}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        // Calcula badge de vencimento no frontend (independente do CRON-01)
+        function computeAlertaBadge(tax) {
+            if (tax.status === 'paga' || tax.status === 'cancelada') return '';
+            if (!tax.data_vencimento) return '';
+
+            const hoje = new Date();
+            hoje.setHours(0, 0, 0, 0);
+            const venc = new Date(tax.data_vencimento + 'T00:00:00');
+            if (Number.isNaN(venc.getTime())) return '';
+
+            const diasRestantes = Math.ceil((venc - hoje) / (1000 * 60 * 60 * 24));
+
+            if (diasRestantes < 0) {
+                return `<span class="alert-badge alert-vencida">VENCIDA</span>`;
+            }
+            if (diasRestantes <= 7) {
+                const txt = diasRestantes === 0 ? 'Vence hoje' :
+                            diasRestantes === 1 ? 'Vence em 1 dia' :
+                            `Vence em ${diasRestantes} dias`;
+                return `<span class="alert-badge alert-vencendo">${txt}</span>`;
+            }
+            return '';
+        }
+
+        async function handleVerArquivo(taxId) {
+            const sb = await initSupabase();
+            const { data: tax, error } = await sb
+                .from('tax_guides')
+                .select('arquivo_guia_path')
+                .eq('id', taxId)
+                .maybeSingle();
+            if (error || !tax || !tax.arquivo_guia_path) {
+                showToast('Arquivo não disponível.', 'error');
+                return;
+            }
+            const { data: sig, error: sigErr } = await sb.storage
+                .from('tax-guides')
+                .createSignedUrl(tax.arquivo_guia_path, 3600);
+            if (sigErr || !sig) {
+                showToast('Erro ao gerar link: ' + (sigErr?.message || 'verifique o console'), 'error');
+                console.error('[handleVerArquivo]', sigErr);
+                return;
+            }
+            window.open(sig.signedUrl, '_blank');
+        }
+
+        function escapeHtml(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function showToast(msg, type = 'success') {
+            const t = document.getElementById('toast');
+            if (!t) return;
+            t.innerText = msg;
+            t.style.background = type === 'success' ? '#1547FF' : (type === 'error' ? '#FF5807' : '#1547FF');
+            t.style.transform = 'translateY(0)';
+            setTimeout(() => t.style.transform = 'translateY(150%)', 4000);
+        }
+
+        function updateStats(taxes) {
+            const total = taxes.length;
+            const pendentes = taxes.filter(t => t.status === 'pendente').length;
+            const pagas = taxes.filter(t => t.status === 'paga').length;
+            const atrasadas = taxes.filter(t => t.status === 'atrasada').length;
+            const valorTotal = taxes.reduce((acc, t) => acc + (t.status !== 'cancelada' ? t.valor : 0), 0);
+
+            const container = document.getElementById('stats-container');
+            container.innerHTML = `
+                <div class="card metric-card">
+                    <p class="metric-label">Total de Guias</p>
+                    <div class="metric-value">${total}</div>
+                </div>
+                <div class="card metric-card">
+                    <p class="metric-label">Pendentes</p>
+                    <div class="metric-value" style="color: var(--warning);">${pendentes}</div>
+                </div>
+                <div class="card metric-card">
+                    <p class="metric-label">Pagas</p>
+                    <div class="metric-value" style="color: var(--success);">${pagas}</div>
+                </div>
+                <div class="card metric-card">
+                    <p class="metric-label">Volume Total</p>
+                    <div class="metric-value" style="font-size: 1.25rem;">${formatCurrency(valorTotal)}</div>
+                </div>
+            `;
+        }
+
+        async function handleMarkAsPaid(taxId) {
+            if (!confirm("Confirmar que esta guia foi paga? Esta ação é irreversível via sistema.")) return;
+
+            const sb = await initSupabase();
+            const { error } = await sb
+                .from('tax_guides')
+                .update({ status: 'paga', data_pagamento: new Date().toISOString() })
+                .eq('id', taxId);
+
+            if (error) {
+                showToast("Erro ao atualizar status: " + error.message, 'error');
+                return;
+            }
+
+            showToast('Guia marcada como paga.', 'success');
+            loadTaxes();
+        }
+
+        async function handleSaveTax(e) {
+            e.preventDefault();
+            if (!currentProjectId) {
+                showToast('Selecione um projeto primeiro!', 'error');
+                return;
+            }
+
+            const btnSalvar = document.getElementById('btn-salvar-guia');
+            btnSalvar.disabled = true;
+            const btnLabelOriginal = btnSalvar.innerHTML;
+            btnSalvar.innerHTML = '<i data-lucide="loader" class="spin"></i> Salvando…';
+            if (window.lucide) window.lucide.createIcons();
+
+            const sb = await initSupabase();
+
+            try {
+                const orgId = await getCurrentOrgId(currentProjectId);
+                if (!orgId) {
+                    showToast('Não foi possível identificar a organização do projeto. Recarregue a página.', 'error');
+                    return;
+                }
+
+                const documentIdRaw = document.getElementById('document_id').value;
+                const fileInput = document.getElementById('arquivo_guia');
+                const arquivo = fileInput.files[0] || null;
+
+                if (arquivo && arquivo.type !== 'application/pdf') {
+                    showToast('O arquivo da guia deve ser PDF.', 'error');
+                    return;
+                }
+
+                const formData = {
+                    project_id: currentProjectId,
+                    organization_id: orgId,
+                    tipo_imposto: document.getElementById('tipo_imposto').value,
+                    codigo_receita: document.getElementById('codigo_receita').value,
+                    competencia: document.getElementById('competencia').value,
+                    valor: parseFloat(document.getElementById('valor').value),
+                    data_vencimento: document.getElementById('data_vencimento').value,
+                    document_id: documentIdRaw || null,
+                    status: 'pendente'
+                };
+
+                // 1) INSERT primeiro para obter o id (necessário para o path do storage)
+                const { data: newRow, error: insertErr } = await sb
+                    .from('tax_guides')
+                    .insert(formData)
+                    .select('id')
+                    .single();
+                if (insertErr) throw insertErr;
+
+                // 2) Se houver arquivo, faz upload e atualiza arquivo_guia_path
+                if (arquivo) {
+                    const safeName = arquivo.name.replace(/[\/\\:*?"<>|]/g, '_');
+                    const path = `${currentProjectId}/${newRow.id}/${safeName}`;
+                    btnSalvar.innerHTML = '<i data-lucide="loader" class="spin"></i> Enviando arquivo…';
+                    if (window.lucide) window.lucide.createIcons();
+
+                    const { error: upErr } = await sb.storage
+                        .from('tax-guides')
+                        .upload(path, arquivo, { cacheControl: '3600', upsert: false, contentType: 'application/pdf' });
+                    if (upErr) {
+                        console.error('[upload tax-guides]', upErr);
+                        showToast('Guia salva, mas falhou o upload do arquivo: ' + upErr.message, 'error');
+                    } else {
+                        const { error: updErr } = await sb
+                            .from('tax_guides')
+                            .update({ arquivo_guia_path: path })
+                            .eq('id', newRow.id);
+                        if (updErr) {
+                            console.error('[update arquivo_guia_path]', updErr);
+                            showToast('Arquivo enviado mas não foi possível vinculá-lo: ' + updErr.message, 'error');
+                        } else {
+                            showToast('Guia salva com arquivo anexado.', 'success');
+                        }
+                    }
+                } else {
+                    showToast('Guia salva.', 'success');
+                }
+
+                closeModal();
+                await loadTaxes();
+            } catch (err) {
+                console.error('[handleSaveTax]', err);
+                showToast('Erro ao salvar: ' + (err.message || 'verifique o console'), 'error');
+            } finally {
+                btnSalvar.disabled = false;
+                btnSalvar.innerHTML = btnLabelOriginal;
+                if (window.lucide) window.lucide.createIcons();
+            }
+        }
+
+        async function loadDocumentosForSelect() {
+            const select = document.getElementById('document_id');
+            select.innerHTML = '<option value="">— Nenhuma —</option>';
+            if (!currentProjectId) return;
+            const sb = await initSupabase();
+            const { data, error } = await sb
+                .from('documents')
+                .select('id, name, valor')
+                .eq('project_id', currentProjectId)
+                .neq('status', 'deleted')
+                .order('created_at', { ascending: false })
+                .limit(100);
+            if (error || !data) {
+                console.error('[loadDocumentosForSelect]', error);
+                return;
+            }
+            data.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d.id;
+                const label = d.valor != null ? `${d.name} — ${formatCurrency(d.valor)}` : d.name;
+                opt.textContent = label;
+                select.appendChild(opt);
+            });
+        }
+
+        async function openModal() {
+            if (!currentProjectId) {
+                showToast('Selecione um projeto primeiro!', 'error');
+                return;
+            }
+            document.getElementById('tax-form').reset();
+            await loadDocumentosForSelect();
+            document.getElementById('modal-tax').style.display = 'flex';
+        }
+        function closeModal() {
+            document.getElementById('modal-tax').style.display = 'none';
+            document.getElementById('tax-form').reset();
+        }
+    </script>
+</body>
+</html>

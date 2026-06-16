@@ -1,0 +1,2101 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI M2 — Exportações</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m2-shared.css">
+
+    <style>
+        .exp-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-bottom: 1rem;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1.5rem;
+        }
+
+        @media (max-width: 900px) {
+            .cards-grid { grid-template-columns: 1fr; }
+        }
+
+        .exp-card {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            padding: 1.75rem;
+            border-radius: var(--radius-lg);
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            box-shadow: var(--glass-shadow);
+            border-top: 4px solid var(--m2-accent);
+        }
+
+        .exp-card-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .exp-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: var(--radius-md);
+            background: rgba(21, 71, 255, 0.1);
+            color: var(--m2-accent);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .exp-card h3 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin: 0;
+        }
+
+        .exp-card .desc {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            margin: 0;
+        }
+
+        .filters-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }
+
+        .filter-group label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
+        }
+
+        .filter-group input,
+        .filter-group select {
+            padding: 0.6rem 0.75rem;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            font-size: 0.875rem;
+            background: white;
+            outline: none;
+            transition: var(--transition);
+        }
+
+        .filter-group input:focus,
+        .filter-group select:focus {
+            border-color: var(--m2-accent);
+            box-shadow: 0 0 0 3px rgba(21, 71, 255, 0.15);
+        }
+
+        .checkbox-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.6rem 0.75rem;
+            background: #F5F0E8;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            font-size: 0.875rem;
+            color: var(--text-primary);
+            cursor: pointer;
+        }
+
+        .checkbox-item input { width: 18px; height: 18px; cursor: pointer; }
+
+        .btn-exp {
+            width: 100%;
+            padding: 0.95rem 1.25rem;
+            border: none;
+            border-radius: var(--radius-md);
+            background: linear-gradient(135deg, var(--m2-accent) 0%, var(--m2-accent-hover) 100%);
+            color: white;
+            font-size: 0.95rem;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.6rem;
+            transition: all 0.2s;
+            box-shadow: 0 4px 12px rgba(21, 71, 255, 0.25);
+        }
+
+        .btn-exp:disabled {
+            background: #94a3b8;
+            cursor: not-allowed;
+            opacity: 0.85;
+            box-shadow: none;
+        }
+
+        .btn-exp:not(:disabled):hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(21, 71, 255, 0.4);
+        }
+
+        .card-feedback {
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            min-height: 1.1rem;
+        }
+
+        .warn-msg {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-align: center;
+        }
+
+        .spin {
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* Histórico */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        .data-table th {
+            text-align: left;
+            padding: 1rem;
+            background: #F5F0E8;
+            color: var(--text-secondary);
+            font-weight: 700;
+            border-bottom: 2px solid var(--border-light);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
+        }
+        .data-table td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-light);
+            color: var(--text-primary);
+            vertical-align: middle;
+        }
+
+        .badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+        .badge::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+        .badge-gerando { background: #E3E8FF; color: #475569; }
+        .badge-gerando::before { background: #94a3b8; }
+        .badge-pronto { background: #1547FF; color: #70FF00; }
+        .badge-pronto::before { background: #1547FF; }
+        .badge-erro { background: #FF5807; color: #FFFFFF; }
+        .badge-erro::before { background: #FF5807; }
+
+        .btn-sm {
+            padding: 0.5rem 0.75rem;
+            border-radius: var(--radius-md);
+            font-weight: 600;
+            font-size: 0.8rem;
+            cursor: pointer;
+            border: 1px solid transparent;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .btn-download { background: #E3E8FF; color: #334155; border-color: #C6D0FF; }
+        .btn-download:hover { background: #C6D0FF; }
+        .btn-retry { background: #FF5807; color: #FFFFFF; }
+        .btn-retry:hover { background: #FF5807; }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: var(--text-muted);
+        }
+
+        /* Modal PDF Consolidado */
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(4px); z-index: 10000;
+            display: none; align-items: center; justify-content: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal-content {
+            background: white; padding: 2rem; border-radius: var(--radius-lg);
+            width: 100%; max-width: 480px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        .progress-wrap { margin-top: 0.25rem; }
+        .progress-label {
+            font-size: 0.875rem; color: var(--text-secondary);
+            margin-bottom: 0.5rem; font-weight: 500;
+        }
+        .progress-bar-bg {
+            height: 10px; background: #E3E8FF;
+            border-radius: 999px; overflow: hidden;
+        }
+        .progress-bar-fill {
+            height: 100%; background: #FF5807;
+            border-radius: 999px; transition: width 0.3s ease;
+            min-width: 3px;
+        }
+        .progress-pct {
+            text-align: right; font-size: 0.75rem;
+            color: var(--text-muted); margin-top: 0.25rem;
+        }
+    </style>
+</head>
+<body>
+    <main class="main-content">
+        <div class="toast-notification" id="toast" style="position: fixed; bottom: 2.5rem; right: 2.5rem; padding: 1.25rem 2rem; border-radius: var(--radius-md); color: white; font-weight: 700; font-size: 0.95rem; z-index: 10000; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); transform: translateY(150%); transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);"></div>
+
+        <div class="exp-container">
+
+            <div class="dashboard-header">
+                <div>
+                    <h1 style="font-size: 2.5rem; font-weight: 800; color: var(--text-primary); margin-bottom: 0.5rem;">Exportações</h1>
+                    <p style="color: var(--text-secondary); font-size: 1.125rem;">Gere arquivos de despesas, planilhas gerenciais, ZIP de documentos e relatório de auditoria.</p>
+                </div>
+
+                <div class="project-selector-container">
+                    <i data-lucide="briefcase" style="width: 18px; color: var(--text-secondary);"></i>
+                    <select id="project-select" onchange="handleProjectChange(this.value)">
+                        <option value="">Selecione um Projeto...</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="cards-grid">
+
+                <!-- CARD 1 — CSV de Despesas -->
+                <div class="exp-card">
+                    <div class="exp-card-header">
+                        <div class="exp-icon"><i data-lucide="file-spreadsheet"></i></div>
+                        <div>
+                            <h3>CSV de Despesas</h3>
+                            <p class="desc">Geração instantânea no navegador, com filtros.</p>
+                        </div>
+                    </div>
+
+                    <div class="filters-row">
+                        <div class="filter-group">
+                            <label for="csv-data-inicio">Data início</label>
+                            <input type="date" id="csv-data-inicio">
+                        </div>
+                        <div class="filter-group">
+                            <label for="csv-data-fim">Data fim</label>
+                            <input type="date" id="csv-data-fim">
+                        </div>
+                        <div class="filter-group">
+                            <label for="csv-status">Status</label>
+                            <select id="csv-status">
+                                <option value="">Todos</option>
+                                <option value="enviado_salic">Enviado SALIC</option>
+                                <option value="concluido">Concluído</option>
+                                <option value="bloqueado_conformidade">Bloqueado Conformidade</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label for="csv-rubrica">Rubrica</label>
+                            <select id="csv-rubrica">
+                                <option value="">Todas</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <button class="btn-exp" id="btn-csv" disabled onclick="exportarCSV()">
+                        <i data-lucide="download"></i> Exportar CSV
+                    </button>
+                    <p class="card-feedback" id="fb-csv"></p>
+                </div>
+
+                <!-- CARD 2 — Excel Gerencial -->
+                <div class="exp-card">
+                    <div class="exp-card-header">
+                        <div class="exp-icon"><i data-lucide="table-2"></i></div>
+                        <div>
+                            <h3>Excel Gerencial</h3>
+                            <p class="desc">Planilha com 6 abas: Resumo, Despesas, Rubricas, Contratos, Impostos e Auditoria.</p>
+                        </div>
+                    </div>
+
+                    <button class="btn-exp" id="btn-excel" disabled onclick="exportarExcel()">
+                        <i data-lucide="download"></i> Exportar Excel
+                    </button>
+                    <p class="card-feedback" id="fb-excel"></p>
+                </div>
+
+                <!-- CARD 3 — ZIP de Documentos -->
+                <div class="exp-card">
+                    <div class="exp-card-header">
+                        <div class="exp-icon"><i data-lucide="archive"></i></div>
+                        <div>
+                            <h3>ZIP de Documentos</h3>
+                            <p class="desc">Empacota arquivos do Storage por categoria.</p>
+                        </div>
+                    </div>
+
+                    <div class="checkbox-list" id="zip-checkbox-list">
+                        <label class="checkbox-item"><input type="checkbox" value="nfs" checked onchange="atualizarBotaoZIP()"> Notas Fiscais</label>
+                        <label class="checkbox-item"><input type="checkbox" value="contratos" checked onchange="atualizarBotaoZIP()"> Contratos</label>
+                        <label class="checkbox-item"><input type="checkbox" value="evidencias" checked onchange="atualizarBotaoZIP()"> Evidências físicas</label>
+                        <label class="checkbox-item"><input type="checkbox" value="impostos" checked onchange="atualizarBotaoZIP()"> Guias de impostos</label>
+                    </div>
+
+                    <button class="btn-exp" id="btn-zip" disabled onclick="exportarZIP()">
+                        <i data-lucide="package"></i> Preparar ZIP
+                    </button>
+                    <p class="warn-msg">Projetos com muitos arquivos podem demorar alguns minutos.</p>
+                    <p class="card-feedback" id="fb-zip"></p>
+                </div>
+
+                <!-- CARD 4 — PDF de Auditoria -->
+                <div class="exp-card">
+                    <div class="exp-card-header">
+                        <div class="exp-icon"><i data-lucide="shield-check"></i></div>
+                        <div>
+                            <h3>PDF de Auditoria</h3>
+                            <p class="desc">Relatório completo com histórico do projeto e log de auditoria.</p>
+                        </div>
+                    </div>
+
+                    <button class="btn-exp" id="btn-auditoria" disabled onclick="exportarAuditoria()">
+                        <i data-lucide="file-text"></i> Gerar Relatório de Auditoria
+                    </button>
+                    <p class="card-feedback" id="fb-auditoria"></p>
+                </div>
+
+                <!-- CARD 5 — PDF Consolidado da PC -->
+                <div class="exp-card" style="border-top-color: #FF5807;">
+                    <div class="exp-card-header">
+                        <div class="exp-icon" style="background: rgba(255,88,7,0.1); color: #FF5807;">
+                            <i data-lucide="file-text"></i>
+                        </div>
+                        <div>
+                            <h3>PDF Consolidado da PC</h3>
+                            <p class="desc">Todos os documentos do projeto em um único PDF</p>
+                        </div>
+                    </div>
+
+                    <button class="btn-exp" id="btn-pdf-consolidado" disabled onclick="exportarPDFConsolidado()" style="background: linear-gradient(135deg, #FF5807 0%, #e04a00 100%); box-shadow: 0 4px 12px rgba(255,88,7,0.25);">
+                        <i data-lucide="file-text"></i> PDF Consolidado da PC
+                    </button>
+                    <p class="card-feedback" id="fb-pdf-consolidado"></p>
+                </div>
+
+            </div>
+
+            <!-- Histórico de exportações -->
+            <section class="glass-card" style="background: white;">
+                <h3 style="margin-bottom: 1.5rem; font-size: 1.25rem;">Histórico de Exportações</h3>
+                <div style="overflow-x: auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Tipo</th>
+                                <th>Gerado em</th>
+                                <th>Status</th>
+                                <th>Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historico-tbody">
+                            <tr><td colspan="4" class="empty-state">Selecione um projeto para carregar o histórico.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Modal PDF Consolidado -->
+    <div class="modal-overlay" id="modal-pdf-consolidado">
+        <div class="modal-content">
+            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.25rem;">
+                <div style="width: 44px; height: 44px; background: rgba(255,88,7,0.1); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; color: #FF5807; flex-shrink: 0;">
+                    <i data-lucide="file-text" style="width: 22px;"></i>
+                </div>
+                <h3 style="font-size: 1.15rem; font-weight: 700; margin: 0;">Gerar PDF Consolidado</h3>
+            </div>
+
+            <!-- Painel de resumo (inicial) -->
+            <div id="modal-pdf-resumo">
+                <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 0.75rem;">Este PDF conterá:</p>
+                <div id="modal-pdf-contagem" style="font-size: 0.875rem; line-height: 1.9; color: var(--text-primary);"></div>
+                <div id="modal-pdf-aviso" style="display: none; margin-top: 1rem; padding: 0.75rem 1rem; background: #FEF3C7; border-radius: var(--radius-md); font-size: 0.82rem; color: #B45309; line-height: 1.5;"></div>
+                <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem;">
+                    <button class="btn-sm btn-download" style="padding: 0.75rem 1.5rem;" onclick="fecharModalPDF()">Cancelar</button>
+                    <button id="btn-confirmar-pdf" class="btn-sm" style="background: #FF5807; color: white; padding: 0.75rem 1.5rem; border: none; border-radius: var(--radius-md); font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem;" onclick="confirmarGerarPDF()">
+                        <i data-lucide="file-text" style="width: 15px;"></i> Gerar PDF
+                    </button>
+                </div>
+            </div>
+
+            <!-- Painel de progresso (durante geração) -->
+            <div id="modal-pdf-progresso" style="display: none;">
+                <div class="progress-wrap">
+                    <div class="progress-label" id="pdf-progress-label">Iniciando...</div>
+                    <div class="progress-bar-bg">
+                        <div class="progress-bar-fill" id="pdf-progress-fill" style="width: 0%;"></div>
+                    </div>
+                    <div class="progress-pct" id="pdf-progress-pct">0%</div>
+                </div>
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 1rem; text-align: center;">Aguarde — não feche esta aba.</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper.js"></script>
+    <script>
+        let currentProjectId = null;
+        let currentProjectData = null;
+        let exportSubscription = null;
+
+        const TIPO_LABEL = {
+            csv: 'CSV de Despesas',
+            excel: 'Excel Gerencial',
+            zip: 'ZIP de Documentos',
+            auditoria: 'PDF de Auditoria',
+            pdf_consolidado_salic: 'PDF Consolidado da PC'
+        };
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            if (window.renderSidebar) window.renderSidebar();
+
+            sbClient = await window.initSupabase();
+            if (!sbClient) return;
+
+            await carregarProjetos();
+
+            const savedPid = ProjectManager.getSelected();
+            if (savedPid) {
+                document.getElementById('project-select').value = savedPid;
+                handleProjectChange(savedPid);
+            }
+        });
+
+        async function carregarProjetos() {
+            const { data: { user } } = await sbClient.auth.getUser();
+            if (!user) return;
+
+            const { data } = await sbClient
+                .from('projects')
+                .select('id, pronac, nome')
+                .eq('user_id', user.id)
+                .order('created_at', { ascending: false });
+
+            const select = document.getElementById('project-select');
+            if (data && data.length > 0) {
+                data.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.id;
+                    opt.textContent = `${p.pronac} - ${p.nome}`;
+                    select.appendChild(opt);
+                });
+            }
+        }
+
+        async function handleProjectChange(pid) {
+            currentProjectId = pid;
+            if (!pid) return;
+            ProjectManager.setSelected(pid);
+
+            // Habilita botões
+            ['btn-csv','btn-excel','btn-auditoria','btn-pdf-consolidado'].forEach(id => {
+                document.getElementById(id).disabled = false;
+            });
+            atualizarBotaoZIP();
+
+            // Carrega dados de projeto e rubricas
+            const { data: proj } = await sbClient
+                .from('projects')
+                .select('id, pronac, nome')
+                .eq('id', pid)
+                .maybeSingle();
+            currentProjectData = proj;
+
+            await carregarRubricas(pid);
+
+            // Realtime + histórico
+            setupRealtime(pid);
+            await carregarHistorico();
+        }
+
+        async function carregarRubricas(pid) {
+            const { data, error } = await sbClient
+                .from('rubricas')
+                .select('id, nome, codigo')
+                .eq('project_id', pid)
+                .order('codigo', { ascending: true });
+
+            const select = document.getElementById('csv-rubrica');
+            select.innerHTML = '<option value="">Todas</option>';
+            if (error || !data) return;
+
+            data.forEach(r => {
+                const opt = document.createElement('option');
+                opt.value = r.id;
+                opt.textContent = `${r.codigo || ''} ${r.nome}`.trim();
+                select.appendChild(opt);
+            });
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // CARD 1 — CSV (client-side)
+        // ─────────────────────────────────────────────────────────────
+        async function exportarCSV() {
+            if (!currentProjectId) return;
+
+            const btn = document.getElementById('btn-csv');
+            const fb = document.getElementById('fb-csv');
+            btn.disabled = true;
+            fb.innerHTML = '<i data-lucide="loader" class="spin"></i> Gerando CSV...';
+            if (window.lucide) window.lucide.createIcons();
+
+            const dataInicio = document.getElementById('csv-data-inicio').value;
+            const dataFim = document.getElementById('csv-data-fim').value;
+            const status = document.getElementById('csv-status').value;
+            const rubricaId = document.getElementById('csv-rubrica').value;
+
+            let query = sbClient
+                .from('despesas')
+                .select('data_pagamento, cnpj_fornecedor, fornecedor_nome, valor, status, protocolo_salic, autenticacao_bancaria, data_conciliacao, rubrica_id, rubricas(nome), documents(numero_nf)')
+                .eq('project_id', currentProjectId)
+                .order('data_pagamento', { ascending: true });
+
+            if (dataInicio) query = query.gte('data_pagamento', dataInicio);
+            if (dataFim) query = query.lte('data_pagamento', dataFim);
+            if (status) query = query.eq('status', status);
+            if (rubricaId) query = query.eq('rubrica_id', rubricaId);
+
+            const { data, error } = await query;
+
+            if (error) {
+                fb.textContent = 'Erro ao buscar despesas: ' + error.message;
+                btn.disabled = false;
+                return;
+            }
+
+            if (!data || data.length === 0) {
+                fb.textContent = 'Nenhuma despesa encontrada para os filtros selecionados.';
+                btn.disabled = false;
+                return;
+            }
+
+            const headers = [
+                'data_pagamento','cnpj_fornecedor','numero_nf','fornecedor_nome','rubrica_nome',
+                'valor','status','protocolo_salic','autenticacao_bancaria','data_conciliacao'
+            ];
+            const rows = data.map(d => [
+                d.data_pagamento ? new Date(d.data_pagamento).toLocaleDateString('pt-BR') : '—',
+                formatCNPJ(d.cnpj_fornecedor),
+                (d.documents && d.documents.numero_nf) || '—',
+                d.fornecedor_nome || '—',
+                (d.rubricas && d.rubricas.nome) || '—',
+                (d.valor != null ? Number(d.valor).toFixed(2).replace('.', ',') : ''),
+                d.status || '—',
+                d.protocolo_salic || '—',
+                d.autenticacao_bancaria || '—',
+                formatDateTimeBR(d.data_conciliacao)
+            ]);
+
+            const csv = [headers, ...rows]
+                .map(line => line.map(csvEscape).join(';'))
+                .join('\r\n');
+
+            // UTF-8 com BOM para Excel pt-BR
+            const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+            const pronac = (currentProjectData && currentProjectData.pronac) || 'projeto';
+            const fname = `despesas_${pronac}_${formatDateFile(new Date())}.csv`;
+
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = fname;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(link.href);
+
+            // Registra no histórico
+            const { data: { user } } = await sbClient.auth.getUser();
+            const orgId = await getCurrentOrgId(currentProjectId);
+            await sbClient.from('exportacoes_log').insert({
+                project_id: currentProjectId,
+                organization_id: orgId,
+                tipo: 'csv',
+                status: 'pronto',
+                file_path: null,
+                gerado_por: user.id
+            });
+
+            fb.textContent = `${data.length} linha(s) exportadas.`;
+            btn.disabled = false;
+            await carregarHistorico();
+        }
+
+        function formatCNPJ(cnpj) {
+            if (!cnpj) return '—';
+            const c = String(cnpj).replace(/\D/g, '');
+            if (c.length !== 14) return cnpj;
+            return c.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+        }
+
+        function formatDateTimeBR(iso) {
+            if (!iso) return '—';
+            const d = new Date(iso);
+            if (Number.isNaN(d.getTime())) return '—';
+            const pad = n => String(n).padStart(2, '0');
+            return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        }
+
+        function csvEscape(v) {
+            const s = String(v == null ? '' : v);
+            if (/[;"\r\n]/.test(s)) {
+                return '"' + s.replace(/"/g, '""') + '"';
+            }
+            return s;
+        }
+
+        function formatDateFile(d) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}${m}${day}`;
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // CARD 2 — Excel Gerencial (client-side com SheetJS)
+        // ─────────────────────────────────────────────────────────────
+        async function exportarExcel() {
+            if (!currentProjectId) return;
+
+            const btn = document.getElementById('btn-excel');
+            const fb = document.getElementById('fb-excel');
+            btn.disabled = true;
+            fb.innerHTML = '<i data-lucide="loader" class="spin"></i> Gerando Excel...';
+            if (window.lucide) window.lucide.createIcons();
+
+            const pid = currentProjectId;
+            const { data: { user } } = await sbClient.auth.getUser();
+            const orgId = await getCurrentOrgId(pid);
+
+            try {
+                // PASSO 1 — Buscar todos os dados em paralelo
+                const [
+                    projetoRes,
+                    rubricasRes,
+                    despesasRes,
+                    contratosRes,
+                    parcelasRes,
+                    impostosRes,
+                    despesasIdsRes
+                ] = await Promise.all([
+                    sbClient.from('projects').select('*').eq('id', pid).maybeSingle(),
+                    sbClient.from('rubricas')
+                        .select('nome, codigo, valor_aprovado, valor_utilizado, etapa')
+                        .eq('project_id', pid)
+                        .order('nome', { ascending: true }),
+                    sbClient.from('despesas')
+                        .select('data_pagamento, valor, status, cnpj_fornecedor, fornecedor_nome, protocolo_salic, autenticacao_bancaria, rubricas(nome), documents(numero_nf)')
+                        .eq('project_id', pid)
+                        .order('data_pagamento', { ascending: true }),
+                    sbClient.from('contracts')
+                        .select('id, numero, objeto, valor_total, data_inicio, data_fim, status, fornecedores(razao_social, cnpj)')
+                        .eq('project_id', pid)
+                        .order('data_inicio', { ascending: true }),
+                    sbClient.from('contract_parcelas')
+                        .select('contract_id, status, contracts!inner(project_id)')
+                        .eq('contracts.project_id', pid),
+                    sbClient.from('tax_guides')
+                        .select('tipo_imposto, codigo_receita, competencia, valor, data_vencimento, data_pagamento, status')
+                        .eq('project_id', pid)
+                        .order('data_vencimento', { ascending: true }),
+                    sbClient.from('despesas').select('id').eq('project_id', pid)
+                ]);
+
+                const erros = [projetoRes, rubricasRes, despesasRes, contratosRes, parcelasRes, impostosRes, despesasIdsRes]
+                    .map(r => r.error).filter(Boolean);
+                if (erros.length) throw erros[0];
+
+                const projeto = projetoRes.data || {};
+                const rubricas = rubricasRes.data || [];
+                const despesas = despesasRes.data || [];
+                const contratos = contratosRes.data || [];
+                const parcelas = parcelasRes.data || [];
+                const impostos = impostosRes.data || [];
+                const despesasIds = (despesasIdsRes.data || []).map(d => d.id);
+
+                // Auditoria — só busca se houver despesas
+                let auditoria = [];
+                if (despesasIds.length > 0) {
+                    const { data: auditData, error: auditErr } = await sbClient
+                        .from('audit_log')
+                        .select('tabela, campo, valor_anterior, valor_novo, origem, created_at')
+                        .in('registro_id', despesasIds)
+                        .order('created_at', { ascending: false })
+                        .limit(200);
+                    if (auditErr) throw auditErr;
+                    auditoria = auditData || [];
+                }
+
+                // Agrupar parcelas por contract_id
+                const parcelasPorContrato = {};
+                parcelas.forEach(p => {
+                    if (!parcelasPorContrato[p.contract_id]) {
+                        parcelasPorContrato[p.contract_id] = { total: 0, pagas: 0, pendentes: 0, atrasadas: 0 };
+                    }
+                    const g = parcelasPorContrato[p.contract_id];
+                    g.total++;
+                    if (p.status === 'paga') g.pagas++;
+                    else if (p.status === 'pendente') g.pendentes++;
+                    else if (p.status === 'atrasada') g.atrasadas++;
+                });
+
+                // Totais financeiros
+                const totalAprovado = rubricas.reduce((s, r) => s + Number(r.valor_aprovado || 0), 0);
+                const totalExecutado = rubricas.reduce((s, r) => s + Number(r.valor_utilizado || 0), 0);
+                const saldo = totalAprovado - totalExecutado;
+                const percExec = totalAprovado > 0 ? ((totalExecutado / totalAprovado) * 100).toFixed(1) : '0';
+
+                // PASSO 2 — Montar workbook
+                const wb = XLSX.utils.book_new();
+
+                // ABA 1 — Resumo
+                const dadosResumo = [
+                    ['PrestAI — Relatório Gerencial'],
+                    ['Projeto:', projeto.nome || '—'],
+                    ['PRONAC:', projeto.pronac || '—'],
+                    ['Proponente:', projeto.propoente || '—'],
+                    ['Mecanismo:', projeto.Mecanismo || '—'],
+                    ['UF:', projeto.uf || '—'],
+                    [],
+                    ['RESUMO FINANCEIRO'],
+                    ['Valor Aprovado MinC:', totalAprovado],
+                    ['Total Executado:', totalExecutado],
+                    ['Saldo:', saldo],
+                    ['% Execução:', percExec + '%'],
+                    [],
+                    ['RESUMO OPERACIONAL'],
+                    ['Total de Contratos:', contratos.length],
+                    ['Guias de Imposto Pagas:', impostos.filter(i => i.status === 'paga').length],
+                    ['Evidências Aprovadas:', '—'],
+                    [],
+                    ['Data de Geração:', new Date().toLocaleString('pt-BR')]
+                ];
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(dadosResumo), 'Resumo');
+
+                // ABA 2 — Despesas
+                const headerDespesas = ['Data', 'Fornecedor', 'CNPJ', 'Nº NF', 'Rubrica', 'Valor (R$)', 'Status', 'Protocolo SALIC'];
+                const dadosDespesas = despesas.map(d => [
+                    d.data_pagamento ? new Date(d.data_pagamento).toLocaleDateString('pt-BR') : '—',
+                    d.fornecedor_nome || '—',
+                    d.cnpj_fornecedor || '—',
+                    (d.documents && d.documents.numero_nf) || '—',
+                    (d.rubricas && d.rubricas.nome) || '—',
+                    Number(d.valor || 0),
+                    d.status || '—',
+                    d.protocolo_salic || '—'
+                ]);
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headerDespesas, ...dadosDespesas]), 'Despesas');
+
+                // ABA 3 — Rubricas
+                const headerRubricas = ['Código', 'Rubrica', 'Valor Aprovado (R$)', 'Valor Utilizado (R$)', 'Saldo (R$)', '% Execução', 'Status'];
+                const dadosRubricas = rubricas.map(r => {
+                    const aprov = Number(r.valor_aprovado || 0);
+                    const util = Number(r.valor_utilizado || 0);
+                    const sld = aprov - util;
+                    const perc = aprov > 0 ? ((util / aprov) * 100).toFixed(1) + '%' : '0%';
+                    const status = util > aprov ? 'Excedida' : (aprov > 0 && util / aprov >= 0.9) ? 'Atenção' : 'OK';
+                    return [r.codigo || '—', r.nome, aprov, util, sld, perc, status];
+                });
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headerRubricas, ...dadosRubricas]), 'Rubricas');
+
+                // ABA 4 — Contratos
+                const headerContratos = ['Nº', 'Fornecedor', 'CNPJ', 'Objeto', 'Valor Total (R$)', 'Início', 'Fim', 'Status', 'Parcelas Pagas', 'Pendentes', 'Atrasadas'];
+                const dadosContratos = contratos.map(c => {
+                    const g = parcelasPorContrato[c.id] || { pagas: 0, pendentes: 0, atrasadas: 0 };
+                    return [
+                        c.numero || '—',
+                        (c.fornecedores && c.fornecedores.razao_social) || '—',
+                        (c.fornecedores && c.fornecedores.cnpj) || '—',
+                        c.objeto || '—',
+                        Number(c.valor_total || 0),
+                        c.data_inicio ? new Date(c.data_inicio).toLocaleDateString('pt-BR') : '—',
+                        c.data_fim ? new Date(c.data_fim).toLocaleDateString('pt-BR') : '—',
+                        c.status || '—',
+                        g.pagas,
+                        g.pendentes,
+                        g.atrasadas
+                    ];
+                });
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headerContratos, ...dadosContratos]), 'Contratos');
+
+                // ABA 5 — Impostos
+                const headerImpostos = ['Tipo', 'Cód. Receita', 'Competência', 'Valor (R$)', 'Vencimento', 'Data Pagamento', 'Status'];
+                const dadosImpostos = impostos.map(i => [
+                    i.tipo_imposto || '—',
+                    i.codigo_receita || '—',
+                    i.competencia || '—',
+                    Number(i.valor || 0),
+                    i.data_vencimento ? new Date(i.data_vencimento).toLocaleDateString('pt-BR') : '—',
+                    i.data_pagamento ? new Date(i.data_pagamento).toLocaleDateString('pt-BR') : '—',
+                    i.status || '—'
+                ]);
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headerImpostos, ...dadosImpostos]), 'Impostos');
+
+                // ABA 6 — Auditoria
+                const headerAuditoria = ['Data/Hora', 'Tabela', 'Campo', 'Valor Anterior', 'Valor Novo', 'Origem'];
+                const dadosAuditoria = auditoria.map(a => [
+                    a.created_at ? new Date(a.created_at).toLocaleString('pt-BR') : '—',
+                    a.tabela || '—',
+                    a.campo || '—',
+                    a.valor_anterior || '—',
+                    a.valor_novo || '—',
+                    a.origem || '—'
+                ]);
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headerAuditoria, ...dadosAuditoria]), 'Auditoria');
+
+                // PASSO 3 — Disparar download
+                const pronac = projeto.pronac || 'projeto';
+                const hoje = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+                const fileName = `gerencial_${pronac}_${hoje}.xlsx`;
+                XLSX.writeFile(wb, fileName);
+
+                // PASSO 4 — Registrar em exportacoes_log
+                await sbClient.from('exportacoes_log').insert({
+                    project_id: pid,
+                    organization_id: orgId,
+                    tipo: 'excel',
+                    status: 'pronto',
+                    file_path: null,
+                    gerado_por: user.id
+                });
+
+                // PASSO 5 — Feedback
+                fb.textContent = '';
+                showToast('Excel gerado com sucesso!', 'success');
+                await carregarHistorico();
+            } catch (err) {
+                console.error('[exportarExcel]', err);
+                await sbClient.from('exportacoes_log').insert({
+                    project_id: pid,
+                    organization_id: orgId,
+                    tipo: 'excel',
+                    status: 'erro',
+                    file_path: null,
+                    gerado_por: user ? user.id : null
+                });
+                fb.textContent = '';
+                showToast('Erro ao gerar Excel: ' + (err.message || 'verifique o console'), 'error');
+                await carregarHistorico();
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function showToast(msg, type = 'success') {
+            const t = document.getElementById('toast');
+            if (!t) return;
+            t.innerText = msg;
+            t.style.background = type === 'success' ? '#1547FF' : (type === 'error' ? '#FF5807' : '#1547FF');
+            t.style.transform = 'translateY(0)';
+            setTimeout(() => t.style.transform = 'translateY(150%)', 4000);
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // CARD 3 — ZIP de Documentos (client-side com JSZip)
+        // ─────────────────────────────────────────────────────────────
+        const ZIP_BUCKETS = {
+            nfs: 'documentos',
+            contratos: 'contracts',
+            evidencias: 'physical-evidences',
+            impostos: 'tax-guides'
+        };
+
+        const ZIP_PASTAS = {
+            nfs: '01_Notas_Fiscais',
+            contratos: '02_Contratos',
+            evidencias: '03_Evidencias_Fisicas',
+            impostos: '04_Guias_Impostos'
+        };
+
+        const ZIP_LABELS = {
+            nfs: '01_Notas_Fiscais/',
+            contratos: '02_Contratos/',
+            evidencias: '03_Evidencias_Fisicas/',
+            impostos: '04_Guias_Impostos/'
+        };
+
+        function atualizarBotaoZIP() {
+            const btn = document.getElementById('btn-zip');
+            if (!btn) return;
+            const marcados = document.querySelectorAll('#zip-checkbox-list input[type=checkbox]:checked').length;
+            btn.disabled = marcados === 0 || !currentProjectId;
+        }
+
+        async function buscarArquivosZIP(tipo, pid) {
+            if (tipo === 'nfs') {
+                const { data, error } = await sbClient
+                    .from('documents')
+                    .select('file_path, name')
+                    .eq('project_id', pid)
+                    .not('file_path', 'is', null)
+                    .order('created_at', { ascending: true });
+                if (error) throw error;
+                return (data || []).map(d => ({
+                    tipo, bucket: ZIP_BUCKETS.nfs,
+                    file_path: d.file_path,
+                    file_name: d.name || 'documento'
+                }));
+            }
+            if (tipo === 'contratos') {
+                const { data, error } = await sbClient
+                    .from('contracts')
+                    .select('arquivo_path, numero')
+                    .eq('project_id', pid)
+                    .not('arquivo_path', 'is', null);
+                if (error) throw error;
+                return (data || []).map(c => ({
+                    tipo, bucket: ZIP_BUCKETS.contratos,
+                    file_path: c.arquivo_path,
+                    file_name: c.numero ? `contrato_${c.numero}` : 'contrato'
+                }));
+            }
+            if (tipo === 'evidencias') {
+                const { data, error } = await sbClient
+                    .from('physical_evidences')
+                    .select('file_path, file_name')
+                    .eq('project_id', pid)
+                    .eq('status_validacao', 'aprovada')
+                    .not('file_path', 'is', null)
+                    .order('criado_em', { ascending: true });
+                if (error) throw error;
+                return (data || []).map(e => ({
+                    tipo, bucket: ZIP_BUCKETS.evidencias,
+                    file_path: e.file_path,
+                    file_name: e.file_name || 'evidencia'
+                }));
+            }
+            if (tipo === 'impostos') {
+                const { data, error } = await sbClient
+                    .from('tax_guides')
+                    .select('arquivo_guia_path, tipo_imposto')
+                    .eq('project_id', pid)
+                    .not('arquivo_guia_path', 'is', null)
+                    .order('data_vencimento', { ascending: true });
+                if (error) throw error;
+                return (data || []).map(g => ({
+                    tipo, bucket: ZIP_BUCKETS.impostos,
+                    file_path: g.arquivo_guia_path,
+                    file_name: g.tipo_imposto ? `guia_${g.tipo_imposto}` : 'guia_imposto'
+                }));
+            }
+            return [];
+        }
+
+        function sanitizeFilename(name) {
+            return String(name || 'arquivo').replace(/[\/\\:*?"<>|]/g, '_').trim() || 'arquivo';
+        }
+
+        function extFromMime(mime) {
+            const map = {
+                'application/pdf': 'pdf',
+                'image/jpeg': 'jpg',
+                'image/jpg': 'jpg',
+                'image/png': 'png',
+                'image/webp': 'webp',
+                'image/gif': 'gif',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+                'application/vnd.ms-excel': 'xls',
+                'text/csv': 'csv',
+                'application/zip': 'zip',
+                'text/plain': 'txt'
+            };
+            return map[mime] || 'bin';
+        }
+
+        function ensureExtension(name, mime, path) {
+            const safe = sanitizeFilename(name);
+            if (/\.[A-Za-z0-9]{1,5}$/.test(safe)) return safe;
+            const pathExt = (path && path.match(/\.[A-Za-z0-9]{1,5}$/) || [])[0];
+            if (pathExt) return safe + pathExt.toLowerCase();
+            return safe + '.' + extFromMime(mime);
+        }
+
+        async function exportarZIP() {
+            if (!currentProjectId) return;
+            if (typeof JSZip === 'undefined') {
+                showToast('Biblioteca JSZip não carregada. Recarregue a página.', 'error');
+                return;
+            }
+
+            const tipos = Array.from(document.querySelectorAll('#zip-checkbox-list input[type=checkbox]:checked')).map(c => c.value);
+            if (tipos.length === 0) {
+                showToast('Selecione ao menos uma categoria.', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('btn-zip');
+            const fb = document.getElementById('fb-zip');
+            const btnOriginal = '<i data-lucide="package"></i> Preparar ZIP';
+
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin"></i> Preparando ZIP...';
+            fb.textContent = '';
+            if (window.lucide) window.lucide.createIcons();
+
+            const pid = currentProjectId;
+            const { data: { user } } = await sbClient.auth.getUser();
+            const orgId = await getCurrentOrgId(pid);
+
+            const restaurarBotao = () => {
+                btn.innerHTML = btnOriginal;
+                if (window.lucide) window.lucide.createIcons();
+                atualizarBotaoZIP();
+            };
+
+            try {
+                // PASSO 1 — coletar paths em paralelo
+                const resultados = await Promise.all(tipos.map(t => buscarArquivosZIP(t, pid)));
+                const arquivos = resultados.flat();
+
+                if (arquivos.length === 0) {
+                    showToast('Nenhum arquivo encontrado para os tipos selecionados.', 'error');
+                    fb.textContent = '';
+                    restaurarBotao();
+                    return;
+                }
+
+                // PASSO 2 — montar ZIP
+                const zip = new JSZip();
+                const pastas = {};
+                tipos.forEach(t => {
+                    pastas[t] = zip.folder(ZIP_PASTAS[t]);
+                });
+
+                const counts = { nfs: 0, contratos: 0, evidencias: 0, impostos: 0 };
+                let falhas = 0;
+
+                // PASSO 3 — baixar arquivos sequencialmente
+                for (let i = 0; i < arquivos.length; i++) {
+                    const item = arquivos[i];
+                    fb.textContent = `Baixando arquivo ${i + 1} de ${arquivos.length}...`;
+                    try {
+                        const { data, error } = await sbClient.storage
+                            .from(item.bucket)
+                            .download((item.file_path || '').trim());
+                        if (error || !data) {
+                            falhas++;
+                            console.warn('[ZIP download falhou]', item.bucket, item.file_path, error);
+                            continue;
+                        }
+                        const nome = ensureExtension(item.file_name, data.type, item.file_path);
+                        pastas[item.tipo].file(nome, data);
+                        counts[item.tipo]++;
+                    } catch (e) {
+                        falhas++;
+                        console.warn('[ZIP exception]', e);
+                    }
+                }
+
+                // PASSO 4 — index.txt
+                const projetoPronac = (currentProjectData && currentProjectData.pronac) || 'projeto';
+                const indiceLinhas = [
+                    'PrestAI — Documentos do Projeto',
+                    `PRONAC: ${projetoPronac}`,
+                    `Gerado em: ${new Date().toLocaleString('pt-BR')}`,
+                    '',
+                    'Conteúdo:'
+                ];
+                tipos.forEach(t => {
+                    indiceLinhas.push(`${ZIP_LABELS[t].padEnd(24, ' ')}→ ${counts[t]} arquivos`);
+                });
+                indiceLinhas.push('');
+                const totalIncluidos = arquivos.length - falhas;
+                indiceLinhas.push(`Total: ${totalIncluidos} arquivos`);
+                if (falhas > 0) {
+                    indiceLinhas.push(`Falhas no download: ${falhas}`);
+                }
+                zip.file('index.txt', indiceLinhas.join('\r\n'));
+
+                // PASSO 5 — gerar e baixar
+                fb.textContent = 'Comprimindo...';
+                const blob = await zip.generateAsync({ type: 'blob' }, (meta) => {
+                    btn.innerHTML = `<i data-lucide="loader" class="spin"></i> Comprimindo ${Math.round(meta.percent)}%`;
+                    if (window.lucide) window.lucide.createIcons();
+                });
+
+                const hoje = formatDateFile(new Date());
+                const fileName = `documentos_${projetoPronac}_${hoje}.zip`;
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                // PASSO 6 — registrar log
+                await sbClient.from('exportacoes_log').insert({
+                    project_id: pid,
+                    organization_id: orgId,
+                    tipo: 'zip',
+                    status: 'pronto',
+                    file_path: null,
+                    gerado_por: user ? user.id : null
+                });
+
+                // PASSO 7 — feedback final
+                fb.textContent = '';
+                if (falhas > 0) {
+                    showToast(`ZIP gerado com ${totalIncluidos} arquivos. ${falhas} não puderam ser incluídos.`, 'success');
+                } else {
+                    showToast(`ZIP gerado com sucesso! ${totalIncluidos} arquivos incluídos.`, 'success');
+                }
+                await carregarHistorico();
+            } catch (err) {
+                console.error('[exportarZIP]', err);
+                await sbClient.from('exportacoes_log').insert({
+                    project_id: pid,
+                    organization_id: orgId,
+                    tipo: 'zip',
+                    status: 'erro',
+                    file_path: null,
+                    gerado_por: user ? user.id : null
+                });
+                fb.textContent = '';
+                showToast('Erro ao gerar ZIP: ' + (err.message || 'verifique o console'), 'error');
+                await carregarHistorico();
+            } finally {
+                restaurarBotao();
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // CARD 4 — PDF de Auditoria (client-side com jsPDF)
+        // ─────────────────────────────────────────────────────────────
+        const PDF_COLORS = {
+            navy:   [26, 53, 87],
+            blue:   [46, 109, 164],
+            accent: [232, 150, 12],
+            gray:   [108, 117, 125],
+            light:  [240, 242, 245]
+        };
+
+        function pdfFormatDate(iso) {
+            if (!iso) return '—';
+            return new Date(iso).toLocaleDateString('pt-BR');
+        }
+        function pdfFormatDateTime(iso) {
+            if (!iso) return '—';
+            return new Date(iso).toLocaleString('pt-BR');
+        }
+        function pdfFormatMoney(v) {
+            const n = Number(v || 0);
+            return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        }
+        function pdfTruncate(s, n) {
+            const str = String(s == null ? '—' : s);
+            return str.length > n ? str.slice(0, n - 1) + '…' : str;
+        }
+
+        async function exportarAuditoria() {
+            if (!currentProjectId) return;
+            if (!window.jspdf || !window.jspdf.jsPDF) {
+                showToast('Biblioteca jsPDF não carregada. Recarregue a página.', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('btn-auditoria');
+            const fb = document.getElementById('fb-auditoria');
+            const btnOriginal = '<i data-lucide="file-text"></i> Gerar Relatório de Auditoria';
+
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin"></i> Gerando relatório...';
+            fb.textContent = '';
+            if (window.lucide) window.lucide.createIcons();
+
+            const pid = currentProjectId;
+            const { data: { user } } = await sbClient.auth.getUser();
+            const orgId = await getCurrentOrgId(pid);
+
+            const restaurarBotao = () => {
+                btn.innerHTML = btnOriginal;
+                btn.disabled = false;
+                if (window.lucide) window.lucide.createIcons();
+            };
+
+            try {
+                // PASSO 1 — buscar dados em paralelo
+                const [
+                    projetoRes,
+                    documentosRes,
+                    evidenciasRes,
+                    contratosRes,
+                    impostosRes,
+                    despesasIdsRes
+                ] = await Promise.all([
+                    sbClient.from('projects').select('*').eq('id', pid).maybeSingle(),
+                    sbClient.from('documents')
+                        .select('name, status, valor, tipo_documento, created_at')
+                        .eq('project_id', pid)
+                        .order('created_at', { ascending: false })
+                        .limit(200),
+                    sbClient.from('physical_evidences')
+                        .select('file_name, tipo_evidencia, status_validacao, criado_em, validado_em')
+                        .eq('project_id', pid)
+                        .order('criado_em', { ascending: false })
+                        .limit(100),
+                    sbClient.from('contracts')
+                        .select('numero, objeto, valor_total, status, data_inicio, data_fim')
+                        .eq('project_id', pid)
+                        .order('data_inicio', { ascending: true }),
+                    sbClient.from('tax_guides')
+                        .select('tipo_imposto, competencia, valor, status, data_vencimento, data_pagamento')
+                        .eq('project_id', pid)
+                        .order('data_vencimento', { ascending: true }),
+                    sbClient.from('despesas').select('id').eq('project_id', pid)
+                ]);
+
+                const erros = [projetoRes, documentosRes, evidenciasRes, contratosRes, impostosRes, despesasIdsRes]
+                    .map(r => r.error).filter(Boolean);
+                if (erros.length) throw erros[0];
+
+                const projeto = projetoRes.data || {};
+                const documentos = documentosRes.data || [];
+                const evidencias = evidenciasRes.data || [];
+                const contratos = contratosRes.data || [];
+                const impostos = impostosRes.data || [];
+                const despesasIds = (despesasIdsRes.data || []).map(d => d.id);
+
+                let auditoria = [];
+                if (despesasIds.length > 0) {
+                    const { data: auditData, error: auditErr } = await sbClient
+                        .from('audit_log')
+                        .select('tabela, campo, valor_anterior, valor_novo, origem, created_at')
+                        .in('registro_id', despesasIds)
+                        .order('created_at', { ascending: false })
+                        .limit(500);
+                    if (auditErr) throw auditErr;
+                    auditoria = auditData || [];
+                }
+
+                // PASSO 2 — montar PDF
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+                const pageW = doc.internal.pageSize.getWidth();
+                const margin = 14;
+                const pronac = projeto.pronac || '—';
+                const nomeProjeto = projeto.nome || '—';
+                const proponente = projeto.propoente || '—';
+
+                // --- CAPA ---
+                doc.setFillColor(...PDF_COLORS.navy);
+                doc.rect(0, 0, pageW, 35, 'F');
+
+                doc.setTextColor(255, 255, 255);
+                doc.setFontSize(9);
+                doc.setFont('helvetica', 'normal');
+                doc.text('P R E S T A I', margin, 12);
+
+                doc.setFontSize(18);
+                doc.setFont('helvetica', 'bold');
+                doc.text('Relatório de Auditoria', margin, 22);
+
+                doc.setFontSize(11);
+                doc.setFont('helvetica', 'normal');
+                doc.text(`PRONAC: ${pronac}`, margin, 30);
+
+                doc.setFillColor(...PDF_COLORS.accent);
+                doc.rect(0, 35, pageW, 1.5, 'F');
+
+                let y = 50;
+                doc.setTextColor(0, 0, 0);
+                doc.setFontSize(10);
+                doc.setFont('helvetica', 'bold');
+                doc.text('Projeto:', margin, y);
+                doc.setFont('helvetica', 'normal');
+                doc.text(pdfTruncate(nomeProjeto, 80), margin + 25, y);
+                y += 6;
+
+                doc.setFont('helvetica', 'bold');
+                doc.text('Proponente:', margin, y);
+                doc.setFont('helvetica', 'normal');
+                doc.text(pdfTruncate(proponente, 80), margin + 25, y);
+                y += 6;
+
+                doc.setFont('helvetica', 'bold');
+                doc.text('Gerado em:', margin, y);
+                doc.setFont('helvetica', 'normal');
+                doc.text(new Date().toLocaleString('pt-BR'), margin + 25, y);
+                y += 10;
+
+                // --- SEÇÃO 1: RESUMO OPERACIONAL ---
+                doc.setTextColor(...PDF_COLORS.navy);
+                doc.setFontSize(13);
+                doc.setFont('helvetica', 'bold');
+                doc.text('1. Resumo Operacional', margin, y);
+                y += 6;
+
+                const cardW = (pageW - margin * 2 - 9) / 4;
+                const cardH = 22;
+                const cards = [
+                    { label: 'Documentos', val: documentos.length },
+                    { label: 'Evidências', val: evidencias.length },
+                    { label: 'Contratos', val: contratos.length },
+                    { label: 'Guias Imp.', val: impostos.length }
+                ];
+                cards.forEach((c, i) => {
+                    const x = margin + i * (cardW + 3);
+                    doc.setFillColor(...PDF_COLORS.light);
+                    doc.roundedRect(x, y, cardW, cardH, 2, 2, 'F');
+                    doc.setTextColor(...PDF_COLORS.gray);
+                    doc.setFontSize(8);
+                    doc.setFont('helvetica', 'normal');
+                    doc.text(c.label, x + 3, y + 6);
+                    doc.setTextColor(...PDF_COLORS.navy);
+                    doc.setFontSize(18);
+                    doc.setFont('helvetica', 'bold');
+                    doc.text(String(c.val), x + 3, y + 17);
+                });
+                y += cardH + 8;
+
+                const tableTheme = {
+                    theme: 'grid',
+                    styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak' },
+                    headStyles: { fillColor: PDF_COLORS.navy, textColor: 255, fontStyle: 'bold' },
+                    alternateRowStyles: { fillColor: PDF_COLORS.light },
+                    margin: { left: margin, right: margin }
+                };
+
+                const renderSectionTitle = (title) => {
+                    doc.setTextColor(...PDF_COLORS.navy);
+                    doc.setFontSize(13);
+                    doc.setFont('helvetica', 'bold');
+                    doc.text(title, margin, y);
+                    y += 4;
+                };
+
+                // --- SEÇÃO 2: DOCUMENTOS FISCAIS (M1) ---
+                renderSectionTitle('2. Documentos Fiscais (M1)');
+                if (documentos.length === 0) {
+                    doc.setTextColor(...PDF_COLORS.gray);
+                    doc.setFontSize(9);
+                    doc.setFont('helvetica', 'italic');
+                    doc.text('Nenhum documento cadastrado.', margin, y + 4);
+                    y += 12;
+                } else {
+                    doc.autoTable({
+                        ...tableTheme,
+                        startY: y,
+                        head: [['Data', 'Nome', 'Tipo', 'Valor', 'Status']],
+                        body: documentos.map(d => [
+                            pdfFormatDate(d.created_at),
+                            pdfTruncate(d.name, 50),
+                            pdfTruncate(d.tipo_documento, 18),
+                            pdfFormatMoney(d.valor),
+                            pdfTruncate(d.status, 18)
+                        ])
+                    });
+                    y = doc.lastAutoTable.finalY + 8;
+                }
+
+                // --- SEÇÃO 3: EVIDÊNCIAS FÍSICAS (M2) ---
+                if (y > 240) { doc.addPage(); y = 20; }
+                renderSectionTitle('3. Evidências Físicas (M2)');
+                if (evidencias.length === 0) {
+                    doc.setTextColor(...PDF_COLORS.gray);
+                    doc.setFontSize(9);
+                    doc.setFont('helvetica', 'italic');
+                    doc.text('Nenhuma evidência cadastrada.', margin, y + 4);
+                    y += 12;
+                } else {
+                    doc.autoTable({
+                        ...tableTheme,
+                        startY: y,
+                        head: [['Arquivo', 'Tipo', 'Status Validação', 'Enviado em', 'Validado em']],
+                        body: evidencias.map(e => [
+                            pdfTruncate(e.file_name, 40),
+                            pdfTruncate(e.tipo_evidencia, 20),
+                            pdfTruncate(e.status_validacao, 20),
+                            pdfFormatDate(e.criado_em),
+                            pdfFormatDate(e.validado_em)
+                        ])
+                    });
+                    y = doc.lastAutoTable.finalY + 8;
+                }
+
+                // --- SEÇÃO 4: CONTRATOS ---
+                if (y > 240) { doc.addPage(); y = 20; }
+                renderSectionTitle('4. Contratos');
+                if (contratos.length === 0) {
+                    doc.setTextColor(...PDF_COLORS.gray);
+                    doc.setFontSize(9);
+                    doc.setFont('helvetica', 'italic');
+                    doc.text('Nenhum contrato cadastrado.', margin, y + 4);
+                    y += 12;
+                } else {
+                    doc.autoTable({
+                        ...tableTheme,
+                        startY: y,
+                        head: [['Nº', 'Objeto', 'Valor Total', 'Período', 'Status']],
+                        body: contratos.map(c => [
+                            pdfTruncate(c.numero, 14),
+                            pdfTruncate(c.objeto, 50),
+                            pdfFormatMoney(c.valor_total),
+                            `${pdfFormatDate(c.data_inicio)} → ${pdfFormatDate(c.data_fim)}`,
+                            pdfTruncate(c.status, 16)
+                        ])
+                    });
+                    y = doc.lastAutoTable.finalY + 8;
+                }
+
+                // --- SEÇÃO 5: IMPOSTOS ---
+                if (y > 240) { doc.addPage(); y = 20; }
+                renderSectionTitle('5. Guias de Impostos');
+                if (impostos.length === 0) {
+                    doc.setTextColor(...PDF_COLORS.gray);
+                    doc.setFontSize(9);
+                    doc.setFont('helvetica', 'italic');
+                    doc.text('Nenhuma guia cadastrada.', margin, y + 4);
+                    y += 12;
+                } else {
+                    doc.autoTable({
+                        ...tableTheme,
+                        startY: y,
+                        head: [['Tipo', 'Competência', 'Valor', 'Vencimento', 'Pagamento', 'Status']],
+                        body: impostos.map(i => [
+                            pdfTruncate(i.tipo_imposto, 14),
+                            pdfTruncate(i.competencia, 14),
+                            pdfFormatMoney(i.valor),
+                            pdfFormatDate(i.data_vencimento),
+                            pdfFormatDate(i.data_pagamento),
+                            pdfTruncate(i.status, 14)
+                        ])
+                    });
+                    y = doc.lastAutoTable.finalY + 8;
+                }
+
+                // --- SEÇÃO 6: LOG DE AUDITORIA ---
+                if (y > 240) { doc.addPage(); y = 20; }
+                renderSectionTitle('6. Log de Auditoria');
+                if (auditoria.length === 0) {
+                    doc.setTextColor(...PDF_COLORS.gray);
+                    doc.setFontSize(9);
+                    doc.setFont('helvetica', 'italic');
+                    doc.text('Nenhum registro de auditoria.', margin, y + 4);
+                    y += 12;
+                } else {
+                    doc.autoTable({
+                        ...tableTheme,
+                        startY: y,
+                        head: [['Data/Hora', 'Tabela', 'Campo', 'Valor Anterior', 'Valor Novo']],
+                        body: auditoria.map(a => [
+                            pdfFormatDateTime(a.created_at),
+                            pdfTruncate(a.tabela, 16),
+                            pdfTruncate(a.campo, 18),
+                            pdfTruncate(a.valor_anterior, 30),
+                            pdfTruncate(a.valor_novo, 30)
+                        ])
+                    });
+                    y = doc.lastAutoTable.finalY + 8;
+                }
+
+                // --- RODAPÉ em todas as páginas ---
+                const totalPages = doc.internal.getNumberOfPages();
+                const pageH = doc.internal.pageSize.getHeight();
+                for (let p = 1; p <= totalPages; p++) {
+                    doc.setPage(p);
+                    doc.setDrawColor(...PDF_COLORS.gray);
+                    doc.setLineWidth(0.2);
+                    doc.line(margin, pageH - 12, pageW - margin, pageH - 12);
+                    doc.setTextColor(...PDF_COLORS.gray);
+                    doc.setFontSize(8);
+                    doc.setFont('helvetica', 'normal');
+                    doc.text(
+                        `PrestAI — Auditoria | PRONAC ${pronac} | Página ${p} de ${totalPages}`,
+                        pageW / 2,
+                        pageH - 7,
+                        { align: 'center' }
+                    );
+                }
+
+                // PASSO 3 — disparar download
+                const hoje = formatDateFile(new Date());
+                doc.save(`auditoria_${pronac}_${hoje}.pdf`);
+
+                // PASSO 4 — registrar log
+                await sbClient.from('exportacoes_log').insert({
+                    project_id: pid,
+                    organization_id: orgId,
+                    tipo: 'auditoria',
+                    status: 'pronto',
+                    file_path: null,
+                    gerado_por: user ? user.id : null
+                });
+
+                // PASSO 5 — feedback
+                fb.textContent = '';
+                showToast('PDF de Auditoria gerado com sucesso!', 'success');
+                await carregarHistorico();
+            } catch (err) {
+                console.error('[exportarAuditoria]', err);
+                await sbClient.from('exportacoes_log').insert({
+                    project_id: pid,
+                    organization_id: orgId,
+                    tipo: 'auditoria',
+                    status: 'erro',
+                    file_path: null,
+                    gerado_por: user ? user.id : null
+                });
+                fb.textContent = '';
+                showToast('Erro ao gerar PDF: ' + (err.message || 'verifique o console'), 'error');
+                await carregarHistorico();
+            } finally {
+                restaurarBotao();
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // CARD 5 — PDF Consolidado da PC (client-side com pdf-lib)
+        // ─────────────────────────────────────────────────────────────
+        let _pdfMeta = null;
+
+        async function exportarPDFConsolidado() {
+            if (!currentProjectId) return;
+            if (typeof PDFLib === 'undefined') {
+                showToast('Biblioteca pdf-lib não carregada. Recarregue a página.', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('btn-pdf-consolidado');
+            const fb = document.getElementById('fb-pdf-consolidado');
+            btn.disabled = true;
+            fb.innerHTML = '<i data-lucide="loader" class="spin"></i> Carregando...';
+            if (window.lucide) window.lucide.createIcons();
+
+            const pid = currentProjectId;
+            try {
+                const [nfsRes, contratosRes, guiasRes, evidenciasRes, relatorioRes] = await Promise.all([
+                    sbClient.from('documents')
+                        .select('id, file_path, name')
+                        .eq('project_id', pid)
+                        .not('file_path', 'is', null),
+                    sbClient.from('contracts').select('id, arquivo_path, numero')
+                        .eq('project_id', pid).not('arquivo_path', 'is', null),
+                    sbClient.from('tax_guides').select('id, arquivo_guia_path, tipo_imposto')
+                        .eq('project_id', pid).eq('status', 'paga')
+                        .not('arquivo_guia_path', 'is', null),
+                    sbClient.from('physical_evidences').select('id, file_path, file_name')
+                        .eq('project_id', pid).eq('status_validacao', 'aprovada')
+                        .not('file_path', 'is', null),
+                    sbClient.from('relatorio_prestacao_contas').select('id, file_path, versao')
+                        .eq('project_id', pid).eq('status', 'pronto')
+                        .order('versao', { ascending: false }).limit(1)
+                ]);
+
+                const nfs = nfsRes.data || [];
+                const contratos = contratosRes.data || [];
+                const guias = guiasRes.data || [];
+                const evidencias = evidenciasRes.data || [];
+                const relatorio = relatorioRes.data || [];
+                const total = nfs.length + contratos.length + guias.length + evidencias.length + relatorio.length;
+
+                _pdfMeta = { nfs, contratos, guias, evidencias, relatorio, total, pid };
+
+                // Montar contagem no modal
+                const pares = [
+                    [nfs.length,       'nota fiscal',    'notas fiscais'],
+                    [contratos.length, 'contrato',       'contratos'],
+                    [guias.length,     'guia de imposto','guias de impostos'],
+                    [evidencias.length,'evidência física','evidências físicas'],
+                    [relatorio.length, 'relatório de PC','relatórios de PC'],
+                ];
+                document.getElementById('modal-pdf-contagem').innerHTML =
+                    pares.map(([n, sg, pl]) => `<div>${n} ${n === 1 ? sg : pl}</div>`).join('') +
+                    `<div style="font-weight:700; margin-top:0.5rem; padding-top:0.5rem; border-top:1px solid var(--border-light);">Total: ${total} documento${total !== 1 ? 's' : ''}</div>`;
+
+                const avisoEl = document.getElementById('modal-pdf-aviso');
+                const btnConf = document.getElementById('btn-confirmar-pdf');
+                if (total === 0) {
+                    avisoEl.style.display = 'block';
+                    avisoEl.textContent = '⚠ Nenhum documento disponível para incluir no PDF.';
+                    btnConf.disabled = true;
+                } else if (total > 50) {
+                    avisoEl.style.display = 'block';
+                    avisoEl.textContent = `⚠ Este projeto tem ${total} documentos. A geração pode demorar alguns minutos e consumir memória do navegador. Recomendamos usar uma aba exclusiva para esta operação.`;
+                    btnConf.disabled = false;
+                } else {
+                    avisoEl.style.display = 'none';
+                    btnConf.disabled = false;
+                }
+
+                document.getElementById('modal-pdf-resumo').style.display = 'block';
+                document.getElementById('modal-pdf-progresso').style.display = 'none';
+                document.getElementById('modal-pdf-consolidado').classList.add('active');
+                if (window.lucide) window.lucide.createIcons();
+
+                fb.textContent = '';
+            } catch (err) {
+                console.error('[exportarPDFConsolidado]', err);
+                showToast('Erro ao carregar documentos: ' + (err.message || 'verifique o console'), 'error');
+                fb.textContent = '';
+            } finally {
+                btn.disabled = false;
+                if (window.lucide) window.lucide.createIcons();
+            }
+        }
+
+        function fecharModalPDF() {
+            document.getElementById('modal-pdf-consolidado').classList.remove('active');
+        }
+
+        function _setProgresso(atual, totalP, label) {
+            const pct = totalP > 0 ? Math.min(100, Math.round((atual / totalP) * 100)) : 0;
+            const fillEl = document.getElementById('pdf-progress-fill');
+            const pctEl  = document.getElementById('pdf-progress-pct');
+            const lblEl  = document.getElementById('pdf-progress-label');
+            if (fillEl) fillEl.style.width = pct + '%';
+            if (pctEl)  pctEl.textContent = pct + '%';
+            if (lblEl && label) lblEl.textContent = label;
+        }
+
+        function _cleanStoragePath(path) {
+            if (!path) return path;
+            if (path.includes('/storage/v1/object/public/'))
+                return path.split('/public/')[1].split('/').slice(1).join('/');
+            if (path.includes('/storage/v1/object/authenticated/'))
+                return path.split('/authenticated/')[1].split('/').slice(1).join('/');
+            return path;
+        }
+
+        async function _mesclarArquivo(rawPath, nome, bucket, pdfFinal, fontBold, font) {
+            const { PDFDocument, rgb } = PDFLib;
+            const cleanPath = _cleanStoragePath((rawPath || '').trim());
+
+            const { data: urlData, error: urlErr } = await sbClient.storage.from(bucket).createSignedUrl(cleanPath, 3600);
+            if (urlErr || !urlData) throw new Error('URL falhou: ' + (urlErr?.message || 'sem dados'));
+
+            const resp = await fetch(urlData.signedUrl);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const arrayBuffer = await resp.arrayBuffer();
+
+            const ct  = (resp.headers.get('content-type') || '').toLowerCase();
+            const ext = (rawPath || '').split('.').pop().toLowerCase();
+            const isPdf = ct.includes('pdf') || ext === 'pdf';
+            const isPng = ct.includes('png') || ext === 'png';
+            const isJpg = ct.includes('jpeg') || ct.includes('jpg') || ext === 'jpg' || ext === 'jpeg';
+
+            if (isPdf) {
+                let extDoc;
+                try {
+                    extDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+                } catch (e) {
+                    throw new Error('PDF inválido ou criptografado: ' + e.message);
+                }
+                const indices = Array.from({ length: extDoc.getPageCount() }, (_, i) => i);
+                const pages = await pdfFinal.copyPages(extDoc, indices);
+                pages.forEach(p => pdfFinal.addPage(p));
+            } else if (isPng || isJpg) {
+                const page = pdfFinal.addPage([595, 842]);
+                const img  = isPng
+                    ? await pdfFinal.embedPng(arrayBuffer)
+                    : await pdfFinal.embedJpg(arrayBuffer);
+                const iw = img.width, ih = img.height;
+                const maxW = 555, maxH = 802;
+                const scale = Math.min(maxW / iw, maxH / ih);
+                const w = iw * scale, h = ih * scale;
+                page.drawImage(img, { x: (595 - w) / 2, y: (842 - h) / 2, width: w, height: h });
+            } else {
+                const pg = pdfFinal.addPage([595, 842]);
+                pg.drawText('Documento não suportado: ' + String(nome).slice(0, 80), {
+                    x: 50, y: 420, size: 12, font, color: rgb(0.4, 0.4, 0.4)
+                });
+            }
+        }
+
+        async function _processarLote(items, pdfFinal, fontBold, font, onItem) {
+            const LOTE = 3;
+            for (let i = 0; i < items.length; i += LOTE) {
+                const lote = items.slice(i, i + LOTE);
+                await Promise.all(lote.map(async (item) => {
+                    try {
+                        await _mesclarArquivo(item.rawPath, item.nome, item.bucket, pdfFinal, fontBold, font);
+                        onItem(false);
+                    } catch (e) {
+                        console.warn('[PDF consolidado] Falha ao mesclar:', item.nome, e);
+                        const { rgb } = PDFLib;
+                        const pg = pdfFinal.addPage([595, 842]);
+                        pg.drawText('DOCUMENTO NÃO DISPONÍVEL', {
+                            x: 50, y: 460, size: 14, font: fontBold, color: rgb(1.0, 0.345, 0.027)
+                        });
+                        pg.drawText(String(item.nome).slice(0, 80), {
+                            x: 50, y: 432, size: 10, font, color: rgb(0.3, 0.3, 0.3)
+                        });
+                        pg.drawText('Erro: ' + String(e.message || '').slice(0, 90), {
+                            x: 50, y: 410, size: 9, font, color: rgb(0.5, 0.5, 0.5)
+                        });
+                        onItem(true);
+                    }
+                }));
+                await new Promise(r => setTimeout(r, 50));
+            }
+        }
+
+        function _adicionarSeparador(pdfFinal, fontBold, font, titulo, numDocs) {
+            const { rgb } = PDFLib;
+            const page  = pdfFinal.addPage([595, 842]);
+            const [pw, ph] = [595, 842];
+            page.drawRectangle({ x: 0, y: 0, width: 8, height: ph, color: rgb(0.082, 0.278, 1.0) });
+            const tw = fontBold.widthOfTextAtSize(titulo, 20);
+            page.drawText(titulo, {
+                x: (pw - tw) / 2, y: ph / 2 + 25,
+                size: 20, font: fontBold, color: rgb(0.082, 0.278, 1.0)
+            });
+            page.drawLine({
+                start: { x: 60, y: ph / 2 + 8 },
+                end: { x: pw - 60, y: ph / 2 + 8 },
+                thickness: 1, color: rgb(0.8, 0.8, 0.8)
+            });
+            const sub = `${numDocs} documento${numDocs !== 1 ? 's' : ''}`;
+            const sw = font.widthOfTextAtSize(sub, 12);
+            page.drawText(sub, {
+                x: (pw - sw) / 2, y: ph / 2 - 15,
+                size: 12, font, color: rgb(0.4, 0.4, 0.4)
+            });
+        }
+
+        async function confirmarGerarPDF() {
+            if (!_pdfMeta) return;
+            const { nfs, contratos, guias, evidencias, relatorio, total, pid } = _pdfMeta;
+
+            document.getElementById('modal-pdf-resumo').style.display = 'none';
+            document.getElementById('modal-pdf-progresso').style.display = 'block';
+            _setProgresso(0, total + 1, 'Gerando capa...');
+
+            const btn = document.getElementById('btn-pdf-consolidado');
+            const fb  = document.getElementById('fb-pdf-consolidado');
+            btn.disabled = true;
+
+            let user = null, orgId = null;
+            let processados = 0, falhas = 0;
+
+            try {
+                const authRes = await sbClient.auth.getUser();
+                user  = authRes.data?.user;
+                orgId = await getCurrentOrgId(pid);
+
+                const proj = currentProjectData || {};
+                const pronac      = proj.pronac || 'projeto';
+                const nomeProjeto = proj.nome   || '—';
+
+                const { PDFDocument, StandardFonts, rgb } = PDFLib;
+                const pdfFinal  = await PDFDocument.create();
+                const font      = await pdfFinal.embedFont(StandardFonts.Helvetica);
+                const fontBold  = await pdfFinal.embedFont(StandardFonts.HelveticaBold);
+
+                // ── Capa ──
+                const capa = pdfFinal.addPage([595, 842]);
+                const [pw, ph] = [595, 842];
+
+                capa.drawRectangle({ x: 0, y: ph - 80, width: pw, height: 80, color: rgb(0.082, 0.278, 1.0) });
+                capa.drawText('PRESTAÇÃO DE CONTAS', {
+                    x: 40, y: ph - 32, size: 22, font: fontBold, color: rgb(0.439, 1.0, 0.0)
+                });
+                capa.drawText('PrestAI — Documentação Completa', {
+                    x: 40, y: ph - 54, size: 10, font, color: rgb(0.85, 0.92, 1.0)
+                });
+                capa.drawLine({ start: { x: 40, y: ph - 95 }, end: { x: pw - 40, y: ph - 95 }, thickness: 1, color: rgb(0.82, 0.82, 0.82) });
+
+                let cy = ph - 120;
+                const drawKV = (k, v, yy) => {
+                    capa.drawText(k, { x: 40, y: yy, size: 10, font: fontBold, color: rgb(0.38, 0.38, 0.38) });
+                    capa.drawText(String(v).slice(0, 65), { x: 140, y: yy, size: 10, font, color: rgb(0.1, 0.1, 0.1) });
+                };
+                drawKV('Projeto:', nomeProjeto, cy); cy -= 20;
+                drawKV('PRONAC:', pronac, cy); cy -= 20;
+                drawKV('Data:', new Date().toLocaleDateString('pt-BR'), cy); cy -= 30;
+
+                capa.drawLine({ start: { x: 40, y: cy }, end: { x: pw - 40, y: cy }, thickness: 0.5, color: rgb(0.82, 0.82, 0.82) });
+                cy -= 25;
+                capa.drawText('SUMÁRIO', { x: 40, y: cy, size: 13, font: fontBold, color: rgb(0.082, 0.278, 1.0) });
+                cy -= 22;
+
+                const todasSecoes = [
+                    ['Notas Fiscais',    nfs.length],
+                    ['Contratos',        contratos.length],
+                    ['Guias de Impostos',guias.length],
+                    ['Evidências Físicas',evidencias.length],
+                    ['Relatório de PC',  relatorio.length],
+                ];
+                let numSec = 1;
+                for (const [nomeSec, qtd] of todasSecoes) {
+                    if (qtd === 0) continue;
+                    const label  = `Seção ${numSec} — ${nomeSec}`;
+                    const pontos = '.'.repeat(Math.max(0, 48 - label.length));
+                    const qtdStr = `${qtd} doc${qtd !== 1 ? 's' : ''}`;
+                    capa.drawText(`${label} ${pontos} ${qtdStr}`, { x: 40, y: cy, size: 10, font, color: rgb(0.2, 0.2, 0.2) });
+                    cy -= 18;
+                    numSec++;
+                }
+                cy -= 4;
+                capa.drawLine({ start: { x: 40, y: cy }, end: { x: pw - 40, y: cy }, thickness: 0.5, color: rgb(0.82, 0.82, 0.82) });
+                cy -= 18;
+                const totalStr = 'Total ' + '.'.repeat(40) + ' ' + `${total} doc${total !== 1 ? 's' : ''}`;
+                capa.drawText(totalStr, { x: 40, y: cy, size: 10, font: fontBold, color: rgb(0.1, 0.1, 0.1) });
+                capa.drawText(`Gerado por PrestAI em ${new Date().toLocaleString('pt-BR')}`, {
+                    x: 40, y: 25, size: 8, font, color: rgb(0.55, 0.55, 0.55)
+                });
+
+                processados++;
+                _setProgresso(processados, total + 1, 'Gerando capa...');
+
+                // ── Seções ──
+                const secoes = [
+                    { titulo: 'SEÇÃO 1 — NOTAS FISCAIS',      docs: nfs,       bucket: 'documentos',       getPath: d => d.file_path,      getNome: d => d.name || 'nota_fiscal',                         fase: 'Processando Notas Fiscais'    },
+                    { titulo: 'SEÇÃO 2 — CONTRATOS',           docs: contratos, bucket: 'contracts',        getPath: d => d.arquivo_path,   getNome: d => d.numero ? `contrato_${d.numero}` : 'contrato',  fase: 'Processando Contratos'        },
+                    { titulo: 'SEÇÃO 3 — GUIAS DE IMPOSTOS',   docs: guias,     bucket: 'tax-guides',       getPath: d => d.arquivo_guia_path, getNome: d => d.tipo_imposto ? `guia_${d.tipo_imposto}` : 'guia_imposto', fase: 'Processando Guias de Impostos' },
+                    { titulo: 'SEÇÃO 4 — EVIDÊNCIAS FÍSICAS',  docs: evidencias,bucket: 'physical-evidences',getPath: d => d.file_path,     getNome: d => d.file_name || 'evidencia',                      fase: 'Processando Evidências'       },
+                    { titulo: 'SEÇÃO 5 — RELATÓRIO DE PC',     docs: relatorio, bucket: 'reports',          getPath: d => d.file_path,      getNome: d => `relatorio_v${d.versao || 1}`,                   fase: 'Processando Relatório de PC'  },
+                ].filter(s => s.docs.length > 0);
+
+                for (const sec of secoes) {
+                    _adicionarSeparador(pdfFinal, fontBold, font, sec.titulo, sec.docs.length);
+                    const items = sec.docs.map(d => ({ rawPath: sec.getPath(d), nome: sec.getNome(d), bucket: sec.bucket }));
+                    await _processarLote(items, pdfFinal, fontBold, font, (errou) => {
+                        if (errou) falhas++;
+                        processados++;
+                        _setProgresso(processados, total + 1, sec.fase + '...');
+                    });
+                }
+
+                _setProgresso(total + 1, total + 1, 'Finalizando PDF...');
+
+                // ── Serializar e baixar ──
+                const pdfBytes = await pdfFinal.save();
+                const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+                const hoje = formatDateFile(new Date());
+                const fileName = `PRONAC_${pronac}_PC_${hoje}.pdf`;
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = fileName;
+                document.body.appendChild(a); a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                fecharModalPDF();
+
+                await sbClient.from('exportacoes_log').insert({
+                    project_id: pid, organization_id: orgId,
+                    tipo: 'pdf_consolidado_salic', status: 'pronto',
+                    file_path: null, gerado_por: user ? user.id : null
+                });
+
+                fb.textContent = '';
+                showToast(
+                    falhas > 0
+                        ? `PDF gerado com ${falhas} falha${falhas !== 1 ? 's' : ''} — verifique as páginas de aviso`
+                        : `PDF gerado: ${total} documento${total !== 1 ? 's' : ''}`,
+                    'success'
+                );
+                await carregarHistorico();
+            } catch (err) {
+                console.error('[confirmarGerarPDF]', err);
+                fecharModalPDF();
+                try {
+                    await sbClient.from('exportacoes_log').insert({
+                        project_id: pid, organization_id: orgId || null,
+                        tipo: 'pdf_consolidado_salic', status: 'erro',
+                        file_path: null, gerado_por: user ? user.id : null
+                    });
+                } catch (_) {}
+                fb.textContent = '';
+                showToast('Erro ao gerar PDF: ' + (err.message || 'verifique o console'), 'error');
+                await carregarHistorico();
+            } finally {
+                btn.disabled = false;
+                _pdfMeta = null;
+                if (window.lucide) window.lucide.createIcons();
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // Histórico
+        // ─────────────────────────────────────────────────────────────
+        async function carregarHistorico() {
+            if (!currentProjectId) return;
+
+            const { data, error } = await sbClient
+                .from('exportacoes_log')
+                .select('*')
+                .eq('project_id', currentProjectId)
+                .order('criado_em', { ascending: false })
+                .limit(20);
+
+            const tbody = document.getElementById('historico-tbody');
+            if (error || !data || data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="4" class="empty-state">Nenhuma exportação gerada ainda.</td></tr>`;
+                return;
+            }
+
+            // Resetar feedback dos cards quando uma exportação completar
+            data.forEach(r => {
+                if (r.status === 'pronto' || r.status === 'erro') {
+                    const btnMap = { excel: 'btn-excel', zip: 'btn-zip', auditoria: 'btn-auditoria' };
+                    const fbMap = { excel: 'fb-excel', zip: 'fb-zip', auditoria: 'fb-auditoria' };
+                    const btnId = btnMap[r.tipo];
+                    const fbId = fbMap[r.tipo];
+                    if (btnId) {
+                        const btn = document.getElementById(btnId);
+                        if (btn && btn.disabled) btn.disabled = false;
+                    }
+                    if (fbId) {
+                        const fb = document.getElementById(fbId);
+                        if (fb && fb.querySelector('.spin')) fb.textContent = '';
+                    }
+                }
+            });
+
+            let html = '';
+            for (const r of data) {
+                const tipoLabel = TIPO_LABEL[r.tipo] || r.tipo;
+                const statusLabel = r.status === 'gerando' ? 'Gerando...' : r.status === 'pronto' ? 'Pronto' : 'Erro';
+
+                let acaoHtml = '';
+                if (r.status === 'pronto') {
+                    if (r.file_path) {
+                        acaoHtml = `<button class="btn-sm btn-download" onclick="downloadExport('${escapeAttr(r.file_path)}')"><i data-lucide="download"></i> Download</button>`;
+                    } else {
+                        acaoHtml = '<span style="color: var(--text-muted); font-size: 0.85rem;">Gerado localmente</span>';
+                    }
+                } else if (r.status === 'erro') {
+                    acaoHtml = `<button class="btn-sm btn-retry" onclick="retryExport('${r.tipo}')"><i data-lucide="refresh-cw"></i> Tentar novamente</button>`;
+                } else {
+                    acaoHtml = `<i data-lucide="loader" class="spin" style="color: var(--text-muted);"></i>`;
+                }
+
+                html += `
+                    <tr>
+                        <td><strong>${tipoLabel}</strong></td>
+                        <td>${formatDateStr(r.criado_em)}</td>
+                        <td><span class="badge badge-${r.status}">${statusLabel}</span></td>
+                        <td>${acaoHtml}</td>
+                    </tr>
+                `;
+            }
+            tbody.innerHTML = html;
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        async function downloadExport(filePath) {
+            if (!filePath) return;
+
+            // Se o n8n salvou URL completa em vez do path, extrai apenas o path
+            let cleanPath = filePath;
+            if (filePath.includes('/storage/v1/object/public/')) {
+                cleanPath = filePath.split('/public/')[1].split('/').slice(1).join('/');
+            } else if (filePath.includes('/storage/v1/object/authenticated/')) {
+                cleanPath = filePath.split('/authenticated/')[1].split('/').slice(1).join('/');
+            }
+
+            const { data, error } = await sbClient.storage.from('reports').createSignedUrl(cleanPath, 3600);
+
+            if (error) {
+                alert('Erro ao gerar link de download: ' + (error.message || 'verifique o console'));
+                console.error('[STORAGE]', error);
+                return;
+            }
+            window.open(data.signedUrl, '_blank');
+        }
+
+        function retryExport(tipo) {
+            if (tipo === 'excel') return exportarExcel();
+            if (tipo === 'zip') return exportarZIP();
+            if (tipo === 'auditoria') return exportarAuditoria();
+            if (tipo === 'csv') return exportarCSV();
+            if (tipo === 'pdf_consolidado_salic') return exportarPDFConsolidado();
+        }
+
+        function setupRealtime(pid) {
+            if (exportSubscription) {
+                sbClient.removeChannel(exportSubscription);
+            }
+            exportSubscription = sbClient.channel(`exportacoes-${pid}`)
+                .on('postgres_changes',
+                    { event: '*', schema: 'public', table: 'exportacoes_log', filter: `project_id=eq.${pid}` },
+                    () => carregarHistorico()
+                )
+                .subscribe();
+        }
+
+        function formatDateStr(isoStr) {
+            if (!isoStr) return '---';
+            return new Date(isoStr).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        }
+
+        function escapeAttr(s) {
+            return String(s).replace(/'/g, "\\'");
+        }
+    </script>
+</body>
+</html>
