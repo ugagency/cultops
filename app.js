@@ -2951,7 +2951,7 @@ ${Sidebar()}
     </div>
     ` : ''}
 
-    <div class="card">
+    <div class="card" style="display:none;">
         <h3 class="h2 mb-4">Execução por Rubrica</h3>
         <div style="height: 300px;">
             ${chartLabels.length > 0 ? '<canvas id="rubricasChart"></canvas>' : '<p class="text-sm" style="text-align: center; padding-top: 4rem; color: var(--text-muted);">Sem dados para o gráfico.</p>'}
@@ -3178,11 +3178,11 @@ const OrcamentoView = () => {
                                             </h5>
                                             <p class="text-xs text-muted mt-1">Qtde: ${r.quantidade || 1} x R$ ${(parseFloat(r.valor_unitario || r.valor_aprovado || 0)).toLocaleString('pt-BR')}</p>
                                         </div>
-                                        <div style="text-align: right;">
+                                        <div style="text-align: right; display:none;">
                                             <div class="text-xs font-bold ${percentual > 90 ? 'text-error' : 'text-primary'}">${percentual.toFixed(1)}%</div>
                                         </div>
                                     </div>
-                                    <div style="width: 100%; height: 6px; background: var(--border-light); border-radius: 3px; overflow: hidden; margin-bottom: 0.75rem;">
+                                    <div style="width: 100%; height: 6px; background: var(--border-light); border-radius: 3px; overflow: hidden; margin-bottom: 0.75rem; display:none;">
                                         <div style="width: ${Math.min(percentual, 100)}%; height: 100%; background: ${percentual > 100 ? 'var(--error)' : 'var(--primary)'}; transition: width 0.3s ease;"></div>
                                     </div>
                                     <div style="display: flex; justify-content: space-between; font-size: 11px;">
@@ -3190,7 +3190,7 @@ const OrcamentoView = () => {
                                             <span class="text-muted">Aprovado:</span>
                                             <span class="font-semibold">R$ ${aprovado.toLocaleString('pt-BR')}</span>
                                         </div>
-                                        <div>
+                                        <div style="display:none;">
                                             <span class="text-muted">Saldo:</span>
                                             <span class="font-bold ${saldo < 0 ? 'color-error' : 'color-success'}">R$ ${saldo.toLocaleString('pt-BR')}</span>
                                         </div>
