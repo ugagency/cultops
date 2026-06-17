@@ -2922,7 +2922,7 @@ ${Sidebar()}
     </header>
 
     <div class="metrics-grid" style="margin-bottom:1.5rem;">
-        <div class="card metric-card">
+        <div class="card metric-card" style="display:none;">
             <p class="metric-label">Total Executado (rubricas)</p>
             <div class="metric-value">R$ ${totalExecutado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
         </div>
