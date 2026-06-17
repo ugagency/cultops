@@ -715,6 +715,24 @@ Retorne APENAS o JSON válido. Sem markdown, sem backticks, sem explicação. Se
     }
 }
 
+// Verifica se o usuário pertence à organização dona do projeto.
+async function userCanAccessProject(userId, projectId) {
+    const { data: orgUser } = await supabase
+        .from('organization_users')
+        .select('organization_id')
+        .eq('user_id', userId)
+        .limit(1)
+        .maybeSingle();
+    if (!orgUser) return false;
+    const { data: proj } = await supabase
+        .from('projects')
+        .select('id')
+        .eq('id', projectId)
+        .eq('organization_id', orgUser.organization_id)
+        .maybeSingle();
+    return !!proj;
+}
+
 // OCR — Estrutura texto de contrato de prestação de serviços em JSON.
 async function estruturarContratoJson(textoOcr, apiKey) {
     const instrucoes = `Analise o texto extraído de um contrato ou anexo de serviço e retorne APENAS um JSON com a seguinte estrutura:
@@ -996,11 +1014,12 @@ app.post('/api/m2/processar-pdf-salic', async (req, res) => {
  * POST /api/m2/contratos/ocr
  * Body: { file_path } — path no bucket 'contracts' do Supabase Storage
  */
-app.post('/api/m2/contratos/ocr', async (req, res) => {
+app.post('/api/m2/contratos/ocr', requireAuth, async (req, res) => {
     req.setTimeout(120000);
     res.setTimeout(120000);
     const { fileBase64, fileName, projectId } = req.body || {};
     if (!fileBase64 || !projectId) return res.status(400).json({ error: 'fileBase64 e projectId obrigatórios.' });
+    if (!(await userCanAccessProject(req.user.id, projectId))) return res.status(403).json({ error: 'Acesso negado ao projeto.' });
     const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
     if (!MISTRAL_API_KEY) return res.status(500).json({ error: 'MISTRAL_API_KEY não configurada.' });
     try {
@@ -1029,11 +1048,12 @@ app.post('/api/m2/contratos/ocr', async (req, res) => {
  * POST /api/m2/impostos/ocr
  * Body: { file_path } — path no bucket 'tax-guides' do Supabase Storage
  */
-app.post('/api/m2/impostos/ocr', async (req, res) => {
+app.post('/api/m2/impostos/ocr', requireAuth, async (req, res) => {
     req.setTimeout(120000);
     res.setTimeout(120000);
     const { fileBase64, fileName, projectId } = req.body || {};
     if (!fileBase64 || !projectId) return res.status(400).json({ error: 'fileBase64 e projectId obrigatórios.' });
+    if (!(await userCanAccessProject(req.user.id, projectId))) return res.status(403).json({ error: 'Acesso negado ao projeto.' });
     const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
     if (!MISTRAL_API_KEY) return res.status(500).json({ error: 'MISTRAL_API_KEY não configurada.' });
     try {
@@ -1063,11 +1083,12 @@ app.post('/api/m2/impostos/ocr', async (req, res) => {
  * Body: { cnpj, razao_social, project_id }
  * Usa service_role — bypassa RLS da tabela fornecedores.
  */
-app.post('/api/m2/fornecedores/criar-vincular', async (req, res) => {
+app.post('/api/m2/fornecedores/criar-vincular', requireAuth, async (req, res) => {
     const { cnpj, razao_social, project_id } = req.body || {};
     if (!cnpj || !razao_social || !project_id) {
         return res.status(400).json({ error: 'cnpj, razao_social e project_id são obrigatórios.' });
     }
+    if (!(await userCanAccessProject(req.user.id, project_id))) return res.status(403).json({ error: 'Acesso negado ao projeto.' });
     try {
         // Verificar se já existe pelo CNPJ
         let { data: existing } = await supabase
