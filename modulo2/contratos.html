@@ -101,7 +101,7 @@
             letter-spacing: 0.02em;
             white-space: nowrap;
         }
-        .badge-ativo       { background: #1547FF; color: #70FF00; }
+        .badge-ativo       { background: #1547FF; color: #FFFFFF; }
         .badge-encerrado   { background: #C6D0FF; color: #334155; }
         .badge-suspenso    { background: #6c757d; color: white; }
         .badge-cancelado   { background: #721c24; color: white; }
@@ -111,32 +111,25 @@
         .badge-atrasada    { background: #FF5807; color: #FFFFFF; }
         .badge-cancelada   { background: #C6D0FF; color: #475569; }
 
-        /* Dropdown de status inline */
-        .status-dd-wrap { position: relative; display: inline-block; }
-        .status-dd-btn  { cursor: pointer; border: none; gap: 4px; }
-        .status-dd-btn:hover { opacity: 0.85; }
-        .status-dd-menu {
-            display: none;
-            position: absolute;
-            top: calc(100% + 5px);
-            left: 0;
-            z-index: 200;
-            background: #fff;
-            border: 1px solid #E2E8F0;
-            border-radius: 8px;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.13);
-            min-width: 140px;
-            overflow: hidden;
-        }
-        .status-dd-menu.open { display: block; }
-        .status-dd-item {
-            padding: 0.45rem 0.75rem;
-            font-size: 0.78rem;
+        /* Botões de ação de status */
+        .status-actions { display: flex; gap: 0.35rem; margin-top: 0.35rem; flex-wrap: wrap; }
+        .btn-status-action {
+            padding: 0.2rem 0.55rem;
+            border-radius: 6px;
+            border: 1px solid currentColor;
+            font-size: 0.7rem;
+            font-weight: 600;
             cursor: pointer;
-            display: flex;
-            align-items: center;
+            background: transparent;
+            white-space: nowrap;
+            transition: background 0.15s, color 0.15s;
         }
-        .status-dd-item:hover { background: #F8FAFC; }
+        .btn-status-action.encerrar  { color: #334155; border-color: #94A3B8; }
+        .btn-status-action.encerrar:hover  { background: #334155; color: #fff; }
+        .btn-status-action.suspender { color: #6c757d; border-color: #6c757d; }
+        .btn-status-action.suspender:hover { background: #6c757d; color: #fff; }
+        .btn-status-action.reativar  { color: #1547FF; border-color: #1547FF; }
+        .btn-status-action.reativar:hover  { background: #1547FF; color: #fff; }
 
         /* Alerta calculado no frontend */
         .alert-pill {
@@ -536,10 +529,11 @@
                 const isExpanded = expandedContractId === c.id;
                 const hasVencidas = parcelasVencidasSet.has(c.id);
                 const curStatus = c.status || 'ativo';
-                const statusOpts = ['ativo','encerrado','suspenso','cancelado','rescindido']
-                    .filter(s => s !== curStatus)
-                    .map(s => `<div class="status-dd-item" onclick="changeContratoStatus('${c.id}','${s}',event)"><span class="badge-m2 badge-${s}" style="font-size:0.65rem;padding:0.15rem 0.5rem;">${s}</span></div>`)
-                    .join('');
+                const actionBtns = curStatus === 'ativo'
+                    ? `<button class="btn-status-action suspender" onclick="changeContratoStatus('${c.id}','suspenso',event)">Suspender</button><button class="btn-status-action encerrar" onclick="changeContratoStatus('${c.id}','encerrado',event)">Encerrar</button>`
+                    : curStatus === 'suspenso'
+                    ? `<button class="btn-status-action reativar" onclick="changeContratoStatus('${c.id}','ativo',event)">Reativar</button><button class="btn-status-action encerrar" onclick="changeContratoStatus('${c.id}','encerrado',event)">Encerrar</button>`
+                    : '';
                 return `
                     <tr class="contract-row ${isExpanded ? 'expanded' : ''}" onclick="toggleContract('${c.id}')">
                         <td><i data-lucide="chevron-down" class="row-chevron" style="width:18px;"></i></td>
@@ -549,13 +543,9 @@
                         <td style="white-space: nowrap;">${formatDate(c.data_inicio)} → ${formatDate(c.data_fim)}</td>
                         <td style="font-weight: 700; color: var(--m2-accent); white-space: nowrap;">${formatCurrency(c.valor_total)}</td>
                         <td onclick="event.stopPropagation()">
-                            <div class="status-dd-wrap">
-                                <button class="badge-m2 badge-${curStatus} status-dd-btn" onclick="toggleStatusDropdown('${c.id}',event)">
-                                    ${curStatus} <i data-lucide="chevron-down" style="width:11px;height:11px;"></i>
-                                </button>
-                                <div id="sdd-${c.id}" class="status-dd-menu">${statusOpts}</div>
-                            </div>
+                            <span class="badge-m2 badge-${curStatus}">${curStatus}</span>
                             ${hasVencidas ? `<div style="margin-top:4px;"><span class="alert-pill alert-vencida">Parcela vencida</span></div>` : ''}
+                            ${actionBtns ? `<div class="status-actions">${actionBtns}</div>` : ''}
                         </td>
                     </tr>
                     ${isExpanded ? `
@@ -755,28 +745,22 @@
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        // STATUS DROPDOWN
+        // ATUALIZAÇÃO DE STATUS
         // ─────────────────────────────────────────────────────────────────────
-        function toggleStatusDropdown(contractId, e) {
-            e.stopPropagation();
-            const menu = document.getElementById('sdd-' + contractId);
-            const isOpen = menu.classList.contains('open');
-            document.querySelectorAll('.status-dd-menu.open').forEach(m => m.classList.remove('open'));
-            if (!isOpen) menu.classList.add('open');
-        }
-
         async function changeContratoStatus(contractId, newStatus, e) {
             e.stopPropagation();
-            document.querySelectorAll('.status-dd-menu.open').forEach(m => m.classList.remove('open'));
-            const { error } = await sb.from('contracts').update({ status: newStatus }).eq('id', contractId);
-            if (error) { showToast('Erro ao atualizar status: ' + error.message, 'error'); return; }
+            const session = await sb.auth.getSession();
+            const token = session?.data?.session?.access_token;
+            const resp = await fetch(`/api/m2/contracts/${contractId}/status`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ status: newStatus, project_id: currentProjectId })
+            });
+            const json = await resp.json();
+            if (!resp.ok) { showToast('Erro: ' + (json.error || resp.statusText), 'error'); return; }
             showToast('Status atualizado para ' + newStatus + '.', 'success');
             await loadContracts();
         }
-
-        document.addEventListener('click', () => {
-            document.querySelectorAll('.status-dd-menu.open').forEach(m => m.classList.remove('open'));
-        });
 
         // ─────────────────────────────────────────────────────────────────────
 

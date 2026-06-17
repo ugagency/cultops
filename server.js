@@ -497,6 +497,26 @@ app.get('/api/m2/contracts/:project_id', async (req, res) => {
 });
 
 /**
+ * Atualizar status de contrato
+ * PATCH /api/m2/contracts/:id/status
+ */
+app.patch('/api/m2/contracts/:id/status', requireAuth, async (req, res) => {
+    const { id } = req.params;
+    const { status, project_id } = req.body || {};
+    const allowed = ['ativo', 'encerrado', 'suspenso', 'cancelado', 'rescindido'];
+    if (!status || !allowed.includes(status)) {
+        return res.status(400).json({ error: 'Status inválido.' });
+    }
+    if (!project_id) return res.status(400).json({ error: 'project_id obrigatório.' });
+    if (!(await userCanAccessProject(req.user.id, project_id))) {
+        return res.status(403).json({ error: 'Acesso negado ao projeto.' });
+    }
+    const { error } = await supabase.from('contracts').update({ status }).eq('id', id).eq('project_id', project_id);
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ success: true });
+});
+
+/**
  * Salvar novo contrato
  */
 app.post('/api/m2/contracts', async (req, res) => {
