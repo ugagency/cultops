@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PrestAI Campo</title>
+
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1547FF">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,600;9..40,700;9..40,800&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="../../config.js"></script>
+    <script src="idb.js"></script>
+
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: #F8FAFF;
+            color: #0f172a;
+            min-height: 100dvh;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        #status-bar {
+            position: fixed; top: 0; left: 0; right: 0;
+            height: 36px; display: flex; align-items: center;
+            justify-content: center; font-size: 0.8rem; font-weight: 600;
+            color: white; z-index: 1000; transition: background 0.3s;
+            background: #22c55e;
+        }
+
+        #app {
+            padding-top: 36px;
+            min-height: 100dvh;
+        }
+
+        .pwa-header {
+            background: white;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 1rem 1.25rem;
+            display: flex; align-items: center; gap: 0.75rem;
+        }
+        .pwa-header-title {
+            font-size: 1.1rem; font-weight: 800; color: #0f172a;
+        }
+        .pwa-header-sub {
+            font-size: 0.75rem; color: #64748b;
+        }
+        .pwa-back {
+            background: none; border: none; cursor: pointer;
+            padding: 0.35rem; border-radius: 8px; color: #1547FF;
+            display: flex; align-items: center;
+        }
+        .pwa-back svg { width: 22px; height: 22px; }
+
+        .pwa-content { padding: 1rem; }
+
+        .pwa-card {
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 14px;
+            padding: 1.1rem 1.25rem;
+            margin-bottom: 0.85rem;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+        }
+        .pwa-card-title { font-weight: 700; font-size: 1rem; margin-bottom: 0.25rem; }
+        .pwa-card-meta { font-size: 0.82rem; color: #64748b; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+        .pwa-card-meta-item { display: flex; align-items: center; gap: 0.3rem; }
+
+        .btn-pwa-primary {
+            width: 100%; padding: 0.9rem 1rem;
+            background: #1547FF; color: white;
+            border: none; border-radius: 12px;
+            font-family: 'DM Sans', sans-serif;
+            font-size: 1rem; font-weight: 700;
+            cursor: pointer; margin-bottom: 0.75rem;
+            display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .btn-pwa-primary:active { opacity: 0.85; }
+        .btn-pwa-secondary {
+            width: 100%; padding: 0.75rem 1rem;
+            background: white; color: #1547FF;
+            border: 1.5px solid #1547FF; border-radius: 12px;
+            font-family: 'DM Sans', sans-serif;
+            font-size: 0.95rem; font-weight: 700;
+            cursor: pointer; margin-bottom: 0.75rem;
+            display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+        }
+        .btn-pwa-secondary:active { background: #f0f4ff; }
+
+        .search-pwa {
+            width: 100%;
+            padding: 0.9rem 1rem;
+            border: 1.5px solid #e2e8f0;
+            border-radius: 12px;
+            font-family: 'DM Sans', sans-serif;
+            font-size: 1rem; color: #0f172a;
+            background: white;
+            outline: none;
+            margin-bottom: 1rem;
+        }
+        .search-pwa:focus { border-color: #1547FF; }
+
+        .checkin-result-card {
+            background: white; border: 1px solid #e2e8f0;
+            border-radius: 14px; padding: 1rem 1.1rem;
+            margin-bottom: 0.75rem;
+        }
+        .checkin-result-name { font-weight: 700; font-size: 1rem; margin-bottom: 0.2rem; }
+        .checkin-result-org { font-size: 0.82rem; color: #64748b; margin-bottom: 0.6rem; }
+        .btn-checkin {
+            width: 100%; padding: 0.65rem;
+            background: #DCFCE7; color: #16a34a;
+            border: none; border-radius: 10px;
+            font-family: 'DM Sans', sans-serif;
+            font-size: 0.9rem; font-weight: 700;
+            cursor: pointer;
+        }
+        .btn-checkin:active { opacity: 0.8; }
+        .btn-checkin:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .badge-pwa {
+            display: inline-block; padding: 2px 8px;
+            border-radius: 6px; font-size: 0.75rem; font-weight: 700;
+        }
+        .badge-pendente   { background: #FEF9C3; color: #854D0E; }
+        .badge-sincronizado { background: #DCFCE7; color: #16a34a; }
+        .badge-os { background: #E3E8FF; color: #1547FF; }
+        .badge-pa { background: #F0FDF4; color: #16a34a; }
+
+        .empty-pwa {
+            text-align: center; padding: 3rem 1rem;
+            color: #94a3b8; font-size: 0.9rem;
+        }
+        .empty-pwa svg { margin-bottom: 0.75rem; opacity: 0.35; }
+
+        .section-title {
+            font-weight: 700; font-size: 0.95rem;
+            color: #64748b; text-transform: uppercase;
+            letter-spacing: 0.06em; margin: 1.25rem 0 0.65rem;
+            padding: 0 0.1rem;
+        }
+
+        .checkin-log-item {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0.6rem 0; border-bottom: 1px solid #f1f5f9;
+            gap: 0.5rem;
+        }
+        .checkin-log-item:last-child { border-bottom: none; }
+        .checkin-log-name { font-weight: 600; font-size: 0.88rem; }
+        .checkin-log-meta { font-size: 0.75rem; color: #94a3b8; }
+
+        @media (prefers-color-scheme: dark) {
+            body { background: #0f172a; color: #e2e8f0; }
+            .pwa-header, .pwa-card, .checkin-result-card { background: #1e293b; border-color: #334155; }
+            .search-pwa { background: #1e293b; border-color: #334155; color: #e2e8f0; }
+        }
+    </style>
+</head>
+<body>
+    <div id="status-bar">🟢 Online</div>
+    <div id="app">
+        <div id="screen"></div>
+    </div>
+
+    <script>
+    // ── Supabase init ─────────────────────────────────────────
+    window._sb = null;
+    if (typeof supabase !== 'undefined' && window.SUPABASE_URL && window.SUPABASE_ANON_KEY) {
+        window._sb = supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+    }
+
+    // ── SW register ───────────────────────────────────────────
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js')
+            .then(() => console.log('[PWA] SW registrado'))
+            .catch(err => console.error('[PWA] SW erro:', err));
+        navigator.serviceWorker.addEventListener('message', event => {
+            if (event.data?.type === 'TRIGGER_SYNC') sincronizarTudo();
+        });
+    }
+
+    // ── State ─────────────────────────────────────────────────
+    let hashAtual = '';
+    let eventoAtual = null;
+    let checkinsFeitosNaSessao = [];
+
+    // ── Utilities ─────────────────────────────────────────────
+    function esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+            .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+    function fmtDate(d) {
+        if (!d) return '—';
+        try { return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR'); } catch { return d; }
+    }
+    function fmtTime(ts) {
+        if (!ts) return '';
+        try { return new Date(ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
+    }
+
+    async function getToken() {
+        if (!window._sb) return null;
+        const { data: { session } } = await window._sb.auth.getSession();
+        return session?.access_token || null;
+    }
+
+    // ── Status bar ────────────────────────────────────────────
+    function atualizarStatusBar(msg, cor) {
+        const bar = document.getElementById('status-bar');
+        bar.textContent = msg;
+        if (cor) bar.style.background = cor;
+    }
+
+    window.addEventListener('online',  () => {
+        atualizarStatusBar('🟢 Online — sincronizando...', '#22c55e');
+        sincronizarTudo();
+    });
+    window.addEventListener('offline', () => {
+        atualizarStatusBar('🔴 Offline — dados salvos localmente', '#ef4444');
+    });
+    if (!navigator.onLine) {
+        atualizarStatusBar('🔴 Offline — dados salvos localmente', '#ef4444');
+    }
+
+    // ── Toast ─────────────────────────────────────────────────
+    function showToastPwa(msg, tipo = 'success') {
+        const t = document.createElement('div');
+        t.textContent = msg;
+        t.style.cssText = `
+            position:fixed;bottom:80px;left:50%;
+            transform:translateX(-50%);
+            background:${tipo==='error'?'#ef4444':'#1547FF'};
+            color:#fff;padding:0.75rem 1.5rem;
+            border-radius:100px;font-size:0.9rem;
+            font-weight:600;z-index:9999;white-space:nowrap;
+            box-shadow:0 4px 20px rgba(0,0,0,0.2);
+            max-width:90vw;text-align:center;
+        `;
+        document.body.appendChild(t);
+        setTimeout(() => t.remove(), 3000);
+    }
+
+    // ── SVG icons inline (sem Lucide no PWA standalone) ──────
+    const ICONS = {
+        arrowLeft:   '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/></svg>',
+        calendar:    '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>',
+        mapPin:      '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/></svg>',
+        refresh:     '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>',
+        search:      '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><circle cx="11" cy="11" r="8"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35"/></svg>',
+        smartphone:  '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path stroke-linecap="round" d="M12 18h.01"/></svg>',
+        check:       '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>',
+        calendarX:   '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/><path stroke-linecap="round" stroke-linejoin="round" d="M10 14l4 4m0-4l-4 4"/></svg>',
+    };
+    function icon(name, size = 20, color = 'currentColor') {
+        return ICONS[name] ? ICONS[name].replace('stroke="currentColor"', `stroke="${color}" style="width:${size}px;height:${size}px;flex-shrink:0;"`) : '';
+    }
+
+    // ── Roteador hash ─────────────────────────────────────────
+    async function rotear() {
+        await IDB.initDB();
+        hashAtual = location.hash || '#lista-eventos';
+        const screen = document.getElementById('screen');
+
+        if (hashAtual === '#lista-eventos' || hashAtual === '') {
+            return renderListaEventos(screen);
+        }
+        const mEvento = hashAtual.match(/^#evento\/(.+)$/);
+        if (mEvento) return renderEvento(screen, mEvento[1]);
+
+        const mCheckin = hashAtual.match(/^#checkin\/(.+)$/);
+        if (mCheckin) return renderCheckin(screen, mCheckin[1]);
+
+        return renderListaEventos(screen);
+    }
+
+    window.addEventListener('hashchange', rotear);
+    window.addEventListener('DOMContentLoaded', rotear);
+
+    // ── TELA 1: Lista de Eventos ──────────────────────────────
+    async function renderListaEventos(screen) {
+        const eventos = await IDB.getEventosOffline();
+
+        screen.innerHTML = `
+            <div class="pwa-header">
+                <div style="display:flex;align-items:center;gap:0.5rem;">
+                    ${icon('smartphone', 22, '#1547FF')}
+                    <div>
+                        <div class="pwa-header-title">PrestAI Campo</div>
+                        <div class="pwa-header-sub">Eventos disponíveis offline</div>
+                    </div>
+                </div>
+            </div>
+            <div class="pwa-content">
+                <button class="btn-pwa-secondary" onclick="carregarEventoOnline()">
+                    ${icon('refresh', 18)} Atualizar evento atual
+                </button>
+                ${eventos.length === 0 ? `
+                    <div class="empty-pwa">
+                        ${icon('calendarX', 48)}
+                        <div>Nenhum evento disponível offline.</div>
+                        <div style="margin-top:0.25rem;font-size:0.82rem;">Abra um evento enquanto estiver online para carregá-lo.</div>
+                    </div>` :
+                    eventos.map(ev => `
+                        <div class="pwa-card" onclick="location.hash='#evento/${esc(ev.id)}'" style="cursor:pointer;">
+                            <div class="pwa-card-title">${esc(ev.titulo)}</div>
+                            <div class="pwa-card-meta">
+                                <span class="pwa-card-meta-item">
+                                    ${icon('calendar', 13)} ${fmtDate(ev.data_evento)}
+                                </span>
+                                <span class="pwa-card-meta-item">
+                                    ${icon('mapPin', 13)} ${esc(ev.nome_local)}, ${esc(ev.cidade)}/${esc(ev.estado)}
+                                </span>
+                            </div>
+                            <div style="margin-top:0.5rem;font-size:0.78rem;color:#94a3b8;">
+                                OS: ${ev.ingressos_os || 0} ingressos · PA: ${ev.ingressos_pa || 0} ingressos
+                            </div>
+                        </div>`).join('')
+                }
+            </div>`;
+    }
+
+    // Carregar evento do servidor e salvar no IDB
+    async function carregarEventoOnline() {
+        const id = prompt('ID do evento a carregar:');
+        if (!id || !id.trim()) return;
+        const token = await getToken();
+        if (!token) { showToastPwa('Faça login antes de atualizar', 'error'); return; }
+        try {
+            showToastPwa('Carregando evento...');
+            const resp = await fetch('/api/m3/pwa/evento/' + id.trim(), {
+                headers: { 'Authorization': 'Bearer ' + token },
+            });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.error || 'Erro ao carregar');
+            }
+            const evento = await resp.json();
+            await IDB.salvarEventoOffline(evento);
+            showToastPwa('Evento salvo para uso offline ✓');
+            await renderListaEventos(document.getElementById('screen'));
+        } catch (e) {
+            showToastPwa('Erro: ' + e.message, 'error');
+        }
+    }
+
+    // ── TELA 2: Detalhe do Evento ─────────────────────────────
+    async function renderEvento(screen, id) {
+        eventoAtual = await IDB.getEventoOffline(id);
+        if (!eventoAtual) {
+            showToastPwa('Evento não encontrado no cache', 'error');
+            location.hash = '#lista-eventos';
+            return;
+        }
+
+        const todosCheckins = await IDB.getCheckinsPendentes();
+        const checkinsEvento = [];
+        // Também pegar sincronizados desta sessão
+        const todasDb = await (async () => {
+            const db = await IDB.initDB();
+            return new Promise((resolve, reject) => {
+                const tx  = db.transaction('checkins', 'readonly');
+                const req = tx.objectStore('checkins').getAll();
+                req.onsuccess = () => resolve(req.result);
+                req.onerror   = () => reject(req.error);
+            });
+        })();
+        const checkinsDoEvento = todasDb.filter(c => c.event_id === id);
+
+        screen.innerHTML = `
+            <div class="pwa-header">
+                <button class="pwa-back" onclick="location.hash='#lista-eventos'">
+                    ${icon('arrowLeft', 22)}
+                </button>
+                <div style="flex:1;min-width:0;">
+                    <div class="pwa-header-title" style="font-size:0.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                        ${esc(eventoAtual.titulo)}
+                    </div>
+                </div>
+            </div>
+            <div class="pwa-content">
+                <div class="pwa-card">
+                    <div class="pwa-card-meta">
+                        <span class="pwa-card-meta-item">${icon('calendar', 13)} ${fmtDate(eventoAtual.data_evento)}</span>
+                        <span class="pwa-card-meta-item">${icon('mapPin', 13)} ${esc(eventoAtual.nome_local)}, ${esc(eventoAtual.cidade)}/${esc(eventoAtual.estado)}</span>
+                    </div>
+                    <div style="margin-top:0.5rem;font-size:0.78rem;color:#94a3b8;">
+                        OS: ${eventoAtual.ingressos_os || 0} ingressos · PA: ${eventoAtual.ingressos_pa || 0} ingressos
+                    </div>
+                </div>
+
+                <button class="btn-pwa-primary" onclick="location.hash='#checkin/${esc(id)}'">
+                    ${icon('search', 18)} Buscar Convidado
+                </button>
+
+                <div class="section-title">Check-ins desta sessão (${checkinsDoEvento.length})</div>
+                ${checkinsDoEvento.length === 0 ? `
+                    <div style="text-align:center;padding:1.5rem 0;color:#94a3b8;font-size:0.85rem;">
+                        Nenhum check-in registrado ainda
+                    </div>` :
+                    checkinsDoEvento.map(c => `
+                        <div class="checkin-log-item">
+                            <div>
+                                <div class="checkin-log-name">${esc(c.nome_completo)}</div>
+                                <div class="checkin-log-meta">${esc(c.tipo)} · ${esc(c.org_nome || '—')} · ${fmtTime(c.timestamp)}</div>
+                            </div>
+                            <span class="badge-pwa badge-${c.sync_status === 'sincronizado' ? 'sincronizado' : 'pendente'}">
+                                ${c.sync_status === 'sincronizado' ? 'Sincronizado' : 'Pendente'}
+                            </span>
+                        </div>`).join('')
+                }
+            </div>`;
+    }
+
+    // ── TELA 3: Busca e Check-in ──────────────────────────────
+    async function renderCheckin(screen, id) {
+        if (!eventoAtual || eventoAtual.id !== id) {
+            eventoAtual = await IDB.getEventoOffline(id);
+        }
+        if (!eventoAtual) {
+            showToastPwa('Evento não encontrado no cache', 'error');
+            location.hash = '#lista-eventos';
+            return;
+        }
+
+        screen.innerHTML = `
+            <div class="pwa-header">
+                <button class="pwa-back" onclick="location.hash='#evento/${esc(id)}'">
+                    ${icon('arrowLeft', 22)}
+                </button>
+                <div>
+                    <div class="pwa-header-title" style="font-size:0.9rem;">Buscar Convidado</div>
+                    <div class="pwa-header-sub" style="font-size:0.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;">
+                        ${esc(eventoAtual.titulo)}
+                    </div>
+                </div>
+            </div>
+            <div class="pwa-content">
+                <input type="search" class="search-pwa" id="busca-input"
+                       placeholder="Nome completo ou CPF"
+                       autocomplete="off" autocorrect="off" spellcheck="false"
+                       oninput="buscarConvidados('${esc(id)}', this.value)">
+                <div id="resultados"></div>
+            </div>`;
+
+        setTimeout(() => {
+            const inp = document.getElementById('busca-input');
+            if (inp) inp.focus();
+        }, 100);
+    }
+
+    function buscarConvidados(eventId, termo) {
+        const convidados = eventoAtual?.distribution_guests || [];
+        const resultados = document.getElementById('resultados');
+        if (!resultados) return;
+
+        if (!termo.trim()) {
+            resultados.innerHTML = `<div style="text-align:center;padding:2rem 0;color:#94a3b8;font-size:0.85rem;">
+                Digite um nome ou CPF para buscar</div>`;
+            return;
+        }
+
+        const encontrados = buscarLocal(termo, convidados);
+
+        if (!encontrados.length) {
+            resultados.innerHTML = `<div class="empty-pwa">
+                ${icon('search', 40)}
+                <div>Nenhum convidado encontrado</div></div>`;
+            return;
+        }
+
+        // Buscar nome de org para cada convidado
+        const osMap = {};
+        const paMap = {};
+        (eventoAtual.distribution_event_os || []).forEach(v => {
+            if (v.distribution_os) osMap[v.os_id] = v.distribution_os.nome;
+        });
+        (eventoAtual.distribution_event_pa || []).forEach(v => {
+            if (v.distribution_pa) paMap[v.pa_id] = v.distribution_pa.nome;
+        });
+
+        resultados.innerHTML = encontrados.map(g => {
+            const tipo    = g.os_id ? 'OS' : 'PA';
+            const nomeOrg = g.os_id
+                ? (g.distribution_os?.nome || osMap[g.os_id] || '—')
+                : (g.distribution_pa?.nome || paMap[g.pa_id] || '—');
+            return `
+                <div class="checkin-result-card">
+                    <div class="checkin-result-name">${esc(g.nome_completo)}</div>
+                    <div class="checkin-result-org">
+                        <span class="badge-pwa badge-${tipo.toLowerCase()}">${tipo}</span>
+                        ${esc(nomeOrg)}
+                    </div>
+                    <button class="btn-checkin" id="btn-ci-${esc(g.id)}"
+                            onclick="fazerCheckin('${esc(eventId)}', '${esc(g.id)}', '${esc(g.nome_completo)}', '${esc(nomeOrg)}', '${tipo}')">
+                        ${icon('check', 16, '#16a34a')} Registrar Check-in
+                    </button>
+                </div>`;
+        }).join('');
+    }
+
+    function buscarLocal(termo, convidados) {
+        const n = termo.replace(/\D/g, '');
+        const isCpf = /^\d{11}$/.test(n);
+        return convidados.filter(g => isCpf
+            ? (g.cpf || '').replace(/\D/g, '') === n
+            : g.nome_completo.toLowerCase().includes(termo.toLowerCase())
+        );
+    }
+
+    async function fazerCheckin(eventId, guestId, nome, orgNome, tipo) {
+        const btn = document.getElementById('btn-ci-' + guestId);
+        if (btn) { btn.disabled = true; btn.textContent = 'Registrando…'; }
+
+        try {
+            await IDB.registrarCheckinOffline({
+                event_id:      eventId,
+                guest_id:      guestId,
+                nome_completo: nome,
+                org_nome:      orgNome,
+                tipo,
+                timestamp:     new Date().toISOString(),
+                sync_status:   'pendente',
+            });
+            showToastPwa('Check-in registrado localmente ✓');
+            if (btn) {
+                btn.style.background = '#86efac';
+                btn.textContent = '✓ Registrado';
+            }
+            // Se online, tentar sincronizar imediatamente
+            if (navigator.onLine) sincronizarTudo();
+        } catch (e) {
+            showToastPwa('Erro ao registrar: ' + e.message, 'error');
+            if (btn) { btn.disabled = false; btn.innerHTML = icon('check', 16, '#16a34a') + ' Registrar Check-in'; }
+        }
+    }
+
+    // ── SINCRONIZAÇÃO ─────────────────────────────────────────
+    async function sincronizarTudo() {
+        const pendentes = await IDB.getCheckinsPendentes();
+        if (pendentes.length === 0) {
+            atualizarStatusBar('🟢 Online — tudo sincronizado', '#22c55e');
+            return;
+        }
+
+        atualizarStatusBar(`🔄 Sincronizando ${pendentes.length} check-in(s)...`, '#f59e0b');
+
+        const token = await getToken();
+        if (!token) {
+            atualizarStatusBar('⚠️ Sem sessão — check-ins aguardam login', '#f59e0b');
+            return;
+        }
+
+        let sucesso = 0, erro = 0;
+        for (const checkin of pendentes) {
+            try {
+                const resp = await fetch('/api/m3/pwa/sync', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + token,
+                    },
+                    body: JSON.stringify({ checkins: [checkin] }),
+                });
+                if (resp.ok) {
+                    await IDB.marcarSincronizado(checkin.id);
+                    sucesso++;
+                } else {
+                    erro++;
+                }
+            } catch {
+                erro++;
+            }
+        }
+
+        await IDB.registrarSyncLog('checkins', erro === 0,
+            `${sucesso} sincronizados, ${erro} erros`);
+
+        atualizarStatusBar(
+            erro === 0
+                ? `🟢 ${sucesso} check-in(s) sincronizados`
+                : `⚠️ ${sucesso} ok, ${erro} erro(s)`,
+            erro === 0 ? '#22c55e' : '#f59e0b'
+        );
+
+        // Re-renderizar se estiver na tela de evento
+        if (hashAtual.startsWith('#evento/')) {
+            const m = hashAtual.match(/^#evento\/(.+)$/);
+            if (m) renderEvento(document.getElementById('screen'), m[1]);
+        }
+    }
+    </script>
+</body>
+</html>

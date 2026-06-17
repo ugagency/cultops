@@ -1475,6 +1475,77 @@ app.put('/api/m3/eventos/:id/encerrar', requireAuth, async (req, res) => {
     }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/m3/pwa/evento/:id
+// Pré-carrega evento completo para uso offline no PWA de campo.
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/api/m3/pwa/evento/:id', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { data: evento, error } = await supabaseAdmin
+            .from('distribution_events')
+            .select(`
+                *,
+                distribution_event_os(*, distribution_os(*)),
+                distribution_event_pa(*, distribution_pa(*)),
+                distribution_guests(*)
+            `)
+            .eq('id', id)
+            .single();
+
+        if (error || !evento)
+            return res.status(404).json({ error: 'Evento não encontrado' });
+
+        return res.json(evento);
+    } catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/m3/pwa/sync
+// Recebe check-ins offline e registra no audit_log.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/api/m3/pwa/sync', requireAuth, async (req, res) => {
+    try {
+        const { checkins = [] } = req.body;
+        if (!checkins.length) return res.json({ processados: 0, erros: [] });
+
+        const resultados = [];
+        const erros = [];
+
+        for (const checkin of checkins) {
+            try {
+                await supabaseAdmin.from('audit_log').insert({
+                    tabela:       'distribution_guests',
+                    registro_id:  checkin.guest_id || null,
+                    campo:        'checkin_pwa',
+                    valor_novo:   JSON.stringify({
+                        event_id:      checkin.event_id,
+                        nome_completo: checkin.nome_completo,
+                        org_nome:      checkin.org_nome,
+                        tipo:          checkin.tipo,
+                        timestamp:     checkin.timestamp,
+                    }),
+                    alterado_por: req.user?.id || null,
+                    origem:       'pwa_offline',
+                });
+                resultados.push({ id: checkin.id, sucesso: true });
+            } catch (e) {
+                erros.push({ id: checkin.id, erro: e.message });
+            }
+        }
+
+        return res.json({
+            processados: resultados.length,
+            erros,
+            sucesso: erros.length === 0,
+        });
+    } catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+
 if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
     app.listen(PORT, () => {
         console.log(`[SERVER] Rodando em http://localhost:${PORT}`);
