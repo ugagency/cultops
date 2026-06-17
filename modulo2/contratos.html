@@ -615,7 +615,7 @@
             try {
                 // 1. Upload para o Storage (path final, evita re-upload no submit)
                 const uuid = (crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-                const safeName = arquivo.name.replace(/[\/\\:*?"<>|]/g, '_');
+                const safeName = arquivo.name.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9._-]/g, '_').replace(/_+/g, '_');
                 const filePath = `${currentProjectId}/${uuid}/${safeName}`;
 
                 const { error: upErr } = await sb.storage
@@ -839,7 +839,7 @@
                     _ocrContratFilePath = null;
                 } else if (arquivo) {
                     const newUuid = (crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-                    const safeName = arquivo.name.replace(/[\/\\:*?"<>|]/g, '_');
+                    const safeName = arquivo.name.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9._-]/g, '_').replace(/_+/g, '_');
                     arquivoPath = `${currentProjectId}/${newUuid}/${safeName}`;
                     btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:16px;"></i> Enviando arquivo…';
                     if (window.lucide) window.lucide.createIcons();
