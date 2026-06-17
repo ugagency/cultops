@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Campo M3</title>
+
+    <link rel="manifest" href="pwa/manifest.json">
+    <meta name="theme-color" content="#1547FF">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800&display=swap" rel="stylesheet">
+
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m3-shared.css">
+
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: #F5F7FF;
+            font-family: 'DM Sans', sans-serif;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ── Header ─────────────────────────────────── */
+        .m3-header {
+            background: #fff;
+            border-bottom: 1px solid #E8ECFF;
+            padding: 1rem 1.25rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .m3-header-left {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .m3-logo {
+            height: 28px;
+            width: auto;
+        }
+
+        .m3-header-title {
+            font-weight: 700;
+            font-size: 1rem;
+            color: #1547FF;
+        }
+
+        .m3-logout-btn {
+            background: none;
+            border: none;
+            color: #E53E3E;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.4rem 0.6rem;
+            border-radius: 8px;
+            transition: background 0.15s;
+        }
+        .m3-logout-btn:hover { background: #FFF5F5; }
+
+        /* ── User strip ──────────────────────────────── */
+        .m3-user-strip {
+            background: linear-gradient(135deg, #1547FF 0%, #0F38D9 100%);
+            padding: 1.25rem 1.25rem 1.5rem;
+            color: #fff;
+        }
+
+        .m3-user-greeting {
+            font-size: 0.78rem;
+            opacity: 0.8;
+            margin-bottom: 0.2rem;
+        }
+
+        .m3-user-email {
+            font-size: 1rem;
+            font-weight: 700;
+            margin-bottom: 0.15rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .m3-user-org {
+            font-size: 0.82rem;
+            opacity: 0.75;
+        }
+
+        /* ── Main content ────────────────────────────── */
+        .m3-content {
+            flex: 1;
+            padding: 1.25rem;
+            max-width: 600px;
+            width: 100%;
+            margin: 0 auto;
+        }
+
+        /* ── Project selector ────────────────────────── */
+        .m3-section-label {
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #8A94B2;
+            margin-bottom: 0.6rem;
+        }
+
+        .m3-project-pill {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #fff;
+            border: 1.5px solid #1547FF;
+            border-radius: 12px;
+            padding: 0.85rem 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .m3-project-pill-info {
+            display: flex;
+            flex-direction: column;
+            gap: 0.15rem;
+        }
+
+        .m3-project-pronac {
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: #1547FF;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+
+        .m3-project-nome {
+            font-size: 0.92rem;
+            font-weight: 600;
+            color: #1A1D2E;
+        }
+
+        .m3-trocar-btn {
+            background: none;
+            border: none;
+            color: #8A94B2;
+            font-size: 0.78rem;
+            cursor: pointer;
+            padding: 0.3rem 0.5rem;
+            border-radius: 6px;
+            transition: background 0.15s;
+            white-space: nowrap;
+        }
+        .m3-trocar-btn:hover { background: #F0F2FF; color: #1547FF; }
+
+        .m3-project-select-wrap {
+            margin-bottom: 1.5rem;
+        }
+
+        .m3-project-select-wrap select {
+            width: 100%;
+            padding: 0.85rem 1rem;
+            border: 1.5px solid #CBD5E0;
+            border-radius: 12px;
+            font-size: 0.92rem;
+            font-family: inherit;
+            background: #fff;
+            color: #1A1D2E;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238A94B2' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 1rem center;
+            cursor: pointer;
+        }
+        .m3-project-select-wrap select:focus {
+            outline: none;
+            border-color: #1547FF;
+        }
+
+        /* ── Access cards ────────────────────────────── */
+        .m3-cards-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.9rem;
+        }
+
+        .m3-access-card {
+            background: #fff;
+            border: 1px solid #E8ECFF;
+            border-radius: 16px;
+            padding: 1.25rem 1rem;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0.65rem;
+            text-decoration: none;
+            color: inherit;
+            transition: all 0.2s;
+            cursor: pointer;
+            min-height: 120px;
+        }
+        .m3-access-card:hover {
+            border-color: #1547FF;
+            box-shadow: 0 4px 20px rgba(21,71,255,0.12);
+            transform: translateY(-2px);
+        }
+        .m3-access-card.disabled {
+            opacity: 0.45;
+            pointer-events: none;
+        }
+        .m3-access-card.col-span-2 {
+            grid-column: span 2;
+            flex-direction: row;
+            align-items: center;
+            min-height: auto;
+            gap: 1rem;
+        }
+
+        .m3-card-icon {
+            width: 42px;
+            height: 42px;
+            background: #EEF1FF;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #1547FF;
+            flex-shrink: 0;
+        }
+
+        .m3-card-label {
+            font-size: 0.92rem;
+            font-weight: 700;
+            color: #1A1D2E;
+        }
+
+        .m3-card-desc {
+            font-size: 0.75rem;
+            color: #8A94B2;
+            line-height: 1.4;
+        }
+
+        /* ── Empty / loading ─────────────────────────── */
+        .m3-empty-msg {
+            text-align: center;
+            padding: 2rem 1rem;
+            color: #8A94B2;
+            font-size: 0.9rem;
+        }
+
+        /* ── Footer ──────────────────────────────────── */
+        .m3-footer {
+            text-align: center;
+            padding: 1.5rem 1rem;
+            font-size: 0.72rem;
+            color: #B0B8D1;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="m3-header">
+        <div class="m3-header-left">
+            <img src="../PAI-Logo-Azul.png" alt="PrestAI" class="m3-logo">
+            <span class="m3-header-title">M3 Campo</span>
+        </div>
+        <button class="m3-logout-btn" onclick="handleLogout()">
+            <i data-lucide="log-out" style="width:14px;height:14px;"></i>
+            Sair
+        </button>
+    </header>
+
+    <!-- User strip -->
+    <div class="m3-user-strip">
+        <div class="m3-user-greeting">Bem-vindo(a),</div>
+        <div class="m3-user-email" id="user-email">Carregando...</div>
+        <div class="m3-user-org" id="user-org"></div>
+    </div>
+
+    <!-- Main content -->
+    <main class="m3-content">
+        <!-- Project selector -->
+        <div class="m3-section-label">Projeto</div>
+
+        <div id="project-pill" style="display:none;">
+            <div class="m3-project-pill">
+                <div class="m3-project-pill-info">
+                    <span class="m3-project-pronac" id="project-pronac"></span>
+                    <span class="m3-project-nome" id="project-nome"></span>
+                </div>
+                <button class="m3-trocar-btn" onclick="trocarProjeto()">Trocar →</button>
+            </div>
+        </div>
+
+        <div id="project-select-wrap" class="m3-project-select-wrap" style="display:none;">
+            <select id="project-select" onchange="selecionarProjeto(this.value)">
+                <option value="">Selecione um projeto...</option>
+            </select>
+        </div>
+
+        <div id="project-loading" class="m3-empty-msg">Carregando projetos...</div>
+
+        <!-- Access cards (shown after project selected) -->
+        <div id="access-cards" style="display:none;">
+            <div class="m3-section-label" style="margin-top:0.25rem;">Acesso rápido</div>
+            <div class="m3-cards-grid">
+                <a href="eventos.html" class="m3-access-card">
+                    <div class="m3-card-icon">
+                        <i data-lucide="calendar" style="width:22px;height:22px;"></i>
+                    </div>
+                    <div>
+                        <div class="m3-card-label">Eventos</div>
+                        <div class="m3-card-desc">Ver e gerenciar eventos da contrapartida</div>
+                    </div>
+                </a>
+
+                <a href="eventos.html" class="m3-access-card">
+                    <div class="m3-card-icon">
+                        <i data-lucide="door-open" style="width:22px;height:22px;"></i>
+                    </div>
+                    <div>
+                        <div class="m3-card-label">Portaria</div>
+                        <div class="m3-card-desc">Selecione um evento para acessar a portaria</div>
+                    </div>
+                </a>
+
+                <a href="pwa/index.html" class="m3-access-card" target="_blank">
+                    <div class="m3-card-icon">
+                        <i data-lucide="smartphone" style="width:22px;height:22px;"></i>
+                    </div>
+                    <div>
+                        <div class="m3-card-label">Campo (PWA)</div>
+                        <div class="m3-card-desc">App offline para check-in em campo</div>
+                    </div>
+                </a>
+
+                <a href="contrapartidas.html" class="m3-access-card col-span-2">
+                    <div class="m3-card-icon">
+                        <i data-lucide="layout-dashboard" style="width:22px;height:22px;"></i>
+                    </div>
+                    <div>
+                        <div class="m3-card-label">Dashboard</div>
+                        <div class="m3-card-desc">KPIs, evidências e resumo do projeto</div>
+                    </div>
+                </a>
+            </div>
+        </div>
+    </main>
+
+    <footer class="m3-footer">PrestAI &middot; 2025 &middot; Powered by SSYS</footer>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper-m3.js"></script>
+    <script>
+        let sb, currentOrgId;
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            if (window.lucide) window.lucide.createIcons();
+
+            sb = await initSupabase();
+            if (!sb) return;
+
+            const { data: { session } } = await sb.auth.getSession();
+            if (!session) { location.href = '../index.html#login'; return; }
+
+            const user = session.user;
+            document.getElementById('user-email').textContent =
+                user.user_metadata?.full_name || user.email;
+
+            // Load org name
+            currentOrgId = user.app_metadata?.org_id;
+            if (currentOrgId) {
+                const { data: org } = await sb.from('organizations')
+                    .select('nome').eq('id', currentOrgId).single();
+                if (org) document.getElementById('user-org').textContent = org.nome;
+            }
+
+            await carregarProjetos();
+        });
+
+        async function carregarProjetos() {
+            document.getElementById('project-loading').style.display = 'block';
+            document.getElementById('project-pill').style.display = 'none';
+            document.getElementById('project-select-wrap').style.display = 'none';
+            document.getElementById('access-cards').style.display = 'none';
+
+            const selected = ProjectManagerM3.getSelected();
+
+            if (selected) {
+                const { data: proj } = await sb.from('projects')
+                    .select('id, pronac, nome')
+                    .eq('id', selected)
+                    .single();
+
+                document.getElementById('project-loading').style.display = 'none';
+
+                if (proj) {
+                    document.getElementById('project-pronac').textContent = proj.pronac || '';
+                    document.getElementById('project-nome').textContent = proj.nome || '';
+                    document.getElementById('project-pill').style.display = 'block';
+                    document.getElementById('access-cards').style.display = 'block';
+                    if (window.lucide) window.lucide.createIcons();
+                    return;
+                }
+                // project not found — fall through to selector
+                ProjectManagerM3.setSelected(null);
+            }
+
+            // Load project list
+            if (!currentOrgId) {
+                document.getElementById('project-loading').style.display = 'none';
+                document.getElementById('project-select-wrap').style.display = 'block';
+                return;
+            }
+
+            const { data: projects } = await sb.from('projects')
+                .select('id, pronac, nome')
+                .eq('organization_id', currentOrgId)
+                .order('nome');
+
+            document.getElementById('project-loading').style.display = 'none';
+
+            if (!projects || projects.length === 0) {
+                document.getElementById('project-loading').style.display = 'block';
+                document.getElementById('project-loading').textContent =
+                    'Nenhum projeto encontrado para esta organização.';
+                return;
+            }
+
+            const sel = document.getElementById('project-select');
+            projects.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.textContent = `${p.pronac ? p.pronac + ' — ' : ''}${p.nome}`;
+                sel.appendChild(opt);
+            });
+
+            document.getElementById('project-select-wrap').style.display = 'block';
+        }
+
+        function selecionarProjeto(id) {
+            if (!id) return;
+            ProjectManagerM3.setSelected(id);
+            carregarProjetos();
+        }
+
+        function trocarProjeto() {
+            ProjectManagerM3.setSelected(null);
+            carregarProjetos();
+        }
+
+        async function handleLogout() {
+            if (sb) await sb.auth.signOut();
+            location.href = '../index.html';
+        }
+        window.handleLogout = handleLogout;
+    </script>
+</body>
+</html>

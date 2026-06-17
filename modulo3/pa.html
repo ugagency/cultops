@@ -244,6 +244,10 @@
             const { data: { session } } = await sb.auth.getSession();
             if (!session) { window.location.href = '../index.html#login'; return; }
 
+            const _role = session.user?.app_metadata?.role
+                       || session.user?.user_metadata?.role;
+            if (_role === 'operador') { location.href = 'index.html'; return; }
+
             await loadCards();
 
             let debounce;

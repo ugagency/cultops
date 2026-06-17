@@ -1546,6 +1546,43 @@ app.post('/api/m3/pwa/sync', requireAuth, async (req, res) => {
     }
 });
 
+app.post('/api/admin/usuarios/operador', requireAuth, async (req, res) => {
+    try {
+        const callerRole = req.user?.app_metadata?.role
+                        || req.user?.user_metadata?.role;
+        if (callerRole !== 'admin')
+            return res.status(403).json({ error: 'Apenas administradores podem criar operadores' });
+
+        const { email, nome, organization_id } = req.body;
+        if (!email || !nome)
+            return res.status(400).json({ error: 'email e nome são obrigatórios' });
+
+        const orgId = organization_id || req.user?.app_metadata?.org_id;
+
+        const { data: newUser, error } = await supabaseAdmin.auth.admin.createUser({
+            email,
+            email_confirm: true,
+            app_metadata:  { role: 'operador', org_id: orgId },
+            user_metadata: { full_name: nome, role: 'operador', org_id: orgId },
+        });
+        if (error) throw error;
+
+        await supabaseAdmin.from('organization_users').insert({
+            organization_id: orgId,
+            user_id:         newUser.user.id,
+            role:            'operador',
+        });
+
+        return res.json({
+            sucesso:  true,
+            usuario:  { id: newUser.user.id, email: newUser.user.email, role: 'operador' },
+            mensagem: `Operador ${nome} criado. E-mail de convite enviado para ${email}.`,
+        });
+    } catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+
 if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
     app.listen(PORT, () => {
         console.log(`[SERVER] Rodando em http://localhost:${PORT}`);

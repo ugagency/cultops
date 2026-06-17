@@ -286,7 +286,7 @@
                 title: 'Gestão de Contrapartidas',
                 desc: 'Check-in em eventos, registro de beneficiários e relatório de democratização',
                 icon: 'users',
-                disabled: true
+                disabled: false
             }
         };
 
@@ -333,6 +333,8 @@
                 window.location.href = 'index.html#dashboard';
             } else if (modulo === 'modulo_2') {
                 window.location.href = 'modulo2/financeiro.html';
+            } else if (modulo === 'modulo_3') {
+                window.location.href = 'modulo3/contrapartidas.html';
             }
         }
 
@@ -345,6 +347,14 @@
 
                 if (!session.data.session) {
                     window.location.href = 'index.html#login';
+                    return;
+                }
+
+                // Redirect imediato para operadores — não mostrar o selector
+                const _role = session.data.session.user?.app_metadata?.role
+                           || session.data.session.user?.user_metadata?.role;
+                if (_role === 'operador') {
+                    window.location.href = 'modulo3/index.html';
                     return;
                 }
 
