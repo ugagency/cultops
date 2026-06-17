@@ -218,6 +218,7 @@
                     </div>
                 </div>
                 <div class="ev-meta" id="ev-meta"></div>
+                <div id="ev-actions"></div>
             </div>
 
             <!-- Tabs -->
@@ -453,6 +454,19 @@
                 <div class="ev-meta-item">
                     <span class="ev-meta-label">Cota PA</span>
                     <span class="ev-meta-value">${evento.ingressos_pa}</span>
+                </div>
+            `;
+
+            document.getElementById('ev-actions').innerHTML = `
+                <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:1rem;">
+                    <a href="convidados.html?event_id=${eventId}" class="btn-secondary"
+                       style="text-decoration:none;display:inline-flex;align-items:center;gap:0.5rem;padding:0.45rem 1rem;font-size:0.875rem;">
+                        <i data-lucide="users" style="width:16px;"></i> Convidados
+                    </a>
+                    <a href="portaria.html?event_id=${eventId}" class="btn-secondary"
+                       style="text-decoration:none;display:inline-flex;align-items:center;gap:0.5rem;padding:0.45rem 1rem;font-size:0.875rem;">
+                        <i data-lucide="door-open" style="width:16px;"></i> Portaria
+                    </a>
                 </div>
             `;
         }

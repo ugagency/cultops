@@ -429,7 +429,7 @@
                         <a href="evento-detalhe.html?id=${esc(ev.id)}" class="btn-primary" style="padding:0.4rem 0.85rem;font-size:0.8rem;">
                             <i data-lucide="list" style="width:13px;"></i> Detalhes
                         </a>
-                        <button class="btn-secondary" style="padding:0.4rem 0.85rem;font-size:0.8rem;cursor:not-allowed;opacity:0.5;" title="Em breve" disabled>
+                        <button class="btn-secondary" style="padding:0.4rem 0.85rem;font-size:0.8rem;" onclick="window.location.href='portaria.html?event_id=${esc(ev.id)}'">
                             <i data-lucide="door-open" style="width:13px;"></i> Portaria
                         </button>
                     </div>

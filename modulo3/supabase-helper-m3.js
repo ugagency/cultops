@@ -39,7 +39,7 @@ function renderSidebarM3() {
         { label: 'Patrocinadores',  icon: 'building-2',   path: 'pa.html' },
         { label: 'Eventos',         icon: 'calendar',     path: 'eventos.html' },
         { label: 'Distribuição',    icon: 'ticket',       path: null },
-        { label: 'Convidados',      icon: 'user-check',   path: null },
+        { label: 'Convidados',      icon: 'user-check',   path: 'convidados.html' },
         { label: 'Presenças',       icon: 'clipboard-check', path: null },
     ];
 
@@ -360,6 +360,62 @@ async function atualizarStatusPa(eventId, paId, novoStatus) {
     return data[0];
 }
 
+// ── Convidados ────────────────────────────────────────
+
+async function getConvidadosByEvento(eventId) {
+    const sb = await initSupabase();
+    const { data, error } = await sb
+        .from('distribution_guests')
+        .select('*, distribution_os(*), distribution_pa(*)')
+        .eq('event_id', eventId)
+        .order('nome_completo');
+    if (error) throw error;
+    return data || [];
+}
+
+async function addConvidado(dados) {
+    if (dados.cpf && !dados.lgpd_consent) throw new Error('CPF_SEM_LGPD');
+    const sb  = await initSupabase();
+    const org = await getCurrentOrgIdM3();
+    const row = {
+        ...dados,
+        cpf:             dados.cpf ? dados.cpf.replace(/\D/g, '') || null : null,
+        lgpd_consent_at: dados.lgpd_consent ? new Date().toISOString() : null,
+        organization_id: org,
+    };
+    const { data, error } = await sb
+        .from('distribution_guests')
+        .insert(row)
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
+async function removeConvidado(id) {
+    const sb = await initSupabase();
+    const { error } = await sb.from('distribution_guests').delete().eq('id', id);
+    if (error) throw error;
+}
+
+async function buscarConvidadoPortaria(eventId, termo) {
+    const sb = await initSupabase();
+    const normalTermo = termo.replace(/[\.\-\s]/g, '');
+    const isCpf = /^\d{11}$/.test(normalTermo);
+
+    const { data, error } = await sb
+        .from('distribution_guests')
+        .select('*, distribution_os(*), distribution_pa(*)')
+        .eq('event_id', eventId);
+    if (error) throw error;
+
+    return (data || []).filter(g => {
+        if (isCpf) {
+            return (g.cpf || '').replace(/\D/g, '') === normalTermo;
+        }
+        return g.nome_completo.toLowerCase().includes(termo.toLowerCase());
+    });
+}
+
 // ── Exports ───────────────────────────────────────────────────
 
 window.initSupabase            = window.initSupabase || initSupabase;
@@ -385,3 +441,7 @@ window.atualizarStatusOs       = atualizarStatusOs;
 window.vincularPa              = vincularPa;
 window.desvincularPa           = desvincularPa;
 window.atualizarStatusPa       = atualizarStatusPa;
+window.getConvidadosByEvento   = getConvidadosByEvento;
+window.addConvidado            = addConvidado;
+window.removeConvidado         = removeConvidado;
+window.buscarConvidadoPortaria = buscarConvidadoPortaria;

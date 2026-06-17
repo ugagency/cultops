@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Convidados (M3)</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m3-shared.css">
+
+    <style>
+        .tab-bar { display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:1.5rem; }
+        .tab-btn {
+            padding:0.75rem 1.5rem;
+            font-family:'DM Sans',sans-serif; font-size:0.9rem; font-weight:600;
+            color:var(--text-muted); background:none; border:none;
+            border-bottom:3px solid transparent; margin-bottom:-2px;
+            cursor:pointer; transition:color 0.2s,border-color 0.2s;
+            display:flex; align-items:center; gap:0.5rem;
+        }
+        .tab-btn.active { color:var(--m3-accent); border-bottom-color:var(--m3-accent); }
+        .tab-btn .tab-count {
+            background:#E3E8FF; color:#1547FF; font-size:0.7rem; font-weight:700;
+            padding:0.1rem 0.45rem; border-radius:999px; min-width:18px; text-align:center;
+        }
+
+        .badge-pendente        { background:#F1F5F9;color:#64748b; }
+        .badge-convite_enviado { background:#FEF9C3;color:#854D0E; }
+        .badge-confirmado      { background:#DCFCE7;color:#16a34a; }
+        .badge-recusado        { background:#FFECE4;color:#FF5807; }
+        .badge-lista_enviada   { background:#E3E8FF;color:#1547FF; }
+        .badge-concluido       { background:#1547FF;color:white; }
+
+        .guest-row {
+            display:flex; align-items:center; gap:0.75rem;
+            padding:0.6rem 0; border-bottom:1px solid #f8fafc; flex-wrap:wrap;
+        }
+        .guest-row:last-child { border-bottom:none; }
+
+        .btn-remove-guest {
+            width:28px; height:28px; border-radius:8px;
+            border:1px solid #fde8e8; background:#fff5f5; color:#FF5807;
+            display:flex; align-items:center; justify-content:center;
+            cursor:pointer; transition:all 0.15s; flex-shrink:0;
+        }
+        .btn-remove-guest:hover { background:#FF5807; color:white; border-color:#FF5807; }
+
+        .lgpd-notice {
+            background:#f0f4ff; border:1px solid #c7d5ff;
+            border-radius:10px; padding:1rem; margin-bottom:1.25rem;
+        }
+        .lgpd-notice label { display:flex; gap:0.75rem; align-items:flex-start; cursor:pointer; }
+        .lgpd-notice input[type=checkbox] { margin-top:0.15rem; flex-shrink:0; width:16px; height:16px; }
+    </style>
+</head>
+<body>
+    <main class="main-content">
+        <!-- ── Page body (hidden until data loads) ───────────── -->
+        <div id="page-body" style="display:none;">
+
+            <!-- Header -->
+            <div class="glass-card" style="margin-bottom:1.5rem;">
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
+                    <div>
+                        <a id="btn-voltar" href="eventos.html" class="btn-secondary"
+                           style="text-decoration:none;display:inline-flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;padding:0.4rem 0.85rem;font-size:0.85rem;">
+                            <i data-lucide="arrow-left" style="width:15px;"></i> Voltar
+                        </a>
+                        <h1 id="titulo-evento" style="font-size:1.4rem;font-weight:800;color:var(--text-primary);line-height:1.2;margin:0;"></h1>
+                        <div id="data-evento" style="color:var(--text-muted);font-size:0.875rem;margin-top:0.35rem;"></div>
+                    </div>
+                    <button class="btn-secondary" onclick="exportarLista()" id="btn-export">
+                        <i data-lucide="download" style="width:16px;"></i> Exportar Lista
+                    </button>
+                </div>
+            </div>
+
+            <!-- Abas -->
+            <div class="tab-bar">
+                <button class="tab-btn active" id="tab-os-btn" onclick="switchTab('os')">
+                    <i data-lucide="users" style="width:16px;"></i>
+                    Organizações Sociais
+                    <span class="tab-count" id="count-os">0</span>
+                </button>
+                <button class="tab-btn" id="tab-pa-btn" onclick="switchTab('pa')">
+                    <i data-lucide="building-2" style="width:16px;"></i>
+                    Patrocinadores
+                    <span class="tab-count" id="count-pa">0</span>
+                </button>
+            </div>
+
+            <div id="tab-os">
+                <div id="os-content"></div>
+            </div>
+            <div id="tab-pa" style="display:none;">
+                <div id="pa-content"></div>
+            </div>
+
+        </div>
+
+        <!-- Loading -->
+        <div id="page-loading" class="empty-state">
+            <i data-lucide="loader" class="spin" style="width:32px;"></i>
+            <div style="margin-top:0.75rem;">Carregando convidados…</div>
+        </div>
+    </main>
+
+    <!-- ── Modal Adicionar Convidado ──────────────────────────── -->
+    <div id="modal-backdrop" class="modal-backdrop" style="display:none;">
+        <div class="modal-card" style="max-width:500px;">
+            <div class="modal-header">
+                <h2>Adicionar Convidado</h2>
+                <button class="btn-icon" onclick="closeModal()">
+                    <i data-lucide="x" style="width:22px;"></i>
+                </button>
+            </div>
+
+            <!-- Passo 1: LGPD -->
+            <div class="lgpd-notice">
+                <label>
+                    <input type="checkbox" id="lgpd-check" onchange="onLgpdChange()">
+                    <span style="font-size:0.875rem;line-height:1.5;color:var(--text-primary);">
+                        Confirmo que o convidado autorizou o uso de seus dados pessoais
+                        (CPF) conforme a LGPD — Lei 13.709/2018
+                    </span>
+                </label>
+            </div>
+
+            <!-- Passo 2: Campos -->
+            <div class="form-grid">
+                <div class="form-group span-2">
+                    <label>Nome Completo *</label>
+                    <input type="text" id="g-nome" placeholder="Nome completo do convidado">
+                </div>
+                <div class="form-group">
+                    <label>
+                        CPF
+                        <span id="cpf-hint" style="color:#94a3b8;font-size:0.78rem;font-weight:400;">
+                            (requer consentimento LGPD)
+                        </span>
+                    </label>
+                    <input type="tel" id="g-cpf" placeholder="000.000.000-00"
+                           disabled maxlength="14" oninput="fmtCpfInput(this)">
+                </div>
+                <div class="form-group">
+                    <label>RG <span style="color:#94a3b8;font-size:0.78rem;font-weight:400;">(opcional)</span></label>
+                    <input type="text" id="g-rg" placeholder="RG do convidado">
+                </div>
+                <div class="form-group span-2">
+                    <label>Telefone <span style="color:#94a3b8;font-size:0.78rem;font-weight:400;">(opcional)</span></label>
+                    <input type="tel" id="g-tel" placeholder="(00) 00000-0000">
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <div class="actions-right">
+                    <button class="btn-secondary" onclick="closeModal()">Cancelar</button>
+                    <button class="btn-primary" id="modal-submit-btn" onclick="submitConvidado()">
+                        <i data-lucide="user-plus" style="width:15px;"></i> Adicionar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper-m3.js"></script>
+    <script>
+        // ── State ─────────────────────────────────────────────
+        const params  = new URLSearchParams(location.search);
+        const eventId = params.get('event_id');
+        if (!eventId) location.href = 'eventos.html';
+
+        let evento     = null;
+        let convidados = [];
+        let _project   = null;
+        let modalOsId  = null;
+        let modalPaId  = null;
+        let activeTab  = 'os';
+
+        // ── Utilities ─────────────────────────────────────────
+        function esc(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+                .replace(/'/g,'&#39;');
+        }
+        function showToast(msg, type = 'success') {
+            const c = document.getElementById('toast-container');
+            const t = document.createElement('div');
+            t.className = `toast toast-${type}`;
+            t.innerHTML = `<i data-lucide="${type==='success'?'check-circle':'alert-circle'}" style="width:18px;flex-shrink:0;"></i><span>${esc(msg)}</span>`;
+            c.appendChild(t);
+            reIcons();
+            setTimeout(() => t.remove(), 4500);
+        }
+        function reIcons() { if (window.lucide) window.lucide.createIcons(); }
+        function fmtDate(d) {
+            if (!d) return '—';
+            try { return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR'); } catch { return d; }
+        }
+        function maskCpf(cpf) {
+            if (!cpf) return '—';
+            const d = cpf.replace(/\D/g, '');
+            if (d.length !== 11) return '(inválido)';
+            return `***.***.${d.slice(6,9)}-${d.slice(9)}`;
+        }
+        function formatCpfExport(cpf) {
+            if (!cpf) return '';
+            const d = cpf.replace(/\D/g, '');
+            return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`;
+        }
+        function fmtCpfInput(el) {
+            let v = el.value.replace(/\D/g,'').slice(0,11);
+            if      (v.length > 9) v = v.slice(0,3)+'.'+v.slice(3,6)+'.'+v.slice(6,9)+'-'+v.slice(9);
+            else if (v.length > 6) v = v.slice(0,3)+'.'+v.slice(3,6)+'.'+v.slice(6);
+            else if (v.length > 3) v = v.slice(0,3)+'.'+v.slice(3);
+            el.value = v;
+        }
+
+        const STATUS_LABELS = {
+            pendente:'Pendente', convite_enviado:'Convite Enviado',
+            confirmado:'Confirmado', recusado:'Recusado',
+            lista_enviada:'Lista Enviada', concluido:'Concluído'
+        };
+
+        // ── Init ──────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', async () => {
+            renderSidebarM3();
+            reIcons();
+
+            const sb = await initSupabase();
+            if (!sb) return;
+            const { data: { session } } = await sb.auth.getSession();
+            if (!session) { location.href = '../index.html#login'; return; }
+
+            try {
+                [evento, convidados] = await Promise.all([
+                    getEventoDetalhe(eventId),
+                    getConvidadosByEvento(eventId)
+                ]);
+
+                if (evento.project_id) {
+                    const { data } = await sb.from('projects')
+                        .select('pronac, nome')
+                        .eq('id', evento.project_id)
+                        .maybeSingle();
+                    _project = data;
+                }
+
+                document.getElementById('btn-voltar').href = `evento-detalhe.html?id=${eventId}`;
+                document.getElementById('titulo-evento').textContent = evento.titulo;
+                document.getElementById('data-evento').textContent =
+                    fmtDate(evento.data_evento) + (evento.horario ? ' · ' + evento.horario.slice(0,5) : '');
+
+                document.getElementById('count-os').textContent = (evento.distribution_event_os || []).length;
+                document.getElementById('count-pa').textContent = (evento.distribution_event_pa || []).length;
+
+                renderOsTab();
+                renderPaTab();
+
+                document.getElementById('page-loading').style.display = 'none';
+                document.getElementById('page-body').style.display = '';
+                reIcons();
+            } catch (err) {
+                console.error(err);
+                document.getElementById('page-loading').innerHTML = `
+                    <div class="empty-state" style="color:#FF5807;">
+                        <i data-lucide="alert-circle" style="width:32px;"></i>
+                        <div style="margin-top:0.75rem;">Erro: ${esc(err.message)}</div>
+                    </div>`;
+                reIcons();
+            }
+        });
+
+        // ── Tabs ──────────────────────────────────────────────
+        function switchTab(tab) {
+            activeTab = tab;
+            document.getElementById('tab-os').style.display    = tab === 'os' ? '' : 'none';
+            document.getElementById('tab-pa').style.display    = tab === 'pa' ? '' : 'none';
+            document.getElementById('tab-os-btn').className    = 'tab-btn' + (tab === 'os' ? ' active' : '');
+            document.getElementById('tab-pa-btn').className    = 'tab-btn' + (tab === 'pa' ? ' active' : '');
+            reIcons();
+        }
+
+        // ── Render OS tab ──────────────────────────────────────
+        function renderOsTab() {
+            const vinculos = evento.distribution_event_os || [];
+            const wrap = document.getElementById('os-content');
+            if (!vinculos.length) {
+                wrap.innerHTML = `<div class="empty-state">
+                    <i data-lucide="users" style="width:32px;"></i>
+                    <div style="margin-top:0.5rem;">Nenhuma OS vinculada ao evento.</div>
+                </div>`;
+                reIcons(); return;
+            }
+            wrap.innerHTML = vinculos.map(v => renderOsSection(v)).join('');
+            reIcons();
+        }
+
+        function renderOsSection(v) {
+            const os = v.distribution_os || {};
+            const guests = convidados.filter(g => g.os_id === v.os_id);
+            const statusCls   = 'badge-' + (v.status || 'pendente');
+            const statusLabel = STATUS_LABELS[v.status] || v.status;
+            const local = [os.cidade, os.estado].filter(Boolean).map(esc).join('/');
+
+            return `
+                <div class="glass-card" style="margin-bottom:1.25rem;">
+                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1rem;flex-wrap:wrap;">
+                        <div>
+                            <div style="font-weight:700;font-size:1rem;color:var(--text-primary);">${esc(os.nome||'—')}</div>
+                            ${local ? `<div style="font-size:0.82rem;color:var(--text-muted);margin-top:0.2rem;">${local}</div>` : ''}
+                            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;align-items:center;">
+                                <span class="badge ${esc(statusCls)}">${esc(statusLabel)}</span>
+                                <span style="font-size:0.8rem;color:var(--text-muted);">${v.ingressos_alocados} ingresso(s)</span>
+                            </div>
+                        </div>
+                        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                            <button class="btn-secondary" style="padding:0.4rem 0.85rem;font-size:0.8rem;"
+                                    onclick="gerarCartaConvite('${esc(v.id)}','os')">
+                                <i data-lucide="file-text" style="width:13px;"></i> Carta-Convite
+                            </button>
+                            <button class="btn-primary" style="padding:0.4rem 0.85rem;font-size:0.8rem;"
+                                    onclick="openModal('${esc(v.os_id)}', null)">
+                                <i data-lucide="user-plus" style="width:13px;"></i> + Convidado
+                            </button>
+                        </div>
+                    </div>
+
+                    <div style="border-top:1px solid #f1f5f9;padding-top:0.75rem;">
+                        ${guests.length
+                            ? guests.map(g => renderGuestRow(g)).join('')
+                            : '<div style="color:var(--text-muted);font-size:0.875rem;padding:0.35rem 0;">Nenhum convidado adicionado.</div>'
+                        }
+                    </div>
+                </div>`;
+        }
+
+        // ── Render PA tab ──────────────────────────────────────
+        function renderPaTab() {
+            const vinculos = evento.distribution_event_pa || [];
+            const wrap = document.getElementById('pa-content');
+            if (!vinculos.length) {
+                wrap.innerHTML = `<div class="empty-state">
+                    <i data-lucide="building-2" style="width:32px;"></i>
+                    <div style="margin-top:0.5rem;">Nenhum PA vinculado ao evento.</div>
+                </div>`;
+                reIcons(); return;
+            }
+            wrap.innerHTML = vinculos.map(v => renderPaSection(v)).join('');
+            reIcons();
+        }
+
+        function renderPaSection(v) {
+            const pa = v.distribution_pa || {};
+            const guests = convidados.filter(g => g.pa_id === v.pa_id);
+            const statusCls   = 'badge-' + (v.status || 'pendente');
+            const statusLabel = STATUS_LABELS[v.status] || v.status;
+
+            return `
+                <div class="glass-card" style="margin-bottom:1.25rem;">
+                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1rem;flex-wrap:wrap;">
+                        <div>
+                            <div style="font-weight:700;font-size:1rem;color:var(--text-primary);">${esc(pa.nome||'—')}</div>
+                            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;align-items:center;">
+                                <span class="badge ${esc(statusCls)}">${esc(statusLabel)}</span>
+                                <span style="font-size:0.8rem;color:var(--text-muted);">${v.ingressos_alocados} ingresso(s)</span>
+                            </div>
+                        </div>
+                        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                            <button class="btn-secondary" style="padding:0.4rem 0.85rem;font-size:0.8rem;"
+                                    onclick="gerarCartaConvite('${esc(v.id)}','pa')">
+                                <i data-lucide="file-text" style="width:13px;"></i> Carta-Convite
+                            </button>
+                            <button class="btn-primary" style="padding:0.4rem 0.85rem;font-size:0.8rem;"
+                                    onclick="openModal(null, '${esc(v.pa_id)}')">
+                                <i data-lucide="user-plus" style="width:13px;"></i> + Convidado
+                            </button>
+                        </div>
+                    </div>
+
+                    <div style="border-top:1px solid #f1f5f9;padding-top:0.75rem;">
+                        ${guests.length
+                            ? guests.map(g => renderGuestRow(g)).join('')
+                            : '<div style="color:var(--text-muted);font-size:0.875rem;padding:0.35rem 0;">Nenhum convidado adicionado.</div>'
+                        }
+                    </div>
+                </div>`;
+        }
+
+        function renderGuestRow(g) {
+            return `
+                <div class="guest-row">
+                    <div style="flex:1;min-width:180px;">
+                        <div style="font-weight:600;font-size:0.875rem;color:var(--text-primary);">${esc(g.nome_completo)}</div>
+                        <div style="font-size:0.78rem;color:var(--text-muted);margin-top:0.1rem;">
+                            CPF: ${maskCpf(g.cpf)}${g.telefone ? ' · ' + esc(g.telefone) : ''}
+                        </div>
+                    </div>
+                    ${!g.lgpd_consent ? '<span style="font-size:0.7rem;background:#FEF9C3;color:#854D0E;padding:0.15rem 0.4rem;border-radius:4px;font-weight:600;white-space:nowrap;">Sem LGPD</span>' : ''}
+                    <button class="btn-remove-guest" onclick="removerConvidado('${esc(g.id)}')" title="Remover convidado">
+                        <i data-lucide="x" style="width:14px;"></i>
+                    </button>
+                </div>`;
+        }
+
+        // ── Modal ─────────────────────────────────────────────
+        function openModal(osId, paId) {
+            modalOsId = osId;
+            modalPaId = paId;
+            document.getElementById('lgpd-check').checked = false;
+            document.getElementById('g-nome').value = '';
+            const cpfEl = document.getElementById('g-cpf');
+            cpfEl.value = ''; cpfEl.disabled = true;
+            document.getElementById('g-rg').value  = '';
+            document.getElementById('g-tel').value = '';
+            document.getElementById('modal-backdrop').style.display = 'flex';
+            reIcons();
+        }
+        function closeModal() {
+            document.getElementById('modal-backdrop').style.display = 'none';
+            modalOsId = null; modalPaId = null;
+        }
+        function onLgpdChange() {
+            const cpfEl = document.getElementById('g-cpf');
+            cpfEl.disabled = !document.getElementById('lgpd-check').checked;
+            if (cpfEl.disabled) cpfEl.value = '';
+        }
+
+        async function submitConvidado() {
+            const nome = document.getElementById('g-nome').value.trim();
+            if (!nome) { showToast('Nome completo é obrigatório.', 'error'); return; }
+
+            const lgpd   = document.getElementById('lgpd-check').checked;
+            const cpfRaw = document.getElementById('g-cpf').value.replace(/\D/g, '');
+            const cpf    = lgpd && cpfRaw ? cpfRaw : null;
+            const rg     = document.getElementById('g-rg').value.trim()  || null;
+            const tel    = document.getElementById('g-tel').value.trim()  || null;
+
+            const btn = document.getElementById('modal-submit-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px;"></i> Salvando…';
+            reIcons();
+
+            try {
+                await addConvidado({
+                    event_id:        eventId,
+                    os_id:           modalOsId || null,
+                    pa_id:           modalPaId || null,
+                    nome_completo:   nome,
+                    cpf,
+                    rg,
+                    telefone:        tel,
+                    lgpd_consent:    lgpd,
+                    lgpd_consent_at: lgpd ? new Date().toISOString() : null,
+                });
+                showToast('Convidado adicionado!');
+                closeModal();
+                convidados = await getConvidadosByEvento(eventId);
+                activeTab === 'os' ? renderOsTab() : renderPaTab();
+                reIcons();
+            } catch (err) {
+                const msg = err.message === 'CPF_SEM_LGPD'
+                    ? 'CPF requer consentimento LGPD.'
+                    : 'Erro: ' + (err.message || '');
+                showToast(msg, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i data-lucide="user-plus" style="width:15px;"></i> Adicionar';
+                reIcons();
+            }
+        }
+
+        // ── Remover convidado ──────────────────────────────────
+        async function removerConvidado(id) {
+            if (!confirm('Remover este convidado?')) return;
+            try {
+                await removeConvidado(id);
+                convidados = convidados.filter(g => g.id !== id);
+                activeTab === 'os' ? renderOsTab() : renderPaTab();
+                showToast('Convidado removido.');
+                reIcons();
+            } catch (err) {
+                showToast('Erro: ' + (err.message || ''), 'error');
+            }
+        }
+
+        // ── Carta-Convite PDF ──────────────────────────────────
+        async function gerarCartaConvite(vincId, tipo) {
+            const vinc = tipo === 'os'
+                ? (evento.distribution_event_os || []).find(v => v.id === vincId)
+                : (evento.distribution_event_pa || []).find(v => v.id === vincId);
+            if (!vinc) { showToast('Vínculo não encontrado.', 'error'); return; }
+            const org = tipo === 'os' ? vinc.distribution_os : vinc.distribution_pa;
+
+            try {
+                const { PDFDocument, rgb, StandardFonts } = PDFLib;
+                const doc  = await PDFDocument.create();
+                const page = doc.addPage([595.28, 841.89]);
+
+                const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
+                const fontReg  = await doc.embedFont(StandardFonts.Helvetica);
+
+                // Logo
+                try {
+                    const bytes = await fetch('../PAI-Logo-Azul.png').then(r => r.arrayBuffer());
+                    const img   = await doc.embedPng(bytes);
+                    page.drawImage(img, { x:40, y:785, ...img.scaleToFit(120, 40) });
+                } catch (_) { /* logo opcional */ }
+
+                // Cabeçalho
+                page.drawText('CARTA-CONVITE', {
+                    x:40, y:745, size:18, font:fontBold, color:rgb(0.08, 0.28, 1)
+                });
+                page.drawText(evento.titulo.toUpperCase().slice(0, 70), {
+                    x:40, y:725, size:12, font:fontBold, color:rgb(0.1, 0.1, 0.1)
+                });
+                const hoje = new Date().toLocaleDateString('pt-BR', {day:'2-digit',month:'long',year:'numeric'});
+                page.drawText(`Emitido em ${hoje}`, {
+                    x:40, y:707, size:9, font:fontReg, color:rgb(0.5, 0.5, 0.5)
+                });
+                page.drawLine({start:{x:40,y:697}, end:{x:555,y:697}, thickness:1, color:rgb(0.88,0.88,0.92)});
+
+                // Dados do evento
+                const dtEvento = new Date(evento.data_evento + 'T12:00:00')
+                    .toLocaleDateString('pt-BR', {weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+                const linhas = [
+                    ['Data:',     dtEvento],
+                    ['Horário:',  evento.horario ? evento.horario.slice(0,5) : 'A confirmar'],
+                    ['Local:',    String(evento.nome_local || '').slice(0,60)],
+                    ['Endereço:', `${evento.endereco}, ${evento.cidade}/${evento.estado}`.slice(0,70)],
+                ];
+                let y = 683;
+                for (const [lbl, val] of linhas) {
+                    page.drawText(lbl,         {x:40,  y, size:10, font:fontBold});
+                    page.drawText(String(val), {x:115, y, size:10, font:fontReg});
+                    y -= 18;
+                }
+
+                // Destinatário
+                y -= 8;
+                page.drawText('Para:', {x:40, y, size:10, font:fontBold});
+                page.drawText(String(org?.nome || '').slice(0,65), {x:90, y, size:10, font:fontReg});
+                if (tipo === 'os' && org?.nome_coordenador) {
+                    y -= 18;
+                    page.drawText('A/C:', {x:40, y, size:10, font:fontBold});
+                    page.drawText(String(org.nome_coordenador).slice(0,60), {x:90, y, size:10, font:fontReg});
+                }
+
+                // Corpo
+                y -= 20;
+                page.drawLine({start:{x:40,y}, end:{x:555,y}, thickness:1, color:rgb(0.88,0.88,0.92)});
+                y -= 18;
+                const orgNome   = String(org?.nome || '');
+                const projNome  = String(evento.titulo || '').slice(0, 50);
+                const destinat  = tipo === 'os' ? 'os membros de sua organização' : 'seus representantes';
+                const corpo = [
+                    `Em nome do projeto cultural "${projNome}", é com grande`,
+                    `satisfação que convidamos a ${orgNome.slice(0,50)} para participar`,
+                    `do evento que ocorrerá na data indicada acima.`,
+                    '',
+                    `Foram reservados ${vinc.ingressos_alocados} ingresso(s) para ${destinat}.`,
+                    '',
+                    `Contamos com a sua presença para celebrar a cultura brasileira e a`,
+                    `Lei Federal de Incentivo à Cultura — Lei Rouanet.`,
+                ];
+                for (const linha of corpo) {
+                    if (linha) page.drawText(linha, {x:40, y, size:10, font:fontReg});
+                    y -= 16;
+                }
+
+                // Rodapé
+                page.drawLine({start:{x:40,y:75}, end:{x:555,y:75}, thickness:1, color:rgb(0.88,0.88,0.92)});
+                if (_project) {
+                    const rodape = `PRONAC: ${_project.pronac || '—'}   |   ${String(_project.nome||'').slice(0,60)}`;
+                    page.drawText(rodape, {x:40, y:60, size:9, font:fontReg, color:rgb(0.5,0.5,0.5)});
+                }
+
+                const pdfBytes = await doc.save();
+                const url = URL.createObjectURL(new Blob([pdfBytes], {type:'application/pdf'}));
+                Object.assign(document.createElement('a'), {
+                    href:     url,
+                    download: `carta-convite-${(org?.nome||'convite').replace(/\s+/g,'-').slice(0,40)}.pdf`
+                }).click();
+                URL.revokeObjectURL(url);
+                showToast('PDF gerado com sucesso!');
+            } catch (err) {
+                console.error(err);
+                showToast('Erro ao gerar PDF: ' + (err.message || ''), 'error');
+            }
+        }
+
+        // ── Exportar Lista XLSX ────────────────────────────────
+        function exportarLista() {
+            if (!convidados.length) { showToast('Nenhum convidado para exportar.', 'error'); return; }
+            const rows = convidados.map(g => {
+                const vincOs = (evento.distribution_event_os || []).find(v => v.os_id === g.os_id);
+                const vincPa = (evento.distribution_event_pa || []).find(v => v.pa_id === g.pa_id);
+                return {
+                    'Nome Completo':  g.nome_completo,
+                    'CPF':            g.lgpd_consent ? formatCpfExport(g.cpf) : '(não informado)',
+                    'RG':             g.rg || '',
+                    'Telefone':       g.telefone || '',
+                    'Tipo':           g.os_id ? 'OS' : 'PA',
+                    'Organização':    vincOs?.distribution_os?.nome || vincPa?.distribution_pa?.nome || '',
+                    'Status':         vincOs?.status || vincPa?.status || '',
+                    'Evento':         evento.titulo,
+                    'Data do Evento': new Date(evento.data_evento + 'T12:00:00').toLocaleDateString('pt-BR'),
+                };
+            });
+            const ws = XLSX.utils.json_to_sheet(rows);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Convidados');
+            XLSX.writeFile(wb, `convidados-${evento.titulo.replace(/\s+/g,'-').slice(0,40)}.xlsx`);
+            showToast('Lista exportada!');
+        }
+    </script>
+</body>
+</html>
