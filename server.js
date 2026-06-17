@@ -1101,9 +1101,10 @@ app.post('/api/m2/fornecedores/criar-vincular', requireAuth, async (req, res) =>
         if (existing) {
             fornecedorId = existing.id;
         } else {
+            const newId = crypto.randomUUID ? crypto.randomUUID() : require('crypto').randomUUID();
             const { data: novo, error: insErr } = await supabase
                 .from('fornecedores')
-                .insert({ razao_social, cnpj: cnpj.replace(/\D/g, '') })
+                .insert({ id: newId, razao_social, cnpj: cnpj.replace(/\D/g, '') })
                 .select('id')
                 .single();
             if (insErr) throw new Error('Erro ao criar fornecedor: ' + insErr.message);
