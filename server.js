@@ -1058,6 +1058,60 @@ app.post('/api/m2/impostos/ocr', async (req, res) => {
 });
 
 /**
+ * Cria (ou recupera) um fornecedor e vincula ao projeto.
+ * POST /api/m2/fornecedores/criar-vincular
+ * Body: { cnpj, razao_social, project_id }
+ * Usa service_role — bypassa RLS da tabela fornecedores.
+ */
+app.post('/api/m2/fornecedores/criar-vincular', async (req, res) => {
+    const { cnpj, razao_social, project_id } = req.body || {};
+    if (!cnpj || !razao_social || !project_id) {
+        return res.status(400).json({ error: 'cnpj, razao_social e project_id são obrigatórios.' });
+    }
+    try {
+        // Verificar se já existe pelo CNPJ
+        let { data: existing } = await supabase
+            .from('fornecedores')
+            .select('id')
+            .eq('cnpj', cnpj.replace(/\D/g, ''))
+            .maybeSingle();
+
+        let fornecedorId;
+        if (existing) {
+            fornecedorId = existing.id;
+        } else {
+            const { data: novo, error: insErr } = await supabase
+                .from('fornecedores')
+                .insert({ razao_social, cnpj: cnpj.replace(/\D/g, '') })
+                .select('id')
+                .single();
+            if (insErr) throw new Error('Erro ao criar fornecedor: ' + insErr.message);
+            fornecedorId = novo.id;
+        }
+
+        // Vincular ao projeto (idempotente)
+        const { data: vinculo } = await supabase
+            .from('projeto_fornecedores')
+            .select('id')
+            .eq('project_id', project_id)
+            .eq('fornecedor_id', fornecedorId)
+            .maybeSingle();
+
+        if (!vinculo) {
+            const { error: linkErr } = await supabase
+                .from('projeto_fornecedores')
+                .insert({ project_id, fornecedor_id: fornecedorId });
+            if (linkErr) throw new Error('Erro ao vincular fornecedor: ' + linkErr.message);
+        }
+
+        return res.json({ success: true, fornecedor_id: fornecedorId });
+    } catch (err) {
+        console.error('[FORNECEDOR-CRIAR]', err.message);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+/**
  * Salva a revisão dos dados extraídos do PDF SALIC.
  * POST /api/m2/salvar-revisao-salic
  * Body: { project_id, import_id, user_id, etapas, locais, deslocamentos, divulgacao, complementar }
