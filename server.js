@@ -115,7 +115,7 @@ const supabase = createClient(
 );
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '5mb' }));
 
 // --- Auth middlewares (S1-A) ---
 async function requireAuth(req, res, next) {
@@ -999,19 +999,25 @@ app.post('/api/m2/processar-pdf-salic', async (req, res) => {
 app.post('/api/m2/contratos/ocr', async (req, res) => {
     req.setTimeout(120000);
     res.setTimeout(120000);
-    const { file_path } = req.body || {};
-    if (!file_path) return res.status(400).json({ error: 'file_path obrigatório.' });
+    const { fileBase64, fileName, projectId } = req.body || {};
+    if (!fileBase64 || !projectId) return res.status(400).json({ error: 'fileBase64 e projectId obrigatórios.' });
     const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
     if (!MISTRAL_API_KEY) return res.status(500).json({ error: 'MISTRAL_API_KEY não configurada.' });
     try {
-        const { data: blob, error: dlErr } = await supabase.storage.from('contracts').download(file_path);
-        if (dlErr || !blob) throw new Error('Falha ao baixar PDF do storage: ' + (dlErr?.message || 'arquivo não encontrado'));
-        const pdfBase64 = Buffer.from(await blob.arrayBuffer()).toString('base64');
-        console.log(`[CONTRATO-OCR] PDF baixado (${(pdfBase64.length * 0.75 / 1024).toFixed(0)} KB). Executando OCR...`);
+        // Upload para Storage via service_role (bypassa RLS)
+        const pdfBuffer = Buffer.from(fileBase64, 'base64');
+        const safeName = (fileName || 'contrato.pdf').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9._-]/g, '_').replace(/_+/g, '_');
+        const uuid = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const filePath = `${projectId}/${uuid}/${safeName}`;
+        const { error: upErr } = await supabase.storage.from('contracts').upload(filePath, pdfBuffer, { contentType: 'application/pdf', upsert: true });
+        if (upErr) throw new Error('Falha no upload: ' + upErr.message);
+        // OCR
+        const pdfBase64 = pdfBuffer.toString('base64');
+        console.log(`[CONTRATO-OCR] PDF (${(pdfBuffer.length / 1024).toFixed(0)} KB). Executando OCR...`);
         const texto = await runMistralOcr(pdfBase64, MISTRAL_API_KEY);
         const dados = await estruturarContratoJson(texto, MISTRAL_API_KEY);
         console.log('[CONTRATO-OCR] Concluído:', JSON.stringify(dados).slice(0, 200));
-        return res.json({ success: true, data: dados });
+        return res.json({ success: true, data: dados, file_path: filePath });
     } catch (err) {
         console.error('[CONTRATO-OCR] Erro:', err.message);
         return res.status(500).json({ error: err.message });
@@ -1026,19 +1032,25 @@ app.post('/api/m2/contratos/ocr', async (req, res) => {
 app.post('/api/m2/impostos/ocr', async (req, res) => {
     req.setTimeout(120000);
     res.setTimeout(120000);
-    const { file_path } = req.body || {};
-    if (!file_path) return res.status(400).json({ error: 'file_path obrigatório.' });
+    const { fileBase64, fileName, projectId } = req.body || {};
+    if (!fileBase64 || !projectId) return res.status(400).json({ error: 'fileBase64 e projectId obrigatórios.' });
     const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
     if (!MISTRAL_API_KEY) return res.status(500).json({ error: 'MISTRAL_API_KEY não configurada.' });
     try {
-        const { data: blob, error: dlErr } = await supabase.storage.from('tax-guides').download(file_path);
-        if (dlErr || !blob) throw new Error('Falha ao baixar PDF do storage: ' + (dlErr?.message || 'arquivo não encontrado'));
-        const pdfBase64 = Buffer.from(await blob.arrayBuffer()).toString('base64');
-        console.log(`[IMPOSTO-OCR] PDF baixado (${(pdfBase64.length * 0.75 / 1024).toFixed(0)} KB). Executando OCR...`);
+        // Upload para Storage via service_role (bypassa RLS)
+        const pdfBuffer = Buffer.from(fileBase64, 'base64');
+        const safeName = (fileName || 'guia.pdf').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9._-]/g, '_').replace(/_+/g, '_');
+        const uuid = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const filePath = `${projectId}/${uuid}/${safeName}`;
+        const { error: upErr } = await supabase.storage.from('tax-guides').upload(filePath, pdfBuffer, { contentType: 'application/pdf', upsert: true });
+        if (upErr) throw new Error('Falha no upload: ' + upErr.message);
+        // OCR
+        const pdfBase64 = pdfBuffer.toString('base64');
+        console.log(`[IMPOSTO-OCR] PDF (${(pdfBuffer.length / 1024).toFixed(0)} KB). Executando OCR...`);
         const texto = await runMistralOcr(pdfBase64, MISTRAL_API_KEY);
         const dados = await estruturarImpostoJson(texto, MISTRAL_API_KEY);
         console.log('[IMPOSTO-OCR] Concluído:', JSON.stringify(dados).slice(0, 200));
-        return res.json({ success: true, data: dados });
+        return res.json({ success: true, data: dados, file_path: filePath });
     } catch (err) {
         console.error('[IMPOSTO-OCR] Erro:', err.message);
         return res.status(500).json({ error: err.message });

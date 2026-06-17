@@ -613,40 +613,40 @@
             document.getElementById('fornecedor-ocr-banner').style.display = 'none';
 
             try {
-                // 1. Upload para o Storage (path final, evita re-upload no submit)
-                const uuid = (crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-                const safeName = arquivo.name.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9._-]/g, '_').replace(/_+/g, '_');
-                const filePath = `${currentProjectId}/${uuid}/${safeName}`;
-
-                const { error: upErr } = await sb.storage
-                    .from('contracts')
-                    .upload(filePath, arquivo, { cacheControl: '3600', upsert: true, contentType: 'application/pdf' });
-                if (upErr) throw new Error('Erro no upload: ' + upErr.message);
-                _ocrContratFilePath = filePath;
+                // 1. Converter PDF para base64 (servidor faz upload com service_role, bypassa RLS)
+                const fileBase64 = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result.split(',')[1]);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(arquivo);
+                });
 
                 // 2. Obter token de sessão para autenticar no servidor
                 const { data: { session } } = await sb.auth.getSession();
                 const token = session?.access_token || '';
 
-                // 3. Chamar endpoint OCR
+                // 3. Chamar endpoint OCR (servidor faz upload + OCR e devolve file_path)
                 const resp = await fetch('/api/m2/contratos/ocr', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ file_path: filePath })
+                    body: JSON.stringify({ fileBase64, fileName: arquivo.name, projectId: currentProjectId })
                 });
                 const json = await resp.json();
                 if (!resp.ok || !json.success) throw new Error(json.error || 'Erro no OCR');
 
+                // 4. Salvar path do arquivo (servidor já fez upload)
+                _ocrContratFilePath = json.file_path || null;
+
                 const d = json.data;
 
-                // 4. Pré-preencher campos
+                // 5. Pré-preencher campos
                 if (d.numero)      document.getElementById('c-numero').value = d.numero;
                 if (d.objeto)      document.getElementById('c-objeto').value = d.objeto;
                 if (d.data_inicio) document.getElementById('c-inicio').value = d.data_inicio;
                 if (d.data_fim)    document.getElementById('c-fim').value    = d.data_fim;
                 if (d.valor_total) document.getElementById('c-valor').value  = d.valor_total;
 
-                // 5. Resolver fornecedor pelo CNPJ
+                // 6. Resolver fornecedor pelo CNPJ
                 if (d.fornecedor_cnpj) {
                     await resolverFornecedor(d.fornecedor_cnpj, d.fornecedor_nome || '');
                 }
