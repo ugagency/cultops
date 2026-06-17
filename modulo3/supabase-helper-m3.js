@@ -38,9 +38,9 @@ function renderSidebarM3() {
         { label: 'Org. Sociais',    icon: 'users',        path: 'os.html' },
         { label: 'Patrocinadores',  icon: 'building-2',   path: 'pa.html' },
         { label: 'Eventos',         icon: 'calendar',     path: 'eventos.html' },
-        { label: 'Distribuição',    icon: 'ticket',       path: null },
+        { label: 'Dashboard',       icon: 'layout-dashboard', path: 'contrapartidas.html' },
         { label: 'Convidados',      icon: 'user-check',   path: 'convidados.html' },
-        { label: 'Presenças',       icon: 'clipboard-check', path: null },
+        { label: 'Evidências',      icon: 'clipboard-check', path: 'evidencias-m3.html' },
     ];
 
     const currentFile = window.location.pathname.split('/').pop();
@@ -416,6 +416,132 @@ async function buscarConvidadoPortaria(eventId, termo) {
     });
 }
 
+async function getEvidenciasByEvento(eventId) {
+    const sb = await initSupabase();
+    const { data, error } = await sb
+        .from('physical_evidences')
+        .select('*, rubricas(nome), distribution_events(titulo)')
+        .eq('distribution_event_id', eventId)
+        .order('criado_em', { ascending: false });
+    if (error) throw error;
+    return data || [];
+}
+
+async function createEvidencia(dados) {
+    const sb  = await initSupabase();
+    const org = await getCurrentOrgIdM3();
+    const { data: { user } } = await sb.auth.getUser();
+    const { data, error } = await sb
+        .from('physical_evidences')
+        .insert({
+            ...dados,
+            organization_id:   org,
+            enviado_por:       user.id,
+            status_validacao:  'pendente',
+        })
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
+async function getAttendanceByEvento(eventId) {
+    const sb = await initSupabase();
+    const { data, error } = await sb
+        .from('distribution_attendance')
+        .select('*')
+        .eq('event_id', eventId)
+        .order('uploaded_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+}
+
+async function createAttendance(dados) {
+    const sb  = await initSupabase();
+    const org = await getCurrentOrgIdM3();
+    const { data: { user } } = await sb.auth.getUser();
+    const { data, error } = await sb
+        .from('distribution_attendance')
+        .insert({ ...dados, organization_id: org, uploaded_by: user.id })
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
+async function encerrarEvento(eventId) {
+    const sb = await initSupabase();
+    const { data: { session } } = await sb.auth.getSession();
+    const token = session.access_token;
+    const r = await fetch('/api/m3/eventos/' + eventId + '/encerrar', {
+        method: 'PUT',
+        headers: {
+            'Authorization': 'Bearer ' + token,
+            'Content-Type': 'application/json',
+        },
+    });
+    const json = await r.json();
+    if (!r.ok) throw new Error(json.error || 'Erro ao encerrar evento');
+    return json;
+}
+
+async function getKpisM3(projectId) {
+    const sb  = await initSupabase();
+    const org = await getCurrentOrgIdM3();
+
+    const [
+        { count: eventosAtivos },
+        { count: totalOs },
+        { count: totalPa },
+        { data: vincOs },
+        { data: vincPa },
+        { data: eventosAtivosData },
+        { count: evidenciasPendentes },
+    ] = await Promise.all([
+        sb.from('distribution_events').select('id', { count: 'exact', head: true })
+            .eq('project_id', projectId).eq('status', 'ativo'),
+        sb.from('distribution_os').select('id', { count: 'exact', head: true })
+            .eq('organization_id', org),
+        sb.from('distribution_pa').select('id', { count: 'exact', head: true })
+            .eq('organization_id', org),
+        sb.from('distribution_event_os')
+            .select('status, distribution_events!inner(project_id)')
+            .eq('distribution_events.project_id', projectId)
+            .eq('status', 'confirmado'),
+        sb.from('distribution_event_pa')
+            .select('status, distribution_events!inner(project_id)')
+            .eq('distribution_events.project_id', projectId)
+            .eq('status', 'confirmado'),
+        sb.from('distribution_event_os')
+            .select('ingressos_alocados, distribution_events!inner(project_id, status, ingressos_os)')
+            .eq('distribution_events.project_id', projectId)
+            .eq('distribution_events.status', 'ativo'),
+        sb.from('physical_evidences')
+            .select('id', { count: 'exact', head: true })
+            .eq('project_id', projectId)
+            .eq('status_validacao', 'pendente')
+            .not('distribution_event_id', 'is', null),
+    ]);
+
+    const confirmados = (vincOs?.length || 0) + (vincPa?.length || 0);
+
+    let ocupacaoOsPct = 0;
+    let ocupacaoPaPct = 0;
+    if (eventosAtivosData?.length) {
+        const totalAlocOs = eventosAtivosData.reduce((s, v) => s + (v.ingressos_alocados || 0), 0);
+        const totalCapOs  = eventosAtivosData.reduce((s, v) => s + (v.distribution_events?.ingressos_os || 0), 0);
+        if (totalCapOs > 0) ocupacaoOsPct = Math.round(totalAlocOs / totalCapOs * 100);
+    }
+
+    return {
+        eventosAtivos:        eventosAtivos || 0,
+        totalOs:              totalOs || 0,
+        totalPa:              totalPa || 0,
+        confirmados,
+        ocupacaoOsPct,
+        ocupacaoPaPct,
+        evidenciasPendentes:  evidenciasPendentes || 0,
+    };
+}
+
 // ── Exports ───────────────────────────────────────────────────
 
 window.initSupabase            = window.initSupabase || initSupabase;
@@ -445,3 +571,9 @@ window.getConvidadosByEvento   = getConvidadosByEvento;
 window.addConvidado            = addConvidado;
 window.removeConvidado         = removeConvidado;
 window.buscarConvidadoPortaria = buscarConvidadoPortaria;
+window.getEvidenciasByEvento   = getEvidenciasByEvento;
+window.createEvidencia         = createEvidencia;
+window.getAttendanceByEvento   = getAttendanceByEvento;
+window.createAttendance        = createAttendance;
+window.encerrarEvento          = encerrarEvento;
+window.getKpisM3               = getKpisM3;

@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Dashboard Contrapartidas (M3)</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m3-shared.css">
+
+    <style>
+        .badge-ativo      { background:#DCFCE7;color:#16a34a; }
+        .badge-encerrado  { background:#F1F5F9;color:#64748b; }
+        .badge-cancelado  { background:#FFECE4;color:#FF5807; }
+
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.25rem;
+        }
+        @media (max-width: 768px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 480px) { .kpi-grid { grid-template-columns: 1fr; } }
+
+        .kpi-card {
+            background: white;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            padding: 1.1rem 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }
+        .kpi-label {
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: #94a3b8;
+        }
+        .kpi-value {
+            font-size: 2rem;
+            font-weight: 800;
+            color: var(--text-primary);
+            line-height: 1;
+        }
+        .kpi-value-pct {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: #1547FF;
+            line-height: 1;
+        }
+        .kpi-card-wide {
+            grid-column: 1 / -1;
+            border-radius: var(--radius-md);
+            padding: 1.1rem 1.25rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        .kpi-pendente {
+            background: #FFFBEB;
+            border: 1.5px solid #FCD34D;
+        }
+        .kpi-ok {
+            background: #F0FDF4;
+            border: 1.5px solid #86EFAC;
+        }
+
+        .evento-recente-card {
+            background: white;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            padding: 1rem 1.25rem;
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            flex-wrap: wrap;
+            transition: box-shadow 0.15s;
+        }
+        .evento-recente-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.07); }
+    </style>
+</head>
+<body>
+    <main class="main-content">
+        <div id="page-loading" class="empty-state">
+            <i data-lucide="loader" class="spin" style="width:32px;"></i>
+            <div style="margin-top:0.75rem;">Carregando…</div>
+        </div>
+
+        <div id="page-body" style="display:none;">
+
+            <!-- Header -->
+            <div class="glass-card" style="margin-bottom:1.5rem;">
+                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;">
+                    <div>
+                        <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#94a3b8;margin-bottom:0.25rem;">Módulo III</div>
+                        <div style="font-size:1.5rem;font-weight:800;color:var(--text-primary);line-height:1.1;">Contrapartidas</div>
+                        <div id="projeto-label" style="font-size:0.875rem;color:var(--text-secondary);margin-top:0.25rem;"></div>
+                    </div>
+                    <a href="eventos.html" class="btn-primary"
+                       style="text-decoration:none;display:inline-flex;align-items:center;gap:0.5rem;font-size:0.875rem;">
+                        <i data-lucide="plus" style="width:15px;"></i> Novo Evento
+                    </a>
+                </div>
+            </div>
+
+            <!-- KPIs Linha 1 -->
+            <div class="kpi-grid" id="kpi-grid-1">
+                <div class="kpi-card">
+                    <div class="kpi-label">Eventos Ativos</div>
+                    <div class="kpi-value" id="kpi-eventos-ativos">—</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Org. Sociais</div>
+                    <div class="kpi-value" id="kpi-total-os">—</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Patrocinadores</div>
+                    <div class="kpi-value" id="kpi-total-pa">—</div>
+                </div>
+            </div>
+
+            <!-- KPIs Linha 2 -->
+            <div class="kpi-grid" id="kpi-grid-2">
+                <div class="kpi-card">
+                    <div class="kpi-label">Confirmados</div>
+                    <div class="kpi-value" id="kpi-confirmados">—</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Ocupação OS</div>
+                    <div class="kpi-value-pct" id="kpi-ocup-os">—</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Ocupação PA</div>
+                    <div class="kpi-value-pct" id="kpi-ocup-pa">—</div>
+                </div>
+            </div>
+
+            <!-- Card largo: Evidências pendentes -->
+            <div id="kpi-evidencias-card" class="kpi-card-wide kpi-pendente" style="margin-bottom:1.5rem;"></div>
+
+            <!-- Eventos recentes -->
+            <div class="glass-card">
+                <div style="font-weight:700;font-size:1rem;color:var(--text-primary);margin-bottom:1rem;">
+                    Eventos Recentes
+                </div>
+                <div id="eventos-recentes-list"></div>
+            </div>
+
+        </div>
+
+        <!-- Estado sem projeto -->
+        <div id="page-no-project" style="display:none;">
+            <div class="empty-state" style="padding:4rem 1rem;">
+                <i data-lucide="folder-open" style="width:48px;opacity:0.3;"></i>
+                <div style="margin-top:1rem;font-size:1rem;font-weight:600;color:var(--text-primary);">
+                    Nenhum projeto selecionado
+                </div>
+                <div style="margin-top:0.35rem;font-size:0.875rem;color:var(--text-muted);">
+                    Selecione um projeto no
+                    <a href="../modulo2/index.html" style="color:#1547FF;font-weight:600;">Módulo II</a>
+                    para visualizar o dashboard.
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper-m3.js"></script>
+    <script>
+        // ── Utilities ─────────────────────────────────────────
+        function esc(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+                .replace(/'/g,'&#39;');
+        }
+        function showToast(msg, type = 'success') {
+            const c = document.getElementById('toast-container');
+            const t = document.createElement('div');
+            t.className = `toast toast-${type}`;
+            t.innerHTML = `<i data-lucide="${type==='success'?'check-circle':'alert-circle'}" style="width:18px;flex-shrink:0;"></i><span>${esc(msg)}</span>`;
+            c.appendChild(t);
+            reIcons();
+            setTimeout(() => t.remove(), 4500);
+        }
+        function reIcons() { if (window.lucide) window.lucide.createIcons(); }
+        function fmtDate(d) {
+            if (!d) return '—';
+            try { return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR'); } catch { return d; }
+        }
+
+        // ── Init ──────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', async () => {
+            renderSidebarM3();
+            reIcons();
+
+            const sb = await initSupabase();
+            if (!sb) return;
+            const { data: { session } } = await sb.auth.getSession();
+            if (!session) { location.href = '../index.html#login'; return; }
+
+            const projectId = ProjectManagerM3.getSelected();
+            if (!projectId) {
+                document.getElementById('page-loading').style.display   = 'none';
+                document.getElementById('page-no-project').style.display = '';
+                reIcons();
+                return;
+            }
+
+            try {
+                // Buscar nome/PRONAC do projeto
+                const { data: proj } = await sb
+                    .from('projects')
+                    .select('nome, pronac')
+                    .eq('id', projectId)
+                    .single();
+
+                document.getElementById('projeto-label').textContent =
+                    proj ? `PRONAC ${proj.pronac} — ${proj.nome}` : '';
+
+                const [kpis, eventos] = await Promise.all([
+                    getKpisM3(projectId),
+                    getEventosByProject(projectId),
+                ]);
+
+                renderKpis(kpis);
+                renderEventosRecentes(eventos.slice(0, 5));
+
+                document.getElementById('page-loading').style.display = 'none';
+                document.getElementById('page-body').style.display    = '';
+                reIcons();
+            } catch (err) {
+                console.error(err);
+                document.getElementById('page-loading').innerHTML = `
+                    <div class="empty-state" style="color:#FF5807;">
+                        <i data-lucide="alert-circle" style="width:32px;"></i>
+                        <div style="margin-top:0.75rem;">Erro ao carregar dashboard: ${esc(err.message)}</div>
+                    </div>`;
+                reIcons();
+            }
+        });
+
+        // ── Render KPIs ───────────────────────────────────────
+        function renderKpis(kpis) {
+            document.getElementById('kpi-eventos-ativos').textContent = kpis.eventosAtivos;
+            document.getElementById('kpi-total-os').textContent       = kpis.totalOs;
+            document.getElementById('kpi-total-pa').textContent       = kpis.totalPa;
+            document.getElementById('kpi-confirmados').textContent    = kpis.confirmados;
+            document.getElementById('kpi-ocup-os').textContent        = kpis.ocupacaoOsPct + '%';
+            document.getElementById('kpi-ocup-pa').textContent        = kpis.ocupacaoPaPct + '%';
+
+            const cardEv  = document.getElementById('kpi-evidencias-card');
+            const temPend = kpis.evidenciasPendentes > 0;
+            cardEv.className = 'kpi-card-wide ' + (temPend ? 'kpi-pendente' : 'kpi-ok');
+            if (temPend) {
+                cardEv.innerHTML = `
+                    <div style="display:flex;align-items:center;gap:0.6rem;">
+                        <i data-lucide="clock" style="width:20px;color:#D97706;"></i>
+                        <span style="font-weight:700;font-size:0.95rem;color:#92400E;">
+                            Evidências aguardando aprovação: <strong>${kpis.evidenciasPendentes}</strong>
+                        </span>
+                    </div>
+                    <a href="../modulo2/comprovacao-fisica.html"
+                       style="text-decoration:none;display:inline-flex;align-items:center;gap:0.4rem;
+                              font-size:0.875rem;font-weight:700;color:#1547FF;">
+                        Ver no M2 <i data-lucide="arrow-right" style="width:15px;"></i>
+                    </a>`;
+            } else {
+                cardEv.innerHTML = `
+                    <div style="display:flex;align-items:center;gap:0.6rem;">
+                        <i data-lucide="check-circle" style="width:20px;color:#16a34a;"></i>
+                        <span style="font-weight:700;font-size:0.95rem;color:#15803D;">
+                            Nenhuma evidência pendente de aprovação ✓
+                        </span>
+                    </div>`;
+            }
+            reIcons();
+        }
+
+        // ── Render Eventos Recentes ───────────────────────────
+        function renderEventosRecentes(eventos) {
+            const el = document.getElementById('eventos-recentes-list');
+            if (!eventos.length) {
+                el.innerHTML = `
+                    <div class="empty-state" style="padding:2rem 0;">
+                        <i data-lucide="calendar-x" style="width:36px;opacity:0.3;"></i>
+                        <div style="margin-top:0.5rem;font-size:0.9rem;color:var(--text-muted);">
+                            Nenhum evento cadastrado para este projeto
+                        </div>
+                    </div>`;
+                reIcons();
+                return;
+            }
+            const STATUS_LABELS = {
+                ativo:'Ativo', encerrado:'Encerrado', cancelado:'Cancelado'
+            };
+            el.innerHTML = eventos.map(ev => `
+                <div class="evento-recente-card">
+                    <div>
+                        <div style="font-weight:700;font-size:0.95rem;color:var(--text-primary);">
+                            ${esc(ev.titulo)}
+                        </div>
+                        <div style="font-size:0.82rem;color:var(--text-muted);margin-top:0.25rem;
+                                    display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+                            <span style="display:flex;align-items:center;gap:0.3rem;">
+                                <i data-lucide="calendar" style="width:12px;height:12px;"></i>
+                                ${fmtDate(ev.data_evento)}
+                            </span>
+                            <span>OS: ${ev.ingressos_os || 0} · PA: ${ev.ingressos_pa || 0}</span>
+                        </div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+                        <span class="badge badge-${esc(ev.status || 'ativo')}">
+                            ${esc(STATUS_LABELS[ev.status] || ev.status)}
+                        </span>
+                        <a href="evento-detalhe.html?id=${esc(ev.id)}"
+                           style="text-decoration:none;display:inline-flex;align-items:center;gap:0.3rem;
+                                  font-size:0.82rem;font-weight:600;color:#1547FF;">
+                            Ver detalhes <i data-lucide="arrow-right" style="width:13px;"></i>
+                        </a>
+                    </div>
+                </div>`).join('');
+            reIcons();
+        }
+    </script>
+</body>
+</html>

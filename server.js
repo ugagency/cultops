@@ -1430,6 +1430,51 @@ app.post('/api/m2/cron-alerta-guias', async (req, res) => {
     }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PUT /api/m3/eventos/:id/encerrar
+// Encerra um evento M3. Bloqueia se não houver lista de presença.
+// ─────────────────────────────────────────────────────────────────────────────
+app.put('/api/m3/eventos/:id/encerrar', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const { data: evento, error } = await supabaseAdmin
+            .from('distribution_events')
+            .select('*, distribution_attendance(*)')
+            .eq('id', id)
+            .single();
+
+        if (error || !evento)
+            return res.status(404).json({ error: 'Evento não encontrado' });
+
+        if (!evento.distribution_attendance.length)
+            return res.status(400).json({
+                error: 'Evento sem lista de presença — encerramento bloqueado',
+            });
+
+        const { count: pendentes } = await supabaseAdmin
+            .from('physical_evidences')
+            .select('id', { count: 'exact', head: true })
+            .eq('distribution_event_id', id)
+            .eq('status_validacao', 'pendente');
+
+        await supabaseAdmin
+            .from('distribution_events')
+            .update({ status: 'encerrado', updated_at: new Date() })
+            .eq('id', id);
+
+        return res.json({
+            sucesso: true,
+            evidencias_pendentes_aprovacao: pendentes || 0,
+            mensagem: pendentes > 0
+                ? `Evento encerrado. ${pendentes} evidência(s) aguardam aprovação no M2.`
+                : 'Evento encerrado com sucesso.',
+        });
+    } catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+
 if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
     app.listen(PORT, () => {
         console.log(`[SERVER] Rodando em http://localhost:${PORT}`);

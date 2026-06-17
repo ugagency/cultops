@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Evidências (M3)</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m3-shared.css">
+
+    <style>
+        /* status badges physical_evidences */
+        .badge-pendente               { background:#F1F5F9;color:#64748b; }
+        .badge-aprovada               { background:#DCFCE7;color:#16a34a; }
+        .badge-reprovada              { background:#FFECE4;color:#FF5807; }
+        .badge-pendente_complemento   { background:#FEF9C3;color:#854D0E; }
+        .badge-enviada_salic          { background:#E3E8FF;color:#1547FF; }
+        .badge-erro_rpa               { background:#FFECE4;color:#FF5807; }
+
+        /* evento status */
+        .badge-ativo      { background:#DCFCE7;color:#16a34a; }
+        .badge-encerrado  { background:#F1F5F9;color:#64748b; }
+        .badge-cancelado  { background:#FFECE4;color:#FF5807; }
+
+        .ev-header-meta {
+            display:flex; gap:1.25rem; flex-wrap:wrap;
+            font-size:0.875rem; color:var(--text-secondary); margin-top:0.5rem;
+        }
+        .ev-header-meta-item { display:flex; align-items:center; gap:0.4rem; }
+
+        .attendance-item {
+            display:flex; align-items:flex-start; gap:0.75rem;
+            padding:0.9rem 1rem; border:1px solid var(--border-light);
+            border-radius:var(--radius-md); background:white;
+            margin-bottom:0.6rem;
+        }
+
+        .evidencia-card {
+            border:1px solid var(--border-light);
+            border-radius:var(--radius-md);
+            background:white;
+            padding:1.1rem 1.25rem;
+            margin-bottom:1rem;
+            transition:box-shadow 0.15s;
+        }
+        .evidencia-card:hover { box-shadow:0 4px 16px rgba(0,0,0,0.07); }
+
+        .encerrar-card {
+            border:2px solid #FF5807;
+            border-radius:var(--radius-md);
+            background:#fff8f5;
+            padding:1.25rem;
+            margin-bottom:1.5rem;
+        }
+    </style>
+</head>
+<body>
+    <main class="main-content">
+        <!-- Back -->
+        <div style="margin-bottom:1.5rem;">
+            <a id="btn-voltar" href="eventos.html" class="btn-secondary"
+               style="text-decoration:none;display:inline-flex;align-items:center;gap:0.5rem;padding:0.45rem 1rem;font-size:0.85rem;">
+                <i data-lucide="arrow-left" style="width:15px;"></i> Voltar
+            </a>
+        </div>
+
+        <!-- Page body -->
+        <div id="page-body" style="display:none;">
+
+            <!-- Seção 1: Header do evento -->
+            <div class="glass-card" style="margin-bottom:1.5rem;">
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
+                    <div>
+                        <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#94a3b8;margin-bottom:0.25rem;">Evidências do Evento</div>
+                        <div id="ev-titulo" style="font-size:1.3rem;font-weight:800;color:var(--text-primary);line-height:1.2;margin-bottom:0.4rem;"></div>
+                        <span id="ev-status-badge" class="badge"></span>
+                    </div>
+                </div>
+                <div class="ev-header-meta" style="margin-top:0.75rem;">
+                    <div class="ev-header-meta-item">
+                        <i data-lucide="calendar" style="width:14px;color:#94a3b8;"></i>
+                        <span id="ev-data"></span>
+                    </div>
+                    <div class="ev-header-meta-item">
+                        <i data-lucide="map-pin" style="width:14px;color:#94a3b8;"></i>
+                        <span id="ev-local"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Seção 2: Listas de Presença -->
+            <div class="glass-card" style="margin-bottom:1.5rem;">
+                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;margin-bottom:0.5rem;">
+                    <div>
+                        <div style="font-weight:700;font-size:1rem;color:var(--text-primary);">Listas de Presença</div>
+                        <div style="font-size:0.82rem;color:var(--text-muted);margin-top:0.15rem;">Necessário ao menos uma para encerrar o evento.</div>
+                    </div>
+                    <button class="btn-secondary" id="btn-add-attendance"
+                            style="display:inline-flex;align-items:center;gap:0.5rem;font-size:0.875rem;"
+                            onclick="openModalAttendance()">
+                        <i data-lucide="plus" style="width:15px;"></i> Adicionar Lista de Presença
+                    </button>
+                </div>
+                <div id="attendance-list"></div>
+            </div>
+
+            <!-- Seção 3: Evidências para o SALIC -->
+            <div class="glass-card" style="margin-bottom:1.5rem;">
+                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;margin-bottom:0.5rem;">
+                    <div>
+                        <div style="font-weight:700;font-size:1rem;color:var(--text-primary);">Evidências para o SALIC</div>
+                        <div style="font-size:0.82rem;color:var(--text-muted);margin-top:0.15rem;">
+                            Após o upload, o gestor aprova na Comprovação Física (M2) antes do envio ao SALIC.
+                        </div>
+                    </div>
+                    <button class="btn-primary" id="btn-add-evidencia"
+                            style="display:inline-flex;align-items:center;gap:0.5rem;font-size:0.875rem;"
+                            onclick="openModalEvidencia()">
+                        <i data-lucide="plus" style="width:15px;"></i> Adicionar Evidência
+                    </button>
+                </div>
+                <div id="evidencias-list"></div>
+            </div>
+
+            <!-- Seção 4: Encerrar Evento (só se não encerrado) -->
+            <div id="encerrar-section"></div>
+
+        </div>
+
+        <!-- Loading -->
+        <div id="page-loading" class="empty-state">
+            <i data-lucide="loader" class="spin" style="width:32px;"></i>
+            <div style="margin-top:0.75rem;">Carregando…</div>
+        </div>
+    </main>
+
+    <!-- Modal: Adicionar Lista de Presença -->
+    <div id="modal-attendance" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9000;align-items:center;justify-content:center;">
+        <div class="glass-card" style="width:100%;max-width:480px;margin:1rem;position:relative;">
+            <button onclick="closeModalAttendance()"
+                    style="position:absolute;top:1rem;right:1rem;background:none;border:none;cursor:pointer;color:var(--text-muted);">
+                <i data-lucide="x" style="width:20px;"></i>
+            </button>
+            <div style="font-weight:800;font-size:1.1rem;color:var(--text-primary);margin-bottom:1.25rem;">
+                Adicionar Lista de Presença
+            </div>
+            <div class="form-grid" style="gap:1rem;">
+                <div>
+                    <label class="form-label">Arquivo (PDF) *</label>
+                    <input type="file" id="att-file" accept=".pdf" class="form-input"
+                           onchange="validateAttFile(this)">
+                    <div id="att-file-err" style="color:#FF5807;font-size:0.8rem;margin-top:0.25rem;display:none;"></div>
+                </div>
+                <div>
+                    <label class="form-label">Total de presentes *</label>
+                    <input type="number" id="att-total" min="0" placeholder="0" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">Observações</label>
+                    <textarea id="att-obs" rows="3" placeholder="Observações opcionais…" class="form-input"
+                              style="resize:vertical;min-height:72px;"></textarea>
+                </div>
+            </div>
+            <div style="display:flex;gap:0.75rem;margin-top:1.5rem;justify-content:flex-end;">
+                <button class="btn-secondary" onclick="closeModalAttendance()">Cancelar</button>
+                <button class="btn-primary" id="btn-salvar-attendance" onclick="salvarAttendance()">
+                    <i data-lucide="upload" style="width:15px;"></i> Enviar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Adicionar Evidência -->
+    <div id="modal-evidencia" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9000;align-items:center;justify-content:center;">
+        <div class="glass-card" style="width:100%;max-width:520px;margin:1rem;position:relative;max-height:90vh;overflow-y:auto;">
+            <button onclick="closeModalEvidencia()"
+                    style="position:absolute;top:1rem;right:1rem;background:none;border:none;cursor:pointer;color:var(--text-muted);">
+                <i data-lucide="x" style="width:20px;"></i>
+            </button>
+            <div style="font-weight:800;font-size:1.1rem;color:var(--text-primary);margin-bottom:1.25rem;">
+                Adicionar Evidência
+            </div>
+            <div class="form-grid" style="gap:1rem;">
+                <div>
+                    <label class="form-label">Arquivo (JPG, PNG ou PDF) *</label>
+                    <input type="file" id="ev-file" accept=".jpg,.jpeg,.png,.pdf" class="form-input"
+                           onchange="validateEvFile(this)">
+                    <div id="ev-file-err" style="color:#FF5807;font-size:0.8rem;margin-top:0.25rem;display:none;"></div>
+                </div>
+                <div>
+                    <label class="form-label">Tipo de Evidência *</label>
+                    <select id="ev-tipo" class="form-input">
+                        <option value="">Selecione…</option>
+                        <option value="foto_evento">Foto do Evento</option>
+                        <option value="relatorio_objeto">Relatório do Objeto</option>
+                        <option value="peca_marketing">Peça de Marketing</option>
+                        <option value="outros">Outros</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Rubrica *</label>
+                    <select id="ev-rubrica" class="form-input">
+                        <option value="">Selecione…</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Descrição *</label>
+                    <textarea id="ev-descricao" rows="3"
+                              placeholder="O que esta evidência comprova?"
+                              class="form-input" style="resize:vertical;min-height:72px;"></textarea>
+                </div>
+            </div>
+            <div style="display:flex;gap:0.75rem;margin-top:1.5rem;justify-content:flex-end;">
+                <button class="btn-secondary" onclick="closeModalEvidencia()">Cancelar</button>
+                <button class="btn-primary" id="btn-salvar-evidencia" onclick="salvarEvidencia()">
+                    <i data-lucide="upload" style="width:15px;"></i> Enviar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper-m3.js"></script>
+    <script>
+        // ── State ─────────────────────────────────────────────
+        const params  = new URLSearchParams(location.search);
+        const eventId = params.get('event_id');
+        if (!eventId) location.href = 'eventos.html';
+
+        let evento     = null;
+        let attendance = [];
+        let evidencias = [];
+        let rubricas   = [];
+
+        // ── Utilities ─────────────────────────────────────────
+        function esc(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+                .replace(/'/g,'&#39;');
+        }
+        function showToast(msg, type = 'success') {
+            const c = document.getElementById('toast-container');
+            const t = document.createElement('div');
+            t.className = `toast toast-${type}`;
+            t.innerHTML = `<i data-lucide="${type==='success'?'check-circle':'alert-circle'}" style="width:18px;flex-shrink:0;"></i><span>${esc(msg)}</span>`;
+            c.appendChild(t);
+            reIcons();
+            setTimeout(() => t.remove(), 4500);
+        }
+        function reIcons() { if (window.lucide) window.lucide.createIcons(); }
+        function fmtDate(d) {
+            if (!d) return '—';
+            try { return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR'); } catch { return d; }
+        }
+        function fmtDateTime(d) {
+            if (!d) return '—';
+            try { return new Date(d).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }); } catch { return d; }
+        }
+
+        const STATUS_EV_LABELS = {
+            pendente:              'Pendente',
+            aprovada:              'Aprovada',
+            reprovada:             'Reprovada',
+            pendente_complemento:  'Complemento',
+            enviada_salic:         'Enviada SALIC',
+            erro_rpa:              'Erro RPA',
+        };
+        const TIPO_LABELS = {
+            foto_evento:      'Foto do Evento',
+            relatorio_objeto: 'Relatório do Objeto',
+            peca_marketing:   'Peça de Marketing',
+            outros:           'Outros',
+        };
+
+        // ── Init ──────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', async () => {
+            renderSidebarM3();
+            reIcons();
+
+            const sb = await initSupabase();
+            if (!sb) return;
+            const { data: { session } } = await sb.auth.getSession();
+            if (!session) { location.href = '../index.html#login'; return; }
+
+            await loadData();
+        });
+
+        async function loadData() {
+            try {
+                const sb = await initSupabase();
+                evento = await getEventoDetalhe(eventId);
+
+                // Carregar rubricas do projeto
+                const { data: rbData } = await sb
+                    .from('rubricas')
+                    .select('id, nome')
+                    .eq('project_id', evento.project_id);
+                rubricas = rbData || [];
+
+                [attendance, evidencias] = await Promise.all([
+                    getAttendanceByEvento(eventId),
+                    getEvidenciasByEvento(eventId),
+                ]);
+
+                renderHeader();
+                renderAttendance();
+                renderEvidencias();
+                renderEncerrar();
+
+                document.getElementById('page-loading').style.display = 'none';
+                document.getElementById('page-body').style.display    = '';
+                reIcons();
+            } catch (err) {
+                console.error(err);
+                document.getElementById('page-loading').innerHTML = `
+                    <div class="empty-state" style="color:#FF5807;">
+                        <i data-lucide="alert-circle" style="width:32px;"></i>
+                        <div style="margin-top:0.75rem;">Erro ao carregar: ${esc(err.message)}</div>
+                    </div>`;
+                reIcons();
+            }
+        }
+
+        // ── Render Header ─────────────────────────────────────
+        function renderHeader() {
+            document.getElementById('btn-voltar').href = `evento-detalhe.html?id=${eventId}`;
+            document.getElementById('ev-titulo').textContent = evento.titulo;
+
+            const statusBadge = document.getElementById('ev-status-badge');
+            statusBadge.className = `badge badge-${evento.status || 'ativo'}`;
+            statusBadge.textContent = { ativo:'Ativo', encerrado:'Encerrado', cancelado:'Cancelado' }[evento.status] || evento.status;
+
+            document.getElementById('ev-data').textContent =
+                fmtDate(evento.data_evento) + (evento.horario ? ' · ' + evento.horario.slice(0,5) : '');
+            document.getElementById('ev-local').textContent =
+                `${evento.nome_local}, ${evento.cidade}/${evento.estado}`;
+        }
+
+        // ── Render Attendance ──────────────────────────────────
+        function renderAttendance() {
+            const el = document.getElementById('attendance-list');
+            if (!attendance.length) {
+                el.innerHTML = `
+                    <div class="empty-state" style="padding:2rem 0;">
+                        <i data-lucide="clipboard-x" style="width:36px;opacity:0.3;"></i>
+                        <div style="margin-top:0.5rem;font-size:0.9rem;color:var(--text-muted);">
+                            Nenhuma lista de presença adicionada
+                        </div>
+                    </div>`;
+                reIcons();
+                return;
+            }
+            el.innerHTML = attendance.map(a => `
+                <div class="attendance-item">
+                    <i data-lucide="file-text" style="width:20px;flex-shrink:0;color:#1547FF;margin-top:2px;"></i>
+                    <div>
+                        <div style="font-weight:600;font-size:0.9rem;color:var(--text-primary);">
+                            ${fmtDateTime(a.uploaded_at)}
+                        </div>
+                        <div style="font-size:0.82rem;color:var(--text-secondary);margin-top:0.15rem;">
+                            ${esc(String(a.total_presentes))} presente(s)
+                            ${a.observacoes ? ' · ' + esc(a.observacoes) : ''}
+                        </div>
+                    </div>
+                </div>`).join('');
+            reIcons();
+        }
+
+        // ── Render Evidências ─────────────────────────────────
+        function renderEvidencias() {
+            const el = document.getElementById('evidencias-list');
+            if (!evidencias.length) {
+                el.innerHTML = `
+                    <div class="empty-state" style="padding:2rem 0;">
+                        <i data-lucide="image-off" style="width:36px;opacity:0.3;"></i>
+                        <div style="margin-top:0.5rem;font-size:0.9rem;color:var(--text-muted);">
+                            Nenhuma evidência adicionada
+                        </div>
+                    </div>`;
+                reIcons();
+                return;
+            }
+            el.innerHTML = evidencias.map(ev => {
+                const statusCls = 'badge-' + (ev.status_validacao || 'pendente');
+                const statusLbl = STATUS_EV_LABELS[ev.status_validacao] || ev.status_validacao;
+                const tipoLbl   = TIPO_LABELS[ev.tipo_evidencia] || ev.tipo_evidencia || 'outros';
+                const rubricaNome = ev.rubricas?.nome || '—';
+                return `
+                    <div class="evidencia-card">
+                        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.6rem;">
+                            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+                                <span class="badge badge-gray" style="font-size:0.78rem;">${esc(tipoLbl)}</span>
+                                <span style="font-size:0.82rem;color:var(--text-secondary);">
+                                    <i data-lucide="tag" style="width:12px;height:12px;vertical-align:middle;"></i>
+                                    ${esc(rubricaNome)}
+                                </span>
+                            </div>
+                            <span class="badge ${esc(statusCls)}">${esc(statusLbl)}</span>
+                        </div>
+                        ${ev.descricao ? `
+                        <div style="font-size:0.875rem;color:var(--text-secondary);margin-bottom:0.5rem;">
+                            ${esc(ev.descricao)}
+                        </div>` : ''}
+                        <div style="font-size:0.78rem;color:var(--text-muted);display:flex;align-items:center;gap:0.4rem;">
+                            <i data-lucide="paperclip" style="width:12px;height:12px;"></i>
+                            ${esc(ev.file_name || '—')}
+                            <span style="margin-left:0.25rem;">·</span>
+                            ${fmtDateTime(ev.criado_em)}
+                        </div>
+                        ${ev.status_validacao === 'reprovada' && ev.motivo_reprovacao ? `
+                        <div style="display:flex;align-items:center;gap:0.4rem;margin-top:0.5rem;
+                                    font-size:0.82rem;color:#FF5807;font-weight:600;">
+                            <i data-lucide="alert-triangle" style="width:14px;height:14px;"></i>
+                            ${esc(ev.motivo_reprovacao)}
+                        </div>` : ''}
+                    </div>`;
+            }).join('');
+            reIcons();
+        }
+
+        // ── Render Encerrar ───────────────────────────────────
+        function renderEncerrar() {
+            const el = document.getElementById('encerrar-section');
+            if (evento.status === 'encerrado') { el.innerHTML = ''; return; }
+
+            const semLista = attendance.length === 0;
+            el.innerHTML = `
+                <div class="encerrar-card">
+                    <div style="font-weight:700;font-size:1rem;color:#FF5807;margin-bottom:0.4rem;display:flex;align-items:center;gap:0.5rem;">
+                        <i data-lucide="lock" style="width:16px;"></i> Encerrar Evento
+                    </div>
+                    <div style="font-size:0.875rem;color:var(--text-secondary);margin-bottom:1rem;">
+                        Ao encerrar, o evento não pode voltar ao status ativo.
+                        É necessário ter pelo menos uma lista de presença.
+                        Evidências pendentes podem ser aprovadas no M2 após o encerramento.
+                    </div>
+                    <button id="btn-encerrar"
+                            class="btn-danger"
+                            style="background:#FF5807;color:white;border:none;border-radius:10px;
+                                   padding:0.5rem 1.25rem;font-weight:700;cursor:pointer;
+                                   opacity:${semLista?'0.5':'1'};"
+                            ${semLista ? 'disabled title="Adicione uma lista de presença primeiro"' : ''}
+                            onclick="confirmarEncerrar()">
+                        <i data-lucide="lock" style="width:15px;vertical-align:middle;"></i> Encerrar Evento
+                    </button>
+                    ${semLista ? `<div style="font-size:0.8rem;color:#94a3b8;margin-top:0.5rem;">
+                        Adicione uma lista de presença antes de encerrar.</div>` : ''}
+                </div>`;
+            reIcons();
+        }
+
+        // ── Confirmar Encerramento ────────────────────────────
+        async function confirmarEncerrar() {
+            if (!confirm('Confirmar encerramento do evento? Esta ação não pode ser desfeita.')) return;
+            const btn = document.getElementById('btn-encerrar');
+            btn.disabled = true;
+            btn.textContent = 'Encerrando…';
+            try {
+                const result = await encerrarEvento(eventId);
+                showToast(result.mensagem, 'success');
+                await loadData();
+            } catch (e) {
+                showToast(e.message || 'Erro ao encerrar evento', 'error');
+                btn.disabled = false;
+                renderEncerrar();
+            }
+        }
+
+        // ── Modal Attendance ──────────────────────────────────
+        function openModalAttendance() {
+            document.getElementById('att-file').value   = '';
+            document.getElementById('att-total').value  = '';
+            document.getElementById('att-obs').value    = '';
+            document.getElementById('att-file-err').style.display = 'none';
+            document.getElementById('modal-attendance').style.display = 'flex';
+            reIcons();
+        }
+        function closeModalAttendance() {
+            document.getElementById('modal-attendance').style.display = 'none';
+        }
+        function validateAttFile(input) {
+            const errEl = document.getElementById('att-file-err');
+            if (input.files[0] && input.files[0].size > 10 * 1024 * 1024) {
+                errEl.textContent = 'Arquivo muito grande. Máximo: 10 MB.';
+                errEl.style.display = 'block';
+                input.value = '';
+            } else {
+                errEl.style.display = 'none';
+            }
+        }
+        async function salvarAttendance() {
+            const fileInput    = document.getElementById('att-file');
+            const totalInput   = document.getElementById('att-total');
+            const obsInput     = document.getElementById('att-obs');
+            const file         = fileInput.files[0];
+            const totalPresentes = totalInput.value.trim();
+
+            if (!file)          { showToast('Selecione um arquivo PDF', 'error'); return; }
+            if (totalPresentes === '') { showToast('Informe o total de presentes', 'error'); return; }
+
+            const btn = document.getElementById('btn-salvar-attendance');
+            btn.disabled  = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px;"></i> Enviando…';
+            reIcons();
+
+            try {
+                const sb    = await initSupabase();
+                const orgId = await getCurrentOrgIdM3();
+                const filePath = `${orgId}/attendance/${eventId}/${Date.now()}_${file.name}`.trim();
+
+                const { error: upErr } = await sb.storage
+                    .from('physical-evidences')
+                    .upload(filePath, file);
+                if (upErr) throw upErr;
+
+                await createAttendance({
+                    event_id:        eventId,
+                    file_path:       filePath,
+                    total_presentes: Number(totalPresentes),
+                    observacoes:     obsInput.value.trim() || null,
+                });
+
+                closeModalAttendance();
+                showToast('Lista de presença adicionada com sucesso');
+                await loadData();
+            } catch (err) {
+                showToast('Erro ao enviar: ' + (err.message || ''), 'error');
+            } finally {
+                btn.disabled  = false;
+                btn.innerHTML = '<i data-lucide="upload" style="width:15px;"></i> Enviar';
+                reIcons();
+            }
+        }
+
+        // ── Modal Evidência ───────────────────────────────────
+        function openModalEvidencia() {
+            document.getElementById('ev-file').value      = '';
+            document.getElementById('ev-tipo').value      = '';
+            document.getElementById('ev-descricao').value = '';
+            document.getElementById('ev-file-err').style.display = 'none';
+
+            // Popular select de rubricas
+            const sel = document.getElementById('ev-rubrica');
+            sel.innerHTML = '<option value="">Selecione…</option>' +
+                rubricas.map(r => `<option value="${esc(r.id)}">${esc(r.nome)}</option>`).join('');
+
+            document.getElementById('modal-evidencia').style.display = 'flex';
+            reIcons();
+        }
+        function closeModalEvidencia() {
+            document.getElementById('modal-evidencia').style.display = 'none';
+        }
+        function validateEvFile(input) {
+            const errEl = document.getElementById('ev-file-err');
+            if (input.files[0] && input.files[0].size > 10 * 1024 * 1024) {
+                errEl.textContent = 'Arquivo muito grande. Máximo: 10 MB.';
+                errEl.style.display = 'block';
+                input.value = '';
+            } else {
+                errEl.style.display = 'none';
+            }
+        }
+        async function salvarEvidencia() {
+            const fileInput  = document.getElementById('ev-file');
+            const tipoInput  = document.getElementById('ev-tipo');
+            const rubricaSel = document.getElementById('ev-rubrica');
+            const descInput  = document.getElementById('ev-descricao');
+            const file       = fileInput.files[0];
+
+            if (!file)                  { showToast('Selecione um arquivo', 'error'); return; }
+            if (!tipoInput.value)       { showToast('Selecione o tipo de evidência', 'error'); return; }
+            if (!rubricaSel.value)      { showToast('Selecione a rubrica', 'error'); return; }
+            if (!descInput.value.trim()){ showToast('Informe a descrição', 'error'); return; }
+
+            const btn = document.getElementById('btn-salvar-evidencia');
+            btn.disabled  = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px;"></i> Enviando…';
+            reIcons();
+
+            try {
+                const sb    = await initSupabase();
+                const orgId = await getCurrentOrgIdM3();
+                const filePath = `${orgId}/evidencias-m3/${eventId}/${Date.now()}_${file.name}`.trim();
+
+                const { error: upErr } = await sb.storage
+                    .from('physical-evidences')
+                    .upload(filePath, file);
+                if (upErr) throw upErr;
+
+                await createEvidencia({
+                    file_path:             filePath,
+                    file_name:             file.name,
+                    file_size:             file.size,
+                    mime_type:             file.type,
+                    tipo_evidencia:        tipoInput.value,
+                    descricao:             descInput.value.trim(),
+                    rubrica_id_fk:         rubricaSel.value,
+                    distribution_event_id: eventId,
+                    project_id:            evento.project_id,
+                });
+
+                closeModalEvidencia();
+                showToast('Evidência enviada para aprovação no M2');
+                await loadData();
+            } catch (err) {
+                showToast('Erro ao enviar: ' + (err.message || ''), 'error');
+            } finally {
+                btn.disabled  = false;
+                btn.innerHTML = '<i data-lucide="upload" style="width:15px;"></i> Enviar';
+                reIcons();
+            }
+        }
+    </script>
+</body>
+</html>
