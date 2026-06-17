@@ -505,7 +505,7 @@
                             <div class="text-xs" style="color: var(--text-muted);">${escapeHtml(r.etapa || 'Fase de Execução')}</div>
                         </div>
 
-                        <div style="padding-right: 2rem;">
+                        <div style="padding-right: 2rem; display:none;">
                             <div style="display: flex; justify-content: space-between; font-size: 0.75rem; font-weight: 600;">
                                 <span>${formatCurrency(used)}</span>
                                 <span style="color: var(--text-muted);">/ ${formatCurrency(approved)}</span>
@@ -516,8 +516,7 @@
                         </div>
 
                         <div style="display: flex; justify-content: flex-end; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-                            ${pillHtml}
-                            <div class="alerta-container ${isAlertActive && (isNearingLimit || isExcedida) ? 'alert-active' : ''}">
+                            <div class="alerta-container" style="display:none;">
                                 <i data-lucide="${isAlertActive ? 'bell' : 'bell-off'}" style="width: 16px;"></i>
                                 <span>${percent.toFixed(1)}%</span>
                             </div>
