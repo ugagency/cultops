@@ -375,7 +375,7 @@
             <div class="dashboard-grid">
                 <div style="display: flex; flex-direction: column; gap: 1.5rem;">
                     <section class="glass-card" style="padding: 1.5rem;">
-                        <h3 class="section-title">Execução por Rubrica</h3>
+                        <h3 class="section-title">Rubricas</h3>
                         <div id="rubricas-table-wrap">
                             <div class="empty-state">
                                 <i data-lucide="loader" style="width: 24px;" class="spin"></i>
@@ -735,7 +735,7 @@
                         <td class="num" style="display:none;">${fmtBRL(util)}</td>
                         <td class="num" style="display:none; color: ${saldo < 0 ? '#FF5807' : 'inherit'};">${fmtBRL(saldo)}</td>
                         <td class="num" style="display:none;">${pct.toFixed(1)}%</td>
-                        <td><span class="pill ${cls.cls}">${cls.label}</span></td>
+                        <td style="display:none;"><span class="pill ${cls.cls}">${cls.label}</span></td>
                     </tr>
                 `;
             }).join('');
@@ -750,7 +750,7 @@
                                 <th class="num" style="display:none;">Executado</th>
                                 <th class="num" style="display:none;">Saldo</th>
                                 <th class="num" style="display:none;">%</th>
-                                <th>Status</th>
+                                <th style="display:none;">Status</th>
                             </tr>
                         </thead>
                         <tbody>${rows}</tbody>
