@@ -651,6 +651,9 @@
                         nome,
                         rubrica_id,
                         valor_aprovado
+                    ),
+                    distribution_events (
+                        titulo
                     )
                 `)
                 .eq('project_id', currentProjectId)
@@ -755,6 +758,15 @@
                             <span class="meta-tag">${escapeHtml((ev.tipo_evidencia || 'outros').replace(/_/g, ' '))}</span>
                             ${ev.file_name ? `<span class="meta-tag">${escapeHtml(ev.file_name)}</span>` : ''}
                         </div>
+
+                        ${ev.distribution_event_id ? `
+                        <div style="display:inline-flex;align-items:center;gap:0.4rem;
+                                    background:#E3E8FF;border-radius:6px;padding:3px 8px;
+                                    font-size:0.78rem;color:#1547FF;font-weight:600;
+                                    margin-bottom:0.5rem;">
+                            <i data-lucide="ticket" style="width:13px;height:13px;"></i>
+                            Contrapartida · ${escapeHtml(ev.distribution_events?.titulo || '')}
+                        </div>` : ''}
 
                         <div style="margin-bottom: 0.4rem;">
                             ${rubrica
