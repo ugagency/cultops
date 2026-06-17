@@ -358,7 +358,7 @@
                 <div style="display: grid; grid-template-columns: 80px 2fr 1.5fr 1fr; gap: 1rem;">
                     <div>Cód</div>
                     <div>Rubrica / Nome</div>
-                    <div>Execução Orçamentária</div>
+                    <div>Valor Aprovado</div>
                     <div style="text-align: right;">Alertas / Ações</div>
                 </div>
             </div>
@@ -505,13 +505,16 @@
                             <div class="text-xs" style="color: var(--text-muted);">${escapeHtml(r.etapa || 'Fase de Execução')}</div>
                         </div>
 
-                        <div style="padding-right: 2rem; display:none;">
-                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; font-weight: 600;">
-                                <span>${formatCurrency(used)}</span>
-                                <span style="color: var(--text-muted);">/ ${formatCurrency(approved)}</span>
-                            </div>
-                            <div class="progress-container">
-                                <div class="progress-bar" style="width: ${Math.min(percent, 100)}%; background: ${progressColor};"></div>
+                        <div style="padding-right: 2rem;">
+                            <div style="font-size: 0.875rem; font-weight: 700; color: var(--text-primary);">${formatCurrency(approved)}</div>
+                            <div style="display:none;">
+                                <div style="display: flex; justify-content: space-between; font-size: 0.75rem; font-weight: 600;">
+                                    <span>${formatCurrency(used)}</span>
+                                    <span style="color: var(--text-muted);">/ ${formatCurrency(approved)}</span>
+                                </div>
+                                <div class="progress-container">
+                                    <div class="progress-bar" style="width: ${Math.min(percent, 100)}%; background: ${progressColor};"></div>
+                                </div>
                             </div>
                         </div>
 
