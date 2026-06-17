@@ -111,6 +111,33 @@
         .badge-atrasada    { background: #FF5807; color: #FFFFFF; }
         .badge-cancelada   { background: #C6D0FF; color: #475569; }
 
+        /* Dropdown de status inline */
+        .status-dd-wrap { position: relative; display: inline-block; }
+        .status-dd-btn  { cursor: pointer; border: none; gap: 4px; }
+        .status-dd-btn:hover { opacity: 0.85; }
+        .status-dd-menu {
+            display: none;
+            position: absolute;
+            top: calc(100% + 5px);
+            left: 0;
+            z-index: 200;
+            background: #fff;
+            border: 1px solid #E2E8F0;
+            border-radius: 8px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.13);
+            min-width: 140px;
+            overflow: hidden;
+        }
+        .status-dd-menu.open { display: block; }
+        .status-dd-item {
+            padding: 0.45rem 0.75rem;
+            font-size: 0.78rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+        }
+        .status-dd-item:hover { background: #F8FAFC; }
+
         /* Alerta calculado no frontend */
         .alert-pill {
             display: inline-flex;
@@ -508,6 +535,11 @@
             container.innerHTML = contracts.map(c => {
                 const isExpanded = expandedContractId === c.id;
                 const hasVencidas = parcelasVencidasSet.has(c.id);
+                const curStatus = c.status || 'ativo';
+                const statusOpts = ['ativo','encerrado','suspenso','cancelado','rescindido']
+                    .filter(s => s !== curStatus)
+                    .map(s => `<div class="status-dd-item" onclick="changeContratoStatus('${c.id}','${s}',event)"><span class="badge-m2 badge-${s}" style="font-size:0.65rem;padding:0.15rem 0.5rem;">${s}</span></div>`)
+                    .join('');
                 return `
                     <tr class="contract-row ${isExpanded ? 'expanded' : ''}" onclick="toggleContract('${c.id}')">
                         <td><i data-lucide="chevron-down" class="row-chevron" style="width:18px;"></i></td>
@@ -516,9 +548,14 @@
                         <td style="max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(c.objeto)}">${escapeHtml(c.objeto)}</td>
                         <td style="white-space: nowrap;">${formatDate(c.data_inicio)} → ${formatDate(c.data_fim)}</td>
                         <td style="font-weight: 700; color: var(--m2-accent); white-space: nowrap;">${formatCurrency(c.valor_total)}</td>
-                        <td>
-                            <span class="badge-m2 badge-${c.status || 'ativo'}">${c.status || 'ativo'}</span>
-                            ${hasVencidas ? `<span class="alert-pill alert-vencida">Parcela vencida</span>` : ''}
+                        <td onclick="event.stopPropagation()">
+                            <div class="status-dd-wrap">
+                                <button class="badge-m2 badge-${curStatus} status-dd-btn" onclick="toggleStatusDropdown('${c.id}',event)">
+                                    ${curStatus} <i data-lucide="chevron-down" style="width:11px;height:11px;"></i>
+                                </button>
+                                <div id="sdd-${c.id}" class="status-dd-menu">${statusOpts}</div>
+                            </div>
+                            ${hasVencidas ? `<div style="margin-top:4px;"><span class="alert-pill alert-vencida">Parcela vencida</span></div>` : ''}
                         </td>
                     </tr>
                     ${isExpanded ? `
@@ -716,6 +753,30 @@
                 showToast('Erro ao criar fornecedor: ' + err.message, 'error');
             }
         }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // STATUS DROPDOWN
+        // ─────────────────────────────────────────────────────────────────────
+        function toggleStatusDropdown(contractId, e) {
+            e.stopPropagation();
+            const menu = document.getElementById('sdd-' + contractId);
+            const isOpen = menu.classList.contains('open');
+            document.querySelectorAll('.status-dd-menu.open').forEach(m => m.classList.remove('open'));
+            if (!isOpen) menu.classList.add('open');
+        }
+
+        async function changeContratoStatus(contractId, newStatus, e) {
+            e.stopPropagation();
+            document.querySelectorAll('.status-dd-menu.open').forEach(m => m.classList.remove('open'));
+            const { error } = await sb.from('contracts').update({ status: newStatus }).eq('id', contractId);
+            if (error) { showToast('Erro ao atualizar status: ' + error.message, 'error'); return; }
+            showToast('Status atualizado para ' + newStatus + '.', 'success');
+            await loadContracts();
+        }
+
+        document.addEventListener('click', () => {
+            document.querySelectorAll('.status-dd-menu.open').forEach(m => m.classList.remove('open'));
+        });
 
         // ─────────────────────────────────────────────────────────────────────
 
