@@ -715,6 +715,103 @@ Retorne APENAS o JSON válido. Sem markdown, sem backticks, sem explicação. Se
     }
 }
 
+// OCR — Estrutura texto de contrato de prestação de serviços em JSON.
+async function estruturarContratoJson(textoOcr, apiKey) {
+    const instrucoes = `Analise o texto extraído de um contrato ou anexo de serviço e retorne APENAS um JSON com a seguinte estrutura:
+
+{
+  "numero": "identificação do contrato ou anexo (ex: Anexo de Serviço nº 01/2026)",
+  "objeto": "descrição do objeto/serviço contratado (máx 500 chars)",
+  "fornecedor_nome": "razão social ou nome do CONTRATADO (não do contratante)",
+  "fornecedor_cnpj": "CNPJ do CONTRATADO somente dígitos sem pontos barras ou traços",
+  "data_inicio": "data de início dos serviços no formato AAAA-MM-DD",
+  "data_fim": "data de término dos serviços no formato AAAA-MM-DD",
+  "valor_total": 0.00
+}
+
+Regras:
+- CONTRATADO é quem presta o serviço (fornecedor), NÃO o contratante/cliente.
+- fornecedor_cnpj: somente os 14 dígitos numéricos, sem formatação.
+- valor_total: número decimal puro (ex: 14660.00), sem R$ ou separadores.
+- Datas: formato YYYY-MM-DD.
+- Se algum campo não for encontrado, retorne string vazia ou 0.
+- Retorne APENAS o JSON válido. Sem markdown, sem backticks, sem explicação.`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 90000);
+    try {
+        const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
+            method: 'POST',
+            signal: controller.signal,
+            headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model: 'mistral-large-latest',
+                response_format: { type: 'json_object' },
+                messages: [
+                    { role: 'system', content: 'Você é um extrator de dados que responde exclusivamente com JSON válido.' },
+                    { role: 'user', content: `${instrucoes}\n\n--- TEXTO EXTRAÍDO DO CONTRATO ---\n${textoOcr}` }
+                ]
+            })
+        });
+        if (!response.ok) {
+            const body = await response.text().catch(() => '');
+            throw new Error(`Estruturação IA falhou (HTTP ${response.status}): ${body.slice(0, 300)}`);
+        }
+        const result = await response.json();
+        const raw = result?.choices?.[0]?.message?.content || '{}';
+        try { return JSON.parse(raw); } catch { return {}; }
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+// OCR — Estrutura texto de guia de imposto/tributo em JSON.
+async function estruturarImpostoJson(textoOcr, apiKey) {
+    const instrucoes = `Analise o texto extraído de uma guia de recolhimento tributário (DARF, ISS, INSS, etc.) e retorne APENAS um JSON:
+
+{
+  "tipo_imposto": "DARF",
+  "codigo_receita": "somente os dígitos do código de receita",
+  "competencia": "período de apuração no formato AAAA-MM",
+  "valor": 0.00,
+  "data_vencimento": "AAAA-MM-DD"
+}
+
+Regras:
+- tipo_imposto deve ser exatamente um de: DARF, ISS, INSS, PIS, COFINS, CSLL, outro.
+- competencia: formato YYYY-MM (ex: 2026-03 para março/2026).
+- valor: número decimal puro sem R$ ou separadores.
+- data_vencimento: formato YYYY-MM-DD.
+- Retorne APENAS o JSON válido, sem markdown, sem backticks.`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 90000);
+    try {
+        const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
+            method: 'POST',
+            signal: controller.signal,
+            headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model: 'mistral-large-latest',
+                response_format: { type: 'json_object' },
+                messages: [
+                    { role: 'system', content: 'Você é um extrator de dados que responde exclusivamente com JSON válido.' },
+                    { role: 'user', content: `${instrucoes}\n\n--- TEXTO EXTRAÍDO DA GUIA ---\n${textoOcr}` }
+                ]
+            })
+        });
+        if (!response.ok) {
+            const body = await response.text().catch(() => '');
+            throw new Error(`Estruturação IA falhou (HTTP ${response.status}): ${body.slice(0, 300)}`);
+        }
+        const result = await response.json();
+        const raw = result?.choices?.[0]?.message?.content || '{}';
+        try { return JSON.parse(raw); } catch { return {}; }
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
 // PASSO 8 — Persiste os dados estruturados nas tabelas de destino.
 // Limpa registros anteriores da mesma importação (idempotente em reprocessos).
 async function persistirDadosSalic(dados, ctx) {
@@ -891,6 +988,60 @@ app.post('/api/m2/processar-pdf-salic', async (req, res) => {
                 .eq('id', import_id);
         }
         return res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * OCR de contrato de prestação de serviços via Mistral.
+ * POST /api/m2/contratos/ocr
+ * Body: { file_path } — path no bucket 'contracts' do Supabase Storage
+ */
+app.post('/api/m2/contratos/ocr', async (req, res) => {
+    req.setTimeout(120000);
+    res.setTimeout(120000);
+    const { file_path } = req.body || {};
+    if (!file_path) return res.status(400).json({ error: 'file_path obrigatório.' });
+    const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
+    if (!MISTRAL_API_KEY) return res.status(500).json({ error: 'MISTRAL_API_KEY não configurada.' });
+    try {
+        const { data: blob, error: dlErr } = await supabase.storage.from('contracts').download(file_path);
+        if (dlErr || !blob) throw new Error('Falha ao baixar PDF do storage: ' + (dlErr?.message || 'arquivo não encontrado'));
+        const pdfBase64 = Buffer.from(await blob.arrayBuffer()).toString('base64');
+        console.log(`[CONTRATO-OCR] PDF baixado (${(pdfBase64.length * 0.75 / 1024).toFixed(0)} KB). Executando OCR...`);
+        const texto = await runMistralOcr(pdfBase64, MISTRAL_API_KEY);
+        const dados = await estruturarContratoJson(texto, MISTRAL_API_KEY);
+        console.log('[CONTRATO-OCR] Concluído:', JSON.stringify(dados).slice(0, 200));
+        return res.json({ success: true, data: dados });
+    } catch (err) {
+        console.error('[CONTRATO-OCR] Erro:', err.message);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * OCR de guia de imposto/tributo via Mistral.
+ * POST /api/m2/impostos/ocr
+ * Body: { file_path } — path no bucket 'tax-guides' do Supabase Storage
+ */
+app.post('/api/m2/impostos/ocr', async (req, res) => {
+    req.setTimeout(120000);
+    res.setTimeout(120000);
+    const { file_path } = req.body || {};
+    if (!file_path) return res.status(400).json({ error: 'file_path obrigatório.' });
+    const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
+    if (!MISTRAL_API_KEY) return res.status(500).json({ error: 'MISTRAL_API_KEY não configurada.' });
+    try {
+        const { data: blob, error: dlErr } = await supabase.storage.from('tax-guides').download(file_path);
+        if (dlErr || !blob) throw new Error('Falha ao baixar PDF do storage: ' + (dlErr?.message || 'arquivo não encontrado'));
+        const pdfBase64 = Buffer.from(await blob.arrayBuffer()).toString('base64');
+        console.log(`[IMPOSTO-OCR] PDF baixado (${(pdfBase64.length * 0.75 / 1024).toFixed(0)} KB). Executando OCR...`);
+        const texto = await runMistralOcr(pdfBase64, MISTRAL_API_KEY);
+        const dados = await estruturarImpostoJson(texto, MISTRAL_API_KEY);
+        console.log('[IMPOSTO-OCR] Concluído:', JSON.stringify(dados).slice(0, 200));
+        return res.json({ success: true, data: dados });
+    } catch (err) {
+        console.error('[IMPOSTO-OCR] Erro:', err.message);
+        return res.status(500).json({ error: err.message });
     }
 });
 

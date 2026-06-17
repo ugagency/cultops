@@ -310,6 +310,10 @@
                     <select id="c-fornecedor" required>
                         <option value="">Carregando…</option>
                     </select>
+                    <div id="fornecedor-ocr-banner" style="display:none; margin-top:0.5rem; padding:0.65rem 0.9rem; background:#FFF3CD; border:1px solid #FBBF24; border-radius:8px; font-size:0.82rem; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+                        <span id="fornecedor-ocr-msg" style="flex:1;"></span>
+                        <button type="button" onclick="criarFornecedorOcr()" style="white-space:nowrap; padding:0.3rem 0.75rem; background:var(--primary); color:white; border:none; border-radius:6px; cursor:pointer; font-size:0.82rem; font-weight:600;">+ Criar e vincular</button>
+                    </div>
                 </label>
 
                 <label>
@@ -321,7 +325,10 @@
 
                 <label>
                     Arquivo (PDF) <span style="color: var(--text-muted); font-weight: 400; font-size: 0.75rem; text-transform: none; letter-spacing: normal;">— opcional</span>
-                    <input type="file" id="c-arquivo" accept="application/pdf">
+                    <input type="file" id="c-arquivo" accept="application/pdf" onchange="handleContratoOcr(this)">
+                    <span id="ocr-status-contrato" style="display:none; margin-top:0.35rem; font-size:0.8rem; color:var(--text-secondary); align-items:center; gap:0.4rem;">
+                        <i data-lucide="loader" class="spin" style="width:14px;height:14px;"></i> Enviando e analisando com IA…
+                    </span>
                 </label>
 
                 <div class="modal-actions">
@@ -421,6 +428,8 @@
         let expandedContractId = null;
         let parcelaModalCtx = null;   // { contractId, projectId }
         let aditivoModalCtx = null;   // { contractId, projectId, contract }
+        let _ocrContratFilePath = null;   // path já enviado ao Storage durante OCR
+        let _ocrFornecedorPendente = null; // { cnpj, nome } caso fornecedor não cadastrado
 
         document.addEventListener('DOMContentLoaded', async () => {
             if (window.renderSidebar) window.renderSidebar();
@@ -589,6 +598,135 @@
             document.getElementById('modal-contrato').hidden = true;
         }
 
+        // ── OCR de Contratos ──────────────────────────────────────────────────
+
+        async function handleContratoOcr(input) {
+            const arquivo = input.files[0];
+            if (!arquivo || arquivo.type !== 'application/pdf') return;
+
+            const statusEl = document.getElementById('ocr-status-contrato');
+            statusEl.style.display = 'flex';
+            if (window.lucide) window.lucide.createIcons();
+
+            _ocrContratFilePath = null;
+            _ocrFornecedorPendente = null;
+            document.getElementById('fornecedor-ocr-banner').style.display = 'none';
+
+            try {
+                // 1. Upload para o Storage (path final, evita re-upload no submit)
+                const uuid = (crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                const safeName = arquivo.name.replace(/[\/\\:*?"<>|]/g, '_');
+                const filePath = `${currentProjectId}/${uuid}/${safeName}`;
+
+                const { error: upErr } = await sb.storage
+                    .from('contracts')
+                    .upload(filePath, arquivo, { cacheControl: '3600', upsert: true, contentType: 'application/pdf' });
+                if (upErr) throw new Error('Erro no upload: ' + upErr.message);
+                _ocrContratFilePath = filePath;
+
+                // 2. Obter token de sessão para autenticar no servidor
+                const { data: { session } } = await sb.auth.getSession();
+                const token = session?.access_token || '';
+
+                // 3. Chamar endpoint OCR
+                const resp = await fetch('/api/m2/contratos/ocr', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ file_path: filePath })
+                });
+                const json = await resp.json();
+                if (!resp.ok || !json.success) throw new Error(json.error || 'Erro no OCR');
+
+                const d = json.data;
+
+                // 4. Pré-preencher campos
+                if (d.numero)      document.getElementById('c-numero').value = d.numero;
+                if (d.objeto)      document.getElementById('c-objeto').value = d.objeto;
+                if (d.data_inicio) document.getElementById('c-inicio').value = d.data_inicio;
+                if (d.data_fim)    document.getElementById('c-fim').value    = d.data_fim;
+                if (d.valor_total) document.getElementById('c-valor').value  = d.valor_total;
+
+                // 5. Resolver fornecedor pelo CNPJ
+                if (d.fornecedor_cnpj) {
+                    await resolverFornecedor(d.fornecedor_cnpj, d.fornecedor_nome || '');
+                }
+
+                showToast('Dados extraídos com sucesso!', 'success');
+            } catch (err) {
+                console.error('[OCR contrato]', err);
+                showToast('Não foi possível extrair os dados automaticamente. Preencha manualmente.', 'warning');
+            } finally {
+                statusEl.style.display = 'none';
+            }
+        }
+
+        async function resolverFornecedor(cnpjRaw, nomeExtracted) {
+            const cnpj = cnpjRaw.replace(/\D/g, '');
+            if (!cnpj) return;
+
+            // Busca fornecedor pelo CNPJ
+            const { data: forn } = await sb
+                .from('fornecedores')
+                .select('id, razao_social, cnpj')
+                .eq('cnpj', cnpj)
+                .limit(1)
+                .maybeSingle();
+
+            if (!forn) {
+                // Fornecedor não cadastrado — exibir banner
+                _ocrFornecedorPendente = { cnpj, nome: nomeExtracted };
+                const cnpjFmt = cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+                document.getElementById('fornecedor-ocr-msg').textContent =
+                    `"${nomeExtracted}" (${cnpjFmt}) não está cadastrado.`;
+                const banner = document.getElementById('fornecedor-ocr-banner');
+                banner.style.display = 'flex';
+                return;
+            }
+
+            // Fornecedor existe — verificar vínculo com projeto
+            const { data: vinculo } = await sb
+                .from('projeto_fornecedores')
+                .select('id')
+                .eq('project_id', currentProjectId)
+                .eq('fornecedor_id', forn.id)
+                .maybeSingle();
+
+            if (!vinculo) {
+                // Vincular ao projeto automaticamente
+                await sb.from('projeto_fornecedores').insert({ project_id: currentProjectId, fornecedor_id: forn.id });
+            }
+
+            // Recarregar dropdown e selecionar
+            await loadFornecedoresSelect();
+            document.getElementById('c-fornecedor').value = forn.id;
+        }
+
+        async function criarFornecedorOcr() {
+            if (!_ocrFornecedorPendente) return;
+            const { cnpj, nome } = _ocrFornecedorPendente;
+            try {
+                const { data: novoForn, error: insErr } = await sb
+                    .from('fornecedores')
+                    .insert({ razao_social: nome, cnpj })
+                    .select('id')
+                    .single();
+                if (insErr) throw insErr;
+
+                await sb.from('projeto_fornecedores').insert({ project_id: currentProjectId, fornecedor_id: novoForn.id });
+
+                await loadFornecedoresSelect();
+                document.getElementById('c-fornecedor').value = novoForn.id;
+                document.getElementById('fornecedor-ocr-banner').style.display = 'none';
+                _ocrFornecedorPendente = null;
+                showToast('Fornecedor criado e vinculado.', 'success');
+            } catch (err) {
+                console.error('[criarFornecedorOcr]', err);
+                showToast('Erro ao criar fornecedor: ' + err.message, 'error');
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+
         async function loadFornecedoresSelect() {
             const select = document.getElementById('c-fornecedor');
             select.innerHTML = '<option value="">Carregando…</option>';
@@ -694,9 +832,12 @@
                 }
                 const { data: { user } } = await sb.auth.getUser();
 
-                // (a) Upload primeiro se houver arquivo — usamos UUID gerado no client
+                // (a) Upload: se OCR já fez o upload, reutiliza o path; senão faz agora
                 let arquivoPath = null;
-                if (arquivo) {
+                if (_ocrContratFilePath) {
+                    arquivoPath = _ocrContratFilePath;
+                    _ocrContratFilePath = null;
+                } else if (arquivo) {
                     const newUuid = (crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
                     const safeName = arquivo.name.replace(/[\/\\:*?"<>|]/g, '_');
                     arquivoPath = `${currentProjectId}/${newUuid}/${safeName}`;
