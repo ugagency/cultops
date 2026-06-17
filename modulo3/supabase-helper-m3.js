@@ -37,7 +37,7 @@ function renderSidebarM3() {
     const navItems = [
         { label: 'Org. Sociais',    icon: 'users',        path: 'os.html' },
         { label: 'Patrocinadores',  icon: 'building-2',   path: 'pa.html' },
-        { label: 'Eventos',         icon: 'calendar',     path: null },
+        { label: 'Eventos',         icon: 'calendar',     path: 'eventos.html' },
         { label: 'Distribuição',    icon: 'ticket',       path: null },
         { label: 'Convidados',      icon: 'user-check',   path: null },
         { label: 'Presenças',       icon: 'clipboard-check', path: null },
@@ -228,17 +228,160 @@ async function deletePatrocinador(id) {
     if (error) throw error;
 }
 
+// ── ProjectManagerM3 ─────────────────────────────────────────
+// Usa a mesma chave do M2 para compatibilidade de navegação entre módulos
+
+const ProjectManagerM3 = {
+    getSelected() { return localStorage.getItem('prestai_project_id'); },
+    setSelected(id) {
+        localStorage.setItem('prestai_project_id', id);
+        window.dispatchEvent(new CustomEvent('projectChanged', { detail: { id } }));
+    }
+};
+
+// ── Eventos ───────────────────────────────────────────────────
+
+async function getEventosByProject(projectId) {
+    const sb = await initSupabase();
+    const { data, error } = await sb
+        .from('distribution_events')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('data_evento', { ascending: true });
+    if (error) throw error;
+    return data || [];
+}
+
+async function createEvento(dados) {
+    const sb  = await initSupabase();
+    const org = await getCurrentOrgIdM3();
+    const pid = ProjectManagerM3.getSelected();
+    const { data, error } = await sb
+        .from('distribution_events')
+        .insert({ ...dados, organization_id: org, project_id: pid })
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
+async function updateEvento(id, dados) {
+    const sb = await initSupabase();
+    const { data, error } = await sb
+        .from('distribution_events')
+        .update(dados)
+        .eq('id', id)
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
+async function getEventoDetalhe(id) {
+    const sb = await initSupabase();
+    const { data, error } = await sb
+        .from('distribution_events')
+        .select(`
+            *,
+            distribution_event_os ( *, distribution_os (*) ),
+            distribution_event_pa ( *, distribution_pa (*) )
+        `)
+        .eq('id', id)
+        .single();
+    if (error) throw error;
+    return data;
+}
+
+// ── OS links ──────────────────────────────────────────────────
+
+async function vincularOs(eventId, osId, ingressosAlocados) {
+    const sb  = await initSupabase();
+    const org = await getCurrentOrgIdM3();
+    const { data, error } = await sb
+        .from('distribution_event_os')
+        .insert({ event_id: eventId, os_id: osId, ingressos_alocados: ingressosAlocados, organization_id: org })
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
+async function desvincularOs(eventId, osId) {
+    const sb = await initSupabase();
+    const { error } = await sb
+        .from('distribution_event_os')
+        .delete()
+        .eq('event_id', eventId)
+        .eq('os_id', osId);
+    if (error) throw error;
+}
+
+async function atualizarStatusOs(eventId, osId, novoStatus) {
+    const sb = await initSupabase();
+    const { data, error } = await sb
+        .from('distribution_event_os')
+        .update({ status: novoStatus })
+        .eq('event_id', eventId)
+        .eq('os_id', osId)
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
+// ── PA links ──────────────────────────────────────────────────
+
+async function vincularPa(eventId, paId, ingressosAlocados) {
+    const sb  = await initSupabase();
+    const org = await getCurrentOrgIdM3();
+    const { data, error } = await sb
+        .from('distribution_event_pa')
+        .insert({ event_id: eventId, pa_id: paId, ingressos_alocados: ingressosAlocados, organization_id: org })
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
+async function desvincularPa(eventId, paId) {
+    const sb = await initSupabase();
+    const { error } = await sb
+        .from('distribution_event_pa')
+        .delete()
+        .eq('event_id', eventId)
+        .eq('pa_id', paId);
+    if (error) throw error;
+}
+
+async function atualizarStatusPa(eventId, paId, novoStatus) {
+    const sb = await initSupabase();
+    const { data, error } = await sb
+        .from('distribution_event_pa')
+        .update({ status: novoStatus })
+        .eq('event_id', eventId)
+        .eq('pa_id', paId)
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
 // ── Exports ───────────────────────────────────────────────────
 
-window.initSupabase           = window.initSupabase || initSupabase;
-window.renderSidebarM3        = renderSidebarM3;
-window.getCurrentOrgIdM3      = getCurrentOrgIdM3;
-window.getOrganizacoesSociais = getOrganizacoesSociais;
+window.initSupabase            = window.initSupabase || initSupabase;
+window.renderSidebarM3         = renderSidebarM3;
+window.getCurrentOrgIdM3       = getCurrentOrgIdM3;
+window.ProjectManagerM3        = ProjectManagerM3;
+window.getOrganizacoesSociais  = getOrganizacoesSociais;
 window.createOrganizacaoSocial = createOrganizacaoSocial;
 window.updateOrganizacaoSocial = updateOrganizacaoSocial;
 window.deleteOrganizacaoSocial = deleteOrganizacaoSocial;
-window.getOsProximas          = getOsProximas;
-window.getPatrocinadores      = getPatrocinadores;
-window.createPatrocinador     = createPatrocinador;
-window.updatePatrocinador     = updatePatrocinador;
-window.deletePatrocinador     = deletePatrocinador;
+window.getOsProximas           = getOsProximas;
+window.getPatrocinadores       = getPatrocinadores;
+window.createPatrocinador      = createPatrocinador;
+window.updatePatrocinador      = updatePatrocinador;
+window.deletePatrocinador      = deletePatrocinador;
+window.getEventosByProject     = getEventosByProject;
+window.createEvento            = createEvento;
+window.updateEvento            = updateEvento;
+window.getEventoDetalhe        = getEventoDetalhe;
+window.vincularOs              = vincularOs;
+window.desvincularOs           = desvincularOs;
+window.atualizarStatusOs       = atualizarStatusOs;
+window.vincularPa              = vincularPa;
+window.desvincularPa           = desvincularPa;
+window.atualizarStatusPa       = atualizarStatusPa;

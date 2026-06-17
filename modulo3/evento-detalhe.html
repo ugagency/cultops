@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Detalhe do Evento (M3)</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m3-shared.css">
+
+    <style>
+        /* ── Tabs ─────────────────────────── */
+        .tab-bar {
+            display: flex;
+            gap: 0;
+            border-bottom: 2px solid #e2e8f0;
+            margin-bottom: 1.5rem;
+        }
+        .tab-btn {
+            padding: 0.75rem 1.5rem;
+            font-family: 'DM Sans', sans-serif;
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            background: none;
+            border: none;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+            cursor: pointer;
+            transition: color 0.2s, border-color 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .tab-btn.active {
+            color: var(--m3-accent);
+            border-bottom-color: var(--m3-accent);
+        }
+        .tab-btn .tab-count {
+            background: #E3E8FF;
+            color: #1547FF;
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 0.1rem 0.45rem;
+            border-radius: 999px;
+            min-width: 18px;
+            text-align: center;
+        }
+
+        /* ── Event header card ─────────────── */
+        .ev-meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .ev-meta-item { display: flex; flex-direction: column; gap: 0.2rem; }
+        .ev-meta-label { font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+        .ev-meta-value { font-size: 0.95rem; font-weight: 600; color: var(--text-primary); }
+
+        .saldo-bar {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.75rem 1rem;
+            background: #f8fafc;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-light);
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 1.25rem;
+            flex-wrap: wrap;
+        }
+        .saldo-bar strong { color: var(--text-primary); }
+        .saldo-bar .saldo-ok   { color: #16a34a; font-weight: 700; }
+        .saldo-bar .saldo-zero { color: #FF5807; font-weight: 700; }
+
+        /* ── Vínculo cards ─────────────────── */
+        .vinculo-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1rem;
+        }
+
+        .vinculo-card {
+            background: white;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            padding: 1.1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            transition: box-shadow 0.15s;
+        }
+        .vinculo-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.07); }
+
+        .vinculo-card-top {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.5rem;
+        }
+        .vinculo-nome {
+            font-weight: 700;
+            font-size: 0.95rem;
+            color: var(--text-primary);
+            line-height: 1.3;
+        }
+        .vinculo-local {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 0.15rem;
+        }
+
+        .vinculo-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .status-select {
+            padding: 0.35rem 0.65rem;
+            border-radius: 8px;
+            border: 1px solid var(--border-light);
+            font-family: 'DM Sans', sans-serif;
+            font-size: 0.8rem;
+            font-weight: 600;
+            background: white;
+            color: var(--text-primary);
+            cursor: pointer;
+            outline: none;
+        }
+        .status-select:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-remove {
+            width: 28px; height: 28px;
+            border-radius: 8px;
+            border: 1px solid #fde8e8;
+            background: #fff5f5;
+            color: #FF5807;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer;
+            transition: all 0.15s;
+            flex-shrink: 0;
+        }
+        .btn-remove:hover { background: #FF5807; color: white; border-color: #FF5807; }
+
+        .ingressos-pill {
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: #1547FF;
+            background: #E3E8FF;
+            padding: 0.2rem 0.6rem;
+            border-radius: 999px;
+            white-space: nowrap;
+        }
+
+        /* ── Status badges ─────────────────── */
+        .badge-pendente        { background: #F1F5F9; color: #64748b; }
+        .badge-convite_enviado { background: #FEF9C3; color: #854D0E; }
+        .badge-confirmado      { background: #DCFCE7; color: #16a34a; }
+        .badge-recusado        { background: #FFECE4; color: #FF5807; }
+        .badge-lista_enviada   { background: #E3E8FF; color: #1547FF; }
+        .badge-concluido       { background: #1547FF; color: white; }
+
+        /* ── Adicionar modal ───────────────── */
+        .add-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.6rem;
+            max-height: 320px;
+            overflow-y: auto;
+            padding-right: 0.25rem;
+        }
+        .add-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            transition: border-color 0.15s, background 0.15s;
+        }
+        .add-item:hover { border-color: #1547FF; background: #f0f4ff; }
+        .add-item.selected { border-color: #1547FF; background: #E3E8FF; }
+        .add-item-name { font-weight: 600; font-size: 0.875rem; color: var(--text-primary); }
+        .add-item-sub  { font-size: 0.78rem; color: var(--text-muted); }
+    </style>
+</head>
+<body>
+    <main class="main-content">
+        <!-- Back + loading state -->
+        <div style="margin-bottom:1.5rem;">
+            <a href="eventos.html" class="btn-secondary" style="text-decoration:none;display:inline-flex;padding:0.45rem 1rem;font-size:0.85rem;">
+                <i data-lucide="arrow-left" style="width:15px;"></i> Voltar
+            </a>
+        </div>
+
+        <div id="page-body" style="display:none;">
+            <!-- Event header -->
+            <div class="glass-card" style="margin-bottom:1.5rem;">
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1rem;flex-wrap:wrap;">
+                    <div>
+                        <div id="ev-titulo" style="font-size:1.5rem;font-weight:800;color:var(--text-primary);line-height:1.2;"></div>
+                        <div style="margin-top:0.4rem;display:flex;gap:0.4rem;flex-wrap:wrap;" id="ev-badges"></div>
+                    </div>
+                </div>
+                <div class="ev-meta" id="ev-meta"></div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="tab-bar">
+                <button class="tab-btn active" id="tab-os-btn" onclick="switchTab('os')">
+                    <i data-lucide="users" style="width:16px;"></i>
+                    Organizações Sociais
+                    <span class="tab-count" id="count-os">0</span>
+                </button>
+                <button class="tab-btn" id="tab-pa-btn" onclick="switchTab('pa')">
+                    <i data-lucide="building-2" style="width:16px;"></i>
+                    Patrocinadores
+                    <span class="tab-count" id="count-pa">0</span>
+                </button>
+            </div>
+
+            <!-- Tab OS -->
+            <div id="tab-os">
+                <div class="saldo-bar" id="saldo-os-bar"></div>
+                <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
+                    <button class="btn-primary" id="btn-add-os" onclick="openAddOs()">
+                        <i data-lucide="plus" style="width:16px;"></i> Adicionar OS
+                    </button>
+                </div>
+                <div id="os-lista" class="vinculo-grid"></div>
+            </div>
+
+            <!-- Tab PA -->
+            <div id="tab-pa" style="display:none;">
+                <div class="saldo-bar" id="saldo-pa-bar"></div>
+                <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
+                    <button class="btn-primary" id="btn-add-pa" onclick="openAddPa()">
+                        <i data-lucide="plus" style="width:16px;"></i> Adicionar PA
+                    </button>
+                </div>
+                <div id="pa-lista" class="vinculo-grid"></div>
+            </div>
+        </div>
+
+        <div id="page-loading" class="empty-state">
+            <i data-lucide="loader" class="spin" style="width:32px;"></i>
+            <div style="margin-top:0.75rem;">Carregando evento…</div>
+        </div>
+    </main>
+
+    <!-- ── Modal Adicionar OS ────────────────────────────────── -->
+    <div id="add-os-backdrop" class="modal-backdrop" style="display:none;">
+        <div class="modal-card" style="max-width:560px;">
+            <div class="modal-header">
+                <h2 id="add-os-title">Adicionar OS</h2>
+                <button class="btn-icon" onclick="closeAddOs()">
+                    <i data-lucide="x" style="width:22px;"></i>
+                </button>
+            </div>
+            <div id="add-os-list-wrap" class="add-list" style="margin-bottom:1rem;"></div>
+            <div class="form-group" style="margin-bottom:0;">
+                <label>Ingressos a Alocar *</label>
+                <input type="number" id="add-os-ingressos" min="1" placeholder="0">
+                <span class="hint" id="add-os-hint"></span>
+            </div>
+            <div class="modal-footer">
+                <div class="actions-right">
+                    <button class="btn-secondary" onclick="closeAddOs()">Cancelar</button>
+                    <button class="btn-primary" id="add-os-submit-btn" onclick="submitAddOs()">
+                        <i data-lucide="plus" style="width:15px;"></i> Vincular OS
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Modal Adicionar PA ────────────────────────────────── -->
+    <div id="add-pa-backdrop" class="modal-backdrop" style="display:none;">
+        <div class="modal-card" style="max-width:560px;">
+            <div class="modal-header">
+                <h2>Adicionar Patrocinador</h2>
+                <button class="btn-icon" onclick="closeAddPa()">
+                    <i data-lucide="x" style="width:22px;"></i>
+                </button>
+            </div>
+            <div id="add-pa-list-wrap" class="add-list" style="margin-bottom:1rem;"></div>
+            <div class="form-group" style="margin-bottom:0;">
+                <label>Ingressos a Alocar *</label>
+                <input type="number" id="add-pa-ingressos" min="1" placeholder="0">
+                <span class="hint" id="add-pa-hint"></span>
+            </div>
+            <div class="modal-footer">
+                <div class="actions-right">
+                    <button class="btn-secondary" onclick="closeAddPa()">Cancelar</button>
+                    <button class="btn-primary" id="add-pa-submit-btn" onclick="submitAddPa()">
+                        <i data-lucide="plus" style="width:15px;"></i> Vincular PA
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper-m3.js"></script>
+    <script>
+        // ── State ────────────────────────────────────────────
+        let eventId    = null;
+        let evento     = null;
+        let selectedOs = null;
+        let selectedPa = null;
+
+        // ── Utilities ────────────────────────────────────────
+        function esc(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+                .replace(/'/g,'&#39;');
+        }
+        function showToast(msg, type = 'success') {
+            const c = document.getElementById('toast-container');
+            const t = document.createElement('div');
+            t.className = `toast toast-${type}`;
+            t.innerHTML = `<i data-lucide="${type==='success'?'check-circle':'alert-circle'}" style="width:18px;flex-shrink:0;"></i><span>${esc(msg)}</span>`;
+            c.appendChild(t);
+            reIcons();
+            setTimeout(() => t.remove(), 4500);
+        }
+        function reIcons() { if (window.lucide) window.lucide.createIcons(); }
+        function fmtDate(d) {
+            if (!d) return '—';
+            try { return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR'); } catch { return d; }
+        }
+
+        const STATUS_LABELS = {
+            pendente:        'Pendente',
+            convite_enviado: 'Convite Enviado',
+            confirmado:      'Confirmado',
+            recusado:        'Recusado',
+            lista_enviada:   'Lista Enviada',
+            concluido:       'Concluído',
+        };
+        const STATUS_CLS = {
+            pendente:        'badge-pendente',
+            convite_enviado: 'badge-convite_enviado',
+            confirmado:      'badge-confirmado',
+            recusado:        'badge-recusado',
+            lista_enviada:   'badge-lista_enviada',
+            concluido:       'badge-concluido',
+        };
+        // Transições permitidas (status só avança)
+        const STATUS_NEXT = {
+            pendente:        ['convite_enviado'],
+            convite_enviado: ['confirmado', 'recusado'],
+            confirmado:      ['lista_enviada'],
+            lista_enviada:   ['concluido'],
+            recusado:        [],
+            concluido:       [],
+        };
+
+        const EV_STATUS_LABEL = { rascunho:'Rascunho', ativo:'Ativo', encerrado:'Encerrado', cancelado:'Cancelado' };
+        const EV_STATUS_CLS   = { rascunho:'badge-rascunho', ativo:'badge-ativo', encerrado:'badge-encerrado', cancelado:'badge-cancelado' };
+
+        // ── Init ─────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', async () => {
+            renderSidebarM3();
+            reIcons();
+
+            const params = new URLSearchParams(window.location.search);
+            eventId = params.get('id');
+            if (!eventId) { window.location.href = 'eventos.html'; return; }
+
+            const sb = await initSupabase();
+            if (!sb) return;
+            const { data: { session } } = await sb.auth.getSession();
+            if (!session) { window.location.href = '../index.html#login'; return; }
+
+            await loadEvento();
+        });
+
+        async function loadEvento() {
+            document.getElementById('page-loading').style.display = '';
+            document.getElementById('page-body').style.display = 'none';
+
+            try {
+                evento = await getEventoDetalhe(eventId);
+                renderHeader();
+                renderOs();
+                renderPa();
+                document.getElementById('page-body').style.display = '';
+                document.getElementById('page-loading').style.display = 'none';
+                reIcons();
+            } catch (err) {
+                console.error(err);
+                document.getElementById('page-loading').innerHTML = `
+                    <div class="empty-state" style="color:#FF5807;">
+                        <i data-lucide="alert-circle" style="width:32px;"></i>
+                        <div style="margin-top:0.75rem;">Erro ao carregar evento: ${esc(err.message)}</div>
+                    </div>`;
+                reIcons();
+            }
+        }
+
+        function renderHeader() {
+            document.title = `PrestAI — ${evento.titulo}`;
+            document.getElementById('ev-titulo').textContent = evento.titulo;
+
+            const statusCls   = EV_STATUS_CLS[evento.status]   || 'badge-rascunho';
+            const statusLabel = EV_STATUS_LABEL[evento.status] || evento.status;
+            const tipoLabel   = { cultural:'Cultural', esportivo:'Esportivo', outro:'Outro' }[evento.tipo] || evento.tipo;
+            document.getElementById('ev-badges').innerHTML = `
+                <span class="badge ${statusCls}">${esc(statusLabel)}</span>
+                <span class="badge badge-gray">${esc(tipoLabel)}</span>
+            `;
+
+            document.getElementById('ev-meta').innerHTML = `
+                <div class="ev-meta-item">
+                    <span class="ev-meta-label">Data</span>
+                    <span class="ev-meta-value">${fmtDate(evento.data_evento)}${evento.horario ? ' · ' + evento.horario.slice(0,5) : ''}</span>
+                </div>
+                <div class="ev-meta-item">
+                    <span class="ev-meta-label">Local</span>
+                    <span class="ev-meta-value">${esc(evento.nome_local)}</span>
+                </div>
+                <div class="ev-meta-item">
+                    <span class="ev-meta-label">Cidade/UF</span>
+                    <span class="ev-meta-value">${esc(evento.cidade)}/${esc(evento.estado)}</span>
+                </div>
+                <div class="ev-meta-item">
+                    <span class="ev-meta-label">Total Ingressos</span>
+                    <span class="ev-meta-value">${evento.total_ingressos}</span>
+                </div>
+                <div class="ev-meta-item">
+                    <span class="ev-meta-label">Cota OS</span>
+                    <span class="ev-meta-value">${evento.ingressos_os}</span>
+                </div>
+                <div class="ev-meta-item">
+                    <span class="ev-meta-label">Cota PA</span>
+                    <span class="ev-meta-value">${evento.ingressos_pa}</span>
+                </div>
+            `;
+        }
+
+        // ── Tabs ──────────────────────────────────────────────
+        function switchTab(tab) {
+            document.getElementById('tab-os').style.display    = tab === 'os' ? '' : 'none';
+            document.getElementById('tab-pa').style.display    = tab === 'pa' ? '' : 'none';
+            document.getElementById('tab-os-btn').className    = 'tab-btn' + (tab === 'os' ? ' active' : '');
+            document.getElementById('tab-pa-btn').className    = 'tab-btn' + (tab === 'pa' ? ' active' : '');
+            reIcons();
+        }
+
+        // ── Render OS tab ─────────────────────────────────────
+        function calcSaldoOs() {
+            const alocado = (evento.distribution_event_os || []).reduce((s, v) => s + Number(v.ingressos_alocados || 0), 0);
+            return evento.ingressos_os - alocado;
+        }
+        function calcSaldoPa() {
+            const alocado = (evento.distribution_event_pa || []).reduce((s, v) => s + Number(v.ingressos_alocados || 0), 0);
+            return evento.ingressos_pa - alocado;
+        }
+
+        function renderOs() {
+            const list    = evento.distribution_event_os || [];
+            const saldo   = calcSaldoOs();
+            const saldoCls = saldo > 0 ? 'saldo-ok' : 'saldo-zero';
+            document.getElementById('count-os').textContent = list.length;
+            document.getElementById('saldo-os-bar').innerHTML = `
+                <i data-lucide="ticket" style="width:16px;flex-shrink:0;"></i>
+                Cota OS: <strong>${evento.ingressos_os}</strong> &nbsp;·&nbsp;
+                Alocados: <strong>${evento.ingressos_os - saldo}</strong> &nbsp;·&nbsp;
+                Saldo: <span class="${saldoCls}">${saldo}</span>
+            `;
+
+            const wrap = document.getElementById('os-lista');
+            if (!list.length) {
+                wrap.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">
+                    <i data-lucide="users" style="width:32px;"></i>
+                    <div style="margin-top:0.5rem;">Nenhuma OS vinculada. Clique em <strong>Adicionar OS</strong>.</div>
+                </div>`;
+                reIcons();
+                return;
+            }
+
+            wrap.innerHTML = list.map(v => renderVinculoCard(v, 'os')).join('');
+            reIcons();
+        }
+
+        function renderPa() {
+            const list  = evento.distribution_event_pa || [];
+            const saldo = calcSaldoPa();
+            const saldoCls = saldo > 0 ? 'saldo-ok' : 'saldo-zero';
+            document.getElementById('count-pa').textContent = list.length;
+            document.getElementById('saldo-pa-bar').innerHTML = `
+                <i data-lucide="ticket" style="width:16px;flex-shrink:0;"></i>
+                Cota PA: <strong>${evento.ingressos_pa}</strong> &nbsp;·&nbsp;
+                Alocados: <strong>${evento.ingressos_pa - saldo}</strong> &nbsp;·&nbsp;
+                Saldo: <span class="${saldoCls}">${saldo}</span>
+            `;
+
+            const wrap = document.getElementById('pa-lista');
+            if (!list.length) {
+                wrap.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">
+                    <i data-lucide="building-2" style="width:32px;"></i>
+                    <div style="margin-top:0.5rem;">Nenhum PA vinculado. Clique em <strong>Adicionar PA</strong>.</div>
+                </div>`;
+                reIcons();
+                return;
+            }
+
+            wrap.innerHTML = list.map(v => renderVinculoCard(v, 'pa')).join('');
+            reIcons();
+        }
+
+        function renderVinculoCard(v, tipo) {
+            const entidade = tipo === 'os' ? v.distribution_os : v.distribution_pa;
+            const nome     = entidade?.nome || '—';
+            const local    = [entidade?.cidade, entidade?.estado].filter(Boolean).join('/');
+            const cur      = v.status;
+            const next     = STATUS_NEXT[cur] || [];
+            const terminal = next.length === 0;
+            const statusCls   = STATUS_CLS[cur] || '';
+            const statusLabel = STATUS_LABELS[cur] || cur;
+
+            const entId = tipo === 'os' ? v.os_id : v.pa_id;
+
+            const selectOpts = terminal
+                ? `<option value="${cur}" selected disabled>${statusLabel}</option>`
+                : [cur, ...next].map(s =>
+                    `<option value="${s}" ${s===cur?'selected':''}>${STATUS_LABELS[s]||s}</option>`
+                  ).join('');
+
+            const onchange = tipo === 'os'
+                ? `onStatusChangeOs('${esc(entId)}', this.value, this)`
+                : `onStatusChangePa('${esc(entId)}', this.value, this)`;
+
+            const onremove = tipo === 'os'
+                ? `removeOs('${esc(entId)}')`
+                : `removePa('${esc(entId)}')`;
+
+            return `
+                <div class="vinculo-card">
+                    <div class="vinculo-card-top">
+                        <div style="flex:1;min-width:0;">
+                            <div class="vinculo-nome">${esc(nome)}</div>
+                            ${local ? `<div class="vinculo-local"><i data-lucide="map-pin" style="width:12px;vertical-align:middle;"></i> ${esc(local)}</div>` : ''}
+                        </div>
+                        <button class="btn-remove" onclick="${onremove}" title="Remover vínculo">
+                            <i data-lucide="x" style="width:14px;"></i>
+                        </button>
+                    </div>
+
+                    <div class="vinculo-footer">
+                        <span class="ingressos-pill">
+                            <i data-lucide="ticket" style="width:11px;vertical-align:middle;"></i>
+                            ${v.ingressos_alocados} ingresso${v.ingressos_alocados !== 1 ? 's' : ''}
+                        </span>
+                        <select class="status-select" onchange="${onchange}" ${terminal ? 'disabled' : ''}>
+                            ${selectOpts}
+                        </select>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ── Status change handlers ────────────────────────────
+        async function onStatusChangeOs(osId, novoStatus, selectEl) {
+            const prev = [...selectEl.options].find(o => o.selected)?.value;
+            selectEl.disabled = true;
+            try {
+                await atualizarStatusOs(eventId, osId, novoStatus);
+                showToast('Status atualizado!');
+                await reloadEvento();
+            } catch (err) {
+                console.error(err);
+                showToast('Erro ao atualizar status: ' + (err.message || ''), 'error');
+                selectEl.value = prev;
+                selectEl.disabled = false;
+            }
+        }
+
+        async function onStatusChangePa(paId, novoStatus, selectEl) {
+            const prev = [...selectEl.options].find(o => o.selected)?.value;
+            selectEl.disabled = true;
+            try {
+                await atualizarStatusPa(eventId, paId, novoStatus);
+                showToast('Status atualizado!');
+                await reloadEvento();
+            } catch (err) {
+                console.error(err);
+                showToast('Erro ao atualizar status: ' + (err.message || ''), 'error');
+                selectEl.value = prev;
+                selectEl.disabled = false;
+            }
+        }
+
+        // ── Remove ────────────────────────────────────────────
+        async function removeOs(osId) {
+            if (!confirm('Remover esta OS do evento?')) return;
+            try {
+                await desvincularOs(eventId, osId);
+                showToast('OS removida do evento.');
+                await reloadEvento();
+            } catch (err) {
+                showToast('Erro: ' + (err.message || ''), 'error');
+            }
+        }
+
+        async function removePa(paId) {
+            if (!confirm('Remover este PA do evento?')) return;
+            try {
+                await desvincularPa(eventId, paId);
+                showToast('PA removido do evento.');
+                await reloadEvento();
+            } catch (err) {
+                showToast('Erro: ' + (err.message || ''), 'error');
+            }
+        }
+
+        async function reloadEvento() {
+            evento = await getEventoDetalhe(eventId);
+            renderHeader();
+            renderOs();
+            renderPa();
+            reIcons();
+        }
+
+        // ── Add OS modal ──────────────────────────────────────
+        async function openAddOs() {
+            const wrap   = document.getElementById('add-os-list-wrap');
+            const saldo  = calcSaldoOs();
+            const hint   = document.getElementById('add-os-hint');
+            const jaVinc = new Set((evento.distribution_event_os || []).map(v => v.os_id));
+
+            hint.textContent = `Saldo disponível: ${saldo} ingresso${saldo !== 1 ? 's' : ''}`;
+            document.getElementById('add-os-ingressos').value = '';
+            document.getElementById('add-os-ingressos').max   = saldo;
+            selectedOs = null;
+
+            wrap.innerHTML = `<div class="empty-state"><i data-lucide="loader" class="spin" style="width:24px;"></i></div>`;
+            document.getElementById('add-os-backdrop').style.display = 'flex';
+            reIcons();
+
+            try {
+                let osList;
+                const hasGeo = evento.lat != null && evento.lon != null;
+                if (hasGeo) {
+                    document.getElementById('add-os-title').textContent = 'OS sugeridas (≤ 30 km)';
+                    osList = await getOsProximas(evento.lat, evento.lon);
+                } else {
+                    document.getElementById('add-os-title').textContent = 'Todas as Organizações Sociais';
+                    osList = await getOrganizacoesSociais();
+                }
+                const disponivel = osList.filter(os => !jaVinc.has(os.id));
+                if (!disponivel.length) {
+                    wrap.innerHTML = `<div class="empty-state" style="padding:1.5rem;">
+                        <i data-lucide="check-circle" style="width:24px;color:#16a34a;"></i>
+                        <div style="margin-top:0.5rem;">${hasGeo ? 'Nenhuma OS disponível em 30km.' : 'Nenhuma OS disponível.'}</div>
+                    </div>`;
+                } else {
+                    wrap.innerHTML = disponivel.map(os => `
+                        <div class="add-item" id="add-os-item-${esc(os.id)}" onclick="selectOsItem('${esc(os.id)}')">
+                            <div style="flex:1;">
+                                <div class="add-item-name">${esc(os.nome)}</div>
+                                <div class="add-item-sub">${[os.cidade, os.estado].filter(Boolean).map(esc).join('/')}${os.area_atuacao ? ' · ' + esc(os.area_atuacao) : ''}</div>
+                            </div>
+                            <i data-lucide="circle" style="width:18px;color:#c0c8d8;flex-shrink:0;" id="icon-os-${esc(os.id)}"></i>
+                        </div>
+                    `).join('');
+                }
+            } catch (err) {
+                wrap.innerHTML = `<div class="empty-state" style="color:#FF5807;">Erro: ${esc(err.message)}</div>`;
+            }
+            reIcons();
+        }
+
+        function selectOsItem(id) {
+            if (selectedOs) {
+                const prev = document.getElementById(`add-os-item-${selectedOs}`);
+                if (prev) { prev.classList.remove('selected'); }
+                const icon = document.getElementById(`icon-os-${selectedOs}`);
+                if (icon) { icon.setAttribute('data-lucide', 'circle'); }
+            }
+            selectedOs = id;
+            const el = document.getElementById(`add-os-item-${id}`);
+            if (el) el.classList.add('selected');
+            const icon = document.getElementById(`icon-os-${id}`);
+            if (icon) { icon.setAttribute('data-lucide', 'check-circle'); }
+            reIcons();
+        }
+
+        function closeAddOs() {
+            document.getElementById('add-os-backdrop').style.display = 'none';
+            selectedOs = null;
+        }
+
+        async function submitAddOs() {
+            if (!selectedOs) { showToast('Selecione uma OS.', 'error'); return; }
+            const ingressos = Number(document.getElementById('add-os-ingressos').value);
+            const saldo     = calcSaldoOs();
+            if (!ingressos || ingressos <= 0) { showToast('Informe a quantidade de ingressos.', 'error'); return; }
+            if (ingressos > saldo)            { showToast(`Saldo disponível: ${saldo}.`, 'error'); return; }
+
+            const btn = document.getElementById('add-os-submit-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px;"></i> Vinculando…';
+            reIcons();
+
+            try {
+                await vincularOs(eventId, selectedOs, ingressos);
+                showToast('OS vinculada com sucesso!');
+                closeAddOs();
+                await reloadEvento();
+            } catch (err) {
+                showToast('Erro: ' + (err.message || ''), 'error');
+                btn.disabled = false;
+                btn.innerHTML = '<i data-lucide="plus" style="width:15px;"></i> Vincular OS';
+                reIcons();
+            }
+        }
+
+        // ── Add PA modal ──────────────────────────────────────
+        async function openAddPa() {
+            const wrap   = document.getElementById('add-pa-list-wrap');
+            const saldo  = calcSaldoPa();
+            const hint   = document.getElementById('add-pa-hint');
+            const jaVinc = new Set((evento.distribution_event_pa || []).map(v => v.pa_id));
+
+            hint.textContent = `Saldo disponível: ${saldo} ingresso${saldo !== 1 ? 's' : ''}`;
+            document.getElementById('add-pa-ingressos').value = '';
+            document.getElementById('add-pa-ingressos').max   = saldo;
+            selectedPa = null;
+
+            wrap.innerHTML = `<div class="empty-state"><i data-lucide="loader" class="spin" style="width:24px;"></i></div>`;
+            document.getElementById('add-pa-backdrop').style.display = 'flex';
+            reIcons();
+
+            try {
+                const paList    = await getPatrocinadores();
+                const disponivel = paList.filter(pa => !jaVinc.has(pa.id));
+                if (!disponivel.length) {
+                    wrap.innerHTML = `<div class="empty-state" style="padding:1.5rem;">
+                        <i data-lucide="check-circle" style="width:24px;color:#16a34a;"></i>
+                        <div style="margin-top:0.5rem;">Nenhum PA disponível para vincular.</div>
+                    </div>`;
+                } else {
+                    wrap.innerHTML = disponivel.map(pa => `
+                        <div class="add-item" id="add-pa-item-${esc(pa.id)}" onclick="selectPaItem('${esc(pa.id)}')">
+                            <div style="flex:1;">
+                                <div class="add-item-name">${esc(pa.nome)}</div>
+                                <div class="add-item-sub">${[pa.cidade, pa.estado].filter(Boolean).map(esc).join('/') || 'Sem localização'}</div>
+                            </div>
+                            <i data-lucide="circle" style="width:18px;color:#c0c8d8;flex-shrink:0;" id="icon-pa-${esc(pa.id)}"></i>
+                        </div>
+                    `).join('');
+                }
+            } catch (err) {
+                wrap.innerHTML = `<div class="empty-state" style="color:#FF5807;">Erro: ${esc(err.message)}</div>`;
+            }
+            reIcons();
+        }
+
+        function selectPaItem(id) {
+            if (selectedPa) {
+                const prev = document.getElementById(`add-pa-item-${selectedPa}`);
+                if (prev) prev.classList.remove('selected');
+                const icon = document.getElementById(`icon-pa-${selectedPa}`);
+                if (icon) icon.setAttribute('data-lucide', 'circle');
+            }
+            selectedPa = id;
+            const el = document.getElementById(`add-pa-item-${id}`);
+            if (el) el.classList.add('selected');
+            const icon = document.getElementById(`icon-pa-${id}`);
+            if (icon) icon.setAttribute('data-lucide', 'check-circle');
+            reIcons();
+        }
+
+        function closeAddPa() {
+            document.getElementById('add-pa-backdrop').style.display = 'none';
+            selectedPa = null;
+        }
+
+        async function submitAddPa() {
+            if (!selectedPa) { showToast('Selecione um PA.', 'error'); return; }
+            const ingressos = Number(document.getElementById('add-pa-ingressos').value);
+            const saldo     = calcSaldoPa();
+            if (!ingressos || ingressos <= 0) { showToast('Informe a quantidade de ingressos.', 'error'); return; }
+            if (ingressos > saldo)            { showToast(`Saldo disponível: ${saldo}.`, 'error'); return; }
+
+            const btn = document.getElementById('add-pa-submit-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px;"></i> Vinculando…';
+            reIcons();
+
+            try {
+                await vincularPa(eventId, selectedPa, ingressos);
+                showToast('PA vinculado com sucesso!');
+                closeAddPa();
+                await reloadEvento();
+            } catch (err) {
+                showToast('Erro: ' + (err.message || ''), 'error');
+                btn.disabled = false;
+                btn.innerHTML = '<i data-lucide="plus" style="width:15px;"></i> Vincular PA';
+                reIcons();
+            }
+        }
+    </script>
+</body>
+</html>

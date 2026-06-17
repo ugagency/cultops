@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Eventos (M3)</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m3-shared.css">
+
+    <style>
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 0.35rem;
+        }
+        .breadcrumb span { color: var(--text-muted); }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+            gap: 1.25rem;
+        }
+
+        .ev-card {
+            display: flex;
+            flex-direction: column;
+            gap: 0.9rem;
+            margin-bottom: 0;
+            transition: box-shadow 0.2s, transform 0.2s;
+        }
+        .ev-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(21,71,255,0.13);
+        }
+
+        .ev-card-top {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.5rem;
+        }
+
+        .ev-card-title {
+            font-weight: 700;
+            font-size: 1rem;
+            color: var(--text-primary);
+            line-height: 1.3;
+        }
+
+        .ev-card-info {
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+        .ev-card-info-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .ev-ingressos {
+            display: flex;
+            gap: 1rem;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            padding: 0.6rem 0.75rem;
+            background: #f8fafc;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-light);
+        }
+        .ev-ingressos span { font-weight: 700; color: var(--text-primary); }
+
+        .ev-card-footer {
+            border-top: 1px solid #f1f5f9;
+            padding-top: 0.75rem;
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        /* Status badges */
+        .badge-rascunho  { background: #F1F5F9; color: #64748b; }
+        .badge-ativo     { background: #E3E8FF; color: #1547FF; }
+        .badge-encerrado { background: #DCFCE7; color: #16a34a; }
+        .badge-cancelado { background: #FFECE4; color: #FF5807; }
+    </style>
+</head>
+<body>
+    <main class="main-content">
+        <header class="page-header">
+            <div>
+                <div class="breadcrumb">
+                    <span>Contrapartidas</span>
+                    <i data-lucide="chevron-right" style="width:14px;"></i>
+                    <span>Eventos</span>
+                    <i data-lucide="chevron-right" style="width:14px;" id="bc-sep" style="display:none;"></i>
+                    <span id="bc-project" style="color:var(--text-primary);font-weight:600;display:none;"></span>
+                </div>
+                <h1>Eventos</h1>
+                <p id="header-sub">Eventos culturais vinculados ao projeto selecionado.</p>
+            </div>
+            <div class="header-actions">
+                <button class="btn-primary" id="btn-novo-evento" onclick="openCreateModal()" disabled>
+                    <i data-lucide="plus" style="width:16px;"></i> Novo Evento
+                </button>
+            </div>
+        </header>
+
+        <div id="cards-area"></div>
+    </main>
+
+    <!-- ── Modal Evento ──────────────────────────────────────── -->
+    <div id="modal-backdrop" class="modal-backdrop" style="display:none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h2 id="modal-title">Novo Evento</h2>
+                <button class="btn-icon" onclick="closeModal()">
+                    <i data-lucide="x" style="width:22px;height:22px;"></i>
+                </button>
+            </div>
+
+            <div class="form-grid">
+                <!-- Dados -->
+                <div class="form-group span-2">
+                    <label>Título *</label>
+                    <input type="text" id="f-titulo" placeholder="Ex: Show de Encerramento — PRONAC 25/0001">
+                </div>
+                <div class="form-group">
+                    <label>Tipo *</label>
+                    <select id="f-tipo">
+                        <option value="">Selecione</option>
+                        <option value="cultural">Cultural</option>
+                        <option value="esportivo">Esportivo</option>
+                        <option value="outro">Outro</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Data do Evento *</label>
+                    <input type="date" id="f-data">
+                </div>
+                <div class="form-group">
+                    <label>Horário</label>
+                    <input type="time" id="f-horario">
+                </div>
+                <div class="form-group">
+                    <label>Status *</label>
+                    <select id="f-status">
+                        <option value="rascunho">Rascunho</option>
+                        <option value="ativo">Ativo</option>
+                        <option value="encerrado">Encerrado</option>
+                        <option value="cancelado">Cancelado</option>
+                    </select>
+                </div>
+                <div class="form-group span-2">
+                    <label>Descrição</label>
+                    <textarea id="f-descricao" rows="2" placeholder="Descrição opcional do evento…" style="resize:vertical;"></textarea>
+                </div>
+
+                <!-- Local -->
+                <div class="form-section-title">Local</div>
+                <div class="form-group span-2">
+                    <label>Nome do Local *</label>
+                    <input type="text" id="f-nome-local" placeholder="Ex: Teatro Municipal de São Paulo">
+                </div>
+                <div class="form-group span-2">
+                    <label>Endereço *</label>
+                    <input type="text" id="f-endereco" placeholder="Rua, número, bairro…">
+                </div>
+                <div class="form-group">
+                    <label>Cidade *</label>
+                    <input type="text" id="f-cidade" placeholder="Ex: São Paulo">
+                </div>
+                <div class="form-group">
+                    <label>Estado *</label>
+                    <select id="f-estado">
+                        <option value="">Selecione</option>
+                        <option>AC</option><option>AL</option><option>AP</option><option>AM</option>
+                        <option>BA</option><option>CE</option><option>DF</option><option>ES</option>
+                        <option>GO</option><option>MA</option><option>MT</option><option>MS</option>
+                        <option>MG</option><option>PA</option><option>PB</option><option>PR</option>
+                        <option>PE</option><option>PI</option><option>RJ</option><option>RN</option>
+                        <option>RS</option><option>RO</option><option>RR</option><option>SC</option>
+                        <option>SP</option><option>SE</option><option>TO</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Latitude</label>
+                    <input type="number" id="f-lat" step="any" placeholder="-23.5505">
+                    <span class="hint">Necessário para filtro 30km</span>
+                </div>
+                <div class="form-group">
+                    <label>Longitude</label>
+                    <input type="number" id="f-lon" step="any" placeholder="-46.6333">
+                    <span class="hint">Necessário para filtro 30km</span>
+                </div>
+
+                <!-- Ingressos -->
+                <div class="form-section-title">Ingressos</div>
+                <div class="form-group span-2">
+                    <label>Total de Ingressos *</label>
+                    <input type="number" id="f-total" min="0" placeholder="0" oninput="validateIngressos()">
+                </div>
+                <div class="form-group">
+                    <label>Ingressos para OS *</label>
+                    <input type="number" id="f-os" min="0" placeholder="0" oninput="validateIngressos()">
+                </div>
+                <div class="form-group">
+                    <label>Ingressos para PA *</label>
+                    <input type="number" id="f-pa" min="0" placeholder="0" oninput="validateIngressos()">
+                </div>
+                <div id="ingressos-error" class="span-2" style="display:none;color:#FF5807;font-size:0.82rem;font-weight:600;margin-top:-0.25rem;">
+                    <i data-lucide="alert-circle" style="width:14px;vertical-align:middle;"></i>
+                    OS + PA não podem ultrapassar o total de ingressos.
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <div id="modal-delete-wrap" style="display:none;">
+                    <button class="btn-danger" onclick="confirmDelete()">
+                        <i data-lucide="trash-2" style="width:15px;"></i> Excluir
+                    </button>
+                </div>
+                <div class="actions-right">
+                    <button class="btn-secondary" onclick="closeModal()">Cancelar</button>
+                    <button class="btn-primary" id="modal-submit-btn" onclick="submitForm()">
+                        <i data-lucide="save" style="width:15px;"></i> Salvar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Confirm Delete ────────────────────────────────────── -->
+    <div id="confirm-backdrop" class="modal-backdrop" style="display:none;z-index:3000;">
+        <div class="confirm-card">
+            <i data-lucide="alert-triangle" style="width:40px;height:40px;color:#FF5807;margin:0 auto 1rem;display:block;"></i>
+            <h3>Excluir Evento?</h3>
+            <p>Esta ação é irreversível. Todos os vínculos de OS, PA e convidados serão removidos junto com o evento.</p>
+            <div style="display:flex;gap:0.75rem;justify-content:center;">
+                <button class="btn-secondary" onclick="cancelDelete()">Cancelar</button>
+                <button class="btn-danger" id="confirm-delete-btn" onclick="executeDelete()">
+                    <i data-lucide="trash-2" style="width:15px;"></i> Confirmar Exclusão
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper-m3.js"></script>
+    <script>
+        // ── State ────────────────────────────────────────────
+        let currentEditId  = null;
+        let currentProject = null;
+        const eventosMap   = new Map();
+
+        // ── Utilities ────────────────────────────────────────
+        function esc(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+                .replace(/'/g,'&#39;');
+        }
+
+        function showToast(msg, type = 'success') {
+            const c = document.getElementById('toast-container');
+            const t = document.createElement('div');
+            t.className = `toast toast-${type}`;
+            t.innerHTML = `<i data-lucide="${type==='success'?'check-circle':'alert-circle'}" style="width:18px;flex-shrink:0;"></i><span>${esc(msg)}</span>`;
+            c.appendChild(t);
+            reIcons();
+            setTimeout(() => t.remove(), 4500);
+        }
+
+        function reIcons() { if (window.lucide) window.lucide.createIcons(); }
+
+        function fmtDate(d) {
+            if (!d) return '—';
+            try { return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR'); } catch { return d; }
+        }
+
+        const STATUS_LABEL = { rascunho:'Rascunho', ativo:'Ativo', encerrado:'Encerrado', cancelado:'Cancelado' };
+        const STATUS_CLS   = { rascunho:'badge-rascunho', ativo:'badge-ativo', encerrado:'badge-encerrado', cancelado:'badge-cancelado' };
+
+        // ── Init ─────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', async () => {
+            renderSidebarM3();
+            reIcons();
+
+            const sb = await initSupabase();
+            if (!sb) return;
+            const { data: { session } } = await sb.auth.getSession();
+            if (!session) { window.location.href = '../index.html#login'; return; }
+
+            const pid = ProjectManagerM3.getSelected();
+            if (!pid) {
+                showNoProjectState();
+                return;
+            }
+
+            // Busca nome do projeto
+            const { data: proj } = await sb
+                .from('projects')
+                .select('pronac, nome')
+                .eq('id', pid)
+                .maybeSingle();
+
+            if (proj) {
+                currentProject = proj;
+                const label = [proj.pronac, proj.nome].filter(Boolean).join(' — ');
+                const bcProj = document.getElementById('bc-project');
+                const bcSep  = document.getElementById('bc-sep');
+                bcProj.textContent = label;
+                bcProj.style.display = '';
+                bcSep.style.display = '';
+                document.getElementById('header-sub').textContent =
+                    `Eventos do projeto ${label}.`;
+            }
+
+            document.getElementById('btn-novo-evento').disabled = false;
+            await loadCards(pid);
+        });
+
+        function showNoProjectState() {
+            document.getElementById('btn-novo-evento').disabled = true;
+            document.getElementById('cards-area').innerHTML = `
+                <div class="empty-state" style="padding:4rem 1rem;">
+                    <i data-lucide="folder-open" style="width:48px;height:48px;opacity:0.4;"></i>
+                    <div style="margin-top:1rem;font-size:1rem;font-weight:600;color:var(--text-primary);">Nenhum projeto selecionado</div>
+                    <div style="margin-top:0.4rem;font-size:0.875rem;">
+                        Selecione um projeto no M2 para gerenciar seus eventos.
+                    </div>
+                    <a href="../modulo2/projeto-setup.html" class="btn-primary" style="margin-top:1.25rem;text-decoration:none;">
+                        <i data-lucide="arrow-right" style="width:16px;"></i> Ir para seleção de projeto
+                    </a>
+                </div>
+            `;
+            reIcons();
+        }
+
+        // ── Load & Render ─────────────────────────────────────
+        async function loadCards(projectId) {
+            const area = document.getElementById('cards-area');
+            area.innerHTML = `<div class="empty-state"><i data-lucide="loader" class="spin" style="width:28px;"></i><div style="margin-top:0.5rem;">Carregando…</div></div>`;
+            reIcons();
+
+            try {
+                const list = await getEventosByProject(projectId || ProjectManagerM3.getSelected());
+                eventosMap.clear();
+                list.forEach(ev => eventosMap.set(ev.id, ev));
+
+                if (!list.length) {
+                    area.innerHTML = `<div class="empty-state">
+                        <i data-lucide="calendar-x" style="width:36px;"></i>
+                        <div style="margin-top:0.75rem;">Nenhum evento cadastrado para este projeto.<br>Clique em <strong>Novo Evento</strong> para começar.</div>
+                    </div>`;
+                    reIcons();
+                    return;
+                }
+
+                area.innerHTML = `<div class="cards-grid">${list.map(renderCard).join('')}</div>`;
+                reIcons();
+            } catch (err) {
+                console.error(err);
+                area.innerHTML = `<div class="empty-state" style="color:#FF5807;"><i data-lucide="alert-circle" style="width:28px;"></i><div style="margin-top:0.5rem;">Erro: ${esc(err.message)}</div></div>`;
+                reIcons();
+            }
+        }
+
+        function renderCard(ev) {
+            const statusCls   = STATUS_CLS[ev.status]   || 'badge-rascunho';
+            const statusLabel = STATUS_LABEL[ev.status] || ev.status;
+            const tipoLabel   = { cultural:'Cultural', esportivo:'Esportivo', outro:'Outro' }[ev.tipo] || ev.tipo;
+
+            return `
+                <div class="glass-card ev-card">
+                    <div class="ev-card-top">
+                        <div style="flex:1;min-width:0;">
+                            <div class="ev-card-title">${esc(ev.titulo)}</div>
+                            <div style="margin-top:0.35rem;display:flex;gap:0.4rem;flex-wrap:wrap;">
+                                <span class="badge ${statusCls}">${esc(statusLabel)}</span>
+                                <span class="badge badge-gray">${esc(tipoLabel)}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ev-card-info">
+                        <div class="ev-card-info-row">
+                            <i data-lucide="calendar" style="width:14px;flex-shrink:0;color:#94a3b8;"></i>
+                            <span>${fmtDate(ev.data_evento)}${ev.horario ? ' · ' + ev.horario.slice(0,5) : ''}</span>
+                        </div>
+                        <div class="ev-card-info-row">
+                            <i data-lucide="map-pin" style="width:14px;flex-shrink:0;color:#94a3b8;"></i>
+                            <span>${esc(ev.nome_local)}, ${esc(ev.cidade)}/${esc(ev.estado)}</span>
+                        </div>
+                    </div>
+
+                    <div class="ev-ingressos">
+                        <div>OS: <span>${ev.ingressos_os}</span></div>
+                        <div>PA: <span>${ev.ingressos_pa}</span></div>
+                        <div style="margin-left:auto;">Total: <span>${ev.total_ingressos}</span></div>
+                    </div>
+
+                    <div class="ev-card-footer">
+                        <button class="btn-secondary" style="padding:0.4rem 0.85rem;font-size:0.8rem;" onclick="openEditModal('${esc(ev.id)}')">
+                            <i data-lucide="pencil" style="width:13px;"></i> Editar
+                        </button>
+                        <a href="evento-detalhe.html?id=${esc(ev.id)}" class="btn-primary" style="padding:0.4rem 0.85rem;font-size:0.8rem;">
+                            <i data-lucide="list" style="width:13px;"></i> Detalhes
+                        </a>
+                        <button class="btn-secondary" style="padding:0.4rem 0.85rem;font-size:0.8rem;cursor:not-allowed;opacity:0.5;" title="Em breve" disabled>
+                            <i data-lucide="door-open" style="width:13px;"></i> Portaria
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ── Modal open/close ──────────────────────────────────
+        function openCreateModal() {
+            currentEditId = null;
+            document.getElementById('modal-title').textContent = 'Novo Evento';
+            document.getElementById('modal-delete-wrap').style.display = 'none';
+            clearForm();
+            document.getElementById('modal-backdrop').style.display = 'flex';
+            reIcons();
+        }
+
+        function openEditModal(id) {
+            const ev = eventosMap.get(id);
+            if (!ev) return;
+            currentEditId = id;
+            document.getElementById('modal-title').textContent = 'Editar Evento';
+            document.getElementById('modal-delete-wrap').style.display = '';
+            fillForm(ev);
+            document.getElementById('modal-backdrop').style.display = 'flex';
+            reIcons();
+        }
+
+        function closeModal() {
+            document.getElementById('modal-backdrop').style.display = 'none';
+            document.getElementById('ingressos-error').style.display = 'none';
+        }
+
+        // ── Form helpers ──────────────────────────────────────
+        function clearForm() {
+            ['f-titulo','f-tipo','f-data','f-horario','f-descricao',
+             'f-nome-local','f-endereco','f-cidade','f-estado','f-lat','f-lon',
+             'f-total','f-os','f-pa'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = id === 'f-status' ? 'rascunho' : '';
+            });
+            document.getElementById('f-status').value = 'rascunho';
+            document.getElementById('ingressos-error').style.display = 'none';
+        }
+
+        function fillForm(ev) {
+            const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val ?? ''; };
+            set('f-titulo',     ev.titulo);
+            set('f-tipo',       ev.tipo);
+            set('f-data',       ev.data_evento);
+            set('f-horario',    ev.horario ? ev.horario.slice(0,5) : '');
+            set('f-status',     ev.status);
+            set('f-descricao',  ev.descricao);
+            set('f-nome-local', ev.nome_local);
+            set('f-endereco',   ev.endereco);
+            set('f-cidade',     ev.cidade);
+            set('f-estado',     ev.estado);
+            set('f-lat',        ev.lat);
+            set('f-lon',        ev.lon);
+            set('f-total',      ev.total_ingressos);
+            set('f-os',         ev.ingressos_os);
+            set('f-pa',         ev.ingressos_pa);
+            document.getElementById('ingressos-error').style.display = 'none';
+        }
+
+        function getFormData() {
+            const v    = id => document.getElementById(id)?.value.trim() || null;
+            const vNum = id => { const val = document.getElementById(id)?.value; return (val !== '' && val != null) ? Number(val) : null; };
+            return {
+                titulo:          v('f-titulo'),
+                tipo:            v('f-tipo'),
+                data_evento:     v('f-data'),
+                horario:         v('f-horario') || null,
+                status:          v('f-status') || 'rascunho',
+                descricao:       v('f-descricao'),
+                nome_local:      v('f-nome-local'),
+                endereco:        v('f-endereco'),
+                cidade:          v('f-cidade'),
+                estado:          v('f-estado'),
+                lat:             vNum('f-lat'),
+                lon:             vNum('f-lon'),
+                total_ingressos: vNum('f-total'),
+                ingressos_os:    vNum('f-os'),
+                ingressos_pa:    vNum('f-pa'),
+            };
+        }
+
+        function validateIngressos() {
+            const total = Number(document.getElementById('f-total')?.value || 0);
+            const os    = Number(document.getElementById('f-os')?.value    || 0);
+            const pa    = Number(document.getElementById('f-pa')?.value    || 0);
+            const err   = document.getElementById('ingressos-error');
+            const invalid = (os + pa) > total;
+            err.style.display = invalid ? '' : 'none';
+            reIcons();
+            return !invalid;
+        }
+
+        // ── Submit ────────────────────────────────────────────
+        async function submitForm() {
+            const dados = getFormData();
+
+            if (!dados.titulo)      { showToast('Título é obrigatório.', 'error');        return; }
+            if (!dados.tipo)        { showToast('Tipo é obrigatório.', 'error');           return; }
+            if (!dados.data_evento) { showToast('Data do evento é obrigatória.', 'error');return; }
+            if (!dados.nome_local)  { showToast('Nome do local é obrigatório.', 'error'); return; }
+            if (!dados.endereco)    { showToast('Endereço é obrigatório.', 'error');       return; }
+            if (!dados.cidade)      { showToast('Cidade é obrigatória.', 'error');         return; }
+            if (!dados.estado)      { showToast('Estado é obrigatório.', 'error');         return; }
+            if (dados.total_ingressos == null) { showToast('Total de ingressos é obrigatório.', 'error'); return; }
+            if (dados.ingressos_os  == null)   { showToast('Ingressos OS é obrigatório.', 'error');       return; }
+            if (dados.ingressos_pa  == null)   { showToast('Ingressos PA é obrigatório.', 'error');       return; }
+            if (!validateIngressos()) { showToast('OS + PA ultrapassam o total de ingressos.', 'error'); return; }
+
+            const btn = document.getElementById('modal-submit-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px;"></i> Salvando…';
+            reIcons();
+
+            try {
+                if (currentEditId) {
+                    await updateEvento(currentEditId, dados);
+                    showToast('Evento atualizado com sucesso!');
+                } else {
+                    await createEvento(dados);
+                    showToast('Evento criado com sucesso!');
+                }
+                closeModal();
+                await loadCards();
+            } catch (err) {
+                console.error(err);
+                showToast('Erro: ' + (err.message || 'Tente novamente.'), 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i data-lucide="save" style="width:15px;"></i> Salvar';
+                reIcons();
+            }
+        }
+
+        // ── Delete ────────────────────────────────────────────
+        function confirmDelete() {
+            document.getElementById('confirm-backdrop').style.display = 'flex';
+            reIcons();
+        }
+        function cancelDelete() {
+            document.getElementById('confirm-backdrop').style.display = 'none';
+        }
+        async function executeDelete() {
+            const btn = document.getElementById('confirm-delete-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px;"></i> Excluindo…';
+            reIcons();
+            try {
+                // Supabase apagará event_os/pa em cascade (ON DELETE CASCADE)
+                const sb = await initSupabase();
+                const { error } = await sb.from('distribution_events').delete().eq('id', currentEditId);
+                if (error) throw error;
+                showToast('Evento excluído.');
+                cancelDelete();
+                closeModal();
+                await loadCards();
+            } catch (err) {
+                console.error(err);
+                showToast('Erro ao excluir: ' + (err.message || ''), 'error');
+                btn.disabled = false;
+                btn.innerHTML = '<i data-lucide="trash-2" style="width:15px;"></i> Confirmar Exclusão';
+                reIcons();
+            }
+        }
+    </script>
+</body>
+</html>
