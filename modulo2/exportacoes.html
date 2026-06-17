@@ -830,9 +830,9 @@
                     [],
                     ['RESUMO FINANCEIRO'],
                     ['Valor Aprovado MinC:', totalAprovado],
-                    ['Total Executado:', totalExecutado],
-                    ['Saldo:', saldo],
-                    ['% Execução:', percExec + '%'],
+                    // ['Total Executado:', totalExecutado],
+                    // ['Saldo:', saldo],
+                    // ['% Execução:', percExec + '%'],
                     [],
                     ['RESUMO OPERACIONAL'],
                     ['Total de Contratos:', contratos.length],
@@ -858,14 +858,14 @@
                 XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headerDespesas, ...dadosDespesas]), 'Despesas');
 
                 // ABA 3 — Rubricas
-                const headerRubricas = ['Código', 'Rubrica', 'Valor Aprovado (R$)', 'Valor Utilizado (R$)', 'Saldo (R$)', '% Execução', 'Status'];
+                const headerRubricas = ['Código', 'Rubrica', 'Valor Aprovado (R$)', 'Status'];
                 const dadosRubricas = rubricas.map(r => {
                     const aprov = Number(r.valor_aprovado || 0);
                     const util = Number(r.valor_utilizado || 0);
                     const sld = aprov - util;
                     const perc = aprov > 0 ? ((util / aprov) * 100).toFixed(1) + '%' : '0%';
                     const status = util > aprov ? 'Excedida' : (aprov > 0 && util / aprov >= 0.9) ? 'Atenção' : 'OK';
-                    return [r.codigo || '—', r.nome, aprov, util, sld, perc, status];
+                    return [r.codigo || '—', r.nome, aprov, status];
                 });
                 XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headerRubricas, ...dadosRubricas]), 'Rubricas');
 

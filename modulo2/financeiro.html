@@ -325,17 +325,17 @@
                     <span class="stat-value skeleton" id="stat-aprovado">R$ 0,00</span>
                     <span class="stat-sub" id="stat-aprovado-sub">&nbsp;</span>
                 </div>
-                <div class="glass-card stat-card">
+                <div class="glass-card stat-card" style="display:none;">
                     <span class="stat-label">Total Executado</span>
                     <span class="stat-value skeleton" id="stat-executado">R$ 0,00</span>
                     <span class="stat-sub" id="stat-executado-sub">&nbsp;</span>
                 </div>
-                <div class="glass-card stat-card">
+                <div class="glass-card stat-card" style="display:none;">
                     <span class="stat-label">Saldo Disponível</span>
                     <span class="stat-value skeleton" id="stat-saldo">R$ 0,00</span>
                     <span class="stat-sub" id="stat-saldo-sub">&nbsp;</span>
                 </div>
-                <div class="glass-card stat-card">
+                <div class="glass-card stat-card" style="display:none;">
                     <span class="stat-label">% Execução</span>
                     <span class="stat-value skeleton" id="stat-percent">0%</span>
                     <div class="progress-container">
@@ -396,7 +396,7 @@
                 </div>
 
                 <aside style="display: flex; flex-direction: column; gap: 1.5rem;">
-                    <section class="glass-card" style="padding: 1.5rem;">
+                    <section class="glass-card" style="padding: 1.5rem; display:none;">
                         <h3 class="section-title">Alertas de Rubricas</h3>
                         <div id="rubric-alerts">
                             <p class="text-muted" style="font-size: 0.85rem;">Carregando…</p>
@@ -437,7 +437,7 @@
                 </aside>
             </div>
 
-            <section class="glass-card" id="in23-section" style="padding: 1.5rem; margin-top: 1.5rem;">
+            <section class="glass-card" id="in23-section" style="padding: 1.5rem; margin-top: 1.5rem; display:none;">
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
                     <h3 class="section-title" style="margin: 0;">Conformidade IN23</h3>
                     <span style="font-size: 0.72rem; color: var(--text-muted); font-weight: 500;">IN 23/2025 MinC — limites percentuais obrigatórios por categoria</span>
@@ -732,9 +732,9 @@
                             ${r.codigo ? `<div style="font-size: 0.7rem; color: var(--text-muted);">${escapeHtml(r.codigo)}</div>` : ''}
                         </td>
                         <td class="num">${fmtBRL(aprov)}</td>
-                        <td class="num">${fmtBRL(util)}</td>
-                        <td class="num" style="color: ${saldo < 0 ? '#FF5807' : 'inherit'};">${fmtBRL(saldo)}</td>
-                        <td class="num">${pct.toFixed(1)}%</td>
+                        <td class="num" style="display:none;">${fmtBRL(util)}</td>
+                        <td class="num" style="display:none; color: ${saldo < 0 ? '#FF5807' : 'inherit'};">${fmtBRL(saldo)}</td>
+                        <td class="num" style="display:none;">${pct.toFixed(1)}%</td>
                         <td><span class="pill ${cls.cls}">${cls.label}</span></td>
                     </tr>
                 `;
@@ -747,9 +747,9 @@
                             <tr>
                                 <th>Rubrica</th>
                                 <th class="num">Aprovado</th>
-                                <th class="num">Executado</th>
-                                <th class="num">Saldo</th>
-                                <th class="num">%</th>
+                                <th class="num" style="display:none;">Executado</th>
+                                <th class="num" style="display:none;">Saldo</th>
+                                <th class="num" style="display:none;">%</th>
                                 <th>Status</th>
                             </tr>
                         </thead>
