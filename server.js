@@ -1089,6 +1089,15 @@ app.post('/api/m2/fornecedores/criar-vincular', requireAuth, async (req, res) =>
         return res.status(400).json({ error: 'cnpj, razao_social e project_id são obrigatórios.' });
     }
     if (!(await userCanAccessProject(req.user.id, project_id))) return res.status(403).json({ error: 'Acesso negado ao projeto.' });
+
+    const { data: orgUser } = await supabase
+        .from('organization_users')
+        .select('organization_id')
+        .eq('user_id', req.user.id)
+        .limit(1)
+        .maybeSingle();
+    const organization_id = orgUser?.organization_id || null;
+
     try {
         // Verificar se já existe pelo CNPJ
         let { data: existing } = await supabase
@@ -1101,10 +1110,9 @@ app.post('/api/m2/fornecedores/criar-vincular', requireAuth, async (req, res) =>
         if (existing) {
             fornecedorId = existing.id;
         } else {
-            const newId = crypto.randomUUID ? crypto.randomUUID() : require('crypto').randomUUID();
             const { data: novo, error: insErr } = await supabase
                 .from('fornecedores')
-                .insert({ id: newId, razao_social, cnpj: cnpj.replace(/\D/g, '') })
+                .insert({ razao_social, cnpj: cnpj.replace(/\D/g, ''), organization_id })
                 .select('id')
                 .single();
             if (insErr) throw new Error('Erro ao criar fornecedor: ' + insErr.message);
@@ -1122,7 +1130,7 @@ app.post('/api/m2/fornecedores/criar-vincular', requireAuth, async (req, res) =>
         if (!vinculo) {
             const { error: linkErr } = await supabase
                 .from('projeto_fornecedores')
-                .insert({ project_id, fornecedor_id: fornecedorId });
+                .insert({ project_id, fornecedor_id: fornecedorId, gestor_id: req.user.id });
             if (linkErr) throw new Error('Erro ao vincular fornecedor: ' + linkErr.message);
         }
 
