@@ -2629,6 +2629,14 @@ window.handleLogin = async function () {
         state.user = data.user;
         state.userStatus = getUserRole() || 'gestor';
         await syncOrgMetadata();
+
+        const _roleLogin = data.user.app_metadata?.role
+                        || data.user.user_metadata?.role;
+        if (_roleLogin === 'operador') {
+            window.location.href = 'modulo3/index.html';
+            return;
+        }
+
         window.navigate('dashboard');
     } catch (error) {
         alert("Erro no login: " + error.message);
