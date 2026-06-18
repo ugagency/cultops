@@ -16,9 +16,16 @@ async function initSupabase() {
 
 // ── Sidebar ───────────────────────────────────────────────────
 
-function renderSidebarM3() {
+async function renderSidebarM3() {
     const existing = document.querySelector('.sidebar');
     if (existing) existing.remove();
+
+    let _role = null;
+    try {
+        const _sb = await initSupabase();
+        const { data: { session: _s } } = await _sb.auth.getSession();
+        _role = _s?.user?.app_metadata?.role || _s?.user?.user_metadata?.role || null;
+    } catch (_) {}
 
     const sidebar = document.createElement('aside');
     sidebar.className = 'sidebar';
@@ -43,13 +50,17 @@ function renderSidebarM3() {
         { label: 'Evidências',      icon: 'clipboard-check', path: 'evidencias-m3.html' },
     ];
 
+    const _filtered = navItems.filter(item =>
+        !(_role === 'operador' && ['os.html', 'pa.html'].includes(item.path))
+    );
+
     const currentFile = window.location.pathname.split('/').pop();
 
-    const navHtml = navItems.map(item => {
+    const navHtml = _filtered.map(item => {
         const active  = item.path && currentFile === item.path;
         const soon    = !item.path;
         return `
-            <a href="${item.path || '#'}" ${soon ? 'onclick="return false"' : ''} style="
+            <a href="${item.path || '#'}" ${soon ? 'onclick="return false"' : 'data-path="' + item.path + '"'} style="
                 display: flex; align-items: center; gap: 0.75rem;
                 padding: 0.75rem 1rem; border-radius: 12px;
                 text-decoration: none;
@@ -90,6 +101,13 @@ function renderSidebarM3() {
     `;
 
     document.body.prepend(sidebar);
+
+    sidebar.querySelectorAll('a[data-path]').forEach(function(el) {
+        el.addEventListener('click', function(e) {
+            e.preventDefault();
+            window.location.href = el.dataset.path;
+        });
+    });
 
     if (window.lucide) window.lucide.createIcons();
     else setTimeout(() => { if (window.lucide) window.lucide.createIcons(); }, 500);
@@ -495,6 +513,7 @@ async function getKpisM3(projectId) {
         { data: vincPa },
         { data: eventosAtivosData },
         { count: evidenciasPendentes },
+        { data: eventosAtivosDataPa },
     ] = await Promise.all([
         sb.from('distribution_events').select('id', { count: 'exact', head: true })
             .eq('project_id', projectId).eq('status', 'ativo'),
@@ -519,6 +538,10 @@ async function getKpisM3(projectId) {
             .eq('project_id', projectId)
             .eq('status_validacao', 'pendente')
             .not('distribution_event_id', 'is', null),
+        sb.from('distribution_event_pa')
+            .select('ingressos_alocados, distribution_events!inner(project_id, status, ingressos_pa)')
+            .eq('distribution_events.project_id', projectId)
+            .eq('distribution_events.status', 'ativo'),
     ]);
 
     const confirmados = (vincOs?.length || 0) + (vincPa?.length || 0);
@@ -529,6 +552,11 @@ async function getKpisM3(projectId) {
         const totalAlocOs = eventosAtivosData.reduce((s, v) => s + (v.ingressos_alocados || 0), 0);
         const totalCapOs  = eventosAtivosData.reduce((s, v) => s + (v.distribution_events?.ingressos_os || 0), 0);
         if (totalCapOs > 0) ocupacaoOsPct = Math.round(totalAlocOs / totalCapOs * 100);
+    }
+    if (eventosAtivosDataPa?.length) {
+        const totalAlocPa = eventosAtivosDataPa.reduce((s, v) => s + (v.ingressos_alocados || 0), 0);
+        const totalCapPa  = eventosAtivosDataPa.reduce((s, v) => s + (v.distribution_events?.ingressos_pa || 0), 0);
+        if (totalCapPa > 0) ocupacaoPaPct = Math.round(totalAlocPa / totalCapPa * 100);
     }
 
     return {
