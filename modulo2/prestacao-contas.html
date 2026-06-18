@@ -308,11 +308,12 @@
                         </div>
                     </div>
 
-                    <!-- PRE-11: Saldo remanescente (V023/Art.70 IN23) -->
+                    <!-- IN23-DISABLED: PRE-11 saldo remanescente (Art.70 IN23) — Reativar quando gestão de saldo implementada
                     <div class="check-item" id="pre-11" style="display:none;">
                         <div class="check-icon loading"><i data-lucide="loader" class="spin"></i></div>
                         <div class="check-text" id="pre-11-text">Saldo remanescente zerado ou com comprovante de recolhimento ao FNC</div>
                     </div>
+                    -->
 
                     <!-- PRE-12: Autorização acesso fiscal (V024/Art.70) — manual -->
                     <div class="check-item" id="pre-12" style="background: #FFFBE6; border-color: #F59E0B; align-items: flex-start; flex-direction: column; gap: 0.75rem;">
@@ -336,11 +337,12 @@
                         </div>
                     </div>
 
-                    <!-- PRE-13: Limites percentuais IN23 (V001-V005) -->
+                    <!-- IN23-DISABLED: PRE-13 limites percentuais IN23 (V001-V005) — Reativar quando gestão de saldo implementada
                     <div class="check-item" id="pre-13">
                         <div class="check-icon loading"><i data-lucide="loader" class="spin"></i></div>
                         <div class="check-text" id="pre-13-text">Limites percentuais da IN23 respeitados (captação, divulgação, administração)</div>
                     </div>
+                    -->
                 </div>
 
                 <div id="gerar-container">
@@ -647,6 +649,7 @@
             allOk &= updateCheckItem('pre-09', results[8] === 0);
             allOk &= updateCheckItem('pre-10', q10_ok);
 
+            /* IN23-DISABLED: verificação PRE-11 — Reativar quando gestão de saldo implementada
             // PRE-11: saldo remanescente (V023/Art.70 IN23)
             const rubricas11 = rubricasRes.data || [];
             const totalAprovado11 = rubricas11.reduce((s, r) => s + Number(r.valor_aprovado || 0), 0);
@@ -660,6 +663,7 @@
                     : `Há saldo remanescente de ${fmtBRL(saldoRem)}. É necessário recolher ao FNC ou anexar comprovante.`;
             }
             allOk &= updateCheckItem('pre-11', pre11_ok);
+            */
 
             // PRE-12: acesso fiscal (V024/Art.70) — manual
             const pre12_ok = chkAll?.acesso_fiscal_autorizado === true;
@@ -685,6 +689,7 @@
             if (window.lucide) window.lucide.createIcons();
             allOk &= pre12_ok;
 
+            /* IN23-DISABLED: verificação PRE-13 — Reativar quando gestão de saldo implementada
             // PRE-13: limites percentuais IN23 (V001-V005)
             const valorCaptado13 = Number((projValRes.data || {}).valor_captado || 0);
             const sums13 = { administracao: 0, divulgacao: 0, captacao: 0, proponente: 0 };
@@ -706,6 +711,7 @@
                     : `Categorias com limite excedido: ${excedidas13.join(', ')}`;
             }
             allOk &= updateCheckItem('pre-13', pre13_ok);
+            */
 
             const btnGerar = document.getElementById('btn-gerar');
             const feedback = document.getElementById('gerar-feedback');

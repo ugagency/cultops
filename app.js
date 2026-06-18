@@ -3363,7 +3363,7 @@ window.navigate = async function (view, id = null) {
     }
 
     render();
-    if (view === 'orcamento' || view === 'financeiro') mountIN23Panel();
+    // IN23-DISABLED: if (view === 'orcamento' || view === 'financeiro') mountIN23Panel();
     window.scrollTo(0, 0);
 };
 
@@ -5098,6 +5098,7 @@ window.handleEnviarSalic = async function (documentId) {
             supabaseClient.from('documents').select('nome_emissor, cnpj_emissor, valor').eq('project_id', doc.project_id).in('status', ['liberado_rpa_airtop', 'enviado_salic', 'concluido']),
         ]);
 
+        /* IN23-DISABLED: bloqueio de envio por IN23 desativado — Reativar quando gestão de saldo implementada
         const vProjeto = parseFloat(projFinanc?.valor_aprovado) || 0;
         const vCaptado = parseFloat(projFinanc?.valor_captado)  || 0;
         const regrasIN23 = calcularRegrasIN23(rubricasProjeto, vProjeto, vCaptado, docsConferidos);
@@ -5113,6 +5114,7 @@ window.handleEnviarSalic = async function (documentId) {
         if (avisosIN23.length > 0) {
             showToast(`Atenção IN 23/2025: ${avisosIN23.map(r => r.label).join(', ')} acima do recomendado`, 'warning');
         }
+        */
 
         // 2. Notificar API local para Inserção no SALIC
         console.log(`[RPA] Disparando envio para o servidor local: ${CONFIG.SALIC_API_URL}...`);

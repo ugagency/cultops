@@ -437,6 +437,7 @@
                 </aside>
             </div>
 
+            <!-- IN23-DISABLED: seção de conformidade desativada — Reativar quando gestão de saldo de rubricas estiver implementada
             <section class="glass-card" id="in23-section" style="padding: 1.5rem; margin-top: 1.5rem; display:none;">
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
                     <h3 class="section-title" style="margin: 0;">Conformidade IN23</h3>
@@ -446,6 +447,7 @@
                     <div class="empty-state"><i data-lucide="loader" style="width: 24px;" class="spin"></i>Carregando…</div>
                 </div>
             </section>
+            -->
         </div>
 
         <div id="no-project-state" style="display: none; padding: 4rem 1rem; text-align: center; color: var(--text-muted);">
@@ -627,7 +629,7 @@
                 renderRubricasTable(rubricas);
                 renderDespesasRecentes(despesasRecentes);
                 renderRubricasAlerts(rubricas);
-                renderIN23(rubricas, totalAprovado, valorCaptado, fornecedoresIn23Raw);
+                // IN23-DISABLED: renderIN23(rubricas, totalAprovado, valorCaptado, fornecedoresIn23Raw);
 
                 if (window.lucide) window.lucide.createIcons();
             } catch (err) {
