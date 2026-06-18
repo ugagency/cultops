@@ -1,6 +1,7 @@
 {
   "version": 2,
   "builds": [
+    { "src": "api/salic/inserir.js", "use": "@vercel/node" },
     { "src": "server.js", "use": "@vercel/node", "config": { "maxDuration": 300 } },
     { "src": "index.html", "use": "@vercel/static" },
     { "src": "style.css", "use": "@vercel/static" },
@@ -11,6 +12,7 @@
     { "src": "*.ico", "use": "@vercel/static" }
   ],
   "rewrites": [
+    { "source": "/api/salic/inserir", "destination": "/api/salic/inserir.js" },
     { "source": "/", "destination": "/module-selector.html" },
     { "source": "/api/:path*", "destination": "/server.js" },
     { "source": "/config.js", "destination": "/server.js" }
