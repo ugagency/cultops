@@ -114,7 +114,7 @@ app.post('/api/salic/inserir', async (req, res) => {
         if (doc.rubrica_id_fk) {
             const { data } = await supabase
                 .from('rubricas')
-                .select('nome, etapa, valor_aprovado, rubrica_id')
+                .select('nome, etapa, valor_aprovado, rubrica_id, produto')
                 .eq('id', doc.rubrica_id_fk)
                 .single();
             rubrica = data;
@@ -122,7 +122,8 @@ app.post('/api/salic/inserir', async (req, res) => {
                 console.log(`[API] Rubrica por UUID: "${rubrica.nome}"` +
                     ` | ID: ${rubrica.rubrica_id}` +
                     ` | Etapa: ${rubrica.etapa}` +
-                    ` | Valor: R$ ${rubrica.valor_aprovado}`);
+                    ` | Valor: R$ ${rubrica.valor_aprovado}` +
+                    ` | Produto: ${rubrica.produto || '(sem produto)'}`);
             }
         }
 
@@ -134,7 +135,7 @@ app.post('/api/salic/inserir', async (req, res) => {
             if (rubricaIdNum) {
                 const { data } = await supabase
                     .from('rubricas')
-                    .select('nome, etapa, valor_aprovado, rubrica_id')
+                    .select('nome, etapa, valor_aprovado, rubrica_id, produto')
                     .eq('project_id', doc.project_id)
                     .eq('rubrica_id', rubricaIdNum)
                     .maybeSingle();
@@ -148,7 +149,7 @@ app.post('/api/salic/inserir', async (req, res) => {
 
         // ESTRATEGIA 3 — nome (ultimo recurso, ambiguo)
         if (!rubrica) {
-            console.warn('[API] Fallback por nome — pode ser ambíguo');
+            console.warn('[API] Fallback por nome — pode ser ambíguo. rubricaProduto será null, RPA usará busca flat.');
             const nomeRubrica = doc.rubrica
                 ?.replace(/^\d+\s*-\s*/, '')
                 ?.trim();
@@ -174,9 +175,9 @@ app.post('/api/salic/inserir', async (req, res) => {
                 ` | rubrica: "${doc.rubrica}" | rubrica_id_fk: ${doc.rubrica_id_fk}`);
         }
 
-        // Mantem as variaveis usadas no payload (sem alterar payload nem o .cjs)
         const rubricaValorAprovado = rubrica.valor_aprovado;
         const rubricaEtapa = rubrica.etapa;
+        const rubricaProduto = rubrica.produto || null;
 
         // CHG-13 (rev): numero_extrato vem de documents.fitid (RPA usa os ultimos 10 digitos / zero-pad).
         // Fallback: extratos_bancarios.documento_referencia via despesas.extrato_vinculado_id.
@@ -217,6 +218,7 @@ app.post('/api/salic/inserir', async (req, res) => {
             rubricaNome: doc.rubrica || 'Rubrica não informada',
             rubricaValorAprovado: rubricaValorAprovado,
             rubricaEtapa: rubricaEtapa,
+            rubricaProduto: rubricaProduto,
             documento: {
                 cnpj_fornecedor: doc.cnpj_emissor,
                 valor: doc.valor,

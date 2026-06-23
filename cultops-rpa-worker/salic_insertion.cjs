@@ -245,9 +245,11 @@ async function executarInsercaoSalic(config) {
         await wait(2000); // Garante que a tabela dinamica se estabilizou
 
         // --- FLUXO DE INSERCAO ---
-        console.log(`[SALIC] Localizando a rubrica: ${rubricaNome}`);
-        const resultadoMatch = await targetPage.evaluate((nome, valorAprovado, valorNota) => {
-            // Normalizacao agressiva: remove prefixo numerico, acentos, mantem so alfanumerico+espaco
+        console.log(`[SALIC] Localizando a rubrica: ${rubricaNome}` + (config.rubricaProduto ? ` | Produto: ${config.rubricaProduto}` : ''));
+        const resultadoMatch = await targetPage.evaluate(
+            (nome, produto, valorAprovado, valorNota) => {
+
+            // ── utilidades ────────────────────────────────────────────────────
             const norm = (s) => String(s || '')
                 .replace(/^\d+\s*-\s*/, '')
                 .normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -256,9 +258,6 @@ async function executarInsercaoSalic(config) {
                 .trim()
                 .toLowerCase();
 
-            const tokensDe = (s) => norm(s).split(' ').filter(t => t.length >= 3);
-
-            // Coeficiente de Dice baseado em bigramas (similaridade 0..1)
             const dice = (a, b) => {
                 if (!a || !b) return 0;
                 if (a === b) return 1;
@@ -279,85 +278,147 @@ async function executarInsercaoSalic(config) {
                 return (2 * inter) / (totalA + totalB);
             };
 
-            const rows = Array.from(document.querySelectorAll('table.bordered tbody tr'));
-            const nomeNorm = norm(nome);
-            const tokensProcurados = tokensDe(nome);
-
-            // Coleta candidatos com botao de comprovar
-            const candidatos = [];
-            for (const row of rows) {
-                const colunas = row.querySelectorAll('td');
-                if (colunas.length < 5) continue;
-                const btn = row.querySelector('a[title="Comprovar item"]');
-                if (!btn) continue;
-                candidatos.push({
-                    btn,
-                    colunas,
-                    nomeOriginal: colunas[0].innerText,
-                    nomeNorm: norm(colunas[0].innerText),
-                });
-            }
-
-            // Match por valor aprovado tem prioridade absoluta (so entre rubricas com nome compativel)
-            const nomeCompativel = (cNorm) => {
+            const nomeCompativel = (cNorm, nomeNorm, tokensProcurados) => {
                 if (cNorm === nomeNorm) return true;
                 if (cNorm.includes(nomeNorm) || nomeNorm.includes(cNorm)) return true;
                 if (tokensProcurados.length > 0 && tokensProcurados.every(t => cNorm.includes(t))) return true;
                 return false;
             };
 
-            if (valorAprovado) {
+            // ── coleta candidatos de um conjunto de linhas <tr> ───────────────
+            const coletarCandidatos = (rows) => {
+                const candidatos = [];
+                for (const row of rows) {
+                    const colunas = row.querySelectorAll('td');
+                    if (colunas.length < 5) continue;
+                    const btn = row.querySelector('a[title="Comprovar item"]');
+                    if (!btn) continue;
+                    candidatos.push({
+                        btn,
+                        nomeOriginal: colunas[0].innerText.trim(),
+                        nomeNorm: norm(colunas[0].innerText),
+                        strAprovado: colunas[1].innerText.replace('R$', '').replace(/\./g, '').replace(',', '.').trim(),
+                        strSaldo: colunas[3].innerText.replace('R$', '').replace(/\./g, '').replace(',', '.').trim(),
+                    });
+                }
+                return candidatos;
+            };
+
+            // ── match em cascata dentro de um conjunto de candidatos ───────────
+            const matchCandidatos = (candidatos, nomeNorm, tokensProcurados, valorAprovado, valorNota) => {
+                // 1. valor_aprovado exato + nome compativel
+                if (valorAprovado) {
+                    const porValor = candidatos.filter(c =>
+                        nomeCompativel(c.nomeNorm, nomeNorm, tokensProcurados) &&
+                        Math.abs(parseFloat(c.strAprovado) - parseFloat(valorAprovado)) < 0.01
+                    );
+                    if (porValor.length === 1)
+                        return { link: porValor[0].btn.href, matchType: 'valor_aprovado', score: 1, nomeTabela: porValor[0].nomeOriginal };
+                    if (porValor.length > 1)
+                        return { link: null, erro_ambiguidade: true, candidatos: porValor.map(c => c.nomeOriginal) };
+                }
+
+                // 2. exato normalizado
+                const exatos = candidatos.filter(c => c.nomeNorm === nomeNorm);
+                if (exatos.length === 1)
+                    return { link: exatos[0].btn.href, matchType: 'exato_normalizado', score: 1, nomeTabela: exatos[0].nomeOriginal };
+                if (exatos.length > 1)
+                    return { link: null, erro_ambiguidade: true, candidatos: exatos.map(c => c.nomeOriginal) };
+
+                // 3. substring normalizada
+                const substrings = candidatos.filter(c =>
+                    c.nomeNorm.includes(nomeNorm) || nomeNorm.includes(c.nomeNorm)
+                );
+                if (substrings.length === 1)
+                    return { link: substrings[0].btn.href, matchType: 'substring_normalizada', score: 0.95, nomeTabela: substrings[0].nomeOriginal };
+                if (substrings.length > 1)
+                    return { link: null, erro_ambiguidade: true, candidatos: substrings.map(c => c.nomeOriginal) };
+
+                // 4. todos os tokens presentes
+                if (tokensProcurados.length > 0) {
+                    const porTokens = candidatos.filter(c =>
+                        tokensProcurados.every(t => c.nomeNorm.includes(t))
+                    );
+                    if (porTokens.length === 1)
+                        return { link: porTokens[0].btn.href, matchType: 'tokens', score: 0.9, nomeTabela: porTokens[0].nomeOriginal };
+                    if (porTokens.length > 1)
+                        return { link: null, erro_ambiguidade: true, candidatos: porTokens.map(c => c.nomeOriginal) };
+                }
+
+                // 5. fuzzy Dice >= 0.85
+                let melhor = { score: 0 };
                 for (const c of candidatos) {
-                    if (!nomeCompativel(c.nomeNorm)) continue;
-                    const strAprovado = c.colunas[1].innerText.replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
-                    if (Math.abs(parseFloat(strAprovado) - parseFloat(valorAprovado)) < 0.01) {
-                        return { link: c.btn.href, matchType: 'valor_aprovado', score: 1, nomeTabela: c.nomeOriginal };
+                    const s = dice(nomeNorm, c.nomeNorm);
+                    if (s > melhor.score) melhor = { link: c.btn.href, matchType: 'fuzzy', score: s, nomeTabela: c.nomeOriginal };
+                }
+                if (melhor.score >= 0.85) return melhor;
+
+                // 6. saldo suficiente (fallback comportamento anterior)
+                for (const c of candidatos) {
+                    if (parseFloat(c.strSaldo) >= parseFloat(valorNota)) {
+                        return { link: c.btn.href, matchType: 'saldo_suficiente', score: 0, nomeTabela: c.nomeOriginal };
                     }
                 }
-            }
 
-            // Estrategia 1: match exato normalizado
-            for (const c of candidatos) {
-                if (c.nomeNorm === nomeNorm) {
-                    return { link: c.btn.href, matchType: 'exato_normalizado', score: 1, nomeTabela: c.nomeOriginal };
+                return null;
+            };
+
+            // ── logica principal ──────────────────────────────────────────────
+            const nomeNorm = norm(nome);
+            const tokensProcurados = nomeNorm.split(' ').filter(t => t.length >= 3);
+            const produtoNorm = norm(produto);
+
+            // PASSO 1: busca hierarquica por produto (so se rubricaProduto foi informado)
+            if (produto && produtoNorm) {
+                const blocos = Array.from(document.querySelectorAll('.collapsible-header.green-text'));
+
+                let blocoAlvo = null;
+                let melhorScoreProduto = 0;
+                for (const bloco of blocos) {
+                    const textoBloco = norm(bloco.innerText);
+                    if (textoBloco === produtoNorm) { blocoAlvo = bloco; break; }
+                    if (textoBloco.includes(produtoNorm) || produtoNorm.includes(textoBloco)) { blocoAlvo = bloco; break; }
+                    const s = dice(produtoNorm, textoBloco);
+                    if (s > melhorScoreProduto && s >= 0.80) { melhorScoreProduto = s; blocoAlvo = bloco; }
                 }
-            }
 
-            // Estrategia 2: substring normalizada (resolve o caso "(a)" e similares)
-            for (const c of candidatos) {
-                if (c.nomeNorm.includes(nomeNorm) || nomeNorm.includes(c.nomeNorm)) {
-                    return { link: c.btn.href, matchType: 'substring_normalizada', score: 0.95, nomeTabela: c.nomeOriginal };
-                }
-            }
+                if (blocoAlvo) {
+                    const corpo = blocoAlvo.closest('li')?.querySelector('.collapsible-body');
+                    const rows = corpo
+                        ? Array.from(corpo.querySelectorAll('table.bordered tbody tr'))
+                        : [];
 
-            // Estrategia 3: todos os tokens fortes presentes
-            if (tokensProcurados.length > 0) {
-                for (const c of candidatos) {
-                    if (tokensProcurados.every(t => c.nomeNorm.includes(t))) {
-                        return { link: c.btn.href, matchType: 'tokens', score: 0.9, nomeTabela: c.nomeOriginal };
+                    if (rows.length > 0) {
+                        const candidatos = coletarCandidatos(rows);
+                        const resultado = matchCandidatos(candidatos, nomeNorm, tokensProcurados, valorAprovado, valorNota);
+                        if (resultado) {
+                            return { ...resultado, scopeProduto: blocoAlvo.innerText.trim() };
+                        }
+                        console.warn(`[SALIC] Produto "${blocoAlvo.innerText.trim()}" encontrado mas rubrica "${nome}" nao localizada dentro. Tentando busca flat.`);
                     }
+                } else {
+                    console.warn(`[SALIC] Produto "${produto}" nao encontrado nos cabecalhos da pagina. Tentando busca flat.`);
                 }
             }
 
-            // Estrategia 4: similaridade fuzzy (Dice) com limiar 0.85
-            let melhor = { score: 0 };
-            for (const c of candidatos) {
-                const s = dice(nomeNorm, c.nomeNorm);
-                if (s > melhor.score) melhor = { link: c.btn.href, matchType: 'fuzzy', score: s, nomeTabela: c.nomeOriginal };
-            }
-            if (melhor.score >= 0.85) return melhor;
+            // PASSO 2: fallback flat (preserva projetos sem produto)
+            const todasRows = Array.from(document.querySelectorAll('table.bordered tbody tr'));
+            const todosCandidatos = coletarCandidatos(todasRows);
+            const resultadoFlat = matchCandidatos(todosCandidatos, nomeNorm, tokensProcurados, valorAprovado, valorNota);
 
-            // Fallback final: primeira rubrica com saldo suficiente (mantem comportamento antigo)
-            for (const c of candidatos) {
-                const strSaldo = c.colunas[3].innerText.replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
-                if (parseFloat(strSaldo) >= parseFloat(valorNota)) {
-                    return { link: c.btn.href, matchType: 'saldo_suficiente', score: 0, nomeTabela: c.nomeOriginal };
-                }
-            }
+            if (resultadoFlat) return { ...resultadoFlat, scopeProduto: 'flat_fallback' };
 
-            // Nada deu match: retorna lista de candidatos para diagnostico
-            return { link: null, candidatos: candidatos.map(c => c.nomeOriginal), melhorScore: melhor.score, melhorNome: melhor.nomeTabela };
-        }, rubricaNome, config.rubricaValorAprovado, documento.valor);
+            // Nada encontrado
+            return { link: null, candidatos: todosCandidatos.map(c => c.nomeOriginal), melhorScore: 0 };
+
+        }, rubricaNome, config.rubricaProduto || null, config.rubricaValorAprovado, documento.valor);
+
+        if (resultadoMatch?.erro_ambiguidade) {
+            throw new Error(
+                `Ambiguidade de rubrica: "${rubricaNome}" encontrada ${resultadoMatch.candidatos.length}x ` +
+                `no produto "${config.rubricaProduto}". Intervencao manual necessaria no SALIC.`
+            );
+        }
 
         if (!resultadoMatch || !resultadoMatch.link) {
             console.log('[SALIC] Rubrica nao localizada automaticamente. Sugestao: validar manualmente no painel do SALIC.');
