@@ -424,7 +424,7 @@ const Sidebar = () => `
                 <p style="font-size: 13px; font-weight: 600; color: var(--text-primary); white-space: nowrap; text-overflow: ellipsis;">
                     ${state.user ? state.user.email.split('@')[0] : 'Admin'}
                 </p>
-                <p style="font-size: 11px; color: var(--text-secondary);">Gestor</p>
+                <p style="font-size: 11px; color: var(--text-secondary);">${ROLE_LABELS[getUserRole()] || 'Gestor'}</p>
             </div>
         </div>
         <a class="nav-item" href="/module-selector.html" style="color: var(--primary);">
@@ -4226,7 +4226,7 @@ ${Sidebar()}
 
 
 // --- Equipe (S1-B) ---
-const ROLE_LABELS = { gestor: 'Gestor', analista: 'Analista', fornecedor: 'Fornecedor' };
+const ROLE_LABELS = { admin: 'Administrador', gestor: 'Gestor', analista: 'Analista', fornecedor: 'Fornecedor' };
 
 const EquipeView = () => `
 ${Sidebar()}
