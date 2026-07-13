@@ -2199,6 +2199,22 @@ window.handleForcarAvanco = async function (docId, currentStatus) {
 
         if (error) throw error;
 
+        // Ao pular a revisão manual do OCR direto para a Auditoria IA, o n8n precisa
+        // ser notificado para rodar a validação de conformidade (CNAE vs. rubrica);
+        // sem isso o documento fica "em auditoria" mas nunca é de fato auditado.
+        if (currentStatus === 'revisao_manual' && CONFIG.N8N_WEBHOOK_VALIDATION_URL) {
+            fetch(CONFIG.N8N_WEBHOOK_VALIDATION_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                mode: 'cors',
+                body: JSON.stringify({
+                    document_id: docId,
+                    cnpj_fornecedor: state.currentDocument?.cnpj_emissor
+                })
+            }).then(r => console.log("n8n Validation Triggered (forçar avanço):", r.status))
+                .catch(e => console.error("Erro ao notificar n8n:", e.message));
+        }
+
         window.showToast('Documento avançado manualmente com sucesso.', 'warning');
         await fetchDocumentDetails(docId);
     } catch (err) {
