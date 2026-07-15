@@ -7,6 +7,7 @@
     { "src": "app.js", "use": "@vercel/static" },
     { "src": "module-selector.html", "use": "@vercel/static" },
     { "src": "modulo2/**", "use": "@vercel/static" },
+    { "src": "modulo3/**", "use": "@vercel/static" },
     { "src": "*.png", "use": "@vercel/static" },
     { "src": "*.ico", "use": "@vercel/static" }
   ],
