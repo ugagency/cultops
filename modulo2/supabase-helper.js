@@ -71,24 +71,8 @@ function renderSidebar() {
     if (existingSidebar) existingSidebar.remove();
 
     const sidebar = document.createElement('aside');
-    sidebar.className = 'sidebar';
-    sidebar.style.cssText = `
-        position: fixed; 
-        left: 0; 
-        top: 0; 
-        height: 100vh; 
-        width: 260px; /* Fallback em caso de falha na variável */
-        width: var(--sidebar-width, 260px); 
-        background: white; 
-        border-right: 1px solid var(--glass-border, #e2e8f0); 
-        padding: 1.5rem; 
-        display: flex; 
-        flex-direction: column; 
-        gap: 2rem;
-        z-index: 1000;
-        box-shadow: 4px 0 24px rgba(0,0,0,0.02);
-    `;
-    
+    sidebar.className = 'sidebar m2-sidebar';
+
     // Lista de itens de navegação interna do M2
     const navItems = [
         { label: 'Projetos', icon: 'folder-kanban', path: 'projeto-setup.html' },
@@ -107,45 +91,102 @@ function renderSidebar() {
     const currentFile = window.location.pathname.split('/').pop();
 
     sidebar.innerHTML = `
-        <div class="logo" style="display: flex; align-items: center; padding-bottom: 0.5rem; margin-bottom: 1rem;">
-            <img src="../PAI-Logo-Azul.png" alt="Prestaí" style="height:28px;width:auto;">
+        <div class="sidebar-logo">
+            <img class="sidebar-logo-full" src="../PAI-Logo-Azul.png" alt="Prestaí">
         </div>
-        <nav style="display: flex; flex-direction: column; gap: 0.5rem; flex: 1;">
+        <nav class="sidebar-nav">
             ${navItems.map(item => {
                 const active = currentFile === item.path;
                 return `
-                    <a href="${item.path}" class="nav-link ${active ? 'active' : ''}" style="
-                        display: flex; 
-                        align-items: center; 
-                        gap: 0.75rem; 
-                        padding: 0.75rem 1rem; 
-                        border-radius: 12px; 
-                        text-decoration: none; 
-                        color: ${active ? 'var(--m2-accent)' : '#64748b'}; 
-                        background: ${active ? 'rgba(99, 102, 241, 0.08)' : 'transparent'}; 
-                        font-weight: ${active ? '700' : '500'};
-                        transition: all 0.2s;
-                    ">
-                        <i data-lucide="${item.icon}" style="width: 20px; height: 20px;"></i> 
+                    <a href="${item.path}" class="nav-item ${active ? 'active' : ''}">
+                        <i data-lucide="${item.icon}"></i>
                         <span>${item.label}</span>
                     </a>
                 `;
             }).join('')}
         </nav>
-        <div style="border-top: 1px solid #f1f5f9; padding-top: 1.5rem; display: flex; flex-direction: column; gap: 0.5rem;">
-            <a href="../module-selector.html" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; text-decoration: none; color: #64748b; font-size: 0.875rem; font-weight: 500;">
-                <i data-lucide="arrow-left-right" style="width: 18px;"></i> 
+        <div class="sidebar-footer">
+            <a href="../module-selector.html" class="nav-item" style="color: var(--m2-accent);">
+                <i data-lucide="arrow-left-right"></i>
                 <span>Trocar Módulo</span>
             </a>
-            <a href="#" onclick="handleLogout()" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; text-decoration: none; color: #ef4444; font-size: 0.875rem; font-weight: 500;">
-                <i data-lucide="log-out" style="width: 18px;"></i> 
+            <a href="#" onclick="handleLogout()" class="nav-item" style="color: #ef4444;">
+                <i data-lucide="log-out"></i>
                 <span>Sair</span>
             </a>
         </div>
     `;
 
     document.body.prepend(sidebar);
-    
+
+    // ── Responsividade mobile ──────────────────────────────────
+    if (!document.getElementById('sidebar-responsive-css')) {
+        const st = document.createElement('style');
+        st.id = 'sidebar-responsive-css';
+        st.textContent = `
+            .hamburger-btn {
+                display: none;
+                position: fixed;
+                top: 0.875rem;
+                left: 0.875rem;
+                z-index: 1100;
+                background: white;
+                border: 1px solid #e2e8f0;
+                border-radius: 10px;
+                padding: 0.5rem 0.625rem;
+                cursor: pointer;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.10);
+                align-items: center;
+                justify-content: center;
+            }
+            .hamburger-btn:hover { background: #f8fafc; }
+            .sidebar-overlay {
+                display: none;
+                position: fixed;
+                inset: 0;
+                background: rgba(0,0,0,0.35);
+                z-index: 998;
+            }
+            .sidebar-overlay.active { display: block; }
+            @media (max-width: 768px) {
+                .sidebar {
+                    transform: translateX(-100%) !important;
+                    transition: transform 0.28s cubic-bezier(0.4,0,0.2,1) !important;
+                    box-shadow: none !important;
+                }
+                .sidebar.sidebar-open {
+                    transform: translateX(0) !important;
+                    box-shadow: 8px 0 40px rgba(0,0,0,0.18) !important;
+                }
+                .hamburger-btn { display: flex !important; }
+                .main-content {
+                    margin-left: 0 !important;
+                    padding: 4.5rem 1rem 1.5rem !important;
+                }
+            }
+        `;
+        document.head.appendChild(st);
+    }
+
+    const overlay = document.createElement('div');
+    overlay.className = 'sidebar-overlay';
+    overlay.addEventListener('click', () => {
+        sidebar.classList.remove('sidebar-open');
+        overlay.classList.remove('active');
+    });
+    document.body.appendChild(overlay);
+
+    const hamburger = document.createElement('button');
+    hamburger.className = 'hamburger-btn';
+    hamburger.setAttribute('aria-label', 'Abrir menu');
+    hamburger.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>`;
+    hamburger.addEventListener('click', () => {
+        sidebar.classList.toggle('sidebar-open');
+        overlay.classList.toggle('active');
+    });
+    document.body.appendChild(hamburger);
+    // ──────────────────────────────────────────────────────────
+
     // Inicia ícones do Lucide após inserir no DOM
     if (window.lucide) {
         window.lucide.createIcons();

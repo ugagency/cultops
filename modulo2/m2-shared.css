@@ -15,6 +15,30 @@
     --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Sidebar M2 — reaproveita a estrutura/espaçamento fluido de style.css
+   (.sidebar, .sidebar-logo, .sidebar-nav, .nav-item, .sidebar-footer),
+   só sobrescrevendo a paleta própria do módulo */
+.m2-sidebar {
+    background-color: #FFFFFF;
+}
+
+.m2-sidebar .nav-item {
+    border-radius: var(--radius-md);
+    color: #64748b;
+}
+
+.m2-sidebar .nav-item:hover {
+    background-color: rgba(21, 71, 255, 0.06);
+    color: var(--m2-accent);
+}
+
+.m2-sidebar .nav-item.active {
+    background-color: rgba(21, 71, 255, 0.08);
+    color: var(--m2-accent);
+    font-weight: 700;
+    box-shadow: none;
+}
+
 /* Base styles inherited from style.css logic */
 body {
     font-family: var(--font-body, 'Mona Sans', 'Inter', system-ui, sans-serif);
@@ -30,6 +54,24 @@ h1, h2, h3, h4, h5, h6 {
     margin-left: var(--sidebar-width);
     padding: 2rem;
     transition: var(--transition);
+}
+
+/* ── Responsividade mobile ───────────────────────────────── */
+@media (max-width: 768px) {
+    .main-content {
+        margin-left: 0 !important;
+        padding: 4.5rem 1rem 1.5rem !important;
+    }
+    .page-header {
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
+    .page-header h1 {
+        font-size: 1.5rem !important;
+    }
+    .glass-card {
+        padding: 1rem;
+    }
 }
 
 /* Glassmorphism Cards */
