@@ -1786,7 +1786,11 @@ ${Sidebar()}
         data:   !doc.data_emissao,
         numero: !doc.numero_nf
     };
-    camposPendentes.algum = Object.values(camposPendentes).some(Boolean);
+    // So exibe o bloco de preenchimento manual quando o OCR de fato falhou
+    // (status 'revisao_manual'); enquanto o OCR ainda esta processando, os
+    // campos ficam null naturalmente e nao devem disparar o aviso.
+    camposPendentes.algum = doc.status === 'revisao_manual'
+        && Object.values(camposPendentes).some(Boolean);
 
     return `
 ${Sidebar()}
