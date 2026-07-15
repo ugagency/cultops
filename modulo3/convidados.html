@@ -77,9 +77,14 @@
                         <h1 id="titulo-evento" style="font-size:1.4rem;font-weight:800;color:var(--text-primary);line-height:1.2;margin:0;"></h1>
                         <div id="data-evento" style="color:var(--text-muted);font-size:0.875rem;margin-top:0.35rem;"></div>
                     </div>
-                    <button class="btn-secondary" onclick="exportarLista()" id="btn-export">
-                        <i data-lucide="download" style="width:16px;"></i> Exportar Lista
-                    </button>
+                    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                        <button class="btn-secondary" onclick="baixarModelo()">
+                            <i data-lucide="file-spreadsheet" style="width:16px;"></i> Modelo
+                        </button>
+                        <button class="btn-secondary" onclick="exportarLista()" id="btn-export">
+                            <i data-lucide="download" style="width:16px;"></i> Exportar Lista
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -165,6 +170,74 @@
                     <button class="btn-secondary" onclick="closeModal()">Cancelar</button>
                     <button class="btn-primary" id="modal-submit-btn" onclick="submitConvidado()">
                         <i data-lucide="user-plus" style="width:15px;"></i> Adicionar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Modal Importar Lista ──────────────────────────────── -->
+    <div id="modal-import-backdrop" class="modal-backdrop" style="display:none;">
+        <div class="modal-card" style="max-width:640px;">
+            <div class="modal-header">
+                <h2>Importar Lista de Convidados</h2>
+                <button class="btn-icon" onclick="closeImportModal()">
+                    <i data-lucide="x" style="width:22px;"></i>
+                </button>
+            </div>
+
+            <div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1rem;line-height:1.5;">
+                Envie uma planilha Excel ou CSV com os convidados. Use o botão <strong>Modelo</strong> para baixar o formato correto.
+                Colunas reconhecidas: <strong>Nome Completo</strong> (obrigatório), CPF, RG, Telefone.
+            </div>
+
+            <div class="form-group" style="margin-bottom:1rem;">
+                <label>Arquivo Excel / CSV *</label>
+                <input type="file" id="import-file" accept=".xlsx,.xls,.csv"
+                       class="form-input" onchange="onImportFileChange(this)">
+            </div>
+
+            <!-- Preview -->
+            <div id="import-preview" style="display:none;margin-bottom:1rem;">
+                <div style="font-size:0.78rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.5rem;">
+                    Preview <span id="import-count"></span>
+                </div>
+                <div style="overflow-x:auto;border-radius:10px;border:1px solid var(--border-light);">
+                    <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+                        <thead>
+                            <tr style="background:#f8fafc;">
+                                <th style="padding:0.5rem 0.75rem;text-align:left;color:var(--text-secondary);font-weight:600;">#</th>
+                                <th style="padding:0.5rem 0.75rem;text-align:left;color:var(--text-secondary);font-weight:600;">Nome Completo</th>
+                                <th style="padding:0.5rem 0.75rem;text-align:left;color:var(--text-secondary);font-weight:600;">CPF</th>
+                                <th style="padding:0.5rem 0.75rem;text-align:left;color:var(--text-secondary);font-weight:600;">RG</th>
+                                <th style="padding:0.5rem 0.75rem;text-align:left;color:var(--text-secondary);font-weight:600;">Telefone</th>
+                                <th style="padding:0.5rem 0.75rem;text-align:left;color:var(--text-secondary);font-weight:600;">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="import-preview-body"></tbody>
+                    </table>
+                </div>
+                <div id="import-errors" style="display:none;margin-top:0.5rem;padding:0.5rem 0.75rem;background:#fff5f5;border-radius:8px;border:1px solid #fde8e8;font-size:0.8rem;color:#FF5807;"></div>
+            </div>
+
+            <!-- LGPD para importação em lote -->
+            <div id="import-lgpd-wrap" style="display:none;">
+                <div class="lgpd-notice">
+                    <label>
+                        <input type="checkbox" id="import-lgpd-check">
+                        <span style="font-size:0.875rem;line-height:1.5;color:var(--text-primary);">
+                            Confirmo que <strong>todos os convidados desta lista</strong> autorizaram o uso de seus dados
+                            pessoais conforme a LGPD — Lei 13.709/2018
+                        </span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <div class="actions-right">
+                    <button class="btn-secondary" onclick="closeImportModal()">Cancelar</button>
+                    <button class="btn-primary" id="import-submit-btn" onclick="submitImport()" disabled>
+                        <i data-lucide="upload" style="width:15px;"></i> Importar
                     </button>
                 </div>
             </div>
@@ -331,6 +404,10 @@
                                     onclick="gerarCartaConvite('${esc(v.id)}','os')">
                                 <i data-lucide="file-text" style="width:13px;"></i> Carta-Convite
                             </button>
+                            <button class="btn-secondary" style="padding:0.4rem 0.85rem;font-size:0.8rem;"
+                                    onclick="openImportModal('${esc(v.os_id)}', null)">
+                                <i data-lucide="upload" style="width:13px;"></i> Importar Lista
+                            </button>
                             <button class="btn-primary" style="padding:0.4rem 0.85rem;font-size:0.8rem;"
                                     onclick="openModal('${esc(v.os_id)}', null)">
                                 <i data-lucide="user-plus" style="width:13px;"></i> + Convidado
@@ -382,6 +459,10 @@
                             <button class="btn-secondary" style="padding:0.4rem 0.85rem;font-size:0.8rem;"
                                     onclick="gerarCartaConvite('${esc(v.id)}','pa')">
                                 <i data-lucide="file-text" style="width:13px;"></i> Carta-Convite
+                            </button>
+                            <button class="btn-secondary" style="padding:0.4rem 0.85rem;font-size:0.8rem;"
+                                    onclick="openImportModal(null, '${esc(v.pa_id)}')">
+                                <i data-lucide="upload" style="width:13px;"></i> Importar Lista
                             </button>
                             <button class="btn-primary" style="padding:0.4rem 0.85rem;font-size:0.8rem;"
                                     onclick="openModal(null, '${esc(v.pa_id)}')">
@@ -598,6 +679,168 @@
             } catch (err) {
                 console.error(err);
                 showToast('Erro ao gerar PDF: ' + (err.message || ''), 'error');
+            }
+        }
+
+        // ── Download modelo XLSX ───────────────────────────────
+        function baixarModelo() {
+            const ws = XLSX.utils.aoa_to_sheet([
+                ['Nome Completo', 'CPF', 'RG', 'Telefone'],
+                ['Maria Silva', '123.456.789-00', '1234567', '(11) 98765-4321'],
+                ['João Santos', '', '', ''],
+            ]);
+            ws['!cols'] = [{wch:30},{wch:16},{wch:14},{wch:18}];
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Convidados');
+            XLSX.writeFile(wb, 'modelo-convidados.xlsx');
+        }
+
+        // ── Modal Importar ─────────────────────────────────────
+        let importOsId  = null;
+        let importPaId  = null;
+        let importRows  = [];
+
+        function openImportModal(osId, paId) {
+            importOsId = osId;
+            importPaId = paId;
+            importRows = [];
+            document.getElementById('import-file').value = '';
+            document.getElementById('import-preview').style.display = 'none';
+            document.getElementById('import-lgpd-wrap').style.display = 'none';
+            document.getElementById('import-lgpd-check').checked = false;
+            document.getElementById('import-submit-btn').disabled = true;
+            document.getElementById('modal-import-backdrop').style.display = 'flex';
+            reIcons();
+        }
+
+        function closeImportModal() {
+            document.getElementById('modal-import-backdrop').style.display = 'none';
+            importOsId = null; importPaId = null; importRows = [];
+        }
+
+        function normalizeHeader(h) {
+            return String(h || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+        }
+
+        function onImportFileChange(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const wb = XLSX.read(e.target.result, { type: 'binary' });
+                    const ws = wb.Sheets[wb.SheetNames[0]];
+                    const raw = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+                    if (!raw.length) { showToast('Planilha vazia.', 'error'); return; }
+
+                    // map headers flexibly
+                    const headerMap = {};
+                    Object.keys(raw[0]).forEach(k => {
+                        const n = normalizeHeader(k);
+                        if (n.includes('nome')) headerMap.nome = k;
+                        else if (n.includes('cpf')) headerMap.cpf = k;
+                        else if (n.includes('rg')) headerMap.rg = k;
+                        else if (n.includes('tel') || n.includes('fone')) headerMap.telefone = k;
+                    });
+
+                    if (!headerMap.nome) { showToast('Coluna "Nome Completo" não encontrada.', 'error'); return; }
+
+                    const errors = [];
+                    importRows = raw.map((r, i) => {
+                        const nome = String(r[headerMap.nome] || '').trim();
+                        if (!nome) { errors.push(`Linha ${i+2}: nome vazio`); return null; }
+                        const cpfRaw = headerMap.cpf ? String(r[headerMap.cpf] || '').replace(/\D/g,'') : '';
+                        return {
+                            nome_completo: nome,
+                            cpf:           cpfRaw || null,
+                            rg:            headerMap.rg       ? String(r[headerMap.rg]||'').trim()||null : null,
+                            telefone:      headerMap.telefone ? String(r[headerMap.telefone]||'').trim()||null : null,
+                            hasAnyCpf:     !!cpfRaw,
+                        };
+                    }).filter(Boolean);
+
+                    const tbody = document.getElementById('import-preview-body');
+                    const MAX_PREVIEW = 8;
+                    tbody.innerHTML = importRows.slice(0, MAX_PREVIEW).map((r, i) => `
+                        <tr style="border-top:1px solid #f1f5f9;">
+                            <td style="padding:0.45rem 0.75rem;color:var(--text-muted);">${i+1}</td>
+                            <td style="padding:0.45rem 0.75rem;font-weight:600;">${esc(r.nome_completo)}</td>
+                            <td style="padding:0.45rem 0.75rem;">${r.cpf ? maskCpf(r.cpf) : '—'}</td>
+                            <td style="padding:0.45rem 0.75rem;">${esc(r.rg||'—')}</td>
+                            <td style="padding:0.45rem 0.75rem;">${esc(r.telefone||'—')}</td>
+                            <td style="padding:0.45rem 0.75rem;"><span style="font-size:0.7rem;background:#DCFCE7;color:#16a34a;padding:0.1rem 0.4rem;border-radius:4px;font-weight:600;">OK</span></td>
+                        </tr>
+                    `).join('') + (importRows.length > MAX_PREVIEW ? `
+                        <tr><td colspan="6" style="padding:0.45rem 0.75rem;color:var(--text-muted);font-style:italic;">… e mais ${importRows.length - MAX_PREVIEW} linha(s)</td></tr>
+                    ` : '');
+
+                    document.getElementById('import-count').textContent = `— ${importRows.length} convidado(s)`;
+                    document.getElementById('import-preview').style.display = '';
+
+                    const hasCpfs = importRows.some(r => r.hasAnyCpf);
+                    document.getElementById('import-lgpd-wrap').style.display = hasCpfs ? '' : 'none';
+
+                    const errEl = document.getElementById('import-errors');
+                    if (errors.length) {
+                        errEl.style.display = '';
+                        errEl.textContent = 'Linhas ignoradas: ' + errors.join('; ');
+                    } else {
+                        errEl.style.display = 'none';
+                    }
+
+                    document.getElementById('import-submit-btn').disabled = importRows.length === 0;
+                    reIcons();
+                } catch(err) {
+                    showToast('Erro ao ler arquivo: ' + err.message, 'error');
+                }
+            };
+            reader.readAsBinaryString(file);
+        }
+
+        async function submitImport() {
+            if (!importRows.length) return;
+            const hasCpfs   = importRows.some(r => r.hasAnyCpf);
+            const lgpdCheck = document.getElementById('import-lgpd-check').checked;
+            if (hasCpfs && !lgpdCheck) {
+                showToast('Confirme o consentimento LGPD para continuar.', 'error'); return;
+            }
+
+            const btn = document.getElementById('import-submit-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px;"></i> Importando…';
+            reIcons();
+
+            try {
+                const sb  = await initSupabase();
+                const org = await getCurrentOrgIdM3();
+                const payload = importRows.map(r => ({
+                    event_id:        eventId,
+                    os_id:           importOsId || null,
+                    pa_id:           importPaId || null,
+                    nome_completo:   r.nome_completo,
+                    cpf:             (hasCpfs && lgpdCheck && r.cpf) ? r.cpf : null,
+                    rg:              r.rg,
+                    telefone:        r.telefone,
+                    lgpd_consent:    hasCpfs && lgpdCheck,
+                    lgpd_consent_at: (hasCpfs && lgpdCheck) ? new Date().toISOString() : null,
+                    organization_id: org,
+                }));
+
+                const { error } = await sb.from('distribution_guests').insert(payload);
+                if (error) throw error;
+
+                showToast(`${importRows.length} convidado(s) importado(s) com sucesso!`);
+                closeImportModal();
+                convidados = await getConvidadosByEvento(eventId);
+                activeTab === 'os' ? renderOsTab() : renderPaTab();
+                reIcons();
+            } catch(err) {
+                showToast('Erro na importação: ' + (err.message || ''), 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i data-lucide="upload" style="width:15px;"></i> Importar';
+                reIcons();
             }
         }
 
