@@ -358,6 +358,10 @@ const STATUS_MAP = {
 // --- Templates ---
 
 const Sidebar = () => `
+<button class="hamburger-btn" aria-label="Abrir menu" onclick="document.querySelector('.sidebar').classList.toggle('sidebar-open');document.querySelector('.sidebar-overlay').classList.toggle('active')">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+</button>
+<div class="sidebar-overlay" onclick="document.querySelector('.sidebar').classList.remove('sidebar-open');this.classList.remove('active')"></div>
 <aside class="sidebar">
     <div class="sidebar-logo">
         <img class="sidebar-logo-full" src="PAI-Logo-Azul.png" alt="Prestaí" style="height:28px;width:auto;">
@@ -752,7 +756,7 @@ const SolicitanteDashboardView = () => `
                         <p style="color: var(--text-muted); font-size: 0.875rem;">Escolha o PRONAC solicitante e anexe seu PDF.</p>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 1rem;">
-                        <select id="f-upload-project" style="min-width: 250px; padding: 0.625rem; border-radius: var(--radius-sm); border: 1px solid var(--border-light);" onchange="window.updateSolicitanteUploadButtons()">
+                        <select id="f-upload-project" style="width: 100%; padding: 0.625rem; border-radius: var(--radius-sm); border: 1px solid var(--border-light);" onchange="window.updateSolicitanteUploadButtons()">
                             <option value="">Selecione o Projeto / PRONAC...</option>
                             ${state.projects.map(p => `<option value="${p.project_id}" data-modulos='${JSON.stringify(p.modulos || [])}'>${p.projects.pronac} - ${p.projects.nome}</option>`).join('')}
                         </select>
@@ -921,16 +925,16 @@ ${Sidebar()}
     
     <div class="card mb-4" style="padding: 1rem 1.5rem;">
         <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
-            <div style="flex: 1; min-width: 200px;">
+            <div style="flex: 1; min-width: 0;">
                 <input type="text" placeholder="Pesquisar notas..." value="${state.filters.search}" oninput="window.updateFilters('search', this.value)">
             </div>
-            <div style="min-width: 180px;">
+            <div style="flex: 1 1 160px; min-width: 0;">
                 <select onchange="window.updateFilters('project', this.value)">
                     <option value="">Todos os projetos</option>
                     ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
                 </select>
             </div>
-            <div style="min-width: 180px;">
+            <div style="flex: 1 1 160px; min-width: 0;">
                 <select onchange="window.updateFilters('status', this.value)">
                     <option value="">Todos os status</option>
                     <option value="uploaded" ${state.filters.status === 'uploaded' ? 'selected' : ''}>Enviado</option>
@@ -951,7 +955,7 @@ ${Sidebar()}
                     <option value="divergencia_beneficiario" ${state.filters.status === 'divergencia_beneficiario' ? 'selected' : ''}>Divergência de Beneficiário</option>
                 </select>
             </div>
-            <div style="min-width: 180px;">
+            <div style="flex: 1 1 160px; min-width: 0;">
                 <select onchange="window.updateSort(this.value)">
                     <option value="date_desc" ${state.filters.sort === 'date_desc' ? 'selected' : ''}>Ordenar: Mais recentes</option>
                     <option value="date_asc" ${state.filters.sort === 'date_asc' ? 'selected' : ''}>Ordenar: Mais antigos</option>
@@ -1336,7 +1340,7 @@ const EnvioLoteSalicView = () => {
             <div class="salic-batch-container">
                 <div class="card mb-4" style="padding: 1.5rem;">
                     <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
-                        <div class="form-group" style="margin-bottom: 0; min-width: 250px; flex: 1;">
+                        <div class="form-group" style="margin-bottom: 0; flex: 1 1 200px; min-width: 0;">
                             <label>Filtrar por Projeto</label>
                             <select id="salic-lote-project-selector" onchange="window.updateFilters('project', this.value);">
                                 <option value="">Todos os projetos...</option>
@@ -1883,7 +1887,7 @@ ${Sidebar()}
             </div>
         </div>
 
-        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 1.5rem;">
             <div style="display: flex; flex-direction: column; gap: 1.5rem;">
                 <div class="card">
                     <h3 class="h2 mb-4">Dados Extraídos</h3>
@@ -2920,7 +2924,7 @@ ${Sidebar()}
                 <h1>Relatórios Financeiros</h1>
                 <p class="page-subtitle">Indicadores de execução e conformidade do projeto.</p>
             </div>
-            <div style="min-width: 250px;">
+            <div style="flex: 1 1 220px; min-width: 0;">
                 <select onchange="window.navigate('financeiro', this.value)">
                     <option value="">Todos os Projetos</option>
                     ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
@@ -2936,7 +2940,7 @@ ${Sidebar()}
         </div>
     </div>
 
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1.5rem;">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(160px,100%),1fr));gap:1rem;margin-bottom:1.5rem;">
         ${Object.entries(GRUPOS_STATUS).map(([key, g]) => `
         <div onclick="window.toggleFinanceiroGrupo('${key}')"
              style="background:${grupoAtivo === key ? g.bg : 'var(--bg-card)'};border:2px solid ${grupoAtivo === key ? g.cor : g.border};border-radius:var(--radius);padding:1.25rem;cursor:pointer;transition:all 0.15s;">
@@ -3057,7 +3061,7 @@ const OrcamentoView = () => {
                 <p class="page-subtitle">Acompanhe as rubricas importadas do SALIC para o projeto.</p>
             </div>
             <div style="display: flex; gap: 1rem; align-items: flex-end;">
-                <div style="min-width: 250px;">
+                <div style="flex: 1 1 220px; min-width: 0;">
                     <label style="font-size: 11px; color: var(--text-secondary); margin-bottom: 0.25rem; display: block;">Selecione o Projeto</label>
                     <select onchange="window.navigate('orcamento', this.value)" style="background: white; border: 1px solid var(--border-light); padding: 0.5rem; border-radius: 6px;">
                         <option value="">Escolha um projeto...</option>
@@ -5247,7 +5251,7 @@ ${Sidebar()}
         <p class="page-subtitle">Autorize solicitantes a enviar documentos diretamente para seus projetos.</p>
     </header>
 
-    <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 2rem;">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 2rem;">
         <div class="card">
             <h3 class="h2 mb-4">Novo acesso</h3>
             <form onsubmit="event.preventDefault(); window.handleInviteSolicitante();">

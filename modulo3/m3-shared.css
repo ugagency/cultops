@@ -148,7 +148,7 @@ h1, h2, h3, h4 { font-family: 'DM Sans', sans-serif; }
     font-size: 0.9rem;
     outline: none;
     transition: border-color 0.2s, box-shadow 0.2s;
-    width: 240px;
+    width: min(240px, 100%);
 }
 .search-input:focus {
     border-color: var(--m3-accent);
@@ -177,6 +177,31 @@ h1, h2, h3, h4 { font-family: 'DM Sans', sans-serif; }
     gap: 1rem;
 }
 .form-grid .span-2 { grid-column: span 2; }
+
+/* ── Responsividade mobile ───────────────────────────────── */
+@media (max-width: 768px) {
+    .main-content {
+        margin-left: 0 !important;
+        padding: 4.5rem 1rem 1.5rem !important;
+    }
+    .page-header {
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: flex-start;
+    }
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
+    .form-grid .span-2 {
+        grid-column: span 1;
+    }
+    .search-input {
+        width: 100% !important;
+    }
+    .cards-grid {
+        grid-template-columns: 1fr !important;
+    }
+}
 
 .form-group {
     display: flex;

@@ -109,6 +109,74 @@ async function renderSidebarM3() {
         });
     });
 
+    // ── Responsividade mobile ──────────────────────────────────
+    if (!document.getElementById('sidebar-responsive-css')) {
+        const st = document.createElement('style');
+        st.id = 'sidebar-responsive-css';
+        st.textContent = `
+            .hamburger-btn {
+                display: none;
+                position: fixed;
+                top: 0.875rem;
+                left: 0.875rem;
+                z-index: 1100;
+                background: white;
+                border: 1px solid #e2e8f0;
+                border-radius: 10px;
+                padding: 0.5rem 0.625rem;
+                cursor: pointer;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.10);
+                align-items: center;
+                justify-content: center;
+            }
+            .hamburger-btn:hover { background: #f8fafc; }
+            .sidebar-overlay {
+                display: none;
+                position: fixed;
+                inset: 0;
+                background: rgba(0,0,0,0.35);
+                z-index: 998;
+            }
+            .sidebar-overlay.active { display: block; }
+            @media (max-width: 768px) {
+                .sidebar {
+                    transform: translateX(-100%) !important;
+                    transition: transform 0.28s cubic-bezier(0.4,0,0.2,1) !important;
+                    box-shadow: none !important;
+                }
+                .sidebar.sidebar-open {
+                    transform: translateX(0) !important;
+                    box-shadow: 8px 0 40px rgba(0,0,0,0.18) !important;
+                }
+                .hamburger-btn { display: flex !important; }
+                .main-content {
+                    margin-left: 0 !important;
+                    padding: 4.5rem 1rem 1.5rem !important;
+                }
+            }
+        `;
+        document.head.appendChild(st);
+    }
+
+    const overlay = document.createElement('div');
+    overlay.className = 'sidebar-overlay';
+    overlay.addEventListener('click', () => {
+        sidebar.classList.remove('sidebar-open');
+        overlay.classList.remove('active');
+    });
+    document.body.appendChild(overlay);
+
+    const hamburger = document.createElement('button');
+    hamburger.className = 'hamburger-btn';
+    hamburger.setAttribute('aria-label', 'Abrir menu');
+    hamburger.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>`;
+    hamburger.addEventListener('click', () => {
+        sidebar.classList.toggle('sidebar-open');
+        overlay.classList.toggle('active');
+    });
+    document.body.appendChild(hamburger);
+    // ──────────────────────────────────────────────────────────
+
     if (window.lucide) window.lucide.createIcons();
     else setTimeout(() => { if (window.lucide) window.lucide.createIcons(); }, 500);
 
