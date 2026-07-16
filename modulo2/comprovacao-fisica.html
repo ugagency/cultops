@@ -416,19 +416,23 @@
             <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem;">
                 <label style="font-weight: 600; font-size: 0.9rem; white-space: nowrap;">Tipo:</label>
                 <select id="gestor-tipo-evidencia" style="flex: 1; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white;">
-                    <option value="fotos">Fotos</option>
-                    <option value="videos">Vídeos</option>
-                    <option value="arquivos">Arquivos</option>
+                    <option value="foto_evento">Foto do evento</option>
+                    <option value="relatorio_objeto">Relatório do objeto</option>
+                    <option value="peca_marketing">Peça de marketing</option>
+                    <option value="outros">Outros</option>
                 </select>
             </div>
-            <div style="margin-bottom: 1rem;">
-                <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.4rem;">Rubrica vinculada</label>
-                <input type="text" id="gestor-rubrica" list="rubrica-datalist"
-                    placeholder="Digite para buscar rubricas..."
-                    oninput="handleRubricaChange()"
-                    autocomplete="off"
-                    style="width: 100%; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white; box-sizing: border-box;">
-                <datalist id="rubrica-datalist"></datalist>
+            <div style="margin-bottom: 1rem;" id="produto-field-container">
+                <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.4rem;">Produto vinculado</label>
+                <select id="ev-produto" onchange="handleProdutoChange()"
+                    style="width: 100%; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white; box-sizing: border-box; display:none;">
+                </select>
+                <input type="text" id="ev-produto-manual" placeholder="Digite o produto (ex: Curso / Oficina / Capacitação)"
+                    oninput="handleProdutoChange()" autocomplete="off"
+                    style="width: 100%; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white; box-sizing: border-box; display:none;">
+                <p id="produto-warning" style="display:none; font-size: 0.78rem; color: #b45309; margin-top:0.4rem;">
+                    Este projeto ainda não possui produtos importados da planilha orçamentária. Digite o produto manualmente — será corrigido automaticamente no próximo reprocessamento.
+                </p>
             </div>
             <div style="margin-bottom: 1rem;">
                 <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.4rem;">Observações</label>
@@ -517,7 +521,7 @@
         let currentProjectId = ProjectManager.getSelected();
         let allProjects = [];
         let allEvidences = [];
-        let allRubricas = [];
+        let allProdutos = [];
         let signedUrls = {};
         let pendingRejectId = null;
         let pendingComplementId = null;
@@ -531,7 +535,7 @@
             if (currentProjectId) {
                 document.getElementById('project-select').value = currentProjectId;
                 await loadEvidences();
-                await loadRubricas();
+                await loadProdutos();
                 setupRealtime(currentProjectId);
             }
         });
@@ -562,7 +566,7 @@
             ProjectManager.setSelected(id);
             await teardownRealtime();
             await loadEvidences();
-            await loadRubricas();
+            await loadProdutos();
             if (id) setupRealtime(id);
         }
 
@@ -591,44 +595,58 @@
                 .subscribe();
         }
 
-        async function loadRubricas() {
-            const datalist = document.getElementById('rubrica-datalist');
-            const input = document.getElementById('gestor-rubrica');
-            datalist.innerHTML = '';
-            allRubricas = [];
-            if (!currentProjectId) return;
+        async function loadProdutos() {
+            allProdutos = [];
+            if (!currentProjectId) { renderProdutoField(); return; }
 
             const sb = await initSupabase();
             const { data, error } = await sb
                 .from('rubricas')
-                .select('id, nome, rubrica_id, valor_aprovado')
+                .select('produto')
                 .eq('project_id', currentProjectId)
-                .order('rubrica_id', { ascending: true });
+                .not('produto', 'is', null);
 
-            if (error) { console.error('[loadRubricas]', error); return; }
-            allRubricas = data || [];
-            allRubricas.forEach(r => {
-                const opt = document.createElement('option');
-                opt.value = r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome;
-                datalist.appendChild(opt);
-            });
-            if (input) input.placeholder = allRubricas.length > 0
-                ? `Digite para buscar entre ${allRubricas.length} rubricas...`
-                : 'Sem rubricas disponíveis';
+            if (error) { console.error('[loadProdutos]', error); renderProdutoField(); return; }
+
+            allProdutos = [...new Set((data || []).map(r => r.produto).filter(p => p && p.trim()))].sort();
+            renderProdutoField();
         }
 
-        function handleRubricaChange() {
-            const inputText = document.getElementById('gestor-rubrica').value;
-            const rubrica = allRubricas.find(r => {
-                const label = r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome;
-                return label === inputText || r.nome === inputText;
-            });
-            if (!rubrica) return;
+        function renderProdutoField() {
+            const select = document.getElementById('ev-produto');
+            const manualInput = document.getElementById('ev-produto-manual');
+            const warning = document.getElementById('produto-warning');
+
+            if (allProdutos.length > 0) {
+                select.innerHTML = '<option value="">Selecione um produto...</option>' +
+                    allProdutos.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+                select.style.display = '';
+                manualInput.style.display = 'none';
+                manualInput.value = '';
+                warning.style.display = 'none';
+            } else {
+                select.style.display = 'none';
+                select.innerHTML = '';
+                manualInput.style.display = '';
+                warning.style.display = '';
+            }
+        }
+
+        function getProdutoValorAtual() {
+            if (allProdutos.length > 0) {
+                return document.getElementById('ev-produto')?.value?.trim() || '';
+            }
+            return document.getElementById('ev-produto-manual')?.value?.trim() || '';
+        }
+
+        function handleProdutoChange() {
+            const produtoValor = getProdutoValorAtual();
+            if (!produtoValor) return;
             const tipoVal = document.getElementById('gestor-tipo-evidencia').value || 'evidência';
             const tipoLabel = tipoVal.replace(/_/g, ' ');
             const hoje = new Date().toLocaleDateString('pt-BR');
             const ta = document.getElementById('gestor-observacoes');
-            ta.value = `Comprovação da rubrica ${rubrica.nome} — ${tipoLabel} de ${hoje}.`;
+            ta.value = `Comprovação do produto ${produtoValor} — ${tipoLabel} de ${hoje}.`;
             updateCharCounter();
         }
 
@@ -646,12 +664,6 @@
                 .from('physical_evidences')
                 .select(`
                     *,
-                    rubricas (
-                        id,
-                        nome,
-                        rubrica_id,
-                        valor_aprovado
-                    ),
                     distribution_events (
                         titulo
                     )
@@ -735,7 +747,6 @@
                 const motivoMsg = ev.motivo_reprovacao || '';
                 const showMotivo = (ev.status_validacao === 'reprovada' || ev.status_validacao === 'pendente_complemento') && motivoMsg;
                 const motivoLabel = ev.status_validacao === 'pendente_complemento' ? 'Complemento solicitado' : 'Motivo';
-                const rubrica = ev.rubricas;
                 const descTrunc = ev.descricao
                     ? (ev.descricao.length > 80 ? ev.descricao.slice(0, 80) + '...' : ev.descricao)
                     : null;
@@ -769,9 +780,9 @@
                         </div>` : ''}
 
                         <div style="margin-bottom: 0.4rem;">
-                            ${rubrica
-                                ? `<span class="badge-rubrica"><i data-lucide="tag" style="width:10px;height:10px;"></i> ${escapeHtml(rubrica.rubrica_id ? rubrica.rubrica_id + ' - ' + rubrica.nome : rubrica.nome)}</span>`
-                                : `<span class="badge-sem-rubrica">Sem rubrica</span>`
+                            ${ev.produto_evidencia
+                                ? `<span class="badge-rubrica"><i data-lucide="tag" style="width:10px;height:10px;"></i> ${escapeHtml(ev.produto_evidencia)}</span>`
+                                : `<span class="badge-sem-rubrica">Produto não definido</span>`
                             }
                         </div>
 
@@ -810,7 +821,7 @@
                         <div class="card-actions" onclick="event.stopPropagation()">
                             <button class="btn-salic"
                                 data-salic-id="${ev.id}"
-                                ${!ev.rubrica_id_fk ? 'disabled title="Vincule uma rubrica antes de enviar"' : `onclick="enviarAoSalic('${ev.id}')"`}>
+                                ${!ev.produto_evidencia ? 'disabled title="Vincule um produto antes de enviar"' : `onclick="enviarAoSalic('${ev.id}')"`}>
                                 <i data-lucide="upload" style="width:14px;height:14px;"></i> Enviar ao SALIC
                             </button>
                         </div>
@@ -820,7 +831,7 @@
                         <div class="card-actions" onclick="event.stopPropagation()">
                             <button class="btn-salic"
                                 data-salic-id="${ev.id}"
-                                ${!ev.rubrica_id_fk ? 'disabled title="Vincule uma rubrica antes de enviar"' : `onclick="enviarAoSalic('${ev.id}')"`}>
+                                ${!ev.produto_evidencia ? 'disabled title="Vincule um produto antes de enviar"' : `onclick="enviarAoSalic('${ev.id}')"`}>
                                 <i data-lucide="refresh-cw" style="width:14px;height:14px;"></i> Tentar novamente
                             </button>
                         </div>
@@ -1026,12 +1037,11 @@
             }
 
             const tipoSelecionado = document.getElementById('gestor-tipo-evidencia').value;
-            const rubricaInputText = document.getElementById('gestor-rubrica')?.value || '';
-            const rubricaObj = allRubricas.find(r => {
-                const label = r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome;
-                return label === rubricaInputText || r.nome === rubricaInputText;
-            });
-            const rubricaSelecionadaId = rubricaObj?.id || null;
+            const produtoSelecionado = getProdutoValorAtual();
+            if (!produtoSelecionado) {
+                showToast('Selecione ou digite o produto antes de enviar evidências.', 'error');
+                return;
+            }
             const observacoesTexto = document.getElementById('gestor-observacoes')?.value?.trim() || null;
             let sucessos = 0, falhas = 0;
 
@@ -1073,7 +1083,7 @@
                     enviado_por: user?.id || null,
                     tipo_evidencia: tipoSelecionado,
                     descricao: observacoesTexto || null,
-                    rubrica_id_fk: rubricaSelecionadaId || null,
+                    produto_evidencia: produtoSelecionado,
                     file_path: filePath,
                     file_name: file.name,
                     file_size: file.size,
