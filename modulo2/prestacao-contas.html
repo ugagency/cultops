@@ -603,7 +603,7 @@
             // P07: sem evidencias pendentes
             const q7 = getCount(sbClient.from('physical_evidences').select('*', { count: 'exact', head: true }).eq('project_id', pid).in('status_validacao', ['pendente','pendente_complemento']));
             // P08: contratos expirados
-            const q8 = getCount(sbClient.from('contracts').select('*', { count: 'exact', head: true }).eq('project_id', pid).eq('status', 'ativo').lt('data_fim', today));
+            const q8 = getCount(sbClient.from('contracts').select('*', { count: 'exact', head: true }).eq('project_id', pid).eq('status', 'ativo').lt('data_fim', today).is('contrato_pai_id', null));
             // P09: contract_parcelas — atrasada OU (pendente AND vencimento < hoje)
             // Fecha falso positivo causado pela ausência do CRON-03
             const q9 = getCount(

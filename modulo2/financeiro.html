@@ -569,7 +569,7 @@
             applySkeleton(true);
 
             try {
-                const [rubricasRes, despesasExecRes, impostosRes, checklistRes, contratosRes, despesasRecentesRes, projectDataRes, fornecedoresIn23Res] = await Promise.all([
+                const [rubricasRes, despesasExecRes, impostosRes, checklistRes, contratosRes, despesasRecentesRes, projectDataRes, fornecedoresIn23Res, valorEfetivoRes] = await Promise.all([
                     sb.from('rubricas')
                         .select('nome, codigo, valor_aprovado, valor_utilizado, alerta_limite_ativo, percentual_alerta')
                         .eq('project_id', projectId)
@@ -587,7 +587,8 @@
                         .eq('project_id', projectId),
                     sb.from('contracts')
                         .select('status, valor_total')
-                        .eq('project_id', projectId),
+                        .eq('project_id', projectId)
+                        .is('contrato_pai_id', null),
                     sb.from('despesas')
                         .select('data_pagamento, valor, status, fornecedor_nome, rubricas(nome)')
                         .eq('project_id', projectId)
@@ -600,7 +601,8 @@
                     sb.from('despesas')
                         .select('fornecedor_nome, cnpj_fornecedor, valor')
                         .eq('project_id', projectId)
-                        .in('status', STATUS_DESPESA_EXECUTADO)
+                        .in('status', STATUS_DESPESA_EXECUTADO),
+                    sb.rpc('get_valor_contratos_efetivo', { p_project_id: projectId })
                 ]);
 
                 const rubricas = rubricasRes.data || [];
@@ -611,6 +613,7 @@
                 const despesasRecentes = despesasRecentesRes.data || [];
                 const valorCaptado = Number((projectDataRes.data || {}).valor_captado || 0);
                 const fornecedoresIn23Raw = fornecedoresIn23Res.data || [];
+                const valorEfetivo = valorEfetivoRes.data || [];
 
                 const totalAprovado = rubricas.reduce((s, r) => s + Number(r.valor_aprovado || 0), 0);
                 const totalExecutado = despesasExec.reduce((s, d) => s + Number(d.valor || 0), 0);
@@ -622,7 +625,7 @@
                 const checklistPerc = checklistTotal > 0 ? (checklistOk / checklistTotal) * 100 : 0;
                 const contratosAtivos = contratos.filter(c => c.status === 'ativo').length;
                 const contratosTotal = contratos.length;
-                const contratosValor = contratos.reduce((s, c) => s + Number(c.valor_total || 0), 0);
+                const contratosValor = valorEfetivo.reduce((s, r) => s + Number(r.valor_efetivo || 0), 0);
 
                 renderTopStats({ totalAprovado, totalExecutado, saldo, percExec, totalImpostos, checklistOk, checklistTotal, checklistPerc });
                 renderContractsStrip({ contratosAtivos, contratosTotal, contratosValor });
