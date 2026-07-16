@@ -369,27 +369,6 @@
             margin-top: 0.25rem;
         }
 
-        .btn-salic {
-            flex: 1;
-            padding: 0.5rem;
-            border: none;
-            border-radius: var(--radius-sm);
-            background: #1547FF;
-            color: white;
-            font-weight: 600;
-            font-size: 0.8rem;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.3rem;
-            transition: all 0.2s;
-        }
-        .btn-salic:disabled {
-            background: #e2e8f0;
-            color: #94a3b8;
-            cursor: not-allowed;
-        }
     </style>
 </head>
 <body>
@@ -441,6 +420,11 @@
                     oninput="updateCharCounter()"
                     style="width: 100%; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-family: inherit; resize: vertical; font-size: 0.9rem; box-sizing: border-box;"></textarea>
                 <div class="char-counter" id="obs-char-counter">0/500</div>
+            </div>
+            <div style="margin-bottom: 1rem;">
+                <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.4rem;">Data da captura</label>
+                <input type="date" id="ev-data-captura"
+                    style="width: 100%; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white; box-sizing: border-box;">
             </div>
             <div class="upload-zone" onclick="document.getElementById('file-input').click()">
                 <i data-lucide="image-plus" style="width: 48px; height: 48px; color: var(--m2-accent); margin-bottom: 1rem;"></i>
@@ -527,10 +511,22 @@
         let pendingComplementId = null;
         let evidencesChannel = null;
 
+        function hojeLocalISO() {
+            const d = new Date();
+            const yyyy = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd}`;
+        }
+
         document.addEventListener('DOMContentLoaded', async () => {
             renderSidebar();
             await initSupabase();
             await populateProjectSelect();
+
+            const inputDataCaptura = document.getElementById('ev-data-captura');
+            inputDataCaptura.max = hojeLocalISO();
+            inputDataCaptura.value = hojeLocalISO();
 
             if (currentProjectId) {
                 document.getElementById('project-select').value = currentProjectId;
@@ -718,6 +714,12 @@
             return filePath.split('.').pop().toLowerCase() === 'pdf';
         }
 
+        function formatDataCaptura(dateStr) {
+            if (!dateStr) return null;
+            const [ano, mes, dia] = dateStr.split('-');
+            return `${dia}/${mes}/${ano}`;
+        }
+
         function renderEvidences(evidences) {
             const container = document.getElementById('evidence-list');
             if (!evidences || evidences.length === 0) {
@@ -792,6 +794,12 @@
                             ${escapeHtml(descTrunc)}
                         </div>` : ''}
 
+                        ${ev.data_captura ? `
+                        <div style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 0.4rem;">
+                            <i data-lucide="calendar" style="width:11px;height:11px;vertical-align:-1px;"></i>
+                            Capturada em ${formatDataCaptura(ev.data_captura)}
+                        </div>` : ''}
+
                         <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
                             <span class="status-badge status-${ev.status_validacao || 'pendente'}">${statusLabel}</span>
                             <span style="font-size: 0.7rem; color: var(--text-muted);">${formatDate(ev.criado_em)}</span>
@@ -815,26 +823,6 @@
                                     <i data-lucide="x" style="width: 14px; height: 14px;"></i> Reprovar
                                 </button>
                             </div>
-                        ` : ''}
-
-                        ${ev.status_validacao === 'aprovada' ? `
-                        <div class="card-actions" onclick="event.stopPropagation()">
-                            <button class="btn-salic"
-                                data-salic-id="${ev.id}"
-                                ${!ev.produto_evidencia ? 'disabled title="Vincule um produto antes de enviar"' : `onclick="enviarAoSalic('${ev.id}')"`}>
-                                <i data-lucide="upload" style="width:14px;height:14px;"></i> Enviar ao SALIC
-                            </button>
-                        </div>
-                        ` : ''}
-
-                        ${ev.status_validacao === 'erro_rpa' ? `
-                        <div class="card-actions" onclick="event.stopPropagation()">
-                            <button class="btn-salic"
-                                data-salic-id="${ev.id}"
-                                ${!ev.produto_evidencia ? 'disabled title="Vincule um produto antes de enviar"' : `onclick="enviarAoSalic('${ev.id}')"`}>
-                                <i data-lucide="refresh-cw" style="width:14px;height:14px;"></i> Tentar novamente
-                            </button>
-                        </div>
                         ` : ''}
                     </div>
                 `;
@@ -1043,6 +1031,7 @@
                 return;
             }
             const observacoesTexto = document.getElementById('gestor-observacoes')?.value?.trim() || null;
+            const dataCaptura = document.getElementById('ev-data-captura')?.value || null;
             let sucessos = 0, falhas = 0;
 
             for (const file of files) {
@@ -1084,6 +1073,7 @@
                     tipo_evidencia: tipoSelecionado,
                     descricao: observacoesTexto || null,
                     produto_evidencia: produtoSelecionado,
+                    data_captura: dataCaptura,
                     file_path: filePath,
                     file_name: file.name,
                     file_size: file.size,
@@ -1111,44 +1101,6 @@
             }
             // Realtime já dispara loadEvidences; mas se a sub não estiver ativa, fazemos um refresh manual
             if (!evidencesChannel) await loadEvidences();
-        }
-
-        async function enviarAoSalic(evidenciaId) {
-            if (!confirm('Enviar esta evidência ao SALIC?')) return;
-
-            const btn = document.querySelector(`[data-salic-id="${evidenciaId}"]`);
-            if (btn) {
-                btn.disabled = true;
-                btn.innerHTML = '<i data-lucide="loader-2" style="width:14px;height:14px;" class="spin"></i> Enviando...';
-                if (window.lucide) window.lucide.createIcons();
-            }
-
-            const sb = await initSupabase();
-            const { data: { user } } = await sb.auth.getUser();
-
-            try {
-                const res = await fetch('/api/salic/comprovar-fisico', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ evidenciaId, userId: user?.id })
-                });
-
-                if (!res.ok) {
-                    const err = await res.json().catch(() => ({ message: res.statusText }));
-                    throw new Error(err.message || 'Erro desconhecido');
-                }
-
-                const idx = allEvidences.findIndex(e => e.id === evidenciaId);
-                if (idx !== -1) allEvidences[idx].status_validacao = 'enviada_salic';
-                showToast('Evidência enviada ao SALIC', 'success');
-                renderEvidences(allEvidences);
-            } catch (e) {
-                await sb.from('physical_evidences').update({ status_validacao: 'erro_rpa' }).eq('id', evidenciaId);
-                const idx = allEvidences.findIndex(e => e.id === evidenciaId);
-                if (idx !== -1) allEvidences[idx].status_validacao = 'erro_rpa';
-                showToast('Erro no envio: ' + e.message, 'error');
-                renderEvidences(allEvidences);
-            }
         }
 
         function escapeHtml(s) {
