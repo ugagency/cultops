@@ -438,7 +438,7 @@ app.post('/api/gestor/criar-analista',
 
             const { error: linkErr } = await supabase
                 .from('organization_users')
-                .insert({ organization_id: orgId, user_id: newUserId, role: 'membro' });
+                .insert({ organization_id: orgId, user_id: newUserId, role: 'analista' });
             if (linkErr) {
                 // Rollback: remove o user criado para não deixar órfão sem vínculo
                 await supabase.auth.admin.deleteUser(newUserId);
