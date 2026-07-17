@@ -204,10 +204,18 @@
                     </select>
                 </div>
                 <div>
-                    <label class="form-label">Rubrica *</label>
-                    <select id="ev-rubrica" class="form-input">
-                        <option value="">Selecione…</option>
-                    </select>
+                    <label class="form-label">Produto vinculado *</label>
+                    <select id="ev-produto" class="form-input" onchange="handleProdutoChangeM3()" style="display:none;"></select>
+                    <input type="text" id="ev-produto-manual" class="form-input"
+                           placeholder="Digite o produto (ex: Curso / Oficina / Capacitação)"
+                           oninput="handleProdutoChangeM3()" autocomplete="off" style="display:none;">
+                    <p id="produto-warning-m3" style="display:none;font-size:0.78rem;color:#b45309;margin-top:0.4rem;">
+                        Este projeto ainda não possui produtos importados. Digite manualmente.
+                    </p>
+                </div>
+                <div>
+                    <label class="form-label">Data da captura</label>
+                    <input type="date" id="ev-data-captura" class="form-input">
                 </div>
                 <div>
                     <label class="form-label">Descrição *</label>
@@ -238,7 +246,7 @@
         let evento     = null;
         let attendance = [];
         let evidencias = [];
-        let rubricas   = [];
+        let allProdutosM3 = [];
 
         // ── Utilities ─────────────────────────────────────────
         function esc(s) {
@@ -296,15 +304,9 @@
 
         async function loadData() {
             try {
-                const sb = await initSupabase();
                 evento = await getEventoDetalhe(eventId);
 
-                // Carregar rubricas do projeto
-                const { data: rbData } = await sb
-                    .from('rubricas')
-                    .select('id, nome')
-                    .eq('project_id', evento.project_id);
-                rubricas = rbData || [];
+                await loadProdutosM3();
 
                 [attendance, evidencias] = await Promise.all([
                     getAttendanceByEvento(eventId),
@@ -393,7 +395,7 @@
                 const statusCls = 'badge-' + (ev.status_validacao || 'pendente');
                 const statusLbl = STATUS_EV_LABELS[ev.status_validacao] || ev.status_validacao;
                 const tipoLbl   = TIPO_LABELS[ev.tipo_evidencia] || ev.tipo_evidencia || 'outros';
-                const rubricaNome = ev.rubricas?.nome || '—';
+                const rubricaNome = ev.produto_evidencia || ev.rubricas?.nome || '—';
                 return `
                     <div class="evidencia-card">
                         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.6rem;">
@@ -546,12 +548,10 @@
             document.getElementById('ev-file').value      = '';
             document.getElementById('ev-tipo').value      = '';
             document.getElementById('ev-descricao').value = '';
+            document.getElementById('ev-data-captura').value = '';
             document.getElementById('ev-file-err').style.display = 'none';
 
-            // Popular select de rubricas
-            const sel = document.getElementById('ev-rubrica');
-            sel.innerHTML = '<option value="">Selecione…</option>' +
-                rubricas.map(r => `<option value="${esc(r.id)}">${esc(r.nome)}</option>`).join('');
+            renderProdutoFieldM3();
 
             document.getElementById('modal-evidencia').style.display = 'flex';
             reIcons();
@@ -569,16 +569,66 @@
                 errEl.style.display = 'none';
             }
         }
+
+        // ── Produto vinculado (substitui rubrica_id_fk — ver comprovacao-fisica.html no M2) ──
+        async function loadProdutosM3() {
+            allProdutosM3 = [];
+            if (!evento?.project_id) return;
+            const sb = await initSupabase();
+            const { data, error } = await sb
+                .from('rubricas')
+                .select('produto')
+                .eq('project_id', evento.project_id)
+                .not('produto', 'is', null);
+            if (error) { console.error('[loadProdutosM3]', error); return; }
+            allProdutosM3 = [...new Set((data || []).map(r => r.produto).filter(p => p && p.trim()))].sort();
+        }
+        function renderProdutoFieldM3() {
+            const select  = document.getElementById('ev-produto');
+            const manual  = document.getElementById('ev-produto-manual');
+            const warning = document.getElementById('produto-warning-m3');
+            if (allProdutosM3.length > 0) {
+                select.innerHTML = '<option value="">Selecione…</option>' +
+                    allProdutosM3.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
+                select.style.display = '';
+                manual.style.display = 'none';
+                manual.value = '';
+                warning.style.display = 'none';
+            } else {
+                select.style.display = 'none';
+                select.innerHTML = '';
+                manual.style.display = '';
+                warning.style.display = '';
+            }
+        }
+        function getProdutoValorAtualM3() {
+            return allProdutosM3.length > 0
+                ? (document.getElementById('ev-produto')?.value?.trim() || '')
+                : (document.getElementById('ev-produto-manual')?.value?.trim() || '');
+        }
+        function handleProdutoChangeM3() {
+            const produtoValor = getProdutoValorAtualM3();
+            if (!produtoValor) return;
+            const tipoVal = document.getElementById('ev-tipo').value || 'evidência';
+            const tipoLabel = tipoVal.replace(/_/g, ' ');
+            const hoje = new Date().toLocaleDateString('pt-BR');
+            const ta = document.getElementById('ev-descricao');
+            if (!ta.value.trim()) {
+                ta.value = `Comprovação do produto ${produtoValor} — ${tipoLabel} de ${hoje}.`;
+            }
+        }
+
         async function salvarEvidencia() {
-            const fileInput  = document.getElementById('ev-file');
-            const tipoInput  = document.getElementById('ev-tipo');
-            const rubricaSel = document.getElementById('ev-rubrica');
-            const descInput  = document.getElementById('ev-descricao');
-            const file       = fileInput.files[0];
+            const fileInput    = document.getElementById('ev-file');
+            const tipoInput    = document.getElementById('ev-tipo');
+            const descInput    = document.getElementById('ev-descricao');
+            const produtoValor = getProdutoValorAtualM3();
+            const dataCaptura  = document.getElementById('ev-data-captura').value || null;
+            const file         = fileInput.files[0];
 
             if (!file)                  { showToast('Selecione um arquivo', 'error'); return; }
             if (!tipoInput.value)       { showToast('Selecione o tipo de evidência', 'error'); return; }
-            if (!rubricaSel.value)      { showToast('Selecione a rubrica', 'error'); return; }
+            if (!produtoValor)          { showToast('Informe o produto vinculado', 'error'); return; }
             if (!descInput.value.trim()){ showToast('Informe a descrição', 'error'); return; }
 
             const btn = document.getElementById('btn-salvar-evidencia');
@@ -603,7 +653,8 @@
                     mime_type:             file.type,
                     tipo_evidencia:        tipoInput.value,
                     descricao:             descInput.value.trim(),
-                    rubrica_id_fk:         rubricaSel.value,
+                    produto_evidencia:     produtoValor,
+                    data_captura:          dataCaptura,
                     distribution_event_id: eventId,
                     project_id:            evento.project_id,
                 });
