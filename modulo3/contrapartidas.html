@@ -89,6 +89,19 @@
             transition: box-shadow 0.15s;
         }
         .evento-recente-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.07); }
+
+        /* ── Relatório do Período ──────────── */
+        .rel-dynamic-list { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; }
+        .rel-dynamic-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.6rem 0.85rem;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            font-size: 0.875rem;
+        }
+        .rel-dynamic-row input { max-width: 160px; margin-left: auto; }
     </style>
 </head>
 <body>
@@ -108,10 +121,16 @@
                         <div style="font-size:1.5rem;font-weight:800;color:var(--text-primary);line-height:1.1;">Contrapartidas</div>
                         <div id="projeto-label" style="font-size:0.875rem;color:var(--text-secondary);margin-top:0.25rem;"></div>
                     </div>
-                    <a href="eventos.html" class="btn-primary"
-                       style="text-decoration:none;display:inline-flex;align-items:center;gap:0.5rem;font-size:0.875rem;">
-                        <i data-lucide="plus" style="width:15px;"></i> Novo Evento
-                    </a>
+                    <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+                        <button class="btn-secondary" onclick="openRelatorioPeriodo()"
+                                style="font-size:0.875rem;">
+                            <i data-lucide="file-text" style="width:15px;"></i> Gerar Relatório do Período
+                        </button>
+                        <a href="eventos.html" class="btn-primary"
+                           style="text-decoration:none;display:inline-flex;align-items:center;gap:0.5rem;font-size:0.875rem;">
+                            <i data-lucide="plus" style="width:15px;"></i> Novo Evento
+                        </a>
+                    </div>
                 </div>
             </div>
 
@@ -175,6 +194,128 @@
             </div>
         </div>
     </main>
+
+    <!-- ── Modal Gerar Relatório do Período ──────────────────── -->
+    <div id="relatorio-periodo-backdrop" class="modal-backdrop" style="display:none;">
+        <div class="modal-card" style="max-width:760px;">
+            <div class="modal-header">
+                <h2>Gerar Relatório do Período</h2>
+                <button class="btn-icon" onclick="closeRelatorioPeriodo()">
+                    <i data-lucide="x" style="width:22px;"></i>
+                </button>
+            </div>
+
+            <div class="form-group" style="margin-bottom:1.25rem;">
+                <label>Mês de referência</label>
+                <input type="month" id="rp-mes" onchange="onMesReferenciaChange()">
+            </div>
+
+            <div id="rp-conteudo" style="display:none;">
+                <div class="form-group" style="margin-bottom:1.25rem;">
+                    <label>Eventos do período</label>
+                    <div id="rp-eventos-list" class="rel-dynamic-list"></div>
+                    <div id="rp-eventos-aviso" class="hint" style="margin-top:0.5rem;"></div>
+                </div>
+
+                <div class="form-grid" style="margin-bottom:1.25rem;">
+                    <div class="form-section-title" style="grid-column:span 2;padding-top:0;border-top:none;">1. Identificação do especialista</div>
+                    <div class="form-group">
+                        <label>Nome</label>
+                        <input type="text" id="rp-especialista-nome">
+                    </div>
+                    <div class="form-group">
+                        <label>Função</label>
+                        <input type="text" id="rp-especialista-funcao">
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin-bottom:1.25rem;">
+                    <label>3. Custo por evento (informado manualmente)</label>
+                    <div id="rp-custos-list" class="rel-dynamic-list"></div>
+                    <div style="margin-top:0.6rem;font-size:0.9rem;font-weight:700;color:var(--text-primary);">
+                        Custo total do período: <span id="rp-custo-total">R$ 0,00</span>
+                    </div>
+                    <div id="rp-custos-aviso" class="hint" style="margin-top:0.35rem;"></div>
+                </div>
+
+                <div class="form-grid" style="margin-bottom:1.25rem;">
+                    <div class="form-section-title" style="grid-column:span 2;">4. Principais desafios do período</div>
+                    <div class="form-group span-2">
+                        <textarea id="rp-desafios" rows="3"></textarea>
+                    </div>
+
+                    <div class="form-section-title" style="grid-column:span 2;">5. Gerenciamento de equipe</div>
+                    <div class="form-group span-2">
+                        <input type="text" id="rp-equipe" placeholder="Nada a declarar">
+                    </div>
+
+                    <div class="form-section-title" style="grid-column:span 2;">6. Dados gerais de comunicação</div>
+                    <div class="form-group">
+                        <label>Seguidores (total)</label>
+                        <input type="number" id="rp-com-seguidores-total" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Novos seguidores no mês</label>
+                        <input type="number" id="rp-com-novos-seguidores" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Interações</label>
+                        <input type="number" id="rp-com-interacoes" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Visualizações</label>
+                        <input type="number" id="rp-com-visualizacoes" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Alcance</label>
+                        <input type="number" id="rp-com-alcance" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Matérias (quantidade)</label>
+                        <input type="number" id="rp-com-materias-qtd" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Matérias positivas (%)</label>
+                        <input type="number" id="rp-com-materias-pct" min="0" max="100" step="0.1">
+                    </div>
+                    <div class="form-group">
+                        <label>Retorno em mídia (R$)</label>
+                        <input type="number" id="rp-com-retorno-midia" min="0" step="0.01">
+                    </div>
+
+                    <div class="form-section-title" style="grid-column:span 2;">Assinatura</div>
+                    <div class="form-group">
+                        <label>Cidade e data</label>
+                        <input type="text" id="rp-assinatura-cidade-data">
+                    </div>
+                    <div class="form-group">
+                        <label>Nome</label>
+                        <input type="text" id="rp-assinatura-nome">
+                    </div>
+                    <div class="form-group">
+                        <label>Cargo</label>
+                        <input type="text" id="rp-assinatura-cargo">
+                    </div>
+                    <div class="form-group">
+                        <label>Local do projeto</label>
+                        <input type="text" id="rp-assinatura-local">
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <div class="actions-right">
+                    <button class="btn-secondary" onclick="closeRelatorioPeriodo()">Cancelar</button>
+                    <button class="btn-secondary" id="rp-salvar-btn" onclick="onSalvarRascunhoClick()" disabled>
+                        <i data-lucide="save" style="width:15px;"></i> Salvar rascunho
+                    </button>
+                    <button class="btn-primary" id="rp-gerar-btn" onclick="gerarRelatorioPeriodo()" disabled>
+                        <i data-lucide="file-text" style="width:15px;"></i> Gerar Relatório Final
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <div id="toast-container" class="toast-container"></div>
 
@@ -335,6 +476,264 @@
                     </div>
                 </div>`).join('');
             reIcons();
+        }
+
+        // ── Gerar Relatório do Período ─────────────────────────
+        let rpProjectId       = null;
+        let rpMesReferencia   = null;
+        let rpEventos         = [];
+        let rpCustos          = {};
+        let rpRelatorioExistente = null;
+
+        function openRelatorioPeriodo() {
+            document.getElementById('rp-mes').value = '';
+            document.getElementById('rp-conteudo').style.display = 'none';
+            document.getElementById('rp-salvar-btn').disabled = true;
+            document.getElementById('rp-gerar-btn').disabled = true;
+            document.getElementById('relatorio-periodo-backdrop').style.display = 'flex';
+            reIcons();
+        }
+        function closeRelatorioPeriodo() {
+            document.getElementById('relatorio-periodo-backdrop').style.display = 'none';
+        }
+
+        async function onMesReferenciaChange() {
+            const mesAno = document.getElementById('rp-mes').value; // 'YYYY-MM'
+            if (!mesAno) return;
+
+            rpProjectId = ProjectManagerM3.getSelected();
+            const inicio = `${mesAno}-01`;
+            const [ano, mes] = mesAno.split('-');
+            const proximoMes = mes === '12'
+                ? `${Number(ano) + 1}-01-01`
+                : `${ano}-${String(Number(mes) + 1).padStart(2, '0')}-01`;
+
+            document.getElementById('rp-conteudo').style.display = 'none';
+            document.getElementById('rp-eventos-list').innerHTML =
+                `<div class="empty-state" style="padding:1rem;"><i data-lucide="loader" class="spin" style="width:20px;"></i></div>`;
+            reIcons();
+
+            try {
+                const sb = await initSupabase();
+                const [{ data: eventos, error: evErr }, { data: relatorioExistente, error: relErr }] = await Promise.all([
+                    sb.from('distribution_events')
+                        .select('id, titulo, data_evento, relatorio_status')
+                        .eq('project_id', rpProjectId)
+                        .gte('data_evento', inicio)
+                        .lt('data_evento', proximoMes)
+                        .order('data_evento', { ascending: true }),
+                    sb.from('distribution_monthly_reports')
+                        .select('*')
+                        .eq('project_id', rpProjectId)
+                        .eq('mes_referencia', inicio)
+                        .maybeSingle(),
+                ]);
+                if (evErr) throw evErr;
+                if (relErr) throw relErr;
+
+                rpEventos = eventos || [];
+                preencherFormRelatorioPeriodo(relatorioExistente, inicio);
+                renderRpEventosList();
+                renderRpCustosList();
+
+                document.getElementById('rp-conteudo').style.display = '';
+                document.getElementById('rp-salvar-btn').disabled = false;
+                document.getElementById('rp-gerar-btn').disabled = false;
+            } catch (err) {
+                showToast('Erro ao carregar eventos do período: ' + (err.message || ''), 'error');
+            }
+            reIcons();
+        }
+
+        function preencherFormRelatorioPeriodo(relatorio, mesReferencia) {
+            rpMesReferencia = mesReferencia;
+            rpRelatorioExistente = relatorio || null;
+            rpCustos = {};
+            (relatorio?.custos_por_evento || []).forEach(c => { rpCustos[c.event_id] = c.valor; });
+
+            document.getElementById('rp-especialista-nome').value   = relatorio?.especialista_nome || '';
+            document.getElementById('rp-especialista-funcao').value = relatorio?.especialista_funcao || '';
+            document.getElementById('rp-desafios').value            = relatorio?.desafios_periodo || '';
+            document.getElementById('rp-equipe').value              = relatorio?.gerenciamento_equipe || '';
+            document.getElementById('rp-com-seguidores-total').value = relatorio?.comunicacao_seguidores_total ?? '';
+            document.getElementById('rp-com-novos-seguidores').value = relatorio?.comunicacao_novos_seguidores ?? '';
+            document.getElementById('rp-com-interacoes').value       = relatorio?.comunicacao_interacoes ?? '';
+            document.getElementById('rp-com-visualizacoes').value    = relatorio?.comunicacao_visualizacoes ?? '';
+            document.getElementById('rp-com-alcance').value          = relatorio?.comunicacao_alcance ?? '';
+            document.getElementById('rp-com-materias-qtd').value     = relatorio?.comunicacao_materias_qtd ?? '';
+            document.getElementById('rp-com-materias-pct').value     = relatorio?.comunicacao_materias_positivas_pct ?? '';
+            document.getElementById('rp-com-retorno-midia').value    = relatorio?.comunicacao_retorno_midia_valor ?? '';
+            document.getElementById('rp-assinatura-cidade-data').value = relatorio?.assinatura_cidade_data || '';
+            document.getElementById('rp-assinatura-nome').value        = relatorio?.assinatura_nome || '';
+            document.getElementById('rp-assinatura-cargo').value       = relatorio?.assinatura_cargo || '';
+            document.getElementById('rp-assinatura-local').value       = relatorio?.assinatura_local_projeto || '';
+        }
+
+        function renderRpEventosList() {
+            const wrap  = document.getElementById('rp-eventos-list');
+            const aviso = document.getElementById('rp-eventos-aviso');
+            if (!rpEventos.length) {
+                wrap.innerHTML = `<div class="hint">Nenhum evento cadastrado neste período.</div>`;
+                aviso.textContent = '';
+                return;
+            }
+            wrap.innerHTML = rpEventos.map(ev => {
+                const ok = ev.relatorio_status === 'preenchido' || ev.relatorio_status === 'gerado';
+                return `
+                    <div class="rel-dynamic-row">
+                        <span style="flex:1;">${esc(ev.titulo)} <span class="hint">(${fmtDate(ev.data_evento)})</span></span>
+                        <span class="badge ${ok ? 'badge-green' : 'badge-gray'}" style="margin-left:0;">
+                            ${ok ? '✅ Preenchido' : '⚠️ Sem relatório preenchido'}
+                        </span>
+                    </div>`;
+            }).join('');
+
+            const pendentes = rpEventos.filter(ev => !(ev.relatorio_status === 'preenchido' || ev.relatorio_status === 'gerado')).length;
+            aviso.textContent = pendentes > 0
+                ? `${pendentes} evento(s) sem relatório de evento preenchido. Recomendamos preencher antes de gerar o relatório mensal — a seção desse evento ficará incompleta caso prossiga mesmo assim.`
+                : '';
+        }
+
+        function renderRpCustosList() {
+            const wrap = document.getElementById('rp-custos-list');
+            if (!rpEventos.length) {
+                wrap.innerHTML = `<div class="hint">Nenhum evento no período.</div>`;
+                updateRpCustoTotal();
+                return;
+            }
+            wrap.innerHTML = rpEventos.map(ev => `
+                <div class="rel-dynamic-row">
+                    <span style="flex:1;">${esc(ev.titulo)}</span>
+                    <input type="number" min="0" step="0.01" placeholder="Ex: 47831.00"
+                           value="${rpCustos[ev.id] ?? ''}"
+                           oninput="onRpCustoInput('${esc(ev.id)}', this.value)">
+                </div>
+            `).join('');
+            updateRpCustoTotal();
+        }
+
+        function onRpCustoInput(eventId, valor) {
+            if (valor === '') delete rpCustos[eventId];
+            else rpCustos[eventId] = Number(valor);
+            updateRpCustoTotal();
+        }
+
+        function updateRpCustoTotal() {
+            const valores = rpEventos.map(ev => rpCustos[ev.id]).filter(v => v != null && !Number.isNaN(v));
+            const total = valores.reduce((s, v) => s + v, 0);
+            document.getElementById('rp-custo-total').textContent = formatCurrency(total);
+            const semValor = rpEventos.length - valores.length;
+            document.getElementById('rp-custos-aviso').textContent = semValor > 0
+                ? `${semValor} evento(s) sem valor informado — não incluído(s) no total.`
+                : '';
+        }
+
+        function numOrNull(id) {
+            const v = document.getElementById(id).value;
+            return v === '' ? null : Number(v);
+        }
+
+        function collectRpFormData() {
+            const custosArray = rpEventos
+                .filter(ev => rpCustos[ev.id] != null && !Number.isNaN(rpCustos[ev.id]))
+                .map(ev => ({ event_id: ev.id, nome_evento: ev.titulo, valor: rpCustos[ev.id] }));
+
+            return {
+                especialista_nome: document.getElementById('rp-especialista-nome').value.trim() || null,
+                especialista_funcao: document.getElementById('rp-especialista-funcao').value.trim() || null,
+                desafios_periodo: document.getElementById('rp-desafios').value.trim() || null,
+                gerenciamento_equipe: document.getElementById('rp-equipe').value.trim() || null,
+                comunicacao_seguidores_total: numOrNull('rp-com-seguidores-total'),
+                comunicacao_novos_seguidores: numOrNull('rp-com-novos-seguidores'),
+                comunicacao_interacoes: numOrNull('rp-com-interacoes'),
+                comunicacao_visualizacoes: numOrNull('rp-com-visualizacoes'),
+                comunicacao_alcance: numOrNull('rp-com-alcance'),
+                comunicacao_materias_qtd: numOrNull('rp-com-materias-qtd'),
+                comunicacao_materias_positivas_pct: numOrNull('rp-com-materias-pct'),
+                comunicacao_retorno_midia_valor: numOrNull('rp-com-retorno-midia'),
+                custos_por_evento: custosArray,
+                assinatura_cidade_data: document.getElementById('rp-assinatura-cidade-data').value.trim() || null,
+                assinatura_nome: document.getElementById('rp-assinatura-nome').value.trim() || null,
+                assinatura_cargo: document.getElementById('rp-assinatura-cargo').value.trim() || null,
+                assinatura_local_projeto: document.getElementById('rp-assinatura-local').value.trim() || null,
+            };
+        }
+
+        // Upsert puro (sem estado de UI) — reaproveitado pelo "Salvar rascunho" e
+        // pelo "Gerar Relatório Final" (que sempre finaliza o upsert antes de chamar o endpoint).
+        async function salvarRelatorioPeriodo(status) {
+            const sb  = await initSupabase();
+            const org = await getCurrentOrgIdM3();
+            const { data: { user } } = await sb.auth.getUser();
+            const dados = {
+                project_id: rpProjectId,
+                organization_id: org,
+                mes_referencia: rpMesReferencia,
+                ...collectRpFormData(),
+                status,
+                criado_por: user.id,
+                atualizado_em: new Date().toISOString(),
+            };
+            const { data, error } = await sb
+                .from('distribution_monthly_reports')
+                .upsert(dados, { onConflict: 'project_id,mes_referencia' })
+                .select()
+                .single();
+            if (error) throw error;
+            rpRelatorioExistente = data;
+            return data;
+        }
+
+        async function onSalvarRascunhoClick() {
+            const btn = document.getElementById('rp-salvar-btn');
+            const original = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px;"></i> Salvando…';
+            reIcons();
+            try {
+                await salvarRelatorioPeriodo('rascunho');
+                showToast('Rascunho salvo!');
+            } catch (err) {
+                showToast('Erro ao salvar rascunho: ' + (err.message || ''), 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = original;
+                reIcons();
+            }
+        }
+
+        async function gerarRelatorioPeriodo() {
+            const btn = document.getElementById('rp-gerar-btn');
+            const original = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px;"></i> Gerando…';
+            reIcons();
+            try {
+                await salvarRelatorioPeriodo('finalizado');
+
+                const sb = await initSupabase();
+                const { data: { session } } = await sb.auth.getSession();
+                const r = await fetch('/api/m3/relatorio/periodo', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + session.access_token,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ project_id: rpProjectId, mes_referencia: rpMesReferencia }),
+                });
+                const json = await r.json();
+                if (!r.ok) throw new Error(json.error || 'Erro ao gerar relatório mensal');
+
+                showToast('Relatório mensal gerado com sucesso!');
+                if (json.url) window.open(json.url, '_blank');
+                closeRelatorioPeriodo();
+            } catch (err) {
+                showToast('Erro ao gerar relatório: ' + (err.message || ''), 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = original;
+                reIcons();
+            }
         }
     </script>
 </body>

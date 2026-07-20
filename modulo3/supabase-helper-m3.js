@@ -513,6 +513,11 @@ async function getEvidenciasByEvento(eventId) {
     return data || [];
 }
 
+function formatCurrency(value) {
+    const n = Number(value) || 0;
+    return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
 async function getSignedUrlsM3(paths) {
     const sb = await initSupabase();
     const clean = paths.filter(Boolean).map(p => p.trim());
@@ -680,6 +685,7 @@ window.removeConvidado         = removeConvidado;
 window.buscarConvidadoPortaria = buscarConvidadoPortaria;
 window.getEvidenciasByEvento   = getEvidenciasByEvento;
 window.getSignedUrlsM3         = getSignedUrlsM3;
+window.formatCurrency          = formatCurrency;
 window.createEvidencia         = createEvidencia;
 window.getAttendanceByEvento   = getAttendanceByEvento;
 window.createAttendance        = createAttendance;
