@@ -649,7 +649,11 @@
         }
         function fmtDate(iso) {
             if (!iso) return '—';
-            try { return new Date(iso).toLocaleDateString('pt-BR'); } catch { return '—'; }
+            try {
+                const dt = new Date(iso + 'T00:00:00');
+                if (isNaN(dt)) return iso;
+                return dt.toLocaleDateString('pt-BR');
+            } catch { return '—'; }
         }
         function statusLabel(s) {
             if (!s) return '—';

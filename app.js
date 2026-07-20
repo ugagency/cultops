@@ -1920,7 +1920,7 @@ ${Sidebar()}
                         </div>
                         <div class="info-item">
                             <label>Data de Emissão</label>
-                            <p class="text-sm">${doc.data_emissao ? new Date(doc.data_emissao).toLocaleDateString('pt-BR') : '---'}</p>
+                            <p class="text-sm">${doc.data_emissao ? _laudoFmtDate(doc.data_emissao) : '---'}</p>
                         </div>
                         <div class="info-item">
                             <label>Nr. Comprovante</label>

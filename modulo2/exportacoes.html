@@ -506,6 +506,13 @@
     <script src="../config.js"></script>
     <script src="supabase-helper.js"></script>
     <script>
+        function fmtDataSemFuso(d) {
+            if (!d) return '—';
+            const dt = new Date(d + 'T00:00:00');
+            if (isNaN(dt)) return d;
+            return dt.toLocaleDateString('pt-BR');
+        }
+
         let currentProjectId = null;
         let currentProjectData = null;
         let exportSubscription = null;
@@ -646,7 +653,7 @@
                 'valor','status','protocolo_salic','autenticacao_bancaria','data_conciliacao'
             ];
             const rows = data.map(d => [
-                d.data_pagamento ? new Date(d.data_pagamento).toLocaleDateString('pt-BR') : '—',
+                d.data_pagamento ? fmtDataSemFuso(d.data_pagamento) : '—',
                 formatCNPJ(d.cnpj_fornecedor),
                 (d.documents && d.documents.numero_nf) || '—',
                 d.fornecedor_nome || '—',
@@ -846,7 +853,7 @@
                 // ABA 2 — Despesas
                 const headerDespesas = ['Data', 'Fornecedor', 'CNPJ', 'Nº NF', 'Rubrica', 'Valor (R$)', 'Status', 'Protocolo SALIC'];
                 const dadosDespesas = despesas.map(d => [
-                    d.data_pagamento ? new Date(d.data_pagamento).toLocaleDateString('pt-BR') : '—',
+                    d.data_pagamento ? fmtDataSemFuso(d.data_pagamento) : '—',
                     d.fornecedor_nome || '—',
                     d.cnpj_fornecedor || '—',
                     (d.documents && d.documents.numero_nf) || '—',
@@ -879,8 +886,8 @@
                         (c.fornecedores && c.fornecedores.cnpj) || '—',
                         c.objeto || '—',
                         Number(c.valor_total || 0),
-                        c.data_inicio ? new Date(c.data_inicio).toLocaleDateString('pt-BR') : '—',
-                        c.data_fim ? new Date(c.data_fim).toLocaleDateString('pt-BR') : '—',
+                        c.data_inicio ? fmtDataSemFuso(c.data_inicio) : '—',
+                        c.data_fim ? fmtDataSemFuso(c.data_fim) : '—',
                         c.status || '—',
                         g.pagas,
                         g.pendentes,
@@ -896,8 +903,8 @@
                     i.codigo_receita || '—',
                     i.competencia || '—',
                     Number(i.valor || 0),
-                    i.data_vencimento ? new Date(i.data_vencimento).toLocaleDateString('pt-BR') : '—',
-                    i.data_pagamento ? new Date(i.data_pagamento).toLocaleDateString('pt-BR') : '—',
+                    i.data_vencimento ? fmtDataSemFuso(i.data_vencimento) : '—',
+                    i.data_pagamento ? fmtDataSemFuso(i.data_pagamento) : '—',
                     i.status || '—'
                 ]);
                 XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headerImpostos, ...dadosImpostos]), 'Impostos');
@@ -1244,7 +1251,10 @@
 
         function pdfFormatDate(iso) {
             if (!iso) return '—';
-            return new Date(iso).toLocaleDateString('pt-BR');
+            const temHora = iso.includes('T') || iso.includes(' ');
+            const dt = temHora ? new Date(iso) : new Date(iso + 'T00:00:00');
+            if (isNaN(dt)) return iso;
+            return dt.toLocaleDateString('pt-BR');
         }
         function pdfFormatDateTime(iso) {
             if (!iso) return '—';

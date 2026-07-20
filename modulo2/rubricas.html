@@ -709,7 +709,12 @@
 
         function formatHistDate(iso) {
             if (!iso) return '—';
-            try { return new Date(iso).toLocaleDateString('pt-BR'); } catch { return '—'; }
+            try {
+                const temHora = iso.includes('T') || iso.includes(' ');
+                const dt = temHora ? new Date(iso) : new Date(iso + 'T00:00:00');
+                if (isNaN(dt)) return iso;
+                return dt.toLocaleDateString('pt-BR');
+            } catch { return '—'; }
         }
 
         function escapeHtml(s) {
