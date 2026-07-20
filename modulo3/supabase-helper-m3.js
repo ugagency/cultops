@@ -513,6 +513,17 @@ async function getEvidenciasByEvento(eventId) {
     return data || [];
 }
 
+async function getSignedUrlsM3(paths) {
+    const sb = await initSupabase();
+    const clean = paths.filter(Boolean).map(p => p.trim());
+    if (!clean.length) return {};
+    const { data, error } = await sb.storage.from('physical-evidences').createSignedUrls(clean, 3600);
+    if (error) throw error;
+    const map = {};
+    (data || []).forEach(item => { if (item.signedUrl) map[item.path] = item.signedUrl; });
+    return map;
+}
+
 async function createEvidencia(dados) {
     const sb  = await initSupabase();
     const org = await getCurrentOrgIdM3();
@@ -668,6 +679,7 @@ window.addConvidado            = addConvidado;
 window.removeConvidado         = removeConvidado;
 window.buscarConvidadoPortaria = buscarConvidadoPortaria;
 window.getEvidenciasByEvento   = getEvidenciasByEvento;
+window.getSignedUrlsM3         = getSignedUrlsM3;
 window.createEvidencia         = createEvidencia;
 window.getAttendanceByEvento   = getAttendanceByEvento;
 window.createAttendance        = createAttendance;
