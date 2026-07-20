@@ -3614,9 +3614,15 @@ window.salvarCamposManuais = async function (documentId) {
         rubrica_id_fk: doc?.rubrica_id_fk
     };
 
+    let avancouParaConformidade = false;
+
     if (doc?.status === 'aguardando_rubrica'
         && merged.cnpj_emissor && merged.valor && merged.data_emissao && merged.rubrica_id_fk) {
         updateFields.status = 'aguardando_conciliacao_bancaria';
+    } else if (doc?.status === 'revisao_manual'
+        && merged.cnpj_emissor && merged.valor && merged.data_emissao && merged.rubrica_id_fk) {
+        updateFields.status = 'aguardando_conformidade';
+        avancouParaConformidade = true;
     }
 
     const { error } = await supabaseClient
@@ -3625,6 +3631,25 @@ window.salvarCamposManuais = async function (documentId) {
         .eq('id', documentId);
 
     if (error) { showToast('Erro ao salvar: ' + error.message, 'error'); return; }
+
+    // Ao completar a revisao manual (OCR falhou, humano preencheu os campos), o n8n
+    // precisa ser notificado para rodar a validacao de conformidade (CNAE vs. rubrica);
+    // sem isso o documento fica "em auditoria" mas nunca e de fato auditado.
+    if (avancouParaConformidade && CONFIG.N8N_WEBHOOK_VALIDATION_URL) {
+        fetch(CONFIG.N8N_WEBHOOK_VALIDATION_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            mode: 'cors',
+            body: JSON.stringify({
+                document_id: documentId,
+                cnpj_fornecedor: merged.cnpj_emissor
+            })
+        }).then(r => console.log("n8n Validation Triggered (salvarCamposManuais):", r.status))
+            .catch(e => {
+                console.error("Erro ao notificar n8n:", e.message);
+                window.showToast('Dados salvos, mas houve falha ao notificar o sistema de validação. Se o documento não avançar em alguns minutos, contate o suporte.', 'warning');
+            });
+    }
 
     showToast('Campos salvos com sucesso', 'success');
     fetchDocumentDetails(documentId);
@@ -4835,6 +4860,7 @@ async function subirParaStorage(file, projectId, opts = {}) {
             status: status,
             tipo_documento: tipoDocumento,
             rubrica: rubrica,
+            rubrica_id_fk: opts.rubrica_id_fk || null,
             organization_id: projeto?.organization_id || null
         })
         .select()
