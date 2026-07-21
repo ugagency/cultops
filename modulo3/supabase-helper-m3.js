@@ -46,8 +46,6 @@ async function renderSidebarM3() {
         { label: 'Patrocinadores',  icon: 'building-2',   path: 'pa.html' },
         { label: 'Eventos',         icon: 'calendar',     path: 'eventos.html' },
         { label: 'Dashboard',       icon: 'layout-dashboard', path: 'contrapartidas.html' },
-        { label: 'Convidados',      icon: 'user-check',   path: 'convidados.html' },
-        { label: 'Evidências',      icon: 'clipboard-check', path: 'evidencias-m3.html' },
     ];
 
     const _filtered = navItems.filter(item =>
