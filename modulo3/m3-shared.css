@@ -59,6 +59,28 @@ h1, h2, h3, h4 { font-family: 'DM Sans', sans-serif; }
     margin: 0;
 }
 
+/* ── Seletor de projeto (PRONAC) ──────────────────────────── */
+.project-selector-container {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: white;
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-light);
+}
+
+.project-selector-container select {
+    border: none;
+    background: transparent;
+    font-family: inherit;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--m3-accent);
+    cursor: pointer;
+    outline: none;
+}
+
 /* ── Glass Card ──────────────────────────────────────────── */
 .glass-card {
     background: var(--glass-bg);

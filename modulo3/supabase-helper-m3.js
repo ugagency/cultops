@@ -323,6 +323,22 @@ const ProjectManagerM3 = {
     }
 };
 
+/**
+ * Lista os projetos acessíveis ao usuário logado, para popular o seletor
+ * de PRONAC no header das páginas do M3 (RLS já escopa por organização).
+ */
+async function getProjectsM3() {
+    const sb = await initSupabase();
+    const { data, error } = await sb
+        .from('projects')
+        .select('id, pronac, nome')
+        .order('nome', { ascending: true });
+    if (error) throw error;
+    return data || [];
+}
+
+window.getProjectsM3 = getProjectsM3;
+
 // ── Eventos ───────────────────────────────────────────────────
 
 async function getEventosByProject(projectId) {

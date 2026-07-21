@@ -120,6 +120,12 @@
                 <p id="header-sub">Eventos culturais vinculados ao projeto selecionado.</p>
             </div>
             <div class="header-actions">
+                <div class="project-selector-container">
+                    <i data-lucide="folder-kanban" style="width: 18px; color: var(--text-secondary);"></i>
+                    <select id="project-selector">
+                        <option value="">Carregando projetos...</option>
+                    </select>
+                </div>
                 <button class="btn-primary" id="btn-novo-evento" onclick="openCreateModal()" disabled>
                     <i data-lucide="plus" style="width:16px;"></i> Novo Evento
                 </button>
@@ -313,13 +319,44 @@
             const { data: { session } } = await sb.auth.getSession();
             if (!session) { window.location.href = '../index.html#login'; return; }
 
-            const pid = ProjectManagerM3.getSelected();
-            if (!pid) {
+            await popularSeletorProjeto();
+        });
+
+        async function popularSeletorProjeto() {
+            const selector = document.getElementById('project-selector');
+            let projects = [];
+            try {
+                projects = await getProjectsM3();
+            } catch (err) {
+                console.error('[eventos] erro ao buscar projetos:', err);
+            }
+
+            if (!projects.length) {
+                selector.innerHTML = '<option value="">Nenhum projeto encontrado</option>';
                 showNoProjectState();
                 return;
             }
 
-            // Busca nome do projeto
+            selector.innerHTML = '<option value="">Selecione um projeto</option>' +
+                projects.map(p => `<option value="${p.id}">${p.pronac ? p.pronac + ' — ' : ''}${p.nome}</option>`).join('');
+
+            const saved = ProjectManagerM3.getSelected();
+            const initialId = (saved && projects.some(p => p.id === saved)) ? saved : projects[0].id;
+
+            selector.value = initialId;
+            ProjectManagerM3.setSelected(initialId);
+            await selecionarProjetoEventos(initialId);
+
+            selector.onchange = async (e) => {
+                const pid = e.target.value;
+                if (!pid) { showNoProjectState(); return; }
+                ProjectManagerM3.setSelected(pid);
+                await selecionarProjetoEventos(pid);
+            };
+        }
+
+        async function selecionarProjetoEventos(pid) {
+            const sb = await initSupabase();
             const { data: proj } = await sb
                 .from('projects')
                 .select('pronac, nome')
@@ -340,19 +377,19 @@
 
             document.getElementById('btn-novo-evento').disabled = false;
             await loadCards(pid);
-        });
+        }
 
         function showNoProjectState() {
             document.getElementById('btn-novo-evento').disabled = true;
             document.getElementById('cards-area').innerHTML = `
                 <div class="empty-state" style="padding:4rem 1rem;">
                     <i data-lucide="folder-open" style="width:48px;height:48px;opacity:0.4;"></i>
-                    <div style="margin-top:1rem;font-size:1rem;font-weight:600;color:var(--text-primary);">Nenhum projeto selecionado</div>
+                    <div style="margin-top:1rem;font-size:1rem;font-weight:600;color:var(--text-primary);">Nenhum projeto cadastrado</div>
                     <div style="margin-top:0.4rem;font-size:0.875rem;">
-                        Selecione um projeto no M2 para gerenciar seus eventos.
+                        Crie ou importe um projeto no Módulo II para gerenciar eventos.
                     </div>
                     <a href="../modulo2/projeto-setup.html" class="btn-primary" style="margin-top:1.25rem;text-decoration:none;">
-                        <i data-lucide="arrow-right" style="width:16px;"></i> Ir para seleção de projeto
+                        <i data-lucide="arrow-right" style="width:16px;"></i> Ir para o Módulo II
                     </a>
                 </div>
             `;
