@@ -63,6 +63,42 @@ function checkProjectSetup() {
 }
 
 /**
+ * Verifica se o usuário logado tem role permitida para acessar o Módulo 2
+ * (admin, gestor, analista). Redireciona e retorna false caso contrário.
+ * Deve ser chamada e aguardada (await) no início do DOMContentLoaded de
+ * cada página do M2, ANTES de renderSidebar() e de qualquer carregamento
+ * de dados — chamar só dentro de renderSidebar() não bloqueia queries que
+ * as páginas disparam em paralelo, sem esperar a sidebar terminar.
+ */
+async function verificarAcessoM2() {
+    const sb = await initSupabase();
+    if (!sb) return false;
+
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) {
+        window.location.href = '../index.html#login';
+        return false;
+    }
+
+    const role = session.user?.app_metadata?.role || session.user?.user_metadata?.role;
+    const rolesPermitidasM2 = ['admin', 'gestor', 'analista'];
+
+    if (!rolesPermitidasM2.includes(role)) {
+        console.warn('[M2] Acesso negado para role:', role);
+        if (role === 'operador') {
+            window.location.href = '../modulo3/eventos.html';
+        } else {
+            window.location.href = 'sem-acesso.html';
+        }
+        return false;
+    }
+
+    return true;
+}
+
+window.verificarAcessoM2 = verificarAcessoM2;
+
+/**
  * Renderiza o Sidebar consistente com o M1 mas incluindo links do M2
  */
 function renderSidebar() {

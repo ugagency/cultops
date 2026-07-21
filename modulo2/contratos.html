@@ -456,6 +456,7 @@
         let _ocrFornecedorPendente = null; // { cnpj, nome } caso fornecedor não cadastrado
 
         document.addEventListener('DOMContentLoaded', async () => {
+            if (window.verificarAcessoM2 && !(await window.verificarAcessoM2())) return;
             if (window.renderSidebar) window.renderSidebar();
             sb = await initSupabase();
             await populateProjectSelect();

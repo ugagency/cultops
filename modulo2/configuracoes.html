@@ -162,6 +162,8 @@
     <script>
 
         document.addEventListener('DOMContentLoaded', async () => {
+            if (window.verificarAcessoM2 && !(await window.verificarAcessoM2())) return;
+
             console.log("Configurações M2: Iniciando...");
             
             // 1. Sidebar

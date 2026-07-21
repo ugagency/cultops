@@ -410,8 +410,9 @@
         let latestReadyReportId = null;
 
         document.addEventListener('DOMContentLoaded', async () => {
+            if (window.verificarAcessoM2 && !(await window.verificarAcessoM2())) return;
             if (window.renderSidebar) window.renderSidebar();
-            
+
             sbClient = await window.initSupabase();
             if (!sbClient) return;
 
