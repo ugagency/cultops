@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Acesso não permitido</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m2-shared.css">
+
+    <style>
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: var(--bg-sidebar, #F5F0E8);
+        }
+        .sem-acesso-card {
+            max-width: 440px;
+            width: 100%;
+            margin: 1.5rem;
+            padding: 2.5rem 2rem;
+            background: white;
+            border-radius: var(--radius-lg, 16px);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.08);
+            text-align: center;
+        }
+        .sem-acesso-icon {
+            width: 56px;
+            height: 56px;
+            margin: 0 auto 1.25rem auto;
+            border-radius: 50%;
+            background: rgba(255, 88, 7, 0.1);
+            color: #FF5807;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .sem-acesso-card h1 {
+            font-size: 1.25rem;
+            font-weight: 800;
+            color: var(--text-primary);
+            margin-bottom: 0.75rem;
+        }
+        .sem-acesso-card p {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+            margin-bottom: 2rem;
+        }
+        .sem-acesso-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .btn-sem-acesso {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1rem;
+            border-radius: var(--radius-md, 10px);
+            font-weight: 700;
+            font-size: 0.875rem;
+            text-decoration: none;
+            cursor: pointer;
+            border: 1px solid transparent;
+        }
+        .btn-sem-acesso-primary {
+            background: linear-gradient(135deg, var(--m2-accent, #1547FF), var(--m2-accent-hover, #1547FF));
+            color: white;
+        }
+        .btn-sem-acesso-secondary {
+            background: white;
+            color: var(--text-secondary);
+            border-color: var(--border-light, #e2e8f0);
+        }
+        .btn-sem-acesso-secondary:hover { background: #F5F0E8; }
+    </style>
+</head>
+<body>
+    <div class="sem-acesso-card">
+        <div class="sem-acesso-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+        </div>
+        <h1>Acesso não permitido</h1>
+        <p>Sua conta não tem permissão para acessar o Módulo II (Prestação de Contas). Se você acredita que isso é um engano, procure um administrador da sua organização.</p>
+        <div class="sem-acesso-actions">
+            <a class="btn-sem-acesso btn-sem-acesso-primary" href="../module-selector.html">Voltar para seleção de módulo</a>
+            <a class="btn-sem-acesso btn-sem-acesso-secondary" href="#" id="btn-sair">Sair</a>
+        </div>
+    </div>
+
+    <script src="../config.js"></script>
+    <script>
+        document.getElementById('btn-sair').addEventListener('click', async (e) => {
+            e.preventDefault();
+            try {
+                if (window.supabase && window.CONFIG) {
+                    const sb = window.supabase.createClient(window.CONFIG.SUPABASE_URL, window.CONFIG.SUPABASE_KEY);
+                    await sb.auth.signOut();
+                }
+            } catch (_) {}
+            localStorage.removeItem('prestai_modulo_ativo');
+            window.location.href = '../index.html#login';
+        });
+    </script>
+</body>
+</html>

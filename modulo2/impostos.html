@@ -247,6 +247,7 @@
         let _ocrImpostoFilePath = null; // path já enviado ao Storage durante OCR
 
         document.addEventListener('DOMContentLoaded', async () => {
+            if (window.verificarAcessoM2 && !(await window.verificarAcessoM2())) return;
             renderSidebar();
             await initSupabase();
             await populateProjectSelect();

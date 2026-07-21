@@ -451,6 +451,7 @@
 
         // ─── Init ─────────────────────────────────────────────────────
         document.addEventListener('DOMContentLoaded', async () => {
+            if (window.verificarAcessoM2 && !(await window.verificarAcessoM2())) return;
             renderSidebar();
             setupDragAndDrop();
             if (window.lucide) window.lucide.createIcons();

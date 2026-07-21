@@ -376,6 +376,7 @@
         let uploadInterval = null;
 
         document.addEventListener('DOMContentLoaded', async () => {
+            if (window.verificarAcessoM2 && !(await window.verificarAcessoM2())) return;
             renderSidebar();
             await initSupabase();
             await populateProjectSelect();

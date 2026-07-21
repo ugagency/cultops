@@ -209,6 +209,7 @@
     <script>
         let currentUser = null;
         document.addEventListener('DOMContentLoaded', async () => {
+            if (window.verificarAcessoM2 && !(await window.verificarAcessoM2())) return;
             if (window.renderSidebar) {
                 // Adicionar o link de Solicitantes na Sidebar dinamicamente se não existir
                 const sidebarExists = document.querySelector('.sidebar');
