@@ -1443,7 +1443,7 @@ app.put('/api/m3/eventos/:id/encerrar', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
 
-        const { data: evento, error } = await supabaseAdmin
+        const { data: evento, error } = await supabase
             .from('distribution_events')
             .select('*, distribution_attendance(*)')
             .eq('id', id)
@@ -1457,13 +1457,13 @@ app.put('/api/m3/eventos/:id/encerrar', requireAuth, async (req, res) => {
                 error: 'Evento sem lista de presença — encerramento bloqueado',
             });
 
-        const { count: pendentes } = await supabaseAdmin
+        const { count: pendentes } = await supabase
             .from('physical_evidences')
             .select('id', { count: 'exact', head: true })
             .eq('distribution_event_id', id)
             .eq('status_validacao', 'pendente');
 
-        await supabaseAdmin
+        await supabase
             .from('distribution_events')
             .update({ status: 'encerrado', updated_at: new Date() })
             .eq('id', id);
@@ -1481,13 +1481,42 @@ app.put('/api/m3/eventos/:id/encerrar', requireAuth, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GET /api/m3/pwa/eventos?q=termo
+// Lista eventos da organizacao do usuario para busca por nome no PWA de campo
+// (o operador nao tem como saber o UUID do evento, so pesquisar pelo titulo).
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/api/m3/pwa/eventos', requireAuth, async (req, res) => {
+    try {
+        const orgId = req.user.app_metadata?.org_id;
+        if (!orgId) return res.status(403).json({ error: 'Usuário sem organização vinculada.' });
+
+        const q = (req.query.q || '').trim();
+        let query = supabase
+            .from('distribution_events')
+            .select('id, titulo, data_evento, nome_local, cidade, estado, status')
+            .eq('organization_id', orgId)
+            .order('data_evento', { ascending: false })
+            .limit(30);
+
+        if (q) query = query.ilike('titulo', `%${q}%`);
+
+        const { data: eventos, error } = await query;
+        if (error) throw error;
+
+        return res.json(eventos || []);
+    } catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/m3/pwa/evento/:id
 // Pré-carrega evento completo para uso offline no PWA de campo.
 // ─────────────────────────────────────────────────────────────────────────────
 app.get('/api/m3/pwa/evento/:id', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
-        const { data: evento, error } = await supabaseAdmin
+        const { data: evento, error } = await supabase
             .from('distribution_events')
             .select(`
                 *,
@@ -1521,7 +1550,7 @@ app.post('/api/m3/pwa/sync', requireAuth, async (req, res) => {
 
         for (const checkin of checkins) {
             try {
-                await supabaseAdmin.from('audit_log').insert({
+                await supabase.from('audit_log').insert({
                     tabela:       'distribution_guests',
                     registro_id:  checkin.guest_id || null,
                     campo:        'checkin_pwa',
@@ -1952,7 +1981,7 @@ app.post('/api/admin/usuarios/operador', requireAuth, async (req, res) => {
 
         const orgId = organization_id || req.user?.app_metadata?.org_id;
 
-        const { data: newUser, error } = await supabaseAdmin.auth.admin.createUser({
+        const { data: newUser, error } = await supabase.auth.admin.createUser({
             email,
             email_confirm: true,
             app_metadata:  { role: 'operador', org_id: orgId },
@@ -1960,7 +1989,7 @@ app.post('/api/admin/usuarios/operador', requireAuth, async (req, res) => {
         });
         if (error) throw error;
 
-        await supabaseAdmin.from('organization_users').insert({
+        await supabase.from('organization_users').insert({
             organization_id: orgId,
             user_id:         newUser.user.id,
             role:            'operador',
