@@ -206,6 +206,26 @@ function parseValorBR(v) {
 
 const isSolicitanteMode = window.location.pathname.includes('solicitante') || window.location.hash.includes('solicitante') || window.location.search.includes('solicitante');
 
+// Cria o objeto de filtros com o campo `project` persistido em localStorage
+// (mesma chave do M2, para lembrar o último projeto entre navegações, reloads
+// e troca de módulo). Ler/escrever state.filters.project passa pelo accessor.
+function createFilters() {
+    const PROJECT_KEY = 'prestai_project_id';
+    const f = { startDate: '', endDate: '', search: '', sort: 'date_desc', status: '' };
+    let _project = localStorage.getItem(PROJECT_KEY) || '';
+    Object.defineProperty(f, 'project', {
+        get() { return _project; },
+        set(v) {
+            _project = v || '';
+            if (_project) localStorage.setItem(PROJECT_KEY, _project);
+            else localStorage.removeItem(PROJECT_KEY);
+        },
+        enumerable: true,
+        configurable: true
+    });
+    return f;
+}
+
 const state = {
     isSolicitanteMode: isSolicitanteMode,
     currentView: isSolicitanteMode ? 'solicitante_login' : 'login',
@@ -217,14 +237,7 @@ const state = {
     currentDocument: null,
     loading: false,
     rubricas: [],
-    filters: {
-        project: '',
-        startDate: '',
-        endDate: '',
-        search: '',
-        sort: 'date_desc',
-        status: ''
-    },
+    filters: createFilters(),
     all_solicitantes: [],
     vinculos_solicitantes: [],
     uploadLoteQueue: [],
@@ -3338,7 +3351,7 @@ window.navigate = async function (view, id = null) {
     state.error = null; // Limpa erros ao navegar
 
     if (view === 'dashboard') {
-        state.filters.project = '';
+        // Mantém o projeto filtrado (persistido) ao voltar ao dashboard
         state.filters.status = '';
         await fetchProjects(); // Sempre recarrega projetos ao voltar ao dashboard
         await fetchDocuments();
@@ -3880,7 +3893,13 @@ window.updateFilters = function (key, value) {
 };
 
 window.clearFilters = function () {
-    state.filters = { project: '', startDate: '', endDate: '', search: '', sort: 'date_desc', status: '' };
+    // Reset campo a campo para preservar o accessor persistido de `project`
+    state.filters.project = '';
+    state.filters.startDate = '';
+    state.filters.endDate = '';
+    state.filters.search = '';
+    state.filters.sort = 'date_desc';
+    state.filters.status = '';
     fetchDocuments().then(render);
 };
 
