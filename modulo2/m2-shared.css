@@ -15,34 +15,14 @@
     --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Sidebar M2 — reaproveita a estrutura/espaçamento fluido de style.css
+/* Sidebar M2 — usa integralmente a estrutura E a paleta de style.css
    (.sidebar, .sidebar-logo, .sidebar-nav, .nav-item, .sidebar-footer),
-   só sobrescrevendo a paleta própria do módulo */
-.m2-sidebar {
-    background-color: #FFFFFF;
-}
-
-.m2-sidebar .nav-item {
-    border-radius: var(--radius-md);
-    color: #64748b;
-}
-
-.m2-sidebar .nav-item:hover {
-    background-color: rgba(21, 71, 255, 0.06);
-    color: var(--m2-accent);
-}
-
-.m2-sidebar .nav-item.active {
-    background-color: rgba(21, 71, 255, 0.08);
-    color: var(--m2-accent);
-    font-weight: 700;
-    box-shadow: none;
-}
+   sem overrides, para manter o visual identico ao M1 */
 
 /* Base styles inherited from style.css logic */
 body {
     font-family: var(--font-body, 'Mona Sans', 'Inter', system-ui, sans-serif);
-    background: radial-gradient(circle at top left, var(--color-beige, #F5F0E8), var(--color-blue-15, #E3E8FF));
+    background-color: var(--bg-main, #FFFFFF);
     min-height: 100vh;
 }
 
@@ -50,18 +30,11 @@ h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-heading, 'Ryker', 'Inter', sans-serif);
 }
 
-.main-content {
-    margin-left: var(--sidebar-width);
-    padding: 2rem;
-    transition: var(--transition);
-}
+/* Layout do .main-content (margens, padding e responsividade) vem
+   integralmente de style.css — mesmas regras do M1 */
 
 /* ── Responsividade mobile ───────────────────────────────── */
 @media (max-width: 768px) {
-    .main-content {
-        margin-left: 0 !important;
-        padding: 4.5rem 1rem 1.5rem !important;
-    }
     .page-header {
         flex-wrap: wrap;
         gap: 0.75rem;
@@ -86,16 +59,7 @@ h1, h2, h3, h4, h5, h6 {
     margin-bottom: 2rem;
 }
 
-/* Premium Typography */
-h1 {
-    font-size: 2rem;
-    font-weight: 800;
-    background: linear-gradient(135deg, var(--text-primary) 0%, var(--m2-accent) 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    margin-bottom: 0.5rem;
-}
+/* Tipografia dos titulos segue style.css (mesmo h1 do M1) */
 
 .page-header {
     display: flex;
