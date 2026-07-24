@@ -377,21 +377,21 @@ const Sidebar = () => `
             <i data-lucide="briefcase"></i>
             <span>Projetos</span>
         </a>
+        <a class="nav-item ${['orcamento', 'rubricas'].includes(state.currentView) ? 'active' : ''}" onclick="window.navigate('orcamento')">
+            <i data-lucide="list-checks"></i>
+            <span>Rubricas</span>
+        </a>
         <a class="nav-item ${['upload', 'details'].includes(state.currentView) ? 'active' : ''}" onclick="window.navigate('upload')">
             <i data-lucide="file-text"></i>
             <span>Documentos</span>
         </a>
         <a class="nav-item ${state.currentView === 'upload_lote' ? 'active' : ''}" onclick="window.navigate('upload_lote')">
             <i data-lucide="layers"></i>
-            <span>Upload em Lote</span>
+            <span>Documentos em Lote</span>
         </a>
         <a class="nav-item ${state.currentView === 'envio_lote_salic' ? 'active' : ''}" onclick="window.navigate('envio_lote_salic')">
             <i data-lucide="send"></i>
             <span>Envio SALIC</span>
-        </a>
-        <a class="nav-item ${['orcamento', 'rubricas'].includes(state.currentView) ? 'active' : ''}" onclick="window.navigate('orcamento')">
-            <i data-lucide="list-checks"></i>
-            <span>Rubricas</span>
         </a>
         <a class="nav-item ${state.currentView === 'financeiro' ? 'active' : ''}" onclick="window.navigate('financeiro')">
             <i data-lucide="bar-chart-3"></i>
@@ -1208,7 +1208,7 @@ const UploadLoteView = () => {
 ${Sidebar()}
     <main class="main-content view-content">
         <header class="content-header">
-            <h1>Upload em Lote</h1>
+            <h1>Documentos em Lote</h1>
             <p class="page-subtitle">Envie vários PDFs de uma vez. Depois escolha a rubrica de cada um e clique em Processar para iniciar o OCR.</p>
         </header>
 
