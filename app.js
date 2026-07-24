@@ -231,6 +231,7 @@ const state = {
     currentView: isSolicitanteMode ? 'solicitante_login' : 'login',
     user: null,
     projects: [],
+    planilhasPorProjeto: {}, // project_id -> { name, file_path } da planilha orçamentária
     documents: [],
     rubricas_disponiveis: [],
     catalogo_rubricas: [],
@@ -458,6 +459,18 @@ const Sidebar = () => `
 
 // Helper for Header compatibility if needed
 const Header = Sidebar;
+
+// Botão para visualizar a Planilha Orçamentária (PDF do SALIC) do projeto
+// atualmente selecionado. Retorna '' se não houver projeto ou planilha.
+// Usado nas telas de Rubricas, Documentos e Documentos em Lote.
+function planilhaOrcamentariaBtn() {
+    const pl = state.planilhasPorProjeto && state.planilhasPorProjeto[state.filters.project];
+    if (!pl || !pl.file_path) return '';
+    const url = `${CONFIG.SUPABASE_URL}/storage/v1/object/public/documentos/${pl.file_path}`;
+    return `<button class="btn btn-primary" onclick="window.open('${url}', '_blank')" title="Abrir a Planilha Orçamentária (PDF do SALIC) deste projeto">
+        <i data-lucide="file-spreadsheet" style="width: 16px;"></i> Veja a Planilha Orçamentária
+    </button>`;
+}
 
 
 const SolicitanteHeader = () => `
@@ -1164,11 +1177,13 @@ ${Sidebar()}
 
                 <div class="form-group mb-4">
                     <label>Projeto / PRONAC</label>
-                    <select id="project-selector" onchange="window.handleProjectSelectChange(this.value); state.filters.project = this.value;">
+                    <select id="project-selector" onchange="state.filters.project = this.value; window.handleProjectSelectChange(this.value); render();">
                         <option value="">Selecione um projeto...</option>
                         ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
                     </select>
                 </div>
+
+                ${planilhaOrcamentariaBtn() ? `<div class="mb-4">${planilhaOrcamentariaBtn()}</div>` : ''}
 
                 <div class="form-group mb-4">
                     <label>Rubrica Orçamentária (Obrigatório)</label>
@@ -1236,6 +1251,8 @@ ${Sidebar()}
                         ${state.projects.map(p => `<option value="${p.id}" ${projetoSelecionado === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
                     </select>
                 </div>
+
+                ${planilhaOrcamentariaBtn() ? `<div class="mb-4">${planilhaOrcamentariaBtn()}</div>` : ''}
 
                 <div class="upload-area" onclick="if(document.getElementById('lote-project-selector').value) document.getElementById('lote-file-input').click(); else alert('Selecione um projeto primeiro!');">
                     <input type="file" id="lote-file-input" multiple accept=".pdf" style="display: none;" onchange="window.handleLoteFilesSelected(this.files)">
@@ -3183,9 +3200,10 @@ const OrcamentoView = () => {
                         <span class="font-bold text-sm">Importante</span>
                     </div>
                     <p class="text-xs text-secondary" style="line-height: 1.6;">
-                        O PDF deve ter sido gerado diretamente pelo portal SALIC (Opção "Imprimir"). 
+                        O PDF deve ter sido gerado diretamente pelo portal SALIC (Opção "Imprimir").
                         O sistema utiliza OCR inteligente para ler as colunas de Etapa, Local, Nome da Rubrica e Valores.
                     </p>
+                    ${planilhaOrcamentariaBtn() ? `<div style="margin-top: 1.25rem;">${planilhaOrcamentariaBtn()}</div>` : ''}
                     <div style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border-light);">
                         <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; color: var(--text-secondary);">
                             <i data-lucide="history" style="width: 18px;"></i>
@@ -3840,6 +3858,27 @@ async function fetchProjects() {
         return;
     }
     state.projects = data || [];
+
+    // Mapa project_id -> planilha orçamentária (mais recente), para o botão
+    // "Visualizar Planilha Orçamentária" nas telas de Rubricas/Documentos/Lote.
+    try {
+        const ids = state.projects.map(p => p.id);
+        const map = {};
+        if (ids.length) {
+            const { data: planilhas } = await supabaseClient
+                .from('documents')
+                .select('project_id, name, file_path, created_at')
+                .eq('tipo_documento', 'planilha_orcamentaria')
+                .in('project_id', ids)
+                .order('created_at', { ascending: false });
+            (planilhas || []).forEach(pl => {
+                if (!map[pl.project_id]) map[pl.project_id] = { name: pl.name, file_path: pl.file_path };
+            });
+        }
+        state.planilhasPorProjeto = map;
+    } catch (e) {
+        console.error('Erro ao buscar planilhas orçamentárias:', e);
+    }
 }
 
 async function fetchDocuments() {
