@@ -6,7 +6,7 @@ const { createClient } = require('@supabase/supabase-js');
 const { Resend } = require('resend');
 const {
     Document, Packer, Paragraph, TextRun, ImageRun, Table, TableRow, TableCell,
-    WidthType, ShadingType, PageBreak, AlignmentType, HeadingLevel,
+    WidthType, ShadingType, PageBreak, AlignmentType, HeadingLevel, ExternalHyperlink,
 } = require('docx');
 const { imageSize } = require('image-size');
 
@@ -1620,6 +1620,90 @@ function relLabelValueParagraph(label, value) {
     });
 }
 
+// Rótulo em negrito + link clicável de verdade (ExternalHyperlink). Se o link
+// estiver vazio, mantém a linha com "—" (não omite — preserva a estrutura do
+// template mesmo incompleto).
+function relLinkLabelParagraph(label, url) {
+    const u = url != null && String(url).trim() ? String(url).trim() : null;
+    const valueRun = u
+        ? new ExternalHyperlink({ link: u, children: [new TextRun({ text: u, style: 'Hyperlink' })] })
+        : new TextRun('—');
+    return new Paragraph({
+        children: [new TextRun({ text: `${label}: `, bold: true }), valueRun],
+        spacing: { after: 80 },
+    });
+}
+
+// Rótulo em negrito (linha própria) + corpo multilinha (um Paragraph por linha).
+function relCampoLongo(label, value) {
+    return [
+        new Paragraph({ children: [new TextRun({ text: `${label}:`, bold: true })], spacing: { before: 160, after: 60 } }),
+        ...relMultilineParagraphs(value),
+    ];
+}
+
+const REL_DIAS_SEMANA = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+// Dia da semana em pt-BR a partir de 'YYYY-MM-DD' sem bug de fuso (UTC).
+function relDiaSemana(dateStr) {
+    if (!dateStr || typeof dateStr !== 'string') return '';
+    const [a, m, d] = dateStr.split('-').map(Number);
+    if (!a || !m || !d) return '';
+    return REL_DIAS_SEMANA[new Date(Date.UTC(a, m - 1, d)).getUTCDay()] || '';
+}
+
+// "Quantitativo de público x meta estimada" — um bloco de texto por dia.
+function relPublicoPorDiaTexto(rows) {
+    if (!Array.isArray(rows) || !rows.length) return [relBodyParagraph('—')];
+    return rows.map(r => {
+        const dia = relDiaSemana(r.data);
+        const dm  = fmtDataBRRelatorio(r.data).slice(0, 5); // DD/MM
+        const disp = r.disponibilizado ?? 0;
+        const ret  = r.retirado ?? 0;
+        const pres = r.presente ?? 0;
+        const prefixo = dia ? `${dia} (${dm})` : (dm !== '—/' ? `(${dm})` : 'Dia');
+        return relBodyParagraph(`${prefixo}: ingressos disponibilizados ${disp} (${ret} retirados). Público total: ${pres}`);
+    });
+}
+
+// Galeria de imagens de UM tipo de evidência (rótulo + imagens embutidas).
+// Se não houver imagens, mantém o rótulo e escreve "—".
+function relGaleriaImagens(label, imagens) {
+    const out = [new Paragraph({ children: [new TextRun({ text: `${label}:`, bold: true })], spacing: { before: 160, after: 80 } })];
+    if (!imagens.length) {
+        out.push(relBodyParagraph('—'));
+        return out;
+    }
+    for (const img of imagens) {
+        out.push(new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 80 },
+            children: [new ImageRun({ data: img.buffer, transformation: { width: img.width, height: img.height }, type: img.type })],
+        }));
+        if (img.descricao) {
+            out.push(new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 160 },
+                children: [new TextRun({ text: img.descricao, italics: true, size: 18 })],
+            }));
+        }
+    }
+    return out;
+}
+
+// Seção 3 (financeiro): "{nome} - R$ {valor}", como hyperlink para a planilha
+// quando link_planilha existir, texto simples quando vazio.
+function relCustoLinha(c) {
+    const texto = `${c.nome_evento || '—'} - R$ ${(Number(c.valor) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+    const link = c.link_planilha != null && String(c.link_planilha).trim() ? String(c.link_planilha).trim() : null;
+    if (link) {
+        return new Paragraph({
+            children: [new ExternalHyperlink({ link, children: [new TextRun({ text: texto, style: 'Hyperlink' })] })],
+            spacing: { after: 120 },
+        });
+    }
+    return relBodyParagraph(texto);
+}
+
 async function getEvidenciasDoEventoM3(eventId) {
     const { data, error } = await supabase
         .from('physical_evidences')
@@ -1653,6 +1737,7 @@ async function baixarImagensEvidenciasM3(evidencias) {
                 height: Math.round(dim.height * escala),
                 type: tipo,
                 descricao: ev.descricao || ev.file_name || '',
+                tipoEvidencia: ev.tipo_evidencia || 'outros',
             });
         } catch (err) {
             console.warn('[RELATORIO-M3] Falha ao baixar evidência', ev.id, err.message);
@@ -1723,58 +1808,86 @@ function relTabelaComunicacao(relatorio) {
     })];
 }
 
-// Seção 2 completa de UM evento — reaproveitada no relatório avulso (Passo 5)
-// e repetida por evento no relatório mensal consolidado (Passo 6).
-async function buildSecaoEventoM3(evento, numeroSecao) {
+// Seção 2 completa de UM evento — reaproveitada no relatório avulso
+// e repetida por evento no relatório mensal consolidado. Segue a ORDEM EXATA
+// do template real da Animus (19 itens).
+//   numeroSecao : "2.1", "2.2"… no mensal; null no avulso.
+//   numeroEvento: 1, 2…       usado no título "EVENTO NN" do mensal.
+async function buildSecaoEventoM3(evento, numeroSecao, numeroEvento) {
     const evidencias = await getEvidenciasDoEventoM3(evento.id);
     const imagens = await baixarImagensEvidenciasM3(evidencias);
 
+    // 3 galerias distintas, filtradas por tipo_evidencia.
+    const galExecucao      = imagens.filter(i => i.tipoEvidencia === 'foto_evento');
+    const galAcessibilidade = imagens.filter(i => i.tipoEvidencia === 'acessibilidade');
+    const galComunicacao   = imagens.filter(i => i.tipoEvidencia === 'peca_marketing');
+
     const children = [];
-    children.push(relHeading(numeroSecao ? `${numeroSecao} ${evento.titulo}` : evento.titulo, HeadingLevel.HEADING_2));
-    children.push(relLabelValueParagraph('Data', `${fmtDataBRRelatorio(evento.data_evento)}${evento.horario ? ' · ' + String(evento.horario).slice(0, 5) : ''}`));
-    children.push(relLabelValueParagraph('Local', [evento.nome_local, evento.cidade, evento.estado].filter(Boolean).join(' — ')));
 
-    children.push(relHeading('Resumo do evento', HeadingLevel.HEADING_3));
-    children.push(...relMultilineParagraphs(evento.resumo_evento));
+    // 1. Título numerado "2.X EVENTO NN"
+    const tituloSecao = numeroSecao
+        ? `${numeroSecao} EVENTO ${String(numeroEvento || 1).padStart(2, '0')}`
+        : 'EVENTO';
+    children.push(relHeading(tituloSecao, HeadingLevel.HEADING_2));
 
-    children.push(relHeading('Quantitativo de atividades', HeadingLevel.HEADING_3));
-    children.push(...relMultilineParagraphs(evento.quantitativo_atividades));
+    // 2. Nome do evento
+    children.push(relLabelValueParagraph('Nome do evento', evento.titulo));
 
-    children.push(relHeading('Público por dia', HeadingLevel.HEADING_3));
-    children.push(...relTabelaPublicoPorDia(evento.publico_por_dia));
+    // 3. Data | Horário (texto livre) | Local de realização
+    children.push(relLabelValueParagraph('Data', fmtDataBRRelatorio(evento.data_evento)));
+    children.push(relLabelValueParagraph('Horário',
+        evento.horario_descricao || (evento.horario ? String(evento.horario).slice(0, 5) : null)));
+    children.push(relLabelValueParagraph('Local de realização',
+        [evento.nome_local, evento.cidade, evento.estado].filter(Boolean).join(' — ')));
 
-    children.push(relHeading('Perfil do público-alvo', HeadingLevel.HEADING_3));
-    children.push(...relMultilineParagraphs(evento.perfil_publico));
+    // 4. Resumo do evento
+    children.push(...relCampoLongo('Resumo do evento', evento.resumo_evento));
 
-    if (imagens.length) {
-        children.push(relHeading('Registro fotográfico', HeadingLevel.HEADING_3));
-        for (const img of imagens) {
-            children.push(new Paragraph({
-                alignment: AlignmentType.CENTER,
-                spacing: { after: 80 },
-                children: [new ImageRun({
-                    data: img.buffer,
-                    transformation: { width: img.width, height: img.height },
-                    type: img.type,
-                })],
-            }));
-            if (img.descricao) {
-                children.push(new Paragraph({
-                    alignment: AlignmentType.CENTER,
-                    spacing: { after: 160 },
-                    children: [new TextRun({ text: img.descricao, italics: true, size: 18 })],
-                }));
-            }
-        }
-    }
+    // 5. Quantitativo de atividades incluídas no evento
+    children.push(...relCampoLongo('Quantitativo de atividades incluídas no evento', evento.quantitativo_atividades));
 
-    children.push(relLabelValueParagraph('Ações de acessibilidade', evento.acoes_acessibilidade));
+    // 6. Quantitativo de público x meta estimada (blocos de texto por dia)
+    children.push(new Paragraph({ children: [new TextRun({ text: 'Quantitativo de público x meta estimada:', bold: true })], spacing: { before: 160, after: 60 } }));
+    children.push(...relPublicoPorDiaTexto(evento.publico_por_dia));
+
+    // 7. Perfil do público-alvo
+    children.push(...relCampoLongo('Perfil do público-alvo', evento.perfil_publico));
+
+    // 8. Link — borderôs e listas de presença
+    children.push(relLinkLabelParagraph('Link aberto para borderôs e listas de presença', evento.link_borderos));
+
+    // 9. Link — fotos, vídeos e comprovantes de execução
+    children.push(relLinkLabelParagraph('Link aberto para fotos, vídeos e comprovantes de execução', evento.link_fotos_execucao));
+
+    // 10. Galeria — fotos/vídeos/comprovantes de execução (foto_evento)
+    children.push(...relGaleriaImagens('Fotos, vídeos e comprovantes de execução', galExecucao));
+
+    // 11. Ações de Acessibilidade
+    children.push(...relCampoLongo('Ações de Acessibilidade', evento.acoes_acessibilidade));
+
+    // 12. Link — fotos comprobatórias de acessibilidade
+    children.push(relLinkLabelParagraph('Link aberto para fotos comprobatórias de ações de Acessibilidade', evento.link_fotos_acessibilidade));
+
+    // 13. Galeria — fotos comprobatórias de acessibilidade (acessibilidade)
+    children.push(...relGaleriaImagens('Fotos comprobatórias de ações de Acessibilidade', galAcessibilidade));
+
+    // 14. Link — materiais de comunicação
+    children.push(relLinkLabelParagraph('Link aberto para materiais de comunicação', evento.link_materiais_comunicacao));
+
+    // 15. Galeria — materiais de comunicação (peca_marketing)
+    children.push(...relGaleriaImagens('Materiais de comunicação', galComunicacao));
+
+    // 16. Número de fornecedores contratados
     children.push(relLabelValueParagraph('Número de fornecedores contratados', evento.numero_fornecedores));
-    children.push(relLabelValueParagraph('Empregos temporários gerados', evento.empregos_gerados));
-    children.push(relLabelValueParagraph('Ações ambientais', evento.acoes_ambientais));
 
-    children.push(relHeading('Desafios encontrados', HeadingLevel.HEADING_3));
-    children.push(...relMultilineParagraphs(evento.desafios_evento));
+    // 17. Quantidade de empregos temporários gerados
+    children.push(relLabelValueParagraph('Quantidade de empregos temporários gerados', evento.empregos_gerados));
+
+    // 18. Ocorreram ações ambientais no evento? Quais?
+    children.push(...relCampoLongo('Ocorreram ações ambientais no evento? Quais?', evento.acoes_ambientais));
+
+    // 19. Desafios encontrados e possíveis soluções
+    children.push(...relCampoLongo('Desafios encontrados e possíveis soluções', evento.desafios_evento));
 
     return children;
 }
@@ -1879,7 +1992,7 @@ app.post('/api/m3/relatorio/periodo', requireAuth, async (req, res) => {
 
         const { data: projeto } = await supabase
             .from('projects')
-            .select('nome, pronac')
+            .select('nome, pronac, codigo_projeto_contrato')
             .eq('id', project_id)
             .maybeSingle();
 
@@ -1903,7 +2016,7 @@ app.post('/api/m3/relatorio/periodo', requireAuth, async (req, res) => {
 
         const secoesEventos = [];
         for (let i = 0; i < (eventos || []).length; i++) {
-            secoesEventos.push(...(await buildSecaoEventoM3(eventos[i], `2.${i + 1}`)));
+            secoesEventos.push(...(await buildSecaoEventoM3(eventos[i], `2.${i + 1}`, i + 1)));
             secoesEventos.push(new Paragraph({ children: [new PageBreak()] }));
         }
 
@@ -1915,6 +2028,8 @@ app.post('/api/m3/relatorio/periodo', requireAuth, async (req, res) => {
             relHeading('1. Identificação do Especialista', HeadingLevel.HEADING_1),
             relLabelValueParagraph('Nome', relatorio.especialista_nome),
             relLabelValueParagraph('Função', relatorio.especialista_funcao),
+            relLabelValueParagraph('Projeto', projeto && projeto.codigo_projeto_contrato),
+            relLabelValueParagraph('Projeto de atuação', projeto && projeto.nome),
 
             new Paragraph({ children: [new PageBreak()] }),
             relHeading('2. Realizações', HeadingLevel.HEADING_1),
@@ -1922,7 +2037,7 @@ app.post('/api/m3/relatorio/periodo', requireAuth, async (req, res) => {
 
             relHeading('3. Resultado Financeiro', HeadingLevel.HEADING_1),
             ...(custos.length
-                ? custos.map(c => relBodyParagraph(`${c.nome_evento || '—'} - R$ ${(Number(c.valor) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`))
+                ? custos.map(relCustoLinha)
                 : [relBodyParagraph('Nenhum custo informado.')]),
             new Paragraph({
                 children: [new TextRun({ text: `Custo total: R$ ${totalCustos.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, bold: true })],

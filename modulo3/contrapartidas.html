@@ -327,6 +327,8 @@
 
     <script src="../config.js"></script>
     <script src="supabase-helper-m3.js"></script>
+    <script src="vendor/docx.umd.js"></script>
+    <script src="relatorio-docx.js"></script>
     <script>
         // ── Utilities ─────────────────────────────────────────
         function esc(s) {
@@ -530,6 +532,8 @@
         let rpMesReferencia   = null;
         let rpEventos         = [];
         let rpCustos          = {};
+        let rpLinksPlanilha   = {};
+        let rpLinksNome       = {};
         let rpRelatorioExistente = null;
 
         function openRelatorioPeriodo() {
@@ -596,7 +600,13 @@
             rpMesReferencia = mesReferencia;
             rpRelatorioExistente = relatorio || null;
             rpCustos = {};
-            (relatorio?.custos_por_evento || []).forEach(c => { rpCustos[c.event_id] = c.valor; });
+            rpLinksPlanilha = {};
+            rpLinksNome = {};
+            (relatorio?.custos_por_evento || []).forEach(c => {
+                rpCustos[c.event_id] = c.valor;
+                if (c.link_planilha) rpLinksPlanilha[c.event_id] = c.link_planilha;
+                if (c.link_nome) rpLinksNome[c.event_id] = c.link_nome;
+            });
 
             document.getElementById('rp-especialista-nome').value   = relatorio?.especialista_nome || '';
             document.getElementById('rp-especialista-funcao').value = relatorio?.especialista_funcao || '';
@@ -649,11 +659,23 @@
                 return;
             }
             wrap.innerHTML = rpEventos.map(ev => `
-                <div class="rel-dynamic-row">
-                    <span style="flex:1;">${esc(ev.titulo)}</span>
-                    <input type="number" min="0" step="0.01" placeholder="Ex: 47831.00"
-                           value="${rpCustos[ev.id] ?? ''}"
-                           oninput="onRpCustoInput('${esc(ev.id)}', this.value)">
+                <div style="display:flex;flex-direction:column;gap:0.4rem;padding:0.6rem 0;border-bottom:1px solid var(--border-light);">
+                    <div class="rel-dynamic-row">
+                        <span style="flex:1;">${esc(ev.titulo)}</span>
+                        <input type="number" min="0" step="0.01" placeholder="Ex: 47831.00"
+                               value="${rpCustos[ev.id] ?? ''}"
+                               oninput="onRpCustoInput('${esc(ev.id)}', this.value)">
+                    </div>
+                    <div style="display:flex;gap:0.5rem;">
+                        <input type="text" placeholder="Nome do arquivo (ex: Financeiro - Parque Aberto #8.xlsx)"
+                               value="${esc(rpLinksNome[ev.id] ?? '')}"
+                               oninput="onRpLinkNomeInput('${esc(ev.id)}', this.value)"
+                               style="flex:1.1;font-size:0.82rem;">
+                        <input type="url" placeholder="Link da planilha (opcional)"
+                               value="${esc(rpLinksPlanilha[ev.id] ?? '')}"
+                               oninput="onRpLinkInput('${esc(ev.id)}', this.value)"
+                               style="flex:1.4;font-size:0.82rem;">
+                    </div>
                 </div>
             `).join('');
             updateRpCustoTotal();
@@ -663,6 +685,16 @@
             if (valor === '') delete rpCustos[eventId];
             else rpCustos[eventId] = Number(valor);
             updateRpCustoTotal();
+        }
+
+        function onRpLinkInput(eventId, valor) {
+            if (valor.trim() === '') delete rpLinksPlanilha[eventId];
+            else rpLinksPlanilha[eventId] = valor.trim();
+        }
+
+        function onRpLinkNomeInput(eventId, valor) {
+            if (valor.trim() === '') delete rpLinksNome[eventId];
+            else rpLinksNome[eventId] = valor.trim();
         }
 
         function updateRpCustoTotal() {
@@ -682,8 +714,14 @@
 
         function collectRpFormData() {
             const custosArray = rpEventos
-                .filter(ev => rpCustos[ev.id] != null && !Number.isNaN(rpCustos[ev.id]))
-                .map(ev => ({ event_id: ev.id, nome_evento: ev.titulo, valor: rpCustos[ev.id] }));
+                .filter(ev => (rpCustos[ev.id] != null && !Number.isNaN(rpCustos[ev.id])) || rpLinksPlanilha[ev.id] || rpLinksNome[ev.id])
+                .map(ev => ({
+                    event_id: ev.id,
+                    nome_evento: ev.titulo,
+                    valor: (rpCustos[ev.id] != null && !Number.isNaN(rpCustos[ev.id])) ? rpCustos[ev.id] : 0,
+                    link_planilha: rpLinksPlanilha[ev.id] || null,
+                    link_nome: rpLinksNome[ev.id] || null,
+                }));
 
             return {
                 especialista_nome: document.getElementById('rp-especialista-nome').value.trim() || null,
@@ -756,23 +794,11 @@
             btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px;"></i> Gerando…';
             reIcons();
             try {
+                // Persiste o rascunho e gera o .docx 100% no navegador (sem backend).
                 await salvarRelatorioPeriodo('finalizado');
+                await gerarDocPeriodoClient(rpProjectId, rpMesReferencia);
 
-                const sb = await initSupabase();
-                const { data: { session } } = await sb.auth.getSession();
-                const r = await fetch('/api/m3/relatorio/periodo', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': 'Bearer ' + session.access_token,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ project_id: rpProjectId, mes_referencia: rpMesReferencia }),
-                });
-                const json = await r.json();
-                if (!r.ok) throw new Error(json.error || 'Erro ao gerar relatório mensal');
-
-                showToast('Relatório mensal gerado com sucesso!');
-                if (json.url) window.open(json.url, '_blank');
+                showToast('Relatório mensal gerado e baixado!');
                 closeRelatorioPeriodo();
             } catch (err) {
                 showToast('Erro ao gerar relatório: ' + (err.message || ''), 'error');

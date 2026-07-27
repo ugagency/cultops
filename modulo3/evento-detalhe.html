@@ -244,6 +244,27 @@
             display: flex; align-items: center; justify-content: center;
             color: var(--text-muted);
         }
+
+        /* Bloco de evidência (link + galeria) por tipo */
+        .rel-evid-bloco {
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            padding: 1rem 1.1rem;
+            margin-bottom: 1rem;
+        }
+        .rel-evid-titulo {
+            font-weight: 700; font-size: 0.9rem;
+            color: var(--text-primary); margin-bottom: 0.85rem;
+        }
+        .rel-add-link {
+            text-decoration: none; display: inline-flex; align-items: center;
+            gap: 0.3rem; font-size: 0.82rem; font-weight: 600;
+            color: #1547FF; margin-top: 0.6rem;
+        }
+        .rel-link-row { display: flex; align-items: center; gap: 0.5rem; }
+        .rel-link-row input[type="text"] { flex: 1.1; min-width: 0; }
+        .rel-link-row input[type="url"]  { flex: 1.6; min-width: 0; }
+        .rel-add-link-btn { align-self: flex-start; margin-top: 0.5rem; }
     </style>
 </head>
 <body>
@@ -314,6 +335,11 @@
                     <div class="relatorio-status-bar" id="relatorio-status-bar"></div>
 
                     <div class="form-group" style="margin-bottom:1.25rem;">
+                        <label>Horário (texto livre)</label>
+                        <textarea id="rel-horario-desc" rows="2" placeholder="Ex: Sábado das 13h às 17h e Domingo das 08h às 15h" style="resize:vertical;"></textarea>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom:1.25rem;">
                         <label>Resumo do evento</label>
                         <textarea id="rel-resumo" rows="4" placeholder="Descreva brevemente o evento realizado..."></textarea>
                     </div>
@@ -327,11 +353,9 @@
                     </div>
 
                     <div class="form-group" style="margin-bottom:1.25rem;">
-                        <label>Público por dia</label>
-                        <div id="rel-publico-list" class="rel-dynamic-list"></div>
-                        <button type="button" class="btn-secondary" style="align-self:flex-start;margin-top:0.6rem;" onclick="addPublicoDiaRow()">
-                            <i data-lucide="plus" style="width:14px;"></i> Adicionar dia
-                        </button>
+                        <label>Quantitativo de público x meta estimada</label>
+                        <textarea id="rel-publico-meta" rows="5" placeholder="Texto livre, como no modelo. Ex:&#10;Sábado (16/05)&#10;Ingressos disponibilizados Parque Aberto: 2500 (598 retirados)&#10;Público total: 356" style="resize:vertical;"></textarea>
+                        <span class="hint">Uma linha por linha do documento. Pode incluir "Inscrição via forms", "Patrocinadores: …", etc.</span>
                     </div>
 
                     <div class="form-grid" style="margin-bottom:1.25rem;">
@@ -361,12 +385,53 @@
                         </div>
                     </div>
 
-                    <div class="form-group" style="margin-bottom:0;">
-                        <label>Evidências vinculadas</label>
-                        <div id="rel-fotos-grid" class="rel-fotos-grid"></div>
-                        <a href="evidencias-m3.html" id="rel-fotos-link" style="text-decoration:none;display:inline-flex;align-items:center;gap:0.3rem;font-size:0.82rem;font-weight:600;color:#1547FF;margin-top:0.6rem;">
-                            <i data-lucide="plus" style="width:13px;"></i> Adicionar mais evidências
-                        </a>
+                    <!-- Links borderôs / listas de presença (vários, nomeados) -->
+                    <div class="form-group" style="margin-bottom:1.5rem;">
+                        <label>Links — borderôs e listas de presença</label>
+                        <div id="rel-links-borderos-list" class="rel-dynamic-list"></div>
+                        <button type="button" class="btn-secondary rel-add-link-btn" onclick="addLinkRow('borderos')">
+                            <i data-lucide="plus" style="width:14px;"></i> Adicionar link
+                        </button>
+                    </div>
+
+                    <!-- Evidências: 3 blocos, cada um com seus links nomeados + galeria -->
+                    <div class="rel-evid-bloco">
+                        <div class="rel-evid-titulo">Fotos, vídeos e comprovantes de execução</div>
+                        <div class="form-group" style="margin-bottom:0.75rem;">
+                            <label>Links — fotos/vídeos/comprovantes de execução</label>
+                            <div id="rel-links-execucao-list" class="rel-dynamic-list"></div>
+                            <button type="button" class="btn-secondary rel-add-link-btn" onclick="addLinkRow('execucao')">
+                                <i data-lucide="plus" style="width:14px;"></i> Adicionar link
+                            </button>
+                        </div>
+                        <div id="rel-fotos-execucao" class="rel-fotos-grid"></div>
+                        <a href="evidencias-m3.html" class="rel-add-evidencia rel-add-link"><i data-lucide="plus" style="width:13px;"></i> Adicionar evidências</a>
+                    </div>
+
+                    <div class="rel-evid-bloco">
+                        <div class="rel-evid-titulo">Fotos comprobatórias de ações de acessibilidade</div>
+                        <div class="form-group" style="margin-bottom:0.75rem;">
+                            <label>Links — fotos comprobatórias de acessibilidade</label>
+                            <div id="rel-links-acessibilidade-list" class="rel-dynamic-list"></div>
+                            <button type="button" class="btn-secondary rel-add-link-btn" onclick="addLinkRow('acessibilidade')">
+                                <i data-lucide="plus" style="width:14px;"></i> Adicionar link
+                            </button>
+                        </div>
+                        <div id="rel-fotos-acessibilidade" class="rel-fotos-grid"></div>
+                        <a href="evidencias-m3.html" class="rel-add-evidencia rel-add-link"><i data-lucide="plus" style="width:13px;"></i> Adicionar evidências</a>
+                    </div>
+
+                    <div class="rel-evid-bloco" style="margin-bottom:0;">
+                        <div class="rel-evid-titulo">Materiais de comunicação</div>
+                        <div class="form-group" style="margin-bottom:0.75rem;">
+                            <label>Links — materiais de comunicação</label>
+                            <div id="rel-links-materiais-list" class="rel-dynamic-list"></div>
+                            <button type="button" class="btn-secondary rel-add-link-btn" onclick="addLinkRow('materiais')">
+                                <i data-lucide="plus" style="width:14px;"></i> Adicionar link
+                            </button>
+                        </div>
+                        <div id="rel-fotos-comunicacao" class="rel-fotos-grid"></div>
+                        <a href="evidencias-m3.html" class="rel-add-evidencia rel-add-link"><i data-lucide="plus" style="width:13px;"></i> Adicionar evidências</a>
                     </div>
 
                     <div class="modal-footer">
@@ -445,6 +510,9 @@
 
     <script src="../config.js"></script>
     <script src="supabase-helper-m3.js"></script>
+    <script src="vendor/docx.umd.js"></script>
+    <script src="relatorio-docx.js"></script>
+    <script src="relatorio-evento.js"></script>
     <script>
         // ── State ────────────────────────────────────────────
         let eventId    = null;
@@ -973,242 +1041,11 @@
         }
 
         // ── Relatório do Evento ────────────────────────────────
-        let atividadesLines    = [];
-        let publicoPorDiaRows  = [];
-
-        const REL_STATUS_LABEL = { pendente: 'Pendente', preenchido: 'Preenchido', gerado: 'Relatório Gerado' };
-        const REL_STATUS_CLS   = { pendente: 'badge-gray', preenchido: 'badge-blue', gerado: 'badge-green' };
-
-        async function renderRelatorio() {
-            renderRelatorioStatusBar();
-
-            document.getElementById('rel-resumo').value         = evento.resumo_evento || '';
-            document.getElementById('rel-perfil').value         = evento.perfil_publico || '';
-            document.getElementById('rel-acessibilidade').value = evento.acoes_acessibilidade || '';
-            document.getElementById('rel-fornecedores').value   = evento.numero_fornecedores || '';
-            document.getElementById('rel-empregos').value       = evento.empregos_gerados || '';
-            document.getElementById('rel-ambiental').value      = evento.acoes_ambientais || '';
-            document.getElementById('rel-desafios').value       = evento.desafios_evento || '';
-
-            atividadesLines = evento.quantitativo_atividades
-                ? evento.quantitativo_atividades.split('\n').filter(l => l.trim())
-                : [];
-            renderAtividadesList();
-
-            publicoPorDiaRows = Array.isArray(evento.publico_por_dia) && evento.publico_por_dia.length
-                ? evento.publico_por_dia.map(r => ({ ...r }))
-                : [{ data: evento.data_evento || '', disponibilizado: '', retirado: '', presente: '' }];
-            renderPublicoList();
-
-            document.getElementById('rel-fotos-link').href = `evidencias-m3.html?event_id=${eventId}`;
-            updateGerarBtnState();
-
-            await loadRelatorioFotos();
-        }
-
-        function renderRelatorioStatusBar() {
-            const st  = evento.relatorio_status || 'pendente';
-            const bar = document.getElementById('relatorio-status-bar');
-            bar.innerHTML = `
-                <span class="badge ${REL_STATUS_CLS[st] || 'badge-gray'}">${esc(REL_STATUS_LABEL[st] || st)}</span>
-                ${evento.relatorio_evento_file_path
-                    ? `<a href="#" onclick="baixarRelatorioEvento(); return false;" style="font-size:0.82rem;font-weight:600;color:#1547FF;text-decoration:none;">Baixar último relatório gerado</a>`
-                    : ''}
-            `;
-        }
-
-        function updateGerarBtnState() {
-            const st  = evento.relatorio_status || 'pendente';
-            const btn = document.getElementById('rel-gerar-btn');
-            btn.disabled = !(st === 'preenchido' || st === 'gerado');
-        }
-
-        // ── Quantitativo de atividades (lista dinâmica de linhas de texto) ──
-        function renderAtividadesList() {
-            const wrap = document.getElementById('rel-atividades-list');
-            if (!atividadesLines.length) {
-                wrap.innerHTML = `<div class="hint">Nenhuma atividade adicionada ainda.</div>`;
-                return;
-            }
-            wrap.innerHTML = atividadesLines.map((line, i) => `
-                <div class="rel-dynamic-row">
-                    <input type="text" value="${esc(line)}" placeholder="Ex: Atividade 1 - Feira Curva"
-                           oninput="atividadesLines[${i}] = this.value">
-                    <button type="button" class="btn-remove" onclick="removeAtividadeLine(${i})" title="Remover">
-                        <i data-lucide="x" style="width:13px;"></i>
-                    </button>
-                </div>
-            `).join('');
-            reIcons();
-        }
-        function addAtividadeLine() {
-            atividadesLines.push('');
-            renderAtividadesList();
-            const inputs = document.querySelectorAll('#rel-atividades-list input');
-            if (inputs.length) inputs[inputs.length - 1].focus();
-        }
-        function removeAtividadeLine(i) {
-            atividadesLines.splice(i, 1);
-            renderAtividadesList();
-        }
-
-        // ── Público por dia (bloco repetível) ────────────────────
-        function renderPublicoList() {
-            const wrap = document.getElementById('rel-publico-list');
-            wrap.innerHTML = publicoPorDiaRows.map((row, i) => `
-                <div class="rel-dynamic-row rel-publico-row">
-                    <input type="date" value="${esc(row.data || '')}"
-                           oninput="publicoPorDiaRows[${i}].data = this.value">
-                    <input type="number" min="0" placeholder="Disponibilizado"
-                           value="${row.disponibilizado ?? ''}"
-                           oninput="publicoPorDiaRows[${i}].disponibilizado = this.value">
-                    <input type="number" min="0" placeholder="Retirado"
-                           value="${row.retirado ?? ''}"
-                           oninput="publicoPorDiaRows[${i}].retirado = this.value">
-                    <input type="number" min="0" placeholder="Presente"
-                           value="${row.presente ?? ''}"
-                           oninput="publicoPorDiaRows[${i}].presente = this.value">
-                    ${publicoPorDiaRows.length > 1
-                        ? `<button type="button" class="btn-remove" onclick="removePublicoDiaRow(${i})" title="Remover dia"><i data-lucide="x" style="width:13px;"></i></button>`
-                        : `<span></span>`}
-                </div>
-            `).join('');
-            reIcons();
-        }
-        function addPublicoDiaRow() {
-            publicoPorDiaRows.push({ data: '', disponibilizado: '', retirado: '', presente: '' });
-            renderPublicoList();
-        }
-        function removePublicoDiaRow(i) {
-            publicoPorDiaRows.splice(i, 1);
-            renderPublicoList();
-        }
-
-        // ── Fotos (somente leitura, via evidências já vinculadas ao evento) ──
-        async function loadRelatorioFotos() {
-            const grid = document.getElementById('rel-fotos-grid');
-            grid.innerHTML = `<div class="empty-state" style="padding:1rem;grid-column:1/-1;"><i data-lucide="loader" class="spin" style="width:20px;"></i></div>`;
-            reIcons();
-            try {
-                const evidencias = await getEvidenciasByEvento(eventId);
-                await renderFotosGrid(evidencias);
-            } catch (err) {
-                grid.innerHTML = `<div class="empty-state" style="color:#FF5807;padding:1rem;">Erro ao carregar evidências: ${esc(err.message)}</div>`;
-            }
-        }
-
-        async function renderFotosGrid(evidencias) {
-            const grid = document.getElementById('rel-fotos-grid');
-            if (!evidencias.length) {
-                grid.innerHTML = `<div class="empty-state" style="padding:1rem;grid-column:1/-1;">Nenhuma evidência vinculada a este evento ainda.</div>`;
-                reIcons();
-                return;
-            }
-            const paths  = evidencias.map(e => e.file_path).filter(Boolean);
-            const urlMap = await getSignedUrlsM3(paths);
-            grid.innerHTML = evidencias.map(e => {
-                const url     = e.file_path ? urlMap[e.file_path.trim()] : null;
-                const isImage = (e.mime_type || '').startsWith('image/');
-                return `
-                    <a href="${url || '#'}" target="_blank" class="rel-foto-thumb" title="${esc(e.descricao || e.file_name || '')}">
-                        ${url && isImage
-                            ? `<img src="${url}" alt="${esc(e.file_name || '')}">`
-                            : `<div class="rel-foto-fallback"><i data-lucide="file" style="width:22px;"></i></div>`}
-                    </a>`;
-            }).join('');
-            reIcons();
-        }
-
-        // ── Salvar / Gerar ────────────────────────────────────────
-        async function salvarRelatorioEvento() {
-            const btn = document.getElementById('rel-salvar-btn');
-            const original = btn.innerHTML;
-            btn.disabled = true;
-            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px;"></i> Salvando…';
-            reIcons();
-
-            const dados = {
-                resumo_evento: document.getElementById('rel-resumo').value.trim() || null,
-                quantitativo_atividades: atividadesLines.filter(l => l.trim()).join('\n') || null,
-                publico_por_dia: publicoPorDiaRows
-                    .filter(r => r.data)
-                    .map(r => ({
-                        data: r.data,
-                        disponibilizado: Number(r.disponibilizado) || 0,
-                        retirado: Number(r.retirado) || 0,
-                        presente: Number(r.presente) || 0,
-                    })),
-                perfil_publico: document.getElementById('rel-perfil').value.trim() || null,
-                acoes_acessibilidade: document.getElementById('rel-acessibilidade').value.trim() || null,
-                numero_fornecedores: document.getElementById('rel-fornecedores').value.trim() || null,
-                empregos_gerados: document.getElementById('rel-empregos').value.trim() || null,
-                acoes_ambientais: document.getElementById('rel-ambiental').value.trim() || null,
-                desafios_evento: document.getElementById('rel-desafios').value.trim() || null,
-                relatorio_status: 'preenchido',
-            };
-
-            try {
-                await updateEvento(eventId, dados);
-                evento = { ...evento, ...dados };
-                renderRelatorioStatusBar();
-                updateGerarBtnState();
-                showToast('Relatório do evento salvo!');
-            } catch (err) {
-                showToast('Erro ao salvar: ' + (err.message || ''), 'error');
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = original;
-                reIcons();
-            }
-        }
-
-        async function gerarRelatorioEvento() {
-            const btn = document.getElementById('rel-gerar-btn');
-            const original = btn.innerHTML;
-            btn.disabled = true;
-            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px;"></i> Gerando…';
-            reIcons();
-
-            try {
-                const sb = await initSupabase();
-                const { data: { session } } = await sb.auth.getSession();
-                const r = await fetch('/api/m3/relatorio/evento/' + eventId, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': 'Bearer ' + session.access_token,
-                        'Content-Type': 'application/json',
-                    },
-                });
-                const json = await r.json();
-                if (!r.ok) throw new Error(json.error || 'Erro ao gerar relatório');
-
-                evento.relatorio_status         = 'gerado';
-                evento.relatorio_evento_file_path = json.path || evento.relatorio_evento_file_path;
-                renderRelatorioStatusBar();
-                updateGerarBtnState();
-                showToast('Relatório gerado com sucesso!');
-                if (json.url) window.open(json.url, '_blank');
-            } catch (err) {
-                showToast('Erro ao gerar relatório: ' + (err.message || ''), 'error');
-            } finally {
-                btn.innerHTML = original;
-                updateGerarBtnState();
-                reIcons();
-            }
-        }
-
-        async function baixarRelatorioEvento() {
-            try {
-                const sb = await initSupabase();
-                const { data, error } = await sb.storage
-                    .from('reports')
-                    .createSignedUrl(evento.relatorio_evento_file_path.trim(), 3600);
-                if (error) throw error;
-                window.open(data.signedUrl, '_blank');
-            } catch (err) {
-                showToast('Erro ao baixar relatório: ' + (err.message || ''), 'error');
-            }
-        }
+        // A lógica do formulário de relatório foi extraída para
+        // relatorio-evento.js (compartilhada com relatorios.html).
+        // As funções (renderRelatorio, salvarRelatorioEvento, etc.) e o
+        // estado (atividadesLines, publicoPorDiaRows) vêm daquele arquivo
+        // e operam sobre as globais `evento` / `eventId` desta página.
     </script>
 </body>
 </html>

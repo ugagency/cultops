@@ -45,6 +45,7 @@ async function renderSidebarM3() {
         { label: 'Org. Sociais',    icon: 'users',        path: 'os.html' },
         { label: 'Patrocinadores',  icon: 'building-2',   path: 'pa.html' },
         { label: 'Eventos',         icon: 'calendar',     path: 'eventos.html' },
+        { label: 'Relatórios',      icon: 'file-text',    path: 'relatorios.html' },
         { label: 'Dashboard',       icon: 'layout-dashboard', path: 'contrapartidas.html' },
     ];
 

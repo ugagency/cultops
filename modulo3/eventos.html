@@ -126,150 +126,14 @@
                         <option value="">Carregando projetos...</option>
                     </select>
                 </div>
-                <button class="btn-primary" id="btn-novo-evento" onclick="openCreateModal()" disabled>
+                <a class="btn-primary" id="btn-novo-evento" href="evento-form.html" style="text-decoration:none;pointer-events:none;opacity:0.55;">
                     <i data-lucide="plus" style="width:16px;"></i> Novo Evento
-                </button>
+                </a>
             </div>
         </header>
 
         <div id="cards-area"></div>
     </main>
-
-    <!-- ── Modal Evento ──────────────────────────────────────── -->
-    <div id="modal-backdrop" class="modal-backdrop" style="display:none;">
-        <div class="modal-card">
-            <div class="modal-header">
-                <h2 id="modal-title">Novo Evento</h2>
-                <button class="btn-icon" onclick="closeModal()">
-                    <i data-lucide="x" style="width:22px;height:22px;"></i>
-                </button>
-            </div>
-
-            <div class="form-grid">
-                <!-- Dados -->
-                <div class="form-group span-2">
-                    <label>Título *</label>
-                    <input type="text" id="f-titulo" placeholder="Ex: Show de Encerramento — PRONAC 25/0001">
-                </div>
-                <div class="form-group">
-                    <label>Tipo *</label>
-                    <select id="f-tipo">
-                        <option value="">Selecione</option>
-                        <option value="cultural">Cultural</option>
-                        <option value="esportivo">Esportivo</option>
-                        <option value="outro">Outro</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Data do Evento *</label>
-                    <input type="date" id="f-data">
-                </div>
-                <div class="form-group">
-                    <label>Horário</label>
-                    <input type="time" id="f-horario">
-                </div>
-                <div class="form-group">
-                    <label>Status *</label>
-                    <select id="f-status">
-                        <option value="rascunho">Rascunho</option>
-                        <option value="ativo">Ativo</option>
-                        <option value="encerrado">Encerrado</option>
-                        <option value="cancelado">Cancelado</option>
-                    </select>
-                </div>
-                <div class="form-group span-2">
-                    <label>Descrição</label>
-                    <textarea id="f-descricao" rows="2" placeholder="Descrição opcional do evento…" style="resize:vertical;"></textarea>
-                </div>
-
-                <!-- Local -->
-                <div class="form-section-title">Local</div>
-                <div class="form-group span-2">
-                    <label>Nome do Local *</label>
-                    <input type="text" id="f-nome-local" placeholder="Ex: Teatro Municipal de São Paulo">
-                </div>
-                <div class="form-group span-2">
-                    <label>Endereço *</label>
-                    <input type="text" id="f-endereco" placeholder="Rua, número, bairro…">
-                </div>
-                <div class="form-group">
-                    <label>Cidade *</label>
-                    <input type="text" id="f-cidade" placeholder="Ex: São Paulo">
-                </div>
-                <div class="form-group">
-                    <label>Estado *</label>
-                    <select id="f-estado">
-                        <option value="">Selecione</option>
-                        <option>AC</option><option>AL</option><option>AP</option><option>AM</option>
-                        <option>BA</option><option>CE</option><option>DF</option><option>ES</option>
-                        <option>GO</option><option>MA</option><option>MT</option><option>MS</option>
-                        <option>MG</option><option>PA</option><option>PB</option><option>PR</option>
-                        <option>PE</option><option>PI</option><option>RJ</option><option>RN</option>
-                        <option>RS</option><option>RO</option><option>RR</option><option>SC</option>
-                        <option>SP</option><option>SE</option><option>TO</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Latitude</label>
-                    <input type="number" id="f-lat" step="any" placeholder="-23.5505">
-                    <span class="hint">Necessário para filtro 30km</span>
-                </div>
-                <div class="form-group">
-                    <label>Longitude</label>
-                    <input type="number" id="f-lon" step="any" placeholder="-46.6333">
-                    <span class="hint">Necessário para filtro 30km</span>
-                </div>
-
-                <!-- Ingressos -->
-                <div class="form-section-title">Ingressos</div>
-                <div class="form-group span-2">
-                    <label>Total de Ingressos *</label>
-                    <input type="number" id="f-total" min="0" placeholder="0" oninput="validateIngressos()">
-                </div>
-                <div class="form-group">
-                    <label>Ingressos para OS *</label>
-                    <input type="number" id="f-os" min="0" placeholder="0" oninput="validateIngressos()">
-                </div>
-                <div class="form-group">
-                    <label>Ingressos para PA *</label>
-                    <input type="number" id="f-pa" min="0" placeholder="0" oninput="validateIngressos()">
-                </div>
-                <div id="ingressos-error" class="span-2" style="display:none;color:#FF5807;font-size:0.82rem;font-weight:600;margin-top:-0.25rem;">
-                    <i data-lucide="alert-circle" style="width:14px;vertical-align:middle;"></i>
-                    OS + PA não podem ultrapassar o total de ingressos.
-                </div>
-            </div>
-
-            <div class="modal-footer">
-                <div id="modal-delete-wrap" style="display:none;">
-                    <button class="btn-danger" onclick="confirmDelete()">
-                        <i data-lucide="trash-2" style="width:15px;"></i> Excluir
-                    </button>
-                </div>
-                <div class="actions-right">
-                    <button class="btn-secondary" onclick="closeModal()">Cancelar</button>
-                    <button class="btn-primary" id="modal-submit-btn" onclick="submitForm()">
-                        <i data-lucide="save" style="width:15px;"></i> Salvar
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ── Confirm Delete ────────────────────────────────────── -->
-    <div id="confirm-backdrop" class="modal-backdrop" style="display:none;z-index:3000;">
-        <div class="confirm-card">
-            <i data-lucide="alert-triangle" style="width:40px;height:40px;color:#FF5807;margin:0 auto 1rem;display:block;"></i>
-            <h3>Excluir Evento?</h3>
-            <p>Esta ação é irreversível. Todos os vínculos de OS, PA e convidados serão removidos junto com o evento.</p>
-            <div style="display:flex;gap:0.75rem;justify-content:center;">
-                <button class="btn-secondary" onclick="cancelDelete()">Cancelar</button>
-                <button class="btn-danger" id="confirm-delete-btn" onclick="executeDelete()">
-                    <i data-lucide="trash-2" style="width:15px;"></i> Confirmar Exclusão
-                </button>
-            </div>
-        </div>
-    </div>
 
     <div id="toast-container" class="toast-container"></div>
 
@@ -277,9 +141,7 @@
     <script src="supabase-helper-m3.js"></script>
     <script>
         // ── State ────────────────────────────────────────────
-        let currentEditId  = null;
         let currentProject = null;
-        const eventosMap   = new Map();
 
         // ── Utilities ────────────────────────────────────────
         function esc(s) {
@@ -375,12 +237,16 @@
                     `Eventos do projeto ${label}.`;
             }
 
-            document.getElementById('btn-novo-evento').disabled = false;
+            const btnNovo = document.getElementById('btn-novo-evento');
+            btnNovo.style.pointerEvents = 'auto';
+            btnNovo.style.opacity = '1';
             await loadCards(pid);
         }
 
         function showNoProjectState() {
-            document.getElementById('btn-novo-evento').disabled = true;
+            const btnNovo = document.getElementById('btn-novo-evento');
+            btnNovo.style.pointerEvents = 'none';
+            btnNovo.style.opacity = '0.55';
             document.getElementById('cards-area').innerHTML = `
                 <div class="empty-state" style="padding:4rem 1rem;">
                     <i data-lucide="folder-open" style="width:48px;height:48px;opacity:0.4;"></i>
@@ -404,8 +270,6 @@
 
             try {
                 const list = await getEventosByProject(projectId || ProjectManagerM3.getSelected());
-                eventosMap.clear();
-                list.forEach(ev => eventosMap.set(ev.id, ev));
 
                 if (!list.length) {
                     area.innerHTML = `<div class="empty-state">
@@ -460,9 +324,9 @@
                     </div>
 
                     <div class="ev-card-footer">
-                        <button class="btn-secondary" style="padding:0.4rem 0.85rem;font-size:0.8rem;" onclick="openEditModal('${esc(ev.id)}')">
+                        <a class="btn-secondary" style="padding:0.4rem 0.85rem;font-size:0.8rem;text-decoration:none;" href="evento-form.html?id=${esc(ev.id)}">
                             <i data-lucide="pencil" style="width:13px;"></i> Editar
-                        </button>
+                        </a>
                         <a href="evento-detalhe.html?id=${esc(ev.id)}" class="btn-primary" style="padding:0.4rem 0.85rem;font-size:0.8rem;">
                             <i data-lucide="list" style="width:13px;"></i> Detalhes
                         </a>
@@ -472,169 +336,6 @@
                     </div>
                 </div>
             `;
-        }
-
-        // ── Modal open/close ──────────────────────────────────
-        function openCreateModal() {
-            currentEditId = null;
-            document.getElementById('modal-title').textContent = 'Novo Evento';
-            document.getElementById('modal-delete-wrap').style.display = 'none';
-            clearForm();
-            document.getElementById('modal-backdrop').style.display = 'flex';
-            reIcons();
-        }
-
-        function openEditModal(id) {
-            const ev = eventosMap.get(id);
-            if (!ev) return;
-            currentEditId = id;
-            document.getElementById('modal-title').textContent = 'Editar Evento';
-            document.getElementById('modal-delete-wrap').style.display = '';
-            fillForm(ev);
-            document.getElementById('modal-backdrop').style.display = 'flex';
-            reIcons();
-        }
-
-        function closeModal() {
-            document.getElementById('modal-backdrop').style.display = 'none';
-            document.getElementById('ingressos-error').style.display = 'none';
-        }
-
-        // ── Form helpers ──────────────────────────────────────
-        function clearForm() {
-            ['f-titulo','f-tipo','f-data','f-horario','f-descricao',
-             'f-nome-local','f-endereco','f-cidade','f-estado','f-lat','f-lon',
-             'f-total','f-os','f-pa'].forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.value = id === 'f-status' ? 'rascunho' : '';
-            });
-            document.getElementById('f-status').value = 'rascunho';
-            document.getElementById('ingressos-error').style.display = 'none';
-        }
-
-        function fillForm(ev) {
-            const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val ?? ''; };
-            set('f-titulo',     ev.titulo);
-            set('f-tipo',       ev.tipo);
-            set('f-data',       ev.data_evento);
-            set('f-horario',    ev.horario ? ev.horario.slice(0,5) : '');
-            set('f-status',     ev.status);
-            set('f-descricao',  ev.descricao);
-            set('f-nome-local', ev.nome_local);
-            set('f-endereco',   ev.endereco);
-            set('f-cidade',     ev.cidade);
-            set('f-estado',     ev.estado);
-            set('f-lat',        ev.lat);
-            set('f-lon',        ev.lon);
-            set('f-total',      ev.total_ingressos);
-            set('f-os',         ev.ingressos_os);
-            set('f-pa',         ev.ingressos_pa);
-            document.getElementById('ingressos-error').style.display = 'none';
-        }
-
-        function getFormData() {
-            const v    = id => document.getElementById(id)?.value.trim() || null;
-            const vNum = id => { const val = document.getElementById(id)?.value; return (val !== '' && val != null) ? Number(val) : null; };
-            return {
-                titulo:          v('f-titulo'),
-                tipo:            v('f-tipo'),
-                data_evento:     v('f-data'),
-                horario:         v('f-horario') || null,
-                status:          v('f-status') || 'rascunho',
-                descricao:       v('f-descricao'),
-                nome_local:      v('f-nome-local'),
-                endereco:        v('f-endereco'),
-                cidade:          v('f-cidade'),
-                estado:          v('f-estado'),
-                lat:             vNum('f-lat'),
-                lon:             vNum('f-lon'),
-                total_ingressos: vNum('f-total'),
-                ingressos_os:    vNum('f-os'),
-                ingressos_pa:    vNum('f-pa'),
-            };
-        }
-
-        function validateIngressos() {
-            const total = Number(document.getElementById('f-total')?.value || 0);
-            const os    = Number(document.getElementById('f-os')?.value    || 0);
-            const pa    = Number(document.getElementById('f-pa')?.value    || 0);
-            const err   = document.getElementById('ingressos-error');
-            const invalid = (os + pa) > total;
-            err.style.display = invalid ? '' : 'none';
-            reIcons();
-            return !invalid;
-        }
-
-        // ── Submit ────────────────────────────────────────────
-        async function submitForm() {
-            const dados = getFormData();
-
-            if (!dados.titulo)      { showToast('Título é obrigatório.', 'error');        return; }
-            if (!dados.tipo)        { showToast('Tipo é obrigatório.', 'error');           return; }
-            if (!dados.data_evento) { showToast('Data do evento é obrigatória.', 'error');return; }
-            if (!dados.nome_local)  { showToast('Nome do local é obrigatório.', 'error'); return; }
-            if (!dados.endereco)    { showToast('Endereço é obrigatório.', 'error');       return; }
-            if (!dados.cidade)      { showToast('Cidade é obrigatória.', 'error');         return; }
-            if (!dados.estado)      { showToast('Estado é obrigatório.', 'error');         return; }
-            if (dados.total_ingressos == null) { showToast('Total de ingressos é obrigatório.', 'error'); return; }
-            if (dados.ingressos_os  == null)   { showToast('Ingressos OS é obrigatório.', 'error');       return; }
-            if (dados.ingressos_pa  == null)   { showToast('Ingressos PA é obrigatório.', 'error');       return; }
-            if (!validateIngressos()) { showToast('OS + PA ultrapassam o total de ingressos.', 'error'); return; }
-
-            const btn = document.getElementById('modal-submit-btn');
-            btn.disabled = true;
-            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px;"></i> Salvando…';
-            reIcons();
-
-            try {
-                if (currentEditId) {
-                    await updateEvento(currentEditId, dados);
-                    showToast('Evento atualizado com sucesso!');
-                } else {
-                    await createEvento(dados);
-                    showToast('Evento criado com sucesso!');
-                }
-                closeModal();
-                await loadCards();
-            } catch (err) {
-                console.error(err);
-                showToast('Erro: ' + (err.message || 'Tente novamente.'), 'error');
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i data-lucide="save" style="width:15px;"></i> Salvar';
-                reIcons();
-            }
-        }
-
-        // ── Delete ────────────────────────────────────────────
-        function confirmDelete() {
-            document.getElementById('confirm-backdrop').style.display = 'flex';
-            reIcons();
-        }
-        function cancelDelete() {
-            document.getElementById('confirm-backdrop').style.display = 'none';
-        }
-        async function executeDelete() {
-            const btn = document.getElementById('confirm-delete-btn');
-            btn.disabled = true;
-            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px;"></i> Excluindo…';
-            reIcons();
-            try {
-                // Supabase apagará event_os/pa em cascade (ON DELETE CASCADE)
-                const sb = await initSupabase();
-                const { error } = await sb.from('distribution_events').delete().eq('id', currentEditId);
-                if (error) throw error;
-                showToast('Evento excluído.');
-                cancelDelete();
-                closeModal();
-                await loadCards();
-            } catch (err) {
-                console.error(err);
-                showToast('Erro ao excluir: ' + (err.message || ''), 'error');
-                btn.disabled = false;
-                btn.innerHTML = '<i data-lucide="trash-2" style="width:15px;"></i> Confirmar Exclusão';
-                reIcons();
-            }
         }
     </script>
 </body>
