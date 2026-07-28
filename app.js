@@ -634,6 +634,20 @@ const UpdatePasswordView = () => `
 </div>
 `;
 
+const SemAcessoView = () => `
+<main class="main-content view-content" style="display:flex;align-items:center;justify-content:center;min-height:100vh;">
+    <div class="card" style="max-width:420px;text-align:center;padding:2rem;">
+        <img src="PAI-Logo-Azul.png" alt="Prestaí" style="height:32px;width:auto;margin-bottom:1.5rem;">
+        <i data-lucide="shield-off" style="width:40px;height:40px;color:var(--text-muted);margin-bottom:1rem;"></i>
+        <h2 class="h2">Sem acesso</h2>
+        <p class="text-sm" style="color:var(--text-secondary);margin:0.75rem 0 1.5rem;">
+            Seu perfil não tem uma área disponível neste portal no momento.
+        </p>
+        <button class="btn btn-secondary" onclick="window.handleLogout()">Sair</button>
+    </div>
+</main>
+`;
+
 const SolicitanteLoginView = () => `
 <div class="login-view view-content">
     <div class="card login-card">
@@ -5778,6 +5792,9 @@ function render() {
         case 'ferramentas_juntar_pdf':
             content = JuntarPDFView();
             break;
+        case 'sem_acesso':
+            content = SemAcessoView();
+            break;
         default:
             content = LoginView();
     }
@@ -6015,6 +6032,10 @@ async function init() {
             if (role === 'fornecedor') {
                 state.currentView = 'solicitante_dashboard';
                 await fetchSolicitanteDashboard();
+            } else if (role && !['gestor', 'admin', 'analista'].includes(role)) {
+                // Contas sem role (legado) continuam tratadas como gestor.
+                // Só roles reconhecidas sem área própria (ex: operador) caem aqui.
+                state.currentView = 'sem_acesso';
             } else {
                 const hash = window.location.hash.replace('#', '');
                 state.currentView = (!hash || hash === 'login' || hash === 'register') ? 'dashboard' : hash;

@@ -47,6 +47,10 @@ async function renderSidebarM3() {
         { label: 'Eventos',         icon: 'calendar',     path: 'eventos.html' },
         { label: 'Relatórios',      icon: 'file-text',    path: 'relatorios.html' },
         { label: 'Dashboard',       icon: 'layout-dashboard', path: 'contrapartidas.html' },
+        // App separado/instalável — abre em nova aba (blank), fora da navegação normal.
+        // Portaria não tem item próprio: é sempre por evento, acessada pelo botão
+        // "Portaria" de cada card em eventos.html (portaria.html?event_id=X).
+        { label: 'Campo (PWA)',     icon: 'smartphone',   path: 'pwa/index.html', blank: true },
     ];
 
     const _filtered = navItems.filter(item =>
@@ -58,8 +62,11 @@ async function renderSidebarM3() {
     const navHtml = _filtered.map(item => {
         const active  = item.path && currentFile === item.path;
         const soon    = !item.path;
+        const attrs   = soon ? 'onclick="return false"'
+                      : item.blank ? 'target="_blank" rel="noopener"'
+                      : 'data-path="' + item.path + '"';
         return `
-            <a href="${item.path || '#'}" ${soon ? 'onclick="return false"' : 'data-path="' + item.path + '"'} style="
+            <a href="${item.path || '#'}" ${attrs} style="
                 display: flex; align-items: center; gap: 0.75rem;
                 padding: 0.75rem 1rem; border-radius: 12px;
                 text-decoration: none;
