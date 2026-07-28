@@ -70,7 +70,7 @@ async function renderSidebarM3() {
                 display: flex; align-items: center; gap: 0.75rem;
                 padding: 0.75rem 1rem; border-radius: 12px;
                 text-decoration: none;
-                color: ${active ? '#1547FF' : soon ? '#c0c8d8' : '#64748b'};
+                color: ${active ? 'var(--color-primary)' : soon ? '#c0c8d8' : 'var(--text-secondary)'};
                 background: ${active ? 'rgba(21,71,255,0.08)' : 'transparent'};
                 font-weight: ${active ? '700' : '500'};
                 font-size: 0.9rem;
@@ -79,7 +79,7 @@ async function renderSidebarM3() {
             ">
                 <i data-lucide="${item.icon}" style="width:18px;height:18px;flex-shrink:0;"></i>
                 <span>${item.label}</span>
-                ${soon ? '<span style="margin-left:auto;font-size:0.65rem;background:#f1f5f9;color:#94a3b8;padding:0.1rem 0.45rem;border-radius:999px;font-weight:600;">Em breve</span>' : ''}
+                ${soon ? '<span style="margin-left:auto;font-size:0.65rem;background:#f1f5f9;color:var(--text-muted);padding:0.1rem 0.45rem;border-radius:999px;font-weight:600;">Em breve</span>' : ''}
             </a>
         `;
     }).join('');
@@ -88,18 +88,18 @@ async function renderSidebarM3() {
         <div style="display:flex;align-items:center;padding-bottom:0.5rem;margin-bottom:0.5rem;">
             <img src="../PAI-Logo-Azul.png" alt="Prestaí" style="height:28px;width:auto;">
         </div>
-        <div style="font-size:0.65rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.1em;margin:-1.5rem 0 -1rem 0.25rem;">
+        <div style="font-size:0.65rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.1em;margin:-1.5rem 0 -1rem 0.25rem;">
             Módulo III · Distribuição
         </div>
         <nav style="display:flex;flex-direction:column;gap:0.25rem;flex:1;">
             ${navHtml}
         </nav>
         <div style="border-top:1px solid #f1f5f9;padding-top:1.25rem;display:flex;flex-direction:column;gap:0.25rem;">
-            <a href="../module-selector.html" style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 1rem;text-decoration:none;color:#64748b;font-size:0.875rem;font-weight:500;border-radius:12px;transition:all 0.2s;">
+            <a href="../module-selector.html" style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 1rem;text-decoration:none;color:var(--text-secondary);font-size:0.875rem;font-weight:500;border-radius:12px;transition:all 0.2s;">
                 <i data-lucide="arrow-left-right" style="width:16px;"></i>
                 <span>Trocar Módulo</span>
             </a>
-            <a href="#" onclick="handleLogout(event)" style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 1rem;text-decoration:none;color:#ef4444;font-size:0.875rem;font-weight:500;border-radius:12px;transition:all 0.2s;">
+            <a href="#" onclick="handleLogout(event)" style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 1rem;text-decoration:none;color:var(--error);font-size:0.875rem;font-weight:500;border-radius:12px;transition:all 0.2s;">
                 <i data-lucide="log-out" style="width:16px;"></i>
                 <span>Sair</span>
             </a>
