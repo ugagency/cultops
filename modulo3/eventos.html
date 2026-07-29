@@ -142,6 +142,7 @@
     <script>
         // ── State ────────────────────────────────────────────
         let currentProject = null;
+        let _role = null;
 
         // ── Utilities ────────────────────────────────────────
         function esc(s) {
@@ -180,6 +181,7 @@
             if (!sb) return;
             const { data: { session } } = await sb.auth.getSession();
             if (!session) { window.location.href = '../index.html#login'; return; }
+            _role = session.user?.app_metadata?.role || session.user?.user_metadata?.role || null;
 
             await popularSeletorProjeto();
         });
@@ -238,8 +240,15 @@
             }
 
             const btnNovo = document.getElementById('btn-novo-evento');
-            btnNovo.style.pointerEvents = 'auto';
-            btnNovo.style.opacity = '1';
+            if (_role === 'operador') {
+                btnNovo.style.pointerEvents = 'none';
+                btnNovo.style.opacity = '0.55';
+                btnNovo.title = 'Apenas gestor/admin podem criar eventos';
+            } else {
+                btnNovo.style.pointerEvents = 'auto';
+                btnNovo.style.opacity = '1';
+                btnNovo.title = '';
+            }
             await loadCards(pid);
         }
 

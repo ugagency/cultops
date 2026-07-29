@@ -926,7 +926,16 @@
             }
             notificarEvidencia(evidenceId, 'aprovada', user?.id);
             showToast('Evidência aprovada.', 'success');
-            // Realtime cuidará do reload; sem fallback manual
+
+            // Não depender só do Realtime — atualiza o estado local e re-renderiza na hora.
+            const idx = allEvidences.findIndex(e => e.id === evidenceId);
+            if (idx !== -1) {
+                allEvidences[idx].status_validacao = 'aprovada';
+                allEvidences[idx].motivo_reprovacao = null;
+                allEvidences[idx].validado_por = user?.id || null;
+                allEvidences[idx].validado_em = new Date().toISOString();
+            }
+            renderEvidences(allEvidences);
         }
 
         function openRejectModal(evidenceId) {
@@ -964,6 +973,18 @@
                 return;
             }
             notificarEvidencia(pendingRejectId, 'reprovada', user?.id);
+
+            // Não depender só do Realtime — atualiza o estado local e re-renderiza na hora
+            // (antes de fechar o modal, que zera pendingRejectId).
+            const idx = allEvidences.findIndex(e => e.id === pendingRejectId);
+            if (idx !== -1) {
+                allEvidences[idx].status_validacao = 'reprovada';
+                allEvidences[idx].motivo_reprovacao = motivo;
+                allEvidences[idx].validado_por = user?.id || null;
+                allEvidences[idx].validado_em = new Date().toISOString();
+            }
+            renderEvidences(allEvidences);
+
             closeRejectModal();
             showToast('Evidência reprovada.', 'success');
         }
@@ -1003,6 +1024,18 @@
                 return;
             }
             notificarEvidencia(pendingComplementId, 'pendente_complemento', user?.id);
+
+            // Não depender só do Realtime — atualiza o estado local e re-renderiza na hora
+            // (antes de fechar o modal, que zera pendingComplementId).
+            const idx = allEvidences.findIndex(e => e.id === pendingComplementId);
+            if (idx !== -1) {
+                allEvidences[idx].status_validacao = 'pendente_complemento';
+                allEvidences[idx].motivo_reprovacao = descricao;
+                allEvidences[idx].validado_por = user?.id || null;
+                allEvidences[idx].validado_em = new Date().toISOString();
+            }
+            renderEvidences(allEvidences);
+
             closeComplementModal();
             showToast('Complemento solicitado.', 'success');
         }

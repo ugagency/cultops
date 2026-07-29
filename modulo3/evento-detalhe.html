@@ -519,6 +519,7 @@
         let evento     = null;
         let selectedOs = null;
         let selectedPa = null;
+        let _role      = null;
 
         // ── Utilities ────────────────────────────────────────
         function esc(s) {
@@ -584,6 +585,24 @@
             if (!sb) return;
             const { data: { session } } = await sb.auth.getSession();
             if (!session) { window.location.href = '../index.html#login'; return; }
+            _role = session.user?.app_metadata?.role || session.user?.user_metadata?.role || null;
+
+            if (_role === 'operador') {
+                const btnAddOs = document.getElementById('btn-add-os');
+                const btnAddPa = document.getElementById('btn-add-pa');
+                if (btnAddOs) {
+                    btnAddOs.disabled = true;
+                    btnAddOs.style.opacity = '0.5';
+                    btnAddOs.style.cursor = 'not-allowed';
+                    btnAddOs.title = 'Apenas gestor/admin podem vincular OS';
+                }
+                if (btnAddPa) {
+                    btnAddPa.disabled = true;
+                    btnAddPa.style.opacity = '0.5';
+                    btnAddPa.style.cursor = 'not-allowed';
+                    btnAddPa.title = 'Apenas gestor/admin podem vincular PA';
+                }
+            }
 
             await loadEvento();
         });

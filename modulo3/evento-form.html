@@ -223,6 +223,7 @@
     <script>
         // ── State ────────────────────────────────────────────
         let currentEditId = null;   // null = criação; uuid = edição
+        let _role = null;
 
         // ── Utilities ────────────────────────────────────────
         function esc(s) {
@@ -253,6 +254,7 @@
             if (!sb) return;
             const { data: { session } } = await sb.auth.getSession();
             if (!session) { window.location.href = '../index.html#login'; return; }
+            _role = session.user?.app_metadata?.role || session.user?.user_metadata?.role || null;
 
             const params = new URLSearchParams(window.location.search);
             currentEditId = params.get('id');
@@ -272,6 +274,13 @@
 
         // ── Modo criação ─────────────────────────────────────
         function enterCreateMode() {
+            if (_role === 'operador') {
+                // Desabilitar só o botão em eventos.html não impede navegação
+                // direta pela URL — bloqueia aqui também, na origem real da ação.
+                showToast('Apenas gestor/admin podem criar eventos.', 'error');
+                setTimeout(() => { window.location.href = 'eventos.html'; }, 1200);
+                return;
+            }
             const pid = ProjectManagerM3.getSelected();
             if (!pid) {
                 // Sem projeto selecionado não há como vincular o evento — volta pra lista.
@@ -297,6 +306,15 @@
                 document.title = `PrestAI — ${ev.titulo}`;
                 document.getElementById('header-sub').textContent = ev.titulo;
                 document.getElementById('delete-wrap').style.display = '';
+                if (_role === 'operador') {
+                    const delBtn = document.querySelector('#delete-wrap .btn-danger');
+                    if (delBtn) {
+                        delBtn.disabled = true;
+                        delBtn.style.opacity = '0.5';
+                        delBtn.style.cursor = 'not-allowed';
+                        delBtn.title = 'Apenas gestor/admin podem excluir eventos';
+                    }
+                }
                 showForm();
             } catch (err) {
                 console.error(err);
