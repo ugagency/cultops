@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Dashboard Contrapartidas (M3)</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m3-shared.css">
+
+    <style>
+        .badge-ativo      { background:#DCFCE7;color:#16a34a; }
+        .badge-encerrado  { background:#F1F5F9;color:#64748b; }
+        .badge-cancelado  { background:#FFECE4;color:#FF5807; }
+
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.25rem;
+        }
+        @media (max-width: 768px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 480px) { .kpi-grid { grid-template-columns: 1fr; } }
+
+        .kpi-card {
+            background: white;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            padding: 1.1rem 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }
+        .kpi-label {
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: #94a3b8;
+        }
+        .kpi-value {
+            font-size: 2rem;
+            font-weight: 800;
+            color: var(--text-primary);
+            line-height: 1;
+        }
+        .kpi-value-pct {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: #1547FF;
+            line-height: 1;
+        }
+        .kpi-card-wide {
+            grid-column: 1 / -1;
+            border-radius: var(--radius-md);
+            padding: 1.1rem 1.25rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        .kpi-pendente {
+            background: #FFFBEB;
+            border: 1.5px solid #FCD34D;
+        }
+        .kpi-ok {
+            background: #F0FDF4;
+            border: 1.5px solid #86EFAC;
+        }
+
+        .evento-recente-card {
+            background: white;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            padding: 1rem 1.25rem;
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            flex-wrap: wrap;
+            transition: box-shadow 0.15s;
+        }
+        .evento-recente-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.07); }
+
+        /* ── Relatório do Período ──────────── */
+        .rel-dynamic-list { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; }
+        .rel-dynamic-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.6rem 0.85rem;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            font-size: 0.875rem;
+        }
+        .rel-dynamic-row input { max-width: 160px; margin-left: auto; }
+    </style>
+</head>
+<body>
+    <main class="main-content">
+        <div id="page-loading" class="empty-state">
+            <i data-lucide="loader" class="spin" style="width:32px;"></i>
+            <div style="margin-top:0.75rem;">Carregando…</div>
+        </div>
+
+        <div id="page-body" style="display:none;">
+
+            <!-- Header -->
+            <div class="glass-card" style="margin-bottom:1.5rem;">
+                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;">
+                    <div>
+                        <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#94a3b8;margin-bottom:0.25rem;">Módulo III</div>
+                        <div style="font-size:1.5rem;font-weight:800;color:var(--text-primary);line-height:1.1;">Contrapartidas</div>
+                        <div id="projeto-label" style="font-size:0.875rem;color:var(--text-secondary);margin-top:0.25rem;"></div>
+                    </div>
+                    <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;">
+                        <div class="project-selector-container">
+                            <i data-lucide="folder-kanban" style="width: 18px; color: var(--text-secondary);"></i>
+                            <select id="project-selector">
+                                <option value="">Carregando projetos...</option>
+                            </select>
+                        </div>
+                        <button class="btn-secondary" onclick="openRelatorioPeriodo()"
+                                style="font-size:0.875rem;">
+                            <i data-lucide="file-text" style="width:15px;"></i> Gerar Relatório do Período
+                        </button>
+                        <a href="eventos.html" class="btn-primary"
+                           style="text-decoration:none;display:inline-flex;align-items:center;gap:0.5rem;font-size:0.875rem;">
+                            <i data-lucide="plus" style="width:15px;"></i> Novo Evento
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- KPIs Linha 1 -->
+            <div class="kpi-grid" id="kpi-grid-1">
+                <div class="kpi-card">
+                    <div class="kpi-label">Eventos Ativos</div>
+                    <div class="kpi-value" id="kpi-eventos-ativos">—</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Org. Sociais</div>
+                    <div class="kpi-value" id="kpi-total-os">—</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Patrocinadores</div>
+                    <div class="kpi-value" id="kpi-total-pa">—</div>
+                </div>
+            </div>
+
+            <!-- KPIs Linha 2 -->
+            <div class="kpi-grid" id="kpi-grid-2">
+                <div class="kpi-card">
+                    <div class="kpi-label">Confirmados</div>
+                    <div class="kpi-value" id="kpi-confirmados">—</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Ocupação OS</div>
+                    <div class="kpi-value-pct" id="kpi-ocup-os">—</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Ocupação PA</div>
+                    <div class="kpi-value-pct" id="kpi-ocup-pa">—</div>
+                </div>
+            </div>
+
+            <!-- Card largo: Evidências pendentes -->
+            <div id="kpi-evidencias-card" class="kpi-card-wide kpi-pendente" style="margin-bottom:1.5rem;"></div>
+
+            <!-- Eventos recentes -->
+            <div class="glass-card">
+                <div style="font-weight:700;font-size:1rem;color:var(--text-primary);margin-bottom:1rem;">
+                    Eventos Recentes
+                </div>
+                <div id="eventos-recentes-list"></div>
+            </div>
+
+        </div>
+
+        <!-- Estado sem projeto -->
+        <div id="page-no-project" style="display:none;">
+            <div class="empty-state" style="padding:4rem 1rem;">
+                <i data-lucide="folder-open" style="width:48px;opacity:0.3;"></i>
+                <div style="margin-top:1rem;font-size:1rem;font-weight:600;color:var(--text-primary);">
+                    Nenhum projeto cadastrado
+                </div>
+                <div style="margin-top:0.35rem;font-size:0.875rem;color:var(--text-muted);">
+                    Crie ou importe um projeto no
+                    <a href="../modulo2/projeto-setup.html" style="color:#1547FF;font-weight:600;">Módulo II</a>
+                    para começar.
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- ── Modal Gerar Relatório do Período ──────────────────── -->
+    <div id="relatorio-periodo-backdrop" class="modal-backdrop" style="display:none;">
+        <div class="modal-card" style="max-width:760px;">
+            <div class="modal-header">
+                <h2>Gerar Relatório do Período</h2>
+                <button class="btn-icon" onclick="closeRelatorioPeriodo()">
+                    <i data-lucide="x" style="width:22px;"></i>
+                </button>
+            </div>
+
+            <div class="form-group" style="margin-bottom:1.25rem;">
+                <label>Mês de referência</label>
+                <input type="month" id="rp-mes" onchange="onMesReferenciaChange()">
+            </div>
+
+            <div id="rp-conteudo" style="display:none;">
+                <div class="form-group" style="margin-bottom:1.25rem;">
+                    <label>Eventos do período</label>
+                    <div id="rp-eventos-list" class="rel-dynamic-list"></div>
+                    <div id="rp-eventos-aviso" class="hint" style="margin-top:0.5rem;"></div>
+                </div>
+
+                <div class="form-grid" style="margin-bottom:1.25rem;">
+                    <div class="form-section-title" style="grid-column:span 2;padding-top:0;border-top:none;">1. Identificação do especialista</div>
+                    <div class="form-group">
+                        <label>Nome</label>
+                        <input type="text" id="rp-especialista-nome">
+                    </div>
+                    <div class="form-group">
+                        <label>Função</label>
+                        <input type="text" id="rp-especialista-funcao">
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin-bottom:1.25rem;">
+                    <label>3. Custo por evento (informado manualmente)</label>
+                    <div id="rp-custos-list" class="rel-dynamic-list"></div>
+                    <div style="margin-top:0.6rem;font-size:0.9rem;font-weight:700;color:var(--text-primary);">
+                        Custo total do período: <span id="rp-custo-total">R$ 0,00</span>
+                    </div>
+                    <div id="rp-custos-aviso" class="hint" style="margin-top:0.35rem;"></div>
+                </div>
+
+                <div class="form-grid" style="margin-bottom:1.25rem;">
+                    <div class="form-section-title" style="grid-column:span 2;">4. Principais desafios do período</div>
+                    <div class="form-group span-2">
+                        <textarea id="rp-desafios" rows="3"></textarea>
+                    </div>
+
+                    <div class="form-section-title" style="grid-column:span 2;">5. Gerenciamento de equipe</div>
+                    <div class="form-group span-2">
+                        <input type="text" id="rp-equipe" placeholder="Nada a declarar">
+                    </div>
+
+                    <div class="form-section-title" style="grid-column:span 2;">6. Dados gerais de comunicação</div>
+                    <div class="form-group">
+                        <label>Seguidores (total)</label>
+                        <input type="number" id="rp-com-seguidores-total" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Novos seguidores no mês</label>
+                        <input type="number" id="rp-com-novos-seguidores" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Interações</label>
+                        <input type="number" id="rp-com-interacoes" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Visualizações</label>
+                        <input type="number" id="rp-com-visualizacoes" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Alcance</label>
+                        <input type="number" id="rp-com-alcance" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Matérias (quantidade)</label>
+                        <input type="number" id="rp-com-materias-qtd" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Matérias positivas (%)</label>
+                        <input type="number" id="rp-com-materias-pct" min="0" max="100" step="0.1">
+                    </div>
+                    <div class="form-group">
+                        <label>Retorno em mídia (R$)</label>
+                        <input type="number" id="rp-com-retorno-midia" min="0" step="0.01">
+                    </div>
+
+                    <div class="form-section-title" style="grid-column:span 2;">Assinatura</div>
+                    <div class="form-group">
+                        <label>Cidade e data</label>
+                        <input type="text" id="rp-assinatura-cidade-data">
+                    </div>
+                    <div class="form-group">
+                        <label>Nome</label>
+                        <input type="text" id="rp-assinatura-nome">
+                    </div>
+                    <div class="form-group">
+                        <label>Cargo</label>
+                        <input type="text" id="rp-assinatura-cargo">
+                    </div>
+                    <div class="form-group">
+                        <label>Local do projeto</label>
+                        <input type="text" id="rp-assinatura-local">
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <div class="actions-right">
+                    <button class="btn-secondary" onclick="closeRelatorioPeriodo()">Cancelar</button>
+                    <button class="btn-secondary" id="rp-salvar-btn" onclick="onSalvarRascunhoClick()" disabled>
+                        <i data-lucide="save" style="width:15px;"></i> Salvar rascunho
+                    </button>
+                    <button class="btn-primary" id="rp-gerar-btn" onclick="gerarRelatorioPeriodo()" disabled>
+                        <i data-lucide="file-text" style="width:15px;"></i> Gerar Relatório Final
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper-m3.js?v=2"></script>
+    <script src="vendor/docx.umd.js"></script>
+    <script src="relatorio-docx.js"></script>
+    <script>
+        // ── Utilities ─────────────────────────────────────────
+        function esc(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+                .replace(/'/g,'&#39;');
+        }
+        function showToast(msg, type = 'success') {
+            const c = document.getElementById('toast-container');
+            const t = document.createElement('div');
+            t.className = `toast toast-${type}`;
+            t.innerHTML = `<i data-lucide="${type==='success'?'check-circle':'alert-circle'}" style="width:18px;flex-shrink:0;"></i><span>${esc(msg)}</span>`;
+            c.appendChild(t);
+            reIcons();
+            setTimeout(() => t.remove(), 4500);
+        }
+        function reIcons() { if (window.lucide) window.lucide.createIcons(); }
+        function fmtDate(d) {
+            if (!d) return '—';
+            try { return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR'); } catch { return d; }
+        }
+
+        // ── Init ──────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', async () => {
+            renderSidebarM3();
+            reIcons();
+
+            const sb = await initSupabase();
+            if (!sb) return;
+            const { data: { session } } = await sb.auth.getSession();
+            if (!session) { location.href = '../index.html#login'; return; }
+
+            await popularSeletorProjeto();
+        });
+
+        async function popularSeletorProjeto() {
+            const selector = document.getElementById('project-selector');
+            let projects = [];
+            try {
+                projects = await getProjectsM3();
+            } catch (err) {
+                console.error('[contrapartidas] erro ao buscar projetos:', err);
+            }
+
+            if (!projects.length) {
+                selector.innerHTML = '<option value="">Nenhum projeto encontrado</option>';
+                document.getElementById('page-loading').style.display   = 'none';
+                document.getElementById('page-no-project').style.display = '';
+                reIcons();
+                return;
+            }
+
+            selector.innerHTML = '<option value="">Selecione um projeto</option>' +
+                projects.map(p => `<option value="${p.id}">${p.pronac ? p.pronac + ' — ' : ''}${p.nome}</option>`).join('');
+
+            const saved = ProjectManagerM3.getSelected();
+            const initialId = (saved && projects.some(p => p.id === saved)) ? saved : projects[0].id;
+
+            selector.value = initialId;
+            ProjectManagerM3.setSelected(initialId);
+            await carregarDashboard(initialId);
+
+            selector.onchange = async (e) => {
+                const pid = e.target.value;
+                if (!pid) {
+                    document.getElementById('page-body').style.display = 'none';
+                    document.getElementById('page-no-project').style.display = '';
+                    return;
+                }
+                ProjectManagerM3.setSelected(pid);
+                document.getElementById('page-no-project').style.display = 'none';
+                document.getElementById('page-body').style.display = 'none';
+                document.getElementById('page-loading').style.display = '';
+                reIcons();
+                await carregarDashboard(pid);
+            };
+        }
+
+        async function carregarDashboard(projectId) {
+            const sb = await initSupabase();
+            try {
+                // Buscar nome/PRONAC do projeto
+                const { data: proj } = await sb
+                    .from('projects')
+                    .select('nome, pronac')
+                    .eq('id', projectId)
+                    .single();
+
+                document.getElementById('projeto-label').textContent =
+                    proj ? `PRONAC ${proj.pronac} — ${proj.nome}` : '';
+
+                const [kpis, eventos] = await Promise.all([
+                    getKpisM3(projectId),
+                    getEventosByProject(projectId),
+                ]);
+
+                renderKpis(kpis);
+                renderEventosRecentes(eventos.slice(0, 5));
+
+                document.getElementById('page-loading').style.display = 'none';
+                document.getElementById('page-body').style.display    = '';
+                reIcons();
+            } catch (err) {
+                console.error(err);
+                document.getElementById('page-loading').style.display = '';
+                document.getElementById('page-loading').innerHTML = `
+                    <div class="empty-state" style="color:#FF5807;">
+                        <i data-lucide="alert-circle" style="width:32px;"></i>
+                        <div style="margin-top:0.75rem;">Erro ao carregar dashboard: ${esc(err.message)}</div>
+                    </div>`;
+                reIcons();
+            }
+        }
+
+        // ── Render KPIs ───────────────────────────────────────
+        function renderKpis(kpis) {
+            document.getElementById('kpi-eventos-ativos').textContent = kpis.eventosAtivos;
+            document.getElementById('kpi-total-os').textContent       = kpis.totalOs;
+            document.getElementById('kpi-total-pa').textContent       = kpis.totalPa;
+            document.getElementById('kpi-confirmados').textContent    = kpis.confirmados;
+            document.getElementById('kpi-ocup-os').textContent        = kpis.ocupacaoOsPct + '%';
+            document.getElementById('kpi-ocup-pa').textContent        = kpis.ocupacaoPaPct + '%';
+
+            const cardEv  = document.getElementById('kpi-evidencias-card');
+            const temPend = kpis.evidenciasPendentes > 0;
+            cardEv.className = 'kpi-card-wide ' + (temPend ? 'kpi-pendente' : 'kpi-ok');
+            if (temPend) {
+                cardEv.innerHTML = `
+                    <div style="display:flex;align-items:center;gap:0.6rem;">
+                        <i data-lucide="clock" style="width:20px;color:#D97706;"></i>
+                        <span style="font-weight:700;font-size:0.95rem;color:#92400E;">
+                            Evidências aguardando aprovação: <strong>${kpis.evidenciasPendentes}</strong>
+                        </span>
+                    </div>
+                    <a href="../modulo2/comprovacao-fisica.html"
+                       style="text-decoration:none;display:inline-flex;align-items:center;gap:0.4rem;
+                              font-size:0.875rem;font-weight:700;color:#1547FF;">
+                        Ver no M2 <i data-lucide="arrow-right" style="width:15px;"></i>
+                    </a>`;
+            } else {
+                cardEv.innerHTML = `
+                    <div style="display:flex;align-items:center;gap:0.6rem;">
+                        <i data-lucide="check-circle" style="width:20px;color:#16a34a;"></i>
+                        <span style="font-weight:700;font-size:0.95rem;color:#15803D;">
+                            Nenhuma evidência pendente de aprovação ✓
+                        </span>
+                    </div>`;
+            }
+            reIcons();
+        }
+
+        // ── Render Eventos Recentes ───────────────────────────
+        function renderEventosRecentes(eventos) {
+            const el = document.getElementById('eventos-recentes-list');
+            if (!eventos.length) {
+                el.innerHTML = `
+                    <div class="empty-state" style="padding:2rem 0;">
+                        <i data-lucide="calendar-x" style="width:36px;opacity:0.3;"></i>
+                        <div style="margin-top:0.5rem;font-size:0.9rem;color:var(--text-muted);">
+                            Nenhum evento cadastrado para este projeto
+                        </div>
+                    </div>`;
+                reIcons();
+                return;
+            }
+            const STATUS_LABELS = {
+                ativo:'Ativo', encerrado:'Encerrado', cancelado:'Cancelado'
+            };
+            el.innerHTML = eventos.map(ev => `
+                <div class="evento-recente-card">
+                    <div>
+                        <div style="font-weight:700;font-size:0.95rem;color:var(--text-primary);">
+                            ${esc(ev.titulo)}
+                        </div>
+                        <div style="font-size:0.82rem;color:var(--text-muted);margin-top:0.25rem;
+                                    display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+                            <span style="display:flex;align-items:center;gap:0.3rem;">
+                                <i data-lucide="calendar" style="width:12px;height:12px;"></i>
+                                ${fmtDate(ev.data_evento)}
+                            </span>
+                            <span>OS: ${ev.ingressos_os || 0} · PA: ${ev.ingressos_pa || 0}</span>
+                        </div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+                        <span class="badge badge-${esc(ev.status || 'ativo')}">
+                            ${esc(STATUS_LABELS[ev.status] || ev.status)}
+                        </span>
+                        <a href="evento-detalhe.html?id=${esc(ev.id)}"
+                           style="text-decoration:none;display:inline-flex;align-items:center;gap:0.3rem;
+                                  font-size:0.82rem;font-weight:600;color:#1547FF;">
+                            Ver detalhes <i data-lucide="arrow-right" style="width:13px;"></i>
+                        </a>
+                    </div>
+                </div>`).join('');
+            reIcons();
+        }
+
+        // ── Gerar Relatório do Período ─────────────────────────
+        let rpProjectId       = null;
+        let rpMesReferencia   = null;
+        let rpEventos         = [];
+        let rpCustos          = {};
+        let rpLinksPlanilha   = {};
+        let rpLinksNome       = {};
+        let rpRelatorioExistente = null;
+
+        function openRelatorioPeriodo() {
+            document.getElementById('rp-mes').value = '';
+            document.getElementById('rp-conteudo').style.display = 'none';
+            document.getElementById('rp-salvar-btn').disabled = true;
+            document.getElementById('rp-gerar-btn').disabled = true;
+            document.getElementById('relatorio-periodo-backdrop').style.display = 'flex';
+            reIcons();
+        }
+        function closeRelatorioPeriodo() {
+            document.getElementById('relatorio-periodo-backdrop').style.display = 'none';
+        }
+
+        async function onMesReferenciaChange() {
+            const mesAno = document.getElementById('rp-mes').value; // 'YYYY-MM'
+            if (!mesAno) return;
+
+            rpProjectId = ProjectManagerM3.getSelected();
+            const inicio = `${mesAno}-01`;
+            const [ano, mes] = mesAno.split('-');
+            const proximoMes = mes === '12'
+                ? `${Number(ano) + 1}-01-01`
+                : `${ano}-${String(Number(mes) + 1).padStart(2, '0')}-01`;
+
+            document.getElementById('rp-conteudo').style.display = 'none';
+            document.getElementById('rp-eventos-list').innerHTML =
+                `<div class="empty-state" style="padding:1rem;"><i data-lucide="loader" class="spin" style="width:20px;"></i></div>`;
+            reIcons();
+
+            try {
+                const sb = await initSupabase();
+                const [{ data: eventos, error: evErr }, { data: relatorioExistente, error: relErr }] = await Promise.all([
+                    sb.from('distribution_events')
+                        .select('id, titulo, data_evento, relatorio_status')
+                        .eq('project_id', rpProjectId)
+                        .gte('data_evento', inicio)
+                        .lt('data_evento', proximoMes)
+                        .order('data_evento', { ascending: true }),
+                    sb.from('distribution_monthly_reports')
+                        .select('*')
+                        .eq('project_id', rpProjectId)
+                        .eq('mes_referencia', inicio)
+                        .maybeSingle(),
+                ]);
+                if (evErr) throw evErr;
+                if (relErr) throw relErr;
+
+                rpEventos = eventos || [];
+                preencherFormRelatorioPeriodo(relatorioExistente, inicio);
+                renderRpEventosList();
+                renderRpCustosList();
+
+                document.getElementById('rp-conteudo').style.display = '';
+                document.getElementById('rp-salvar-btn').disabled = false;
+                document.getElementById('rp-gerar-btn').disabled = false;
+            } catch (err) {
+                showToast('Erro ao carregar eventos do período: ' + (err.message || ''), 'error');
+            }
+            reIcons();
+        }
+
+        function preencherFormRelatorioPeriodo(relatorio, mesReferencia) {
+            rpMesReferencia = mesReferencia;
+            rpRelatorioExistente = relatorio || null;
+            rpCustos = {};
+            rpLinksPlanilha = {};
+            rpLinksNome = {};
+            (relatorio?.custos_por_evento || []).forEach(c => {
+                rpCustos[c.event_id] = c.valor;
+                if (c.link_planilha) rpLinksPlanilha[c.event_id] = c.link_planilha;
+                if (c.link_nome) rpLinksNome[c.event_id] = c.link_nome;
+            });
+
+            document.getElementById('rp-especialista-nome').value   = relatorio?.especialista_nome || '';
+            document.getElementById('rp-especialista-funcao').value = relatorio?.especialista_funcao || '';
+            document.getElementById('rp-desafios').value            = relatorio?.desafios_periodo || '';
+            document.getElementById('rp-equipe').value              = relatorio?.gerenciamento_equipe || '';
+            document.getElementById('rp-com-seguidores-total').value = relatorio?.comunicacao_seguidores_total ?? '';
+            document.getElementById('rp-com-novos-seguidores').value = relatorio?.comunicacao_novos_seguidores ?? '';
+            document.getElementById('rp-com-interacoes').value       = relatorio?.comunicacao_interacoes ?? '';
+            document.getElementById('rp-com-visualizacoes').value    = relatorio?.comunicacao_visualizacoes ?? '';
+            document.getElementById('rp-com-alcance').value          = relatorio?.comunicacao_alcance ?? '';
+            document.getElementById('rp-com-materias-qtd').value     = relatorio?.comunicacao_materias_qtd ?? '';
+            document.getElementById('rp-com-materias-pct').value     = relatorio?.comunicacao_materias_positivas_pct ?? '';
+            document.getElementById('rp-com-retorno-midia').value    = relatorio?.comunicacao_retorno_midia_valor ?? '';
+            document.getElementById('rp-assinatura-cidade-data').value = relatorio?.assinatura_cidade_data || '';
+            document.getElementById('rp-assinatura-nome').value        = relatorio?.assinatura_nome || '';
+            document.getElementById('rp-assinatura-cargo').value       = relatorio?.assinatura_cargo || '';
+            document.getElementById('rp-assinatura-local').value       = relatorio?.assinatura_local_projeto || '';
+        }
+
+        function renderRpEventosList() {
+            const wrap  = document.getElementById('rp-eventos-list');
+            const aviso = document.getElementById('rp-eventos-aviso');
+            if (!rpEventos.length) {
+                wrap.innerHTML = `<div class="hint">Nenhum evento cadastrado neste período.</div>`;
+                aviso.textContent = '';
+                return;
+            }
+            wrap.innerHTML = rpEventos.map(ev => {
+                const ok = ev.relatorio_status === 'preenchido' || ev.relatorio_status === 'gerado';
+                return `
+                    <div class="rel-dynamic-row">
+                        <span style="flex:1;">${esc(ev.titulo)} <span class="hint">(${fmtDate(ev.data_evento)})</span></span>
+                        <span class="badge ${ok ? 'badge-green' : 'badge-gray'}" style="margin-left:0;">
+                            ${ok ? '✅ Preenchido' : '⚠️ Sem relatório preenchido'}
+                        </span>
+                    </div>`;
+            }).join('');
+
+            const pendentes = rpEventos.filter(ev => !(ev.relatorio_status === 'preenchido' || ev.relatorio_status === 'gerado')).length;
+            aviso.textContent = pendentes > 0
+                ? `${pendentes} evento(s) sem relatório de evento preenchido. Recomendamos preencher antes de gerar o relatório mensal — a seção desse evento ficará incompleta caso prossiga mesmo assim.`
+                : '';
+        }
+
+        function renderRpCustosList() {
+            const wrap = document.getElementById('rp-custos-list');
+            if (!rpEventos.length) {
+                wrap.innerHTML = `<div class="hint">Nenhum evento no período.</div>`;
+                updateRpCustoTotal();
+                return;
+            }
+            wrap.innerHTML = rpEventos.map(ev => `
+                <div style="display:flex;flex-direction:column;gap:0.4rem;padding:0.6rem 0;border-bottom:1px solid var(--border-light);">
+                    <div class="rel-dynamic-row">
+                        <span style="flex:1;">${esc(ev.titulo)}</span>
+                        <input type="number" min="0" step="0.01" placeholder="Ex: 47831.00"
+                               value="${rpCustos[ev.id] ?? ''}"
+                               oninput="onRpCustoInput('${esc(ev.id)}', this.value)">
+                    </div>
+                    <div style="display:flex;gap:0.5rem;">
+                        <input type="text" placeholder="Nome do arquivo (ex: Financeiro - Parque Aberto #8.xlsx)"
+                               value="${esc(rpLinksNome[ev.id] ?? '')}"
+                               oninput="onRpLinkNomeInput('${esc(ev.id)}', this.value)"
+                               style="flex:1.1;font-size:0.82rem;">
+                        <input type="url" placeholder="Link da planilha (opcional)"
+                               value="${esc(rpLinksPlanilha[ev.id] ?? '')}"
+                               oninput="onRpLinkInput('${esc(ev.id)}', this.value)"
+                               style="flex:1.4;font-size:0.82rem;">
+                    </div>
+                </div>
+            `).join('');
+            updateRpCustoTotal();
+        }
+
+        function onRpCustoInput(eventId, valor) {
+            if (valor === '') delete rpCustos[eventId];
+            else rpCustos[eventId] = Number(valor);
+            updateRpCustoTotal();
+        }
+
+        function onRpLinkInput(eventId, valor) {
+            if (valor.trim() === '') delete rpLinksPlanilha[eventId];
+            else rpLinksPlanilha[eventId] = valor.trim();
+        }
+
+        function onRpLinkNomeInput(eventId, valor) {
+            if (valor.trim() === '') delete rpLinksNome[eventId];
+            else rpLinksNome[eventId] = valor.trim();
+        }
+
+        function updateRpCustoTotal() {
+            const valores = rpEventos.map(ev => rpCustos[ev.id]).filter(v => v != null && !Number.isNaN(v));
+            const total = valores.reduce((s, v) => s + v, 0);
+            document.getElementById('rp-custo-total').textContent = formatCurrency(total);
+            const semValor = rpEventos.length - valores.length;
+            document.getElementById('rp-custos-aviso').textContent = semValor > 0
+                ? `${semValor} evento(s) sem valor informado — não incluído(s) no total.`
+                : '';
+        }
+
+        function numOrNull(id) {
+            const v = document.getElementById(id).value;
+            return v === '' ? null : Number(v);
+        }
+
+        function collectRpFormData() {
+            const custosArray = rpEventos
+                .filter(ev => (rpCustos[ev.id] != null && !Number.isNaN(rpCustos[ev.id])) || rpLinksPlanilha[ev.id] || rpLinksNome[ev.id])
+                .map(ev => ({
+                    event_id: ev.id,
+                    nome_evento: ev.titulo,
+                    valor: (rpCustos[ev.id] != null && !Number.isNaN(rpCustos[ev.id])) ? rpCustos[ev.id] : 0,
+                    link_planilha: rpLinksPlanilha[ev.id] || null,
+                    link_nome: rpLinksNome[ev.id] || null,
+                }));
+
+            return {
+                especialista_nome: document.getElementById('rp-especialista-nome').value.trim() || null,
+                especialista_funcao: document.getElementById('rp-especialista-funcao').value.trim() || null,
+                desafios_periodo: document.getElementById('rp-desafios').value.trim() || null,
+                gerenciamento_equipe: document.getElementById('rp-equipe').value.trim() || null,
+                comunicacao_seguidores_total: numOrNull('rp-com-seguidores-total'),
+                comunicacao_novos_seguidores: numOrNull('rp-com-novos-seguidores'),
+                comunicacao_interacoes: numOrNull('rp-com-interacoes'),
+                comunicacao_visualizacoes: numOrNull('rp-com-visualizacoes'),
+                comunicacao_alcance: numOrNull('rp-com-alcance'),
+                comunicacao_materias_qtd: numOrNull('rp-com-materias-qtd'),
+                comunicacao_materias_positivas_pct: numOrNull('rp-com-materias-pct'),
+                comunicacao_retorno_midia_valor: numOrNull('rp-com-retorno-midia'),
+                custos_por_evento: custosArray,
+                assinatura_cidade_data: document.getElementById('rp-assinatura-cidade-data').value.trim() || null,
+                assinatura_nome: document.getElementById('rp-assinatura-nome').value.trim() || null,
+                assinatura_cargo: document.getElementById('rp-assinatura-cargo').value.trim() || null,
+                assinatura_local_projeto: document.getElementById('rp-assinatura-local').value.trim() || null,
+            };
+        }
+
+        // Upsert puro (sem estado de UI) — reaproveitado pelo "Salvar rascunho" e
+        // pelo "Gerar Relatório Final" (que sempre finaliza o upsert antes de chamar o endpoint).
+        async function salvarRelatorioPeriodo(status) {
+            const sb  = await initSupabase();
+            const org = await getCurrentOrgIdM3();
+            const { data: { user } } = await sb.auth.getUser();
+            const dados = {
+                project_id: rpProjectId,
+                organization_id: org,
+                mes_referencia: rpMesReferencia,
+                ...collectRpFormData(),
+                status,
+                criado_por: user.id,
+                atualizado_em: new Date().toISOString(),
+            };
+            const { data, error } = await sb
+                .from('distribution_monthly_reports')
+                .upsert(dados, { onConflict: 'project_id,mes_referencia' })
+                .select()
+                .single();
+            if (error) throw error;
+            rpRelatorioExistente = data;
+            return data;
+        }
+
+        async function onSalvarRascunhoClick() {
+            const btn = document.getElementById('rp-salvar-btn');
+            const original = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px;"></i> Salvando…';
+            reIcons();
+            try {
+                await salvarRelatorioPeriodo('rascunho');
+                showToast('Rascunho salvo!');
+            } catch (err) {
+                showToast('Erro ao salvar rascunho: ' + (err.message || ''), 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = original;
+                reIcons();
+            }
+        }
+
+        async function gerarRelatorioPeriodo() {
+            const btn = document.getElementById('rp-gerar-btn');
+            const original = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px;"></i> Gerando…';
+            reIcons();
+            try {
+                // Persiste o rascunho e gera o .docx 100% no navegador (sem backend).
+                await salvarRelatorioPeriodo('finalizado');
+                await gerarDocPeriodoClient(rpProjectId, rpMesReferencia);
+
+                showToast('Relatório mensal gerado e baixado!');
+                closeRelatorioPeriodo();
+            } catch (err) {
+                showToast('Erro ao gerar relatório: ' + (err.message || ''), 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = original;
+                reIcons();
+            }
+        }
+    </script>
+</body>
+</html>

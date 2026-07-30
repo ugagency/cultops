@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Formulário de Evento (M3)</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m3-shared.css">
+
+    <style>
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 0.35rem;
+        }
+        .breadcrumb span { color: var(--text-muted); }
+        .breadcrumb a { color: var(--text-muted); text-decoration: none; }
+        .breadcrumb a:hover { color: var(--text-primary); }
+
+        /* Cartão do formulário — herda o layout do modal, sem ser modal */
+        .form-page-card {
+            background: white;
+            border-radius: var(--radius-lg);
+            padding: 2rem;
+            max-width: 760px;
+            box-shadow: 0 8px 40px rgba(21, 71, 255, 0.06);
+            border: 1px solid var(--border-light);
+        }
+
+        .form-page-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            margin-top: 1.75rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #f1f5f9;
+        }
+        .form-page-footer .actions-right {
+            display: flex;
+            gap: 0.75rem;
+            margin-left: auto;
+        }
+        .btn-secondary[data-link] { text-decoration: none; }
+
+        #page-loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 5rem 1rem;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+    <main class="main-content">
+        <header class="page-header">
+            <div>
+                <div class="breadcrumb">
+                    <a href="eventos.html">Eventos</a>
+                    <i data-lucide="chevron-right" style="width:14px;"></i>
+                    <span id="bc-mode">Novo Evento</span>
+                </div>
+                <h1 id="page-title">Novo Evento</h1>
+                <p id="header-sub">Preencha os dados do evento.</p>
+            </div>
+            <div class="header-actions">
+                <a href="eventos.html" class="btn-secondary" data-link style="text-decoration:none;">
+                    <i data-lucide="arrow-left" style="width:16px;"></i> Voltar
+                </a>
+            </div>
+        </header>
+
+        <!-- Loading (modo edição, enquanto busca o evento) -->
+        <div id="page-loading">
+            <i data-lucide="loader" class="spin" style="width:28px;"></i>
+            <div style="margin-top:0.75rem;">Carregando evento…</div>
+        </div>
+
+        <!-- Formulário -->
+        <div class="form-page-card" id="form-card" style="display:none;">
+            <div class="form-grid">
+                <!-- Dados -->
+                <div class="form-group span-2">
+                    <label>Título *</label>
+                    <input type="text" id="f-titulo" placeholder="Ex: Show de Encerramento — PRONAC 25/0001">
+                </div>
+                <div class="form-group">
+                    <label>Tipo *</label>
+                    <select id="f-tipo">
+                        <option value="">Selecione</option>
+                        <option value="cultural">Cultural</option>
+                        <option value="esportivo">Esportivo</option>
+                        <option value="outro">Outro</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Data do Evento *</label>
+                    <input type="date" id="f-data">
+                </div>
+                <div class="form-group">
+                    <label>Horário</label>
+                    <input type="time" id="f-horario">
+                </div>
+                <div class="form-group">
+                    <label>Status *</label>
+                    <select id="f-status">
+                        <option value="rascunho">Rascunho</option>
+                        <option value="ativo">Ativo</option>
+                        <option value="encerrado">Encerrado</option>
+                        <option value="cancelado">Cancelado</option>
+                    </select>
+                </div>
+                <div class="form-group span-2">
+                    <label>Descrição</label>
+                    <textarea id="f-descricao" rows="2" placeholder="Descrição opcional do evento…" style="resize:vertical;"></textarea>
+                </div>
+
+                <!-- Local -->
+                <div class="form-section-title">Local</div>
+                <div class="form-group span-2">
+                    <label>Nome do Local *</label>
+                    <input type="text" id="f-nome-local" placeholder="Ex: Teatro Municipal de São Paulo">
+                </div>
+                <div class="form-group span-2">
+                    <label>Endereço *</label>
+                    <input type="text" id="f-endereco" placeholder="Rua, número, bairro…">
+                </div>
+                <div class="form-group">
+                    <label>Cidade *</label>
+                    <input type="text" id="f-cidade" placeholder="Ex: São Paulo">
+                </div>
+                <div class="form-group">
+                    <label>Estado *</label>
+                    <select id="f-estado">
+                        <option value="">Selecione</option>
+                        <option>AC</option><option>AL</option><option>AP</option><option>AM</option>
+                        <option>BA</option><option>CE</option><option>DF</option><option>ES</option>
+                        <option>GO</option><option>MA</option><option>MT</option><option>MS</option>
+                        <option>MG</option><option>PA</option><option>PB</option><option>PR</option>
+                        <option>PE</option><option>PI</option><option>RJ</option><option>RN</option>
+                        <option>RS</option><option>RO</option><option>RR</option><option>SC</option>
+                        <option>SP</option><option>SE</option><option>TO</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Latitude</label>
+                    <input type="number" id="f-lat" step="any" placeholder="-23.5505">
+                    <span class="hint">Necessário para filtro 30km</span>
+                </div>
+                <div class="form-group">
+                    <label>Longitude</label>
+                    <input type="number" id="f-lon" step="any" placeholder="-46.6333">
+                    <span class="hint">Necessário para filtro 30km</span>
+                </div>
+
+                <!-- Ingressos -->
+                <div class="form-section-title">Ingressos</div>
+                <div class="form-group span-2">
+                    <label>Total de Ingressos *</label>
+                    <input type="number" id="f-total" min="0" placeholder="0" oninput="validateIngressos()">
+                </div>
+                <div class="form-group">
+                    <label>Ingressos para OS *</label>
+                    <input type="number" id="f-os" min="0" placeholder="0" oninput="validateIngressos()">
+                </div>
+                <div class="form-group">
+                    <label>Ingressos para PA *</label>
+                    <input type="number" id="f-pa" min="0" placeholder="0" oninput="validateIngressos()">
+                </div>
+                <div id="ingressos-error" class="span-2" style="display:none;color:#FF5807;font-size:0.82rem;font-weight:600;margin-top:-0.25rem;">
+                    <i data-lucide="alert-circle" style="width:14px;vertical-align:middle;"></i>
+                    OS + PA não podem ultrapassar o total de ingressos.
+                </div>
+            </div>
+
+            <div class="form-page-footer">
+                <div id="delete-wrap" style="display:none;">
+                    <button class="btn-danger" onclick="confirmDelete()">
+                        <i data-lucide="trash-2" style="width:15px;"></i> Excluir
+                    </button>
+                </div>
+                <div class="actions-right">
+                    <a href="eventos.html" class="btn-secondary" data-link style="text-decoration:none;">Cancelar</a>
+                    <button class="btn-primary" id="submit-btn" onclick="submitForm()">
+                        <i data-lucide="save" style="width:15px;"></i> Salvar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- ── Confirm Delete ────────────────────────────────────── -->
+    <div id="confirm-backdrop" class="modal-backdrop" style="display:none;z-index:3000;">
+        <div class="confirm-card">
+            <i data-lucide="alert-triangle" style="width:40px;height:40px;color:#FF5807;margin:0 auto 1rem;display:block;"></i>
+            <h3>Excluir Evento?</h3>
+            <p>Esta ação é irreversível. Todos os vínculos de OS, PA e convidados serão removidos junto com o evento.</p>
+            <div style="display:flex;gap:0.75rem;justify-content:center;">
+                <button class="btn-secondary" onclick="cancelDelete()">Cancelar</button>
+                <button class="btn-danger" id="confirm-delete-btn" onclick="executeDelete()">
+                    <i data-lucide="trash-2" style="width:15px;"></i> Confirmar Exclusão
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper-m3.js?v=2"></script>
+    <script>
+        // ── State ────────────────────────────────────────────
+        let currentEditId = null;   // null = criação; uuid = edição
+        let _role = null;
+
+        // ── Utilities ────────────────────────────────────────
+        function esc(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+                .replace(/'/g,'&#39;');
+        }
+
+        function showToast(msg, type = 'success') {
+            const c = document.getElementById('toast-container');
+            const t = document.createElement('div');
+            t.className = `toast toast-${type}`;
+            t.innerHTML = `<i data-lucide="${type==='success'?'check-circle':'alert-circle'}" style="width:18px;flex-shrink:0;"></i><span>${esc(msg)}</span>`;
+            c.appendChild(t);
+            reIcons();
+            setTimeout(() => t.remove(), 4500);
+        }
+
+        function reIcons() { if (window.lucide) window.lucide.createIcons(); }
+
+        // ── Init ─────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', async () => {
+            renderSidebarM3();
+            reIcons();
+
+            const sb = await initSupabase();
+            if (!sb) return;
+            const { data: { session } } = await sb.auth.getSession();
+            if (!session) { window.location.href = '../index.html#login'; return; }
+            _role = session.user?.app_metadata?.role || session.user?.user_metadata?.role || null;
+
+            const params = new URLSearchParams(window.location.search);
+            currentEditId = params.get('id');
+
+            if (currentEditId) {
+                await enterEditMode(currentEditId);
+            } else {
+                enterCreateMode();
+            }
+        });
+
+        function showForm() {
+            document.getElementById('page-loading').style.display = 'none';
+            document.getElementById('form-card').style.display = '';
+            reIcons();
+        }
+
+        // ── Modo criação ─────────────────────────────────────
+        function enterCreateMode() {
+            if (_role === 'operador') {
+                // Desabilitar só o botão em eventos.html não impede navegação
+                // direta pela URL — bloqueia aqui também, na origem real da ação.
+                showToast('Apenas gestor/admin podem criar eventos.', 'error');
+                setTimeout(() => { window.location.href = 'eventos.html'; }, 1200);
+                return;
+            }
+            const pid = ProjectManagerM3.getSelected();
+            if (!pid) {
+                // Sem projeto selecionado não há como vincular o evento — volta pra lista.
+                showToast('Selecione um projeto antes de criar um evento.', 'error');
+                setTimeout(() => { window.location.href = 'eventos.html'; }, 1200);
+                return;
+            }
+            document.getElementById('page-title').textContent = 'Novo Evento';
+            document.getElementById('bc-mode').textContent    = 'Novo Evento';
+            document.getElementById('delete-wrap').style.display = 'none';
+            document.getElementById('f-status').value = 'rascunho';
+            showProjectSub(pid);
+            showForm();
+        }
+
+        // ── Modo edição ──────────────────────────────────────
+        async function enterEditMode(id) {
+            document.getElementById('page-title').textContent = 'Editar Evento';
+            document.getElementById('bc-mode').textContent    = 'Editar Evento';
+            try {
+                const ev = await getEventoDetalhe(id);
+                fillForm(ev);
+                document.title = `PrestAI — ${ev.titulo}`;
+                document.getElementById('header-sub').textContent = ev.titulo;
+                document.getElementById('delete-wrap').style.display = '';
+                if (_role === 'operador') {
+                    const delBtn = document.querySelector('#delete-wrap .btn-danger');
+                    if (delBtn) {
+                        delBtn.disabled = true;
+                        delBtn.style.opacity = '0.5';
+                        delBtn.style.cursor = 'not-allowed';
+                        delBtn.title = 'Apenas gestor/admin podem excluir eventos';
+                    }
+                }
+                showForm();
+            } catch (err) {
+                console.error(err);
+                document.getElementById('page-loading').innerHTML = `
+                    <div class="empty-state" style="color:#FF5807;">
+                        <i data-lucide="alert-circle" style="width:32px;"></i>
+                        <div style="margin-top:0.75rem;">Erro ao carregar evento: ${esc(err.message)}</div>
+                        <a href="eventos.html" class="btn-secondary" style="margin-top:1rem;text-decoration:none;">Voltar</a>
+                    </div>`;
+                reIcons();
+            }
+        }
+
+        async function showProjectSub(pid) {
+            try {
+                const sb = await initSupabase();
+                const { data: proj } = await sb
+                    .from('projects').select('pronac, nome').eq('id', pid).maybeSingle();
+                if (proj) {
+                    const label = [proj.pronac, proj.nome].filter(Boolean).join(' — ');
+                    document.getElementById('header-sub').textContent = `Novo evento no projeto ${label}.`;
+                }
+            } catch { /* rótulo é opcional */ }
+        }
+
+        // ── Form helpers ──────────────────────────────────────
+        function fillForm(ev) {
+            const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val ?? ''; };
+            set('f-titulo',     ev.titulo);
+            set('f-tipo',       ev.tipo);
+            set('f-data',       ev.data_evento);
+            set('f-horario',    ev.horario ? ev.horario.slice(0,5) : '');
+            set('f-status',     ev.status);
+            set('f-descricao',  ev.descricao);
+            set('f-nome-local', ev.nome_local);
+            set('f-endereco',   ev.endereco);
+            set('f-cidade',     ev.cidade);
+            set('f-estado',     ev.estado);
+            set('f-lat',        ev.lat);
+            set('f-lon',        ev.lon);
+            set('f-total',      ev.total_ingressos);
+            set('f-os',         ev.ingressos_os);
+            set('f-pa',         ev.ingressos_pa);
+            document.getElementById('ingressos-error').style.display = 'none';
+        }
+
+        function getFormData() {
+            const v    = id => document.getElementById(id)?.value.trim() || null;
+            const vNum = id => { const val = document.getElementById(id)?.value; return (val !== '' && val != null) ? Number(val) : null; };
+            return {
+                titulo:          v('f-titulo'),
+                tipo:            v('f-tipo'),
+                data_evento:     v('f-data'),
+                horario:         v('f-horario') || null,
+                status:          v('f-status') || 'rascunho',
+                descricao:       v('f-descricao'),
+                nome_local:      v('f-nome-local'),
+                endereco:        v('f-endereco'),
+                cidade:          v('f-cidade'),
+                estado:          v('f-estado'),
+                lat:             vNum('f-lat'),
+                lon:             vNum('f-lon'),
+                total_ingressos: vNum('f-total'),
+                ingressos_os:    vNum('f-os'),
+                ingressos_pa:    vNum('f-pa'),
+            };
+        }
+
+        function validateIngressos() {
+            const total = Number(document.getElementById('f-total')?.value || 0);
+            const os    = Number(document.getElementById('f-os')?.value    || 0);
+            const pa    = Number(document.getElementById('f-pa')?.value    || 0);
+            const err   = document.getElementById('ingressos-error');
+            const invalid = (os + pa) > total;
+            err.style.display = invalid ? '' : 'none';
+            reIcons();
+            return !invalid;
+        }
+
+        // ── Submit ────────────────────────────────────────────
+        async function submitForm() {
+            const dados = getFormData();
+
+            if (!dados.titulo)      { showToast('Título é obrigatório.', 'error');           return; }
+            if (!dados.tipo)        { showToast('Tipo é obrigatório.', 'error');             return; }
+            if (!dados.data_evento) { showToast('Data do evento é obrigatória.', 'error');   return; }
+            if (!dados.nome_local)  { showToast('Nome do local é obrigatório.', 'error');    return; }
+            if (!dados.endereco)    { showToast('Endereço é obrigatório.', 'error');         return; }
+            if (!dados.cidade)      { showToast('Cidade é obrigatória.', 'error');           return; }
+            if (!dados.estado)      { showToast('Estado é obrigatório.', 'error');           return; }
+            if (dados.total_ingressos == null) { showToast('Total de ingressos é obrigatório.', 'error'); return; }
+            if (dados.ingressos_os  == null)   { showToast('Ingressos OS é obrigatório.', 'error');       return; }
+            if (dados.ingressos_pa  == null)   { showToast('Ingressos PA é obrigatório.', 'error');       return; }
+            if (!validateIngressos()) { showToast('OS + PA ultrapassam o total de ingressos.', 'error'); return; }
+
+            const btn = document.getElementById('submit-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px;"></i> Salvando…';
+            reIcons();
+
+            try {
+                if (currentEditId) {
+                    await updateEvento(currentEditId, dados);
+                    showToast('Evento atualizado com sucesso!');
+                } else {
+                    await createEvento(dados);
+                    showToast('Evento criado com sucesso!');
+                }
+                // Volta para a lista após salvar.
+                setTimeout(() => { window.location.href = 'eventos.html'; }, 700);
+            } catch (err) {
+                console.error(err);
+                showToast('Erro: ' + (err.message || 'Tente novamente.'), 'error');
+                btn.disabled = false;
+                btn.innerHTML = '<i data-lucide="save" style="width:15px;"></i> Salvar';
+                reIcons();
+            }
+        }
+
+        // ── Delete ────────────────────────────────────────────
+        function confirmDelete() {
+            document.getElementById('confirm-backdrop').style.display = 'flex';
+            reIcons();
+        }
+        function cancelDelete() {
+            document.getElementById('confirm-backdrop').style.display = 'none';
+        }
+        async function executeDelete() {
+            const btn = document.getElementById('confirm-delete-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px;"></i> Excluindo…';
+            reIcons();
+            try {
+                // Supabase apagará event_os/pa em cascade (ON DELETE CASCADE)
+                const sb = await initSupabase();
+                const { error } = await sb.from('distribution_events').delete().eq('id', currentEditId);
+                if (error) throw error;
+                showToast('Evento excluído.');
+                setTimeout(() => { window.location.href = 'eventos.html'; }, 700);
+            } catch (err) {
+                console.error(err);
+                showToast('Erro ao excluir: ' + (err.message || ''), 'error');
+                btn.disabled = false;
+                btn.innerHTML = '<i data-lucide="trash-2" style="width:15px;"></i> Confirmar Exclusão';
+                reIcons();
+            }
+        }
+    </script>
+</body>
+</html>

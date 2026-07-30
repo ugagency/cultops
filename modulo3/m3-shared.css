@@ -1,0 +1,399 @@
+@import url('https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap');
+
+/*
+ * Variáveis exclusivas do M3 (glassmorphism). Todo o resto — cores, fontes,
+ * sombras, raio de borda, sidebar-width — vem de ../style.css (fonte única
+ * da marca) e NÃO deve ser redeclarado aqui, para não divergir em silêncio.
+ * --m3-accent* são apenas apelidos (não duplicam o hex) para não perder o
+ * nome já usado em outros arquivos do M3.
+ */
+:root {
+    --m3-accent:       var(--color-primary);
+    --m3-accent-hover: var(--primary-hover);
+    --glass-bg:        rgba(255, 255, 255, 0.7);
+    --glass-border:    rgba(255, 255, 255, 0.5);
+    --glass-shadow:    0 8px 32px 0 rgba(21, 71, 255, 0.1);
+}
+
+/* Fundo branco e tipografia vêm de style.css — mesmas regras do M1/M2 */
+body {
+    min-height: 100vh;
+    margin: 0;
+}
+
+/* ── Layout ─────────────────────────────────────────────── */
+/* .main-content (margens, padding e responsividade) vem integralmente
+   de style.css — mesmas regras do M1/M2 */
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.page-header h1 {
+    font-size: 2rem;
+    font-weight: 800;
+    margin: 0 0 0.25rem 0;
+    line-height: 1.2;
+}
+
+.page-header p {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin: 0;
+}
+
+/* ── Seletor de projeto (PRONAC) ──────────────────────────── */
+.project-selector-container {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: var(--glass-bg);
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-light);
+}
+
+.project-selector-container select {
+    border: none;
+    background: transparent;
+    font-family: inherit;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--m3-accent);
+    cursor: pointer;
+    outline: none;
+}
+
+/* ── Glass Card ──────────────────────────────────────────── */
+.glass-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--glass-shadow);
+    padding: 1.5rem;
+}
+
+/* ── Buttons ─────────────────────────────────────────────── */
+.btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1.25rem;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+    background: linear-gradient(135deg, var(--color-primary) 0%, var(--primary-hover) 100%);
+    color: white;
+    box-shadow: 0 4px 12px rgba(21, 71, 255, 0.3);
+    text-decoration: none;
+}
+.btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(21, 71, 255, 0.4);
+}
+.btn-primary:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1.25rem;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 1px solid var(--border-light);
+    background: white;
+    color: var(--text-secondary);
+    text-decoration: none;
+}
+.btn-secondary:hover {
+    background: #f8fafc;
+    border-color: var(--m3-accent);
+    color: var(--m3-accent);
+}
+
+.btn-danger {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1.25rem;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+    background: var(--color-alert);
+    color: white;
+}
+.btn-danger:hover    { background: #e04f06; transform: translateY(-1px); }
+.btn-danger:disabled { opacity: 0.65; cursor: not-allowed; transform: none; }
+
+/* ── Search ──────────────────────────────────────────────── */
+.search-input {
+    padding: 0.625rem 1rem 0.625rem 2.25rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-light);
+    background: white;
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    width: min(240px, 100%);
+}
+.search-input:focus {
+    border-color: var(--m3-accent);
+    box-shadow: 0 0 0 3px rgba(21, 71, 255, 0.08);
+}
+
+/* ── Badges ──────────────────────────────────────────────── */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.2rem 0.65rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.badge-blue  { background: var(--color-blue-15); color: var(--color-primary); }
+.badge-gray  { background: #F1F5F9; color: #64748b; }
+.badge-green { background: #DCFCE7; color: #16a34a; }
+
+/* ── Forms ───────────────────────────────────────────────── */
+.form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+.form-grid .span-2 { grid-column: span 2; }
+
+/* ── Responsividade mobile ───────────────────────────────── */
+@media (max-width: 768px) {
+    .main-content {
+        margin-left: 0 !important;
+        padding: 4.5rem 1rem 1.5rem !important;
+    }
+    .page-header {
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: flex-start;
+    }
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
+    .form-grid .span-2 {
+        grid-column: span 1;
+    }
+    .search-input {
+        width: 100% !important;
+    }
+    .cards-grid {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+.form-group label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.form-group input,
+.form-group select,
+.form-group textarea {
+    padding: 0.625rem 0.875rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-light);
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    background: white;
+    color: var(--text-primary);
+}
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    border-color: var(--m3-accent);
+    box-shadow: 0 0 0 3px rgba(21, 71, 255, 0.08);
+}
+.form-group .hint {
+    font-size: 0.73rem;
+    color: var(--text-muted);
+}
+
+.form-section-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    grid-column: span 2;
+    padding-top: 0.75rem;
+    border-top: 1px solid #f1f5f9;
+    margin-top: 0.25rem;
+}
+
+/* ── Modal ───────────────────────────────────────────────── */
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    padding: 1rem;
+}
+
+.modal-card {
+    background: white;
+    border-radius: var(--radius-lg);
+    padding: 2rem;
+    width: 100%;
+    max-width: 700px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.22);
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+}
+.modal-header h2 {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.modal-footer {
+    display: flex;
+    align-items: center;
+    margin-top: 1.75rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid #f1f5f9;
+    gap: 0.75rem;
+}
+.modal-footer .actions-right {
+    display: flex;
+    gap: 0.75rem;
+    margin-left: auto;
+}
+
+/* ── Confirm Dialog ──────────────────────────────────────── */
+.confirm-card {
+    background: white;
+    border-radius: var(--radius-lg);
+    padding: 2rem;
+    width: 100%;
+    max-width: 420px;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.22);
+    text-align: center;
+}
+.confirm-card h3 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin: 0 0 0.5rem;
+    color: var(--text-primary);
+}
+.confirm-card p {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin: 0 0 1.5rem;
+    line-height: 1.5;
+}
+
+/* ── Toast ───────────────────────────────────────────────── */
+.toast-container {
+    position: fixed;
+    bottom: 2rem;
+    right: 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    z-index: 9999;
+    pointer-events: none;
+}
+.toast {
+    padding: 0.875rem 1.25rem;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    font-size: 0.875rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    animation: toastIn 0.3s ease;
+    pointer-events: auto;
+    min-width: 260px;
+}
+.toast-success { background: var(--color-primary); color: white; }
+.toast-error   { background: var(--color-alert); color: white; }
+
+@keyframes toastIn {
+    from { transform: translateX(110%); opacity: 0; }
+    to   { transform: translateX(0);    opacity: 1; }
+}
+
+/* ── Empty State ─────────────────────────────────────────── */
+.empty-state {
+    padding: 3rem 1rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+.empty-state i {
+    display: block;
+    margin: 0 auto 0.75rem;
+    opacity: 0.45;
+}
+
+/* ── Spinner ─────────────────────────────────────────────── */
+.spin { animation: spin 1s linear infinite; display: inline-block; }
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+/* ── Icon button (close) ─────────────────────────────────── */
+.btn-icon {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.25rem;
+    border-radius: 8px;
+    transition: color 0.2s, background 0.2s;
+}
+.btn-icon:hover { color: var(--text-primary); background: #f1f5f9; }
