@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Relatórios de Evento (M3)</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m3-shared.css">
+
+    <style>
+        .breadcrumb {
+            display: flex; align-items: center; gap: 0.4rem;
+            font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.35rem;
+        }
+        .breadcrumb span { color: var(--text-muted); }
+
+        .header-actions {
+            display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;
+        }
+
+        /* ── Seleção de evento ─────────────── */
+        .sel-section-title {
+            font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em;
+            text-transform: uppercase; color: var(--text-muted);
+            margin: 0 0 0.75rem 0.15rem;
+        }
+        .ev-select-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 0.85rem;
+            margin-bottom: 2rem;
+        }
+        .ev-select-card {
+            text-align: left;
+            background: white;
+            border: 1.5px solid var(--border-light);
+            border-radius: var(--radius-md);
+            padding: 0.9rem 1rem;
+            cursor: pointer;
+            transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+            display: flex; flex-direction: column; gap: 0.5rem;
+            font-family: inherit;
+        }
+        .ev-select-card:hover {
+            border-color: #1547FF;
+            box-shadow: 0 8px 26px rgba(21,71,255,0.10);
+            transform: translateY(-1px);
+        }
+        .ev-select-card.active {
+            border-color: #1547FF;
+            background: #f5f8ff;
+            box-shadow: 0 0 0 3px rgba(21,71,255,0.12);
+        }
+        .ev-select-title {
+            font-weight: 700; font-size: 0.92rem; color: var(--text-primary);
+            line-height: 1.25;
+        }
+        .ev-select-meta {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 0.5rem; flex-wrap: wrap;
+        }
+        .ev-select-date {
+            font-size: 0.8rem; color: var(--text-secondary);
+            display: flex; align-items: center; gap: 0.35rem;
+        }
+
+        /* ── Estado vazio do formulário ────── */
+        #form-empty {
+            border: 1.5px dashed var(--border-light);
+            border-radius: var(--radius-lg);
+            background: #fbfcfe;
+        }
+
+        /* ── Report form (copiado de evento-detalhe.html) ── */
+        .btn-remove {
+            width: 28px; height: 28px; border-radius: 8px;
+            border: 1px solid #fde8e8; background: #fff5f5; color: #FF5807;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.15s; flex-shrink: 0;
+        }
+        .btn-remove:hover { background: #FF5807; color: white; border-color: #FF5807; }
+
+        .relatorio-status-bar {
+            margin-bottom: 1.25rem;
+            display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem;
+        }
+        .rel-dynamic-list {
+            display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;
+        }
+        .rel-dynamic-row { display: flex; align-items: center; gap: 0.5rem; }
+        .rel-dynamic-row input { flex: 1; }
+        .rel-publico-row {
+            display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto;
+            gap: 0.5rem; align-items: center;
+        }
+        .rel-fotos-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+            gap: 0.6rem; margin-top: 0.5rem;
+        }
+        .rel-foto-thumb {
+            display: block; aspect-ratio: 1; border-radius: 10px; overflow: hidden;
+            border: 1px solid var(--border-light); background: #f8fafc;
+        }
+        .rel-foto-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .rel-foto-fallback {
+            width: 100%; height: 100%;
+            display: flex; align-items: center; justify-content: center;
+            color: var(--text-muted);
+        }
+
+        /* Bloco de evidência (link + galeria) por tipo */
+        .rel-evid-bloco {
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            padding: 1rem 1.1rem;
+            margin-bottom: 1rem;
+        }
+        .rel-evid-titulo {
+            font-weight: 700; font-size: 0.9rem;
+            color: var(--text-primary); margin-bottom: 0.85rem;
+        }
+        .rel-add-link {
+            text-decoration: none; display: inline-flex; align-items: center;
+            gap: 0.3rem; font-size: 0.82rem; font-weight: 600;
+            color: #1547FF; margin-top: 0.6rem;
+        }
+        .rel-link-row { display: flex; align-items: center; gap: 0.5rem; }
+        .rel-link-row input[type="text"] { flex: 1.1; min-width: 0; }
+        .rel-link-row input[type="url"]  { flex: 1.6; min-width: 0; }
+        .rel-add-link-btn { align-self: flex-start; margin-top: 0.5rem; }
+    </style>
+</head>
+<body>
+    <main class="main-content">
+        <header class="page-header">
+            <div>
+                <div class="breadcrumb">
+                    <span>Módulo III</span>
+                    <i data-lucide="chevron-right" style="width:14px;"></i>
+                    <span>Relatórios</span>
+                </div>
+                <h1>Relatórios de Evento</h1>
+                <p id="header-sub">Selecione um evento e preencha o relatório — sem passar pelo detalhe do evento.</p>
+            </div>
+            <div class="header-actions">
+                <div class="project-selector-container" title="Código interno do contrato (ex: IAC_24) — aparece no relatório mensal (Seção 1)">
+                    <i data-lucide="hash" style="width: 16px; color: var(--text-secondary);"></i>
+                    <input id="codigo-contrato-input" type="text" placeholder="Código do contrato"
+                           onchange="salvarCodigoContrato()"
+                           style="border:none;background:transparent;outline:none;font-size:0.85rem;color:var(--text-primary);width:150px;font-family:inherit;" disabled>
+                </div>
+                <div class="project-selector-container">
+                    <i data-lucide="folder-kanban" style="width: 18px; color: var(--text-secondary);"></i>
+                    <select id="project-selector">
+                        <option value="">Carregando projetos...</option>
+                    </select>
+                </div>
+            </div>
+        </header>
+
+        <!-- ── Seleção de evento ────────────────────────────────── -->
+        <div class="sel-section-title">Eventos do projeto</div>
+        <div id="ev-select-area"></div>
+
+        <!-- ── Estado vazio (nenhum evento selecionado) ─────────── -->
+        <div id="form-empty" class="empty-state" style="padding:3.5rem 1rem;">
+            <i data-lucide="file-text" style="width:40px;height:40px;opacity:0.4;"></i>
+            <div style="margin-top:1rem;font-size:1rem;font-weight:600;color:var(--text-primary);">Nenhum evento selecionado</div>
+            <div style="margin-top:0.4rem;font-size:0.875rem;">Selecione um evento acima para preencher ou visualizar o relatório.</div>
+        </div>
+
+        <!-- ── Formulário do relatório (mesmo markup da aba de detalhe) ── -->
+        <div id="form-wrap" style="display:none;">
+            <div id="form-evento-titulo" style="font-size:1.15rem;font-weight:800;color:var(--text-primary);margin-bottom:1rem;"></div>
+            <div class="glass-card">
+                <div class="relatorio-status-bar" id="relatorio-status-bar"></div>
+
+                <div class="form-group" style="margin-bottom:1.25rem;">
+                    <label>Horário (texto livre)</label>
+                    <textarea id="rel-horario-desc" rows="2" placeholder="Ex: Sábado das 13h às 17h e Domingo das 08h às 15h" style="resize:vertical;"></textarea>
+                </div>
+
+                <div class="form-group" style="margin-bottom:1.25rem;">
+                    <label>Resumo do evento</label>
+                    <textarea id="rel-resumo" rows="4" placeholder="Descreva brevemente o evento realizado..."></textarea>
+                </div>
+
+                <div class="form-group" style="margin-bottom:1.25rem;">
+                    <label>Quantitativo de atividades</label>
+                    <div id="rel-atividades-list" class="rel-dynamic-list"></div>
+                    <button type="button" class="btn-secondary" style="align-self:flex-start;margin-top:0.6rem;" onclick="addAtividadeLine()">
+                        <i data-lucide="plus" style="width:14px;"></i> Adicionar atividade
+                    </button>
+                </div>
+
+                <div class="form-group" style="margin-bottom:1.25rem;">
+                    <label>Quantitativo de público x meta estimada</label>
+                    <textarea id="rel-publico-meta" rows="5" placeholder="Texto livre, como no modelo. Ex:&#10;Sábado (16/05)&#10;Ingressos disponibilizados Parque Aberto: 2500 (598 retirados)&#10;Público total: 356" style="resize:vertical;"></textarea>
+                    <span class="hint">Uma linha por linha do documento. Pode incluir "Inscrição via forms", "Patrocinadores: …", etc.</span>
+                </div>
+
+                <div class="form-grid" style="margin-bottom:1.25rem;">
+                    <div class="form-group span-2">
+                        <label>Perfil do público-alvo</label>
+                        <textarea id="rel-perfil" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Ações de acessibilidade</label>
+                        <input type="text" id="rel-acessibilidade">
+                    </div>
+                    <div class="form-group">
+                        <label>Número de fornecedores contratados</label>
+                        <input type="text" id="rel-fornecedores" placeholder="Ex: 12 (considerando atrações)">
+                    </div>
+                    <div class="form-group">
+                        <label>Empregos temporários gerados</label>
+                        <input type="text" id="rel-empregos" placeholder="Ex: 25">
+                    </div>
+                    <div class="form-group">
+                        <label>Ações ambientais</label>
+                        <input type="text" id="rel-ambiental" placeholder="Não houve">
+                    </div>
+                    <div class="form-group span-2">
+                        <label>Desafios encontrados</label>
+                        <textarea id="rel-desafios" rows="3"></textarea>
+                    </div>
+                </div>
+
+                <!-- Links borderôs / listas de presença (vários, nomeados) -->
+                <div class="form-group" style="margin-bottom:1.5rem;">
+                    <label>Links — borderôs e listas de presença</label>
+                    <div id="rel-links-borderos-list" class="rel-dynamic-list"></div>
+                    <button type="button" class="btn-secondary rel-add-link-btn" onclick="addLinkRow('borderos')">
+                        <i data-lucide="plus" style="width:14px;"></i> Adicionar link
+                    </button>
+                </div>
+
+                <!-- Evidências: 3 blocos, cada um com seus links nomeados + galeria -->
+                <div class="rel-evid-bloco">
+                    <div class="rel-evid-titulo">Fotos, vídeos e comprovantes de execução</div>
+                    <div class="form-group" style="margin-bottom:0.75rem;">
+                        <label>Links — fotos/vídeos/comprovantes de execução</label>
+                        <div id="rel-links-execucao-list" class="rel-dynamic-list"></div>
+                        <button type="button" class="btn-secondary rel-add-link-btn" onclick="addLinkRow('execucao')">
+                            <i data-lucide="plus" style="width:14px;"></i> Adicionar link
+                        </button>
+                    </div>
+                    <div id="rel-fotos-execucao" class="rel-fotos-grid"></div>
+                    <a href="evidencias-m3.html" class="rel-add-evidencia rel-add-link"><i data-lucide="plus" style="width:13px;"></i> Adicionar evidências</a>
+                </div>
+
+                <div class="rel-evid-bloco">
+                    <div class="rel-evid-titulo">Fotos comprobatórias de ações de acessibilidade</div>
+                    <div class="form-group" style="margin-bottom:0.75rem;">
+                        <label>Links — fotos comprobatórias de acessibilidade</label>
+                        <div id="rel-links-acessibilidade-list" class="rel-dynamic-list"></div>
+                        <button type="button" class="btn-secondary rel-add-link-btn" onclick="addLinkRow('acessibilidade')">
+                            <i data-lucide="plus" style="width:14px;"></i> Adicionar link
+                        </button>
+                    </div>
+                    <div id="rel-fotos-acessibilidade" class="rel-fotos-grid"></div>
+                    <a href="evidencias-m3.html" class="rel-add-evidencia rel-add-link"><i data-lucide="plus" style="width:13px;"></i> Adicionar evidências</a>
+                </div>
+
+                <div class="rel-evid-bloco" style="margin-bottom:0;">
+                    <div class="rel-evid-titulo">Materiais de comunicação</div>
+                    <div class="form-group" style="margin-bottom:0.75rem;">
+                        <label>Links — materiais de comunicação</label>
+                        <div id="rel-links-materiais-list" class="rel-dynamic-list"></div>
+                        <button type="button" class="btn-secondary rel-add-link-btn" onclick="addLinkRow('materiais')">
+                            <i data-lucide="plus" style="width:14px;"></i> Adicionar link
+                        </button>
+                    </div>
+                    <div id="rel-fotos-comunicacao" class="rel-fotos-grid"></div>
+                    <a href="evidencias-m3.html" class="rel-add-evidencia rel-add-link"><i data-lucide="plus" style="width:13px;"></i> Adicionar evidências</a>
+                </div>
+
+                <div class="modal-footer">
+                    <div class="actions-right">
+                        <button class="btn-secondary" id="rel-salvar-btn" onclick="relSalvar()">
+                            <i data-lucide="save" style="width:15px;"></i> Salvar
+                        </button>
+                        <button class="btn-primary" id="rel-gerar-btn" onclick="relGerar()" disabled>
+                            <i data-lucide="file-text" style="width:15px;"></i> Gerar Relatório deste Evento
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper-m3.js?v=2"></script>
+    <script src="vendor/docx.umd.js"></script>
+    <script src="relatorio-docx.js"></script>
+    <script src="relatorio-evento.js"></script>
+    <script>
+        // ── Globais consumidas por relatorio-evento.js ──────────
+        let eventId  = null;
+        let evento   = null;
+
+        // ── Estado local desta tela ─────────────────────────────
+        let eventosCache = [];
+        let currentProjectId = null;
+
+        // ── Utilities ───────────────────────────────────────────
+        function esc(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+                .replace(/'/g,'&#39;');
+        }
+        function showToast(msg, type = 'success') {
+            const c = document.getElementById('toast-container');
+            const t = document.createElement('div');
+            t.className = `toast toast-${type}`;
+            t.innerHTML = `<i data-lucide="${type==='success'?'check-circle':'alert-circle'}" style="width:18px;flex-shrink:0;"></i><span>${esc(msg)}</span>`;
+            c.appendChild(t);
+            reIcons();
+            setTimeout(() => t.remove(), 4500);
+        }
+        function reIcons() { if (window.lucide) window.lucide.createIcons(); }
+        function fmtDate(d) {
+            if (!d) return '—';
+            try { return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR'); } catch { return d; }
+        }
+
+        // ── Init ────────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', async () => {
+            renderSidebarM3();
+            reIcons();
+
+            const sb = await initSupabase();
+            if (!sb) return;
+            const { data: { session } } = await sb.auth.getSession();
+            if (!session) { window.location.href = '../index.html#login'; return; }
+
+            await popularSeletorProjeto();
+        });
+
+        // ── Seletor de projeto (mesmo padrão de eventos.html) ───
+        async function popularSeletorProjeto() {
+            const selector = document.getElementById('project-selector');
+            let projects = [];
+            try {
+                projects = await getProjectsM3();
+            } catch (err) {
+                console.error('[relatorios] erro ao buscar projetos:', err);
+            }
+
+            if (!projects.length) {
+                selector.innerHTML = '<option value="">Nenhum projeto encontrado</option>';
+                showNoProjectState();
+                return;
+            }
+
+            selector.innerHTML = '<option value="">Selecione um projeto</option>' +
+                projects.map(p => `<option value="${p.id}">${p.pronac ? p.pronac + ' — ' : ''}${p.nome}</option>`).join('');
+
+            const saved = ProjectManagerM3.getSelected();
+            const initialId = (saved && projects.some(p => p.id === saved)) ? saved : projects[0].id;
+
+            selector.value = initialId;
+            ProjectManagerM3.setSelected(initialId);
+            await selecionarProjeto(initialId);
+
+            selector.onchange = async (e) => {
+                const pid = e.target.value;
+                if (!pid) { showNoProjectState(); return; }
+                ProjectManagerM3.setSelected(pid);
+                await selecionarProjeto(pid);
+            };
+        }
+
+        function showNoProjectState() {
+            resetSelecao();
+            currentProjectId = null;
+            const codInput = document.getElementById('codigo-contrato-input');
+            codInput.value = '';
+            codInput.disabled = true;
+            document.getElementById('ev-select-area').innerHTML = `
+                <div class="empty-state" style="padding:3rem 1rem;">
+                    <i data-lucide="folder-open" style="width:44px;height:44px;opacity:0.4;"></i>
+                    <div style="margin-top:1rem;font-size:0.95rem;font-weight:600;color:var(--text-primary);">Nenhum projeto cadastrado</div>
+                    <div style="margin-top:0.4rem;font-size:0.875rem;">Crie ou importe um projeto no Módulo II para gerar relatórios.</div>
+                </div>`;
+            reIcons();
+        }
+
+        async function selecionarProjeto(pid) {
+            resetSelecao();
+            currentProjectId = pid;
+            const sb = await initSupabase();
+            const { data: proj } = await sb.from('projects')
+                .select('pronac, nome, codigo_projeto_contrato').eq('id', pid).maybeSingle();
+            if (proj) {
+                const label = [proj.pronac, proj.nome].filter(Boolean).join(' — ');
+                document.getElementById('header-sub').textContent =
+                    `Relatórios dos eventos do projeto ${label}.`;
+            }
+            const codInput = document.getElementById('codigo-contrato-input');
+            codInput.value = proj?.codigo_projeto_contrato || '';
+            codInput.disabled = false;
+            await loadEventosList(pid);
+        }
+
+        // Grava o código interno do contrato no projeto atual (1× por projeto).
+        async function salvarCodigoContrato() {
+            if (!currentProjectId) return;
+            const input = document.getElementById('codigo-contrato-input');
+            const valor = input.value.trim() || null;
+            try {
+                const sb = await initSupabase();
+                const { error } = await sb.from('projects')
+                    .update({ codigo_projeto_contrato: valor }).eq('id', currentProjectId);
+                if (error) throw error;
+                showToast('Código do contrato salvo.');
+            } catch (err) {
+                showToast('Erro ao salvar código: ' + (err.message || ''), 'error');
+            }
+        }
+
+        // ── Lista de eventos com badge de status do relatório ───
+        async function loadEventosList(pid) {
+            const area = document.getElementById('ev-select-area');
+            area.innerHTML = `<div class="empty-state" style="padding:2rem;"><i data-lucide="loader" class="spin" style="width:26px;"></i><div style="margin-top:0.5rem;">Carregando eventos…</div></div>`;
+            reIcons();
+            try {
+                eventosCache = await getEventosByProject(pid);
+                renderEventosList();
+            } catch (err) {
+                console.error(err);
+                area.innerHTML = `<div class="empty-state" style="color:#FF5807;padding:2rem;"><i data-lucide="alert-circle" style="width:26px;"></i><div style="margin-top:0.5rem;">Erro ao carregar eventos: ${esc(err.message)}</div></div>`;
+                reIcons();
+            }
+        }
+
+        function renderEventosList() {
+            const area = document.getElementById('ev-select-area');
+            if (!eventosCache.length) {
+                area.innerHTML = `<div class="empty-state" style="padding:2.5rem 1rem;">
+                    <i data-lucide="calendar-x" style="width:34px;"></i>
+                    <div style="margin-top:0.75rem;">Nenhum evento cadastrado neste projeto.<br>Crie um evento na tela de <a href="eventos.html" style="color:#1547FF;font-weight:600;text-decoration:none;">Eventos</a> primeiro.</div>
+                </div>`;
+                reIcons();
+                return;
+            }
+            area.innerHTML = `<div class="ev-select-grid">${eventosCache.map(cardEvento).join('')}</div>`;
+            reIcons();
+        }
+
+        function cardEvento(ev) {
+            const st    = ev.relatorio_status || 'pendente';
+            const label = REL_STATUS_LABEL[st] || st;
+            const cls   = REL_STATUS_CLS[st]   || 'badge-gray';
+            const active = ev.id === eventId ? ' active' : '';
+            return `
+                <button type="button" class="ev-select-card${active}" onclick="selecionarEvento('${esc(ev.id)}')">
+                    <div class="ev-select-title">${esc(ev.titulo)}</div>
+                    <div class="ev-select-meta">
+                        <span class="ev-select-date">
+                            <i data-lucide="calendar" style="width:13px;color:#94a3b8;"></i>
+                            ${fmtDate(ev.data_evento)}
+                        </span>
+                        <span class="badge ${cls}">${esc(label)}</span>
+                    </div>
+                </button>`;
+        }
+
+        // ── Selecionar evento → carregar formulário ─────────────
+        function selecionarEvento(id) {
+            const ev = eventosCache.find(e => e.id === id);
+            if (!ev) return;
+            eventId = id;
+            evento  = ev;
+
+            document.getElementById('form-empty').style.display = 'none';
+            document.getElementById('form-wrap').style.display  = '';
+            document.getElementById('form-evento-titulo').textContent = ev.titulo || 'Relatório do evento';
+
+            renderEventosList();   // re-highlight
+            renderRelatorio();     // compartilhada (relatorio-evento.js)
+
+            document.getElementById('form-wrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function resetSelecao() {
+            eventId = null;
+            evento  = null;
+            const fw = document.getElementById('form-wrap');
+            const fe = document.getElementById('form-empty');
+            if (fw) fw.style.display = 'none';
+            if (fe) fe.style.display = '';
+        }
+
+        // ── Wrappers Salvar / Gerar (atualizam o badge da lista) ─
+        async function relSalvar() {
+            await salvarRelatorioEvento();   // compartilhada; reatribui `evento`
+            syncSelecionadoNaLista();
+        }
+        async function relGerar() {
+            await gerarRelatorioEvento();    // compartilhada; muda evento.relatorio_status
+            syncSelecionadoNaLista();
+        }
+        function syncSelecionadoNaLista() {
+            if (!eventId) return;
+            const i = eventosCache.findIndex(e => e.id === eventId);
+            if (i >= 0) eventosCache[i] = evento;   // `evento` é a referência global atual
+            renderEventosList();
+        }
+    </script>
+</body>
+</html>

@@ -4,6 +4,11 @@ const cors = require('cors');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 const { Resend } = require('resend');
+const {
+    Document, Packer, Paragraph, TextRun, ImageRun, Table, TableRow, TableCell,
+    WidthType, ShadingType, PageBreak, AlignmentType, HeadingLevel, ExternalHyperlink,
+} = require('docx');
+const { imageSize } = require('image-size');
 
 // ─── Resend ───────────────────────────────────────────────────────────────────
 const resend = process.env.RESEND_API_KEY
@@ -1457,6 +1462,691 @@ app.post('/api/m2/cron-alerta-guias', async (req, res) => {
     } catch (err) {
         console.error('[cron-alerta-guias] Erro:', err.message);
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PUT /api/m3/eventos/:id/encerrar
+// Encerra um evento M3. Bloqueia se não houver lista de presença.
+// ─────────────────────────────────────────────────────────────────────────────
+app.put('/api/m3/eventos/:id/encerrar', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const { data: evento, error } = await supabase
+            .from('distribution_events')
+            .select('*, distribution_attendance(*)')
+            .eq('id', id)
+            .single();
+
+        if (error || !evento)
+            return res.status(404).json({ error: 'Evento não encontrado' });
+
+        if (!evento.distribution_attendance.length)
+            return res.status(400).json({
+                error: 'Evento sem lista de presença — encerramento bloqueado',
+            });
+
+        const { count: pendentes } = await supabase
+            .from('physical_evidences')
+            .select('id', { count: 'exact', head: true })
+            .eq('distribution_event_id', id)
+            .eq('status_validacao', 'pendente');
+
+        await supabase
+            .from('distribution_events')
+            .update({ status: 'encerrado', updated_at: new Date() })
+            .eq('id', id);
+
+        return res.json({
+            sucesso: true,
+            evidencias_pendentes_aprovacao: pendentes || 0,
+            mensagem: pendentes > 0
+                ? `Evento encerrado. ${pendentes} evidência(s) aguardam aprovação no M2.`
+                : 'Evento encerrado com sucesso.',
+        });
+    } catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/m3/pwa/eventos?q=termo
+// Lista eventos da organizacao do usuario para busca por nome no PWA de campo
+// (o operador nao tem como saber o UUID do evento, so pesquisar pelo titulo).
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/api/m3/pwa/eventos', requireAuth, async (req, res) => {
+    try {
+        const orgId = req.user.app_metadata?.org_id;
+        if (!orgId) return res.status(403).json({ error: 'Usuário sem organização vinculada.' });
+
+        const q = (req.query.q || '').trim();
+        let query = supabase
+            .from('distribution_events')
+            .select('id, titulo, data_evento, nome_local, cidade, estado, status')
+            .eq('organization_id', orgId)
+            .order('data_evento', { ascending: false })
+            .limit(30);
+
+        if (q) query = query.ilike('titulo', `%${q}%`);
+
+        const { data: eventos, error } = await query;
+        if (error) throw error;
+
+        return res.json(eventos || []);
+    } catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/m3/pwa/evento/:id
+// Pré-carrega evento completo para uso offline no PWA de campo.
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/api/m3/pwa/evento/:id', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { data: evento, error } = await supabase
+            .from('distribution_events')
+            .select(`
+                *,
+                distribution_event_os(*, distribution_os(*)),
+                distribution_event_pa(*, distribution_pa(*)),
+                distribution_guests(*)
+            `)
+            .eq('id', id)
+            .single();
+
+        if (error || !evento)
+            return res.status(404).json({ error: 'Evento não encontrado' });
+
+        return res.json(evento);
+    } catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/m3/pwa/sync
+// Recebe check-ins offline e registra no audit_log.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/api/m3/pwa/sync', requireAuth, async (req, res) => {
+    try {
+        const { checkins = [] } = req.body;
+        if (!checkins.length) return res.json({ processados: 0, erros: [] });
+
+        const resultados = [];
+        const erros = [];
+
+        for (const checkin of checkins) {
+            try {
+                await supabase.from('audit_log').insert({
+                    tabela:       'distribution_guests',
+                    registro_id:  checkin.guest_id || null,
+                    campo:        'checkin_pwa',
+                    valor_novo:   JSON.stringify({
+                        event_id:      checkin.event_id,
+                        nome_completo: checkin.nome_completo,
+                        org_nome:      checkin.org_nome,
+                        tipo:          checkin.tipo,
+                        timestamp:     checkin.timestamp,
+                    }),
+                    alterado_por: req.user?.id || null,
+                    origem:       'pwa_offline',
+                });
+                resultados.push({ id: checkin.id, sucesso: true });
+            } catch (e) {
+                erros.push({ id: checkin.id, erro: e.message });
+            }
+        }
+
+        return res.json({
+            processados: resultados.length,
+            erros,
+            sucesso: erros.length === 0,
+        });
+    } catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RELATÓRIOS M3 — geração de .docx (relatório de evento + relatório mensal)
+// Não há geração de .docx reaproveitável no repo (o relatório do M2 é montado
+// por um webhook n8n externo) — construído do zero com a lib `docx`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Formata uma data pura (YYYY-MM-DD) sem passar por new Date() — evita o bug
+// de fuso horário já conhecido em formatDate()/toLocaleDateString().
+function fmtDataBRRelatorio(dateStr) {
+    if (!dateStr || typeof dateStr !== 'string') return '—';
+    const [ano, mes, dia] = dateStr.split('-');
+    if (!ano || !mes || !dia) return dateStr;
+    return `${dia}/${mes}/${ano}`;
+}
+
+function relHeading(text, level) {
+    return new Paragraph({ text, heading: level, spacing: { before: 240, after: 120 } });
+}
+
+function relBodyParagraph(text) {
+    return new Paragraph({ children: [new TextRun(String(text))], spacing: { after: 120 } });
+}
+
+// Um Paragraph por linha — nunca \n dentro de um único Paragraph.
+function relMultilineParagraphs(text) {
+    if (!text) return [relBodyParagraph('—')];
+    const linhas = String(text).split('\n').filter(l => l.trim());
+    return linhas.length ? linhas.map(relBodyParagraph) : [relBodyParagraph('—')];
+}
+
+function relLabelValueParagraph(label, value) {
+    return new Paragraph({
+        children: [
+            new TextRun({ text: `${label}: `, bold: true }),
+            new TextRun(value != null && value !== '' ? String(value) : '—'),
+        ],
+        spacing: { after: 80 },
+    });
+}
+
+// Rótulo em negrito + link clicável de verdade (ExternalHyperlink). Se o link
+// estiver vazio, mantém a linha com "—" (não omite — preserva a estrutura do
+// template mesmo incompleto).
+function relLinkLabelParagraph(label, url) {
+    const u = url != null && String(url).trim() ? String(url).trim() : null;
+    const valueRun = u
+        ? new ExternalHyperlink({ link: u, children: [new TextRun({ text: u, style: 'Hyperlink' })] })
+        : new TextRun('—');
+    return new Paragraph({
+        children: [new TextRun({ text: `${label}: `, bold: true }), valueRun],
+        spacing: { after: 80 },
+    });
+}
+
+// Rótulo em negrito (linha própria) + corpo multilinha (um Paragraph por linha).
+function relCampoLongo(label, value) {
+    return [
+        new Paragraph({ children: [new TextRun({ text: `${label}:`, bold: true })], spacing: { before: 160, after: 60 } }),
+        ...relMultilineParagraphs(value),
+    ];
+}
+
+const REL_DIAS_SEMANA = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+// Dia da semana em pt-BR a partir de 'YYYY-MM-DD' sem bug de fuso (UTC).
+function relDiaSemana(dateStr) {
+    if (!dateStr || typeof dateStr !== 'string') return '';
+    const [a, m, d] = dateStr.split('-').map(Number);
+    if (!a || !m || !d) return '';
+    return REL_DIAS_SEMANA[new Date(Date.UTC(a, m - 1, d)).getUTCDay()] || '';
+}
+
+// "Quantitativo de público x meta estimada" — um bloco de texto por dia.
+function relPublicoPorDiaTexto(rows) {
+    if (!Array.isArray(rows) || !rows.length) return [relBodyParagraph('—')];
+    return rows.map(r => {
+        const dia = relDiaSemana(r.data);
+        const dm  = fmtDataBRRelatorio(r.data).slice(0, 5); // DD/MM
+        const disp = r.disponibilizado ?? 0;
+        const ret  = r.retirado ?? 0;
+        const pres = r.presente ?? 0;
+        const prefixo = dia ? `${dia} (${dm})` : (dm !== '—/' ? `(${dm})` : 'Dia');
+        return relBodyParagraph(`${prefixo}: ingressos disponibilizados ${disp} (${ret} retirados). Público total: ${pres}`);
+    });
+}
+
+// Galeria de imagens de UM tipo de evidência (rótulo + imagens embutidas).
+// Se não houver imagens, mantém o rótulo e escreve "—".
+function relGaleriaImagens(label, imagens) {
+    const out = [new Paragraph({ children: [new TextRun({ text: `${label}:`, bold: true })], spacing: { before: 160, after: 80 } })];
+    if (!imagens.length) {
+        out.push(relBodyParagraph('—'));
+        return out;
+    }
+    for (const img of imagens) {
+        out.push(new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 80 },
+            children: [new ImageRun({ data: img.buffer, transformation: { width: img.width, height: img.height }, type: img.type })],
+        }));
+        if (img.descricao) {
+            out.push(new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 160 },
+                children: [new TextRun({ text: img.descricao, italics: true, size: 18 })],
+            }));
+        }
+    }
+    return out;
+}
+
+// Seção 3 (financeiro): "{nome} - R$ {valor}", como hyperlink para a planilha
+// quando link_planilha existir, texto simples quando vazio.
+function relCustoLinha(c) {
+    const texto = `${c.nome_evento || '—'} - R$ ${(Number(c.valor) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+    const link = c.link_planilha != null && String(c.link_planilha).trim() ? String(c.link_planilha).trim() : null;
+    if (link) {
+        return new Paragraph({
+            children: [new ExternalHyperlink({ link, children: [new TextRun({ text: texto, style: 'Hyperlink' })] })],
+            spacing: { after: 120 },
+        });
+    }
+    return relBodyParagraph(texto);
+}
+
+async function getEvidenciasDoEventoM3(eventId) {
+    const { data, error } = await supabase
+        .from('physical_evidences')
+        .select('*')
+        .eq('distribution_event_id', eventId)
+        .order('criado_em', { ascending: false });
+    if (error) throw error;
+    return data || [];
+}
+
+// Baixa as evidências-imagem do evento (service role bypassa RLS) e devolve
+// os buffers já dimensionados preservando a proporção real de cada foto.
+async function baixarImagensEvidenciasM3(evidencias) {
+    const imagens = [];
+    const MAX_LARGURA_PX = 420;
+    for (const ev of evidencias) {
+        if (!ev.file_path || !(ev.mime_type || '').startsWith('image/')) continue;
+        try {
+            const { data: blob, error } = await supabase.storage
+                .from('physical-evidences')
+                .download(ev.file_path.trim());
+            if (error || !blob) continue;
+            const buffer = Buffer.from(await blob.arrayBuffer());
+            const dim = imageSize(buffer);
+            const tipo = dim.type === 'jpeg' ? 'jpg' : dim.type;
+            if (!['jpg', 'png', 'gif', 'bmp'].includes(tipo)) continue;
+            const escala = dim.width > MAX_LARGURA_PX ? MAX_LARGURA_PX / dim.width : 1;
+            imagens.push({
+                buffer,
+                width: Math.round(dim.width * escala),
+                height: Math.round(dim.height * escala),
+                type: tipo,
+                descricao: ev.descricao || ev.file_name || '',
+                tipoEvidencia: ev.tipo_evidencia || 'outros',
+            });
+        } catch (err) {
+            console.warn('[RELATORIO-M3] Falha ao baixar evidência', ev.id, err.message);
+        }
+    }
+    return imagens;
+}
+
+function relTabelaPublicoPorDia(rows) {
+    if (!Array.isArray(rows) || !rows.length) return [relBodyParagraph('Não informado.')];
+    const colWidths = [2500, 2200, 2200, 2200]; // DXA
+    const headerRow = new TableRow({
+        children: ['Data', 'Disponibilizado', 'Retirado', 'Presente'].map((h, i) => new TableCell({
+            width: { size: colWidths[i], type: WidthType.DXA },
+            shading: { type: ShadingType.CLEAR, fill: 'E3E8FF' },
+            children: [new Paragraph({ children: [new TextRun({ text: h, bold: true })] })],
+        })),
+    });
+    const bodyRows = rows.map(r => new TableRow({
+        children: [
+            fmtDataBRRelatorio(r.data),
+            String(r.disponibilizado ?? '—'),
+            String(r.retirado ?? '—'),
+            String(r.presente ?? '—'),
+        ].map((v, i) => new TableCell({
+            width: { size: colWidths[i], type: WidthType.DXA },
+            children: [new Paragraph(v)],
+        })),
+    }));
+    return [new Table({
+        width: { size: colWidths.reduce((a, b) => a + b, 0), type: WidthType.DXA },
+        columnWidths: colWidths,
+        rows: [headerRow, ...bodyRows],
+    })];
+}
+
+function relTabelaComunicacao(relatorio) {
+    const linhas = [
+        ['Seguidores (total)', relatorio.comunicacao_seguidores_total],
+        ['Novos seguidores no mês', relatorio.comunicacao_novos_seguidores],
+        ['Interações', relatorio.comunicacao_interacoes],
+        ['Visualizações', relatorio.comunicacao_visualizacoes],
+        ['Alcance', relatorio.comunicacao_alcance],
+        ['Matérias (quantidade)', relatorio.comunicacao_materias_qtd],
+        ['Matérias positivas (%)', relatorio.comunicacao_materias_positivas_pct],
+        ['Retorno em mídia (R$)', relatorio.comunicacao_retorno_midia_valor != null
+            ? Number(relatorio.comunicacao_retorno_midia_valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
+            : null],
+    ];
+    const colWidths = [4500, 3500];
+    const rows = linhas.map(([label, valor]) => new TableRow({
+        children: [
+            new TableCell({
+                width: { size: colWidths[0], type: WidthType.DXA },
+                shading: { type: ShadingType.CLEAR, fill: 'F1F5F9' },
+                children: [new Paragraph({ children: [new TextRun({ text: label, bold: true })] })],
+            }),
+            new TableCell({
+                width: { size: colWidths[1], type: WidthType.DXA },
+                children: [new Paragraph(valor != null && valor !== '' ? String(valor) : '—')],
+            }),
+        ],
+    }));
+    return [new Table({
+        width: { size: colWidths.reduce((a, b) => a + b, 0), type: WidthType.DXA },
+        columnWidths: colWidths,
+        rows,
+    })];
+}
+
+// Seção 2 completa de UM evento — reaproveitada no relatório avulso
+// e repetida por evento no relatório mensal consolidado. Segue a ORDEM EXATA
+// do template real da Animus (19 itens).
+//   numeroSecao : "2.1", "2.2"… no mensal; null no avulso.
+//   numeroEvento: 1, 2…       usado no título "EVENTO NN" do mensal.
+async function buildSecaoEventoM3(evento, numeroSecao, numeroEvento) {
+    const evidencias = await getEvidenciasDoEventoM3(evento.id);
+    const imagens = await baixarImagensEvidenciasM3(evidencias);
+
+    // 3 galerias distintas, filtradas por tipo_evidencia.
+    const galExecucao      = imagens.filter(i => i.tipoEvidencia === 'foto_evento');
+    const galAcessibilidade = imagens.filter(i => i.tipoEvidencia === 'acessibilidade');
+    const galComunicacao   = imagens.filter(i => i.tipoEvidencia === 'peca_marketing');
+
+    const children = [];
+
+    // 1. Título numerado "2.X EVENTO NN"
+    const tituloSecao = numeroSecao
+        ? `${numeroSecao} EVENTO ${String(numeroEvento || 1).padStart(2, '0')}`
+        : 'EVENTO';
+    children.push(relHeading(tituloSecao, HeadingLevel.HEADING_2));
+
+    // 2. Nome do evento
+    children.push(relLabelValueParagraph('Nome do evento', evento.titulo));
+
+    // 3. Data | Horário (texto livre) | Local de realização
+    children.push(relLabelValueParagraph('Data', fmtDataBRRelatorio(evento.data_evento)));
+    children.push(relLabelValueParagraph('Horário',
+        evento.horario_descricao || (evento.horario ? String(evento.horario).slice(0, 5) : null)));
+    children.push(relLabelValueParagraph('Local de realização',
+        [evento.nome_local, evento.cidade, evento.estado].filter(Boolean).join(' — ')));
+
+    // 4. Resumo do evento
+    children.push(...relCampoLongo('Resumo do evento', evento.resumo_evento));
+
+    // 5. Quantitativo de atividades incluídas no evento
+    children.push(...relCampoLongo('Quantitativo de atividades incluídas no evento', evento.quantitativo_atividades));
+
+    // 6. Quantitativo de público x meta estimada (blocos de texto por dia)
+    children.push(new Paragraph({ children: [new TextRun({ text: 'Quantitativo de público x meta estimada:', bold: true })], spacing: { before: 160, after: 60 } }));
+    children.push(...relPublicoPorDiaTexto(evento.publico_por_dia));
+
+    // 7. Perfil do público-alvo
+    children.push(...relCampoLongo('Perfil do público-alvo', evento.perfil_publico));
+
+    // 8. Link — borderôs e listas de presença
+    children.push(relLinkLabelParagraph('Link aberto para borderôs e listas de presença', evento.link_borderos));
+
+    // 9. Link — fotos, vídeos e comprovantes de execução
+    children.push(relLinkLabelParagraph('Link aberto para fotos, vídeos e comprovantes de execução', evento.link_fotos_execucao));
+
+    // 10. Galeria — fotos/vídeos/comprovantes de execução (foto_evento)
+    children.push(...relGaleriaImagens('Fotos, vídeos e comprovantes de execução', galExecucao));
+
+    // 11. Ações de Acessibilidade
+    children.push(...relCampoLongo('Ações de Acessibilidade', evento.acoes_acessibilidade));
+
+    // 12. Link — fotos comprobatórias de acessibilidade
+    children.push(relLinkLabelParagraph('Link aberto para fotos comprobatórias de ações de Acessibilidade', evento.link_fotos_acessibilidade));
+
+    // 13. Galeria — fotos comprobatórias de acessibilidade (acessibilidade)
+    children.push(...relGaleriaImagens('Fotos comprobatórias de ações de Acessibilidade', galAcessibilidade));
+
+    // 14. Link — materiais de comunicação
+    children.push(relLinkLabelParagraph('Link aberto para materiais de comunicação', evento.link_materiais_comunicacao));
+
+    // 15. Galeria — materiais de comunicação (peca_marketing)
+    children.push(...relGaleriaImagens('Materiais de comunicação', galComunicacao));
+
+    // 16. Número de fornecedores contratados
+    children.push(relLabelValueParagraph('Número de fornecedores contratados', evento.numero_fornecedores));
+
+    // 17. Quantidade de empregos temporários gerados
+    children.push(relLabelValueParagraph('Quantidade de empregos temporários gerados', evento.empregos_gerados));
+
+    // 18. Ocorreram ações ambientais no evento? Quais?
+    children.push(...relCampoLongo('Ocorreram ações ambientais no evento? Quais?', evento.acoes_ambientais));
+
+    // 19. Desafios encontrados e possíveis soluções
+    children.push(...relCampoLongo('Desafios encontrados e possíveis soluções', evento.desafios_evento));
+
+    return children;
+}
+
+async function uploadRelatorioDocxM3(buffer, projectId, filename) {
+    const uuid = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const filePath = `${projectId}/${uuid}/${filename}`;
+    const { error } = await supabase.storage.from('reports').upload(filePath, buffer, {
+        contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        upsert: true,
+    });
+    if (error) throw new Error('Falha no upload do relatório: ' + error.message);
+    return filePath;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/m3/relatorio/evento/:eventId
+// Gera o relatório .docx de UM evento (Seção 2 completa).
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/api/m3/relatorio/evento/:eventId', requireAuth, async (req, res) => {
+    try {
+        const { eventId } = req.params;
+
+        const { data: evento, error } = await supabase
+            .from('distribution_events')
+            .select('*')
+            .eq('id', eventId)
+            .single();
+        if (error || !evento) return res.status(404).json({ error: 'Evento não encontrado.' });
+
+        if (!(await userCanAccessProject(req.user.id, evento.project_id))) {
+            return res.status(403).json({ error: 'Acesso negado ao projeto.' });
+        }
+
+        const { data: projeto } = await supabase
+            .from('projects')
+            .select('nome, pronac')
+            .eq('id', evento.project_id)
+            .maybeSingle();
+
+        const secaoEvento = await buildSecaoEventoM3(evento, null);
+
+        const doc = new Document({
+            sections: [{
+                children: [
+                    new Paragraph({ text: 'RELATÓRIO DE EVENTO', heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER, spacing: { after: 120 } }),
+                    new Paragraph({ text: evento.titulo, heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER, spacing: { after: 80 } }),
+                    relLabelValueParagraph('Projeto', projeto ? `${projeto.nome} (PRONAC ${projeto.pronac})` : '—'),
+                    relLabelValueParagraph('Data', fmtDataBRRelatorio(evento.data_evento)),
+                    new Paragraph({ children: [new PageBreak()] }),
+                    ...secaoEvento,
+                ],
+            }],
+        });
+
+        const buffer = await Packer.toBuffer(doc);
+        const filePath = await uploadRelatorioDocxM3(buffer, evento.project_id, `relatorio-evento-${eventId}.docx`);
+
+        await supabase.from('distribution_events').update({
+            relatorio_status: 'gerado',
+            relatorio_evento_file_path: filePath,
+            relatorio_evento_gerado_em: new Date(),
+        }).eq('id', eventId);
+
+        const { data: signed, error: signErr } = await supabase.storage
+            .from('reports')
+            .createSignedUrl(filePath.trim(), 3600);
+        if (signErr) throw new Error('Falha ao gerar link de download: ' + signErr.message);
+
+        return res.json({ success: true, path: filePath, url: signed.signedUrl });
+    } catch (err) {
+        console.error('[RELATORIO-EVENTO-M3] Erro:', err.message);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/m3/relatorio/periodo
+// Gera o relatório mensal consolidado (.docx) com todos os eventos do período.
+// Body: { project_id, mes_referencia }  (mes_referencia = 'YYYY-MM-01')
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/api/m3/relatorio/periodo', requireAuth, async (req, res) => {
+    try {
+        const { project_id, mes_referencia } = req.body || {};
+        if (!project_id || !mes_referencia) {
+            return res.status(400).json({ error: 'project_id e mes_referencia são obrigatórios.' });
+        }
+        if (!(await userCanAccessProject(req.user.id, project_id))) {
+            return res.status(403).json({ error: 'Acesso negado ao projeto.' });
+        }
+
+        const { data: relatorio, error: relErr } = await supabase
+            .from('distribution_monthly_reports')
+            .select('*')
+            .eq('project_id', project_id)
+            .eq('mes_referencia', mes_referencia)
+            .maybeSingle();
+        if (relErr) throw relErr;
+        if (!relatorio) {
+            return res.status(404).json({ error: 'Finalize o rascunho antes de gerar o relatório final.' });
+        }
+
+        const { data: projeto } = await supabase
+            .from('projects')
+            .select('nome, pronac, codigo_projeto_contrato')
+            .eq('id', project_id)
+            .maybeSingle();
+
+        // Recalcula o período no servidor (não confia em lista vinda do cliente).
+        const [ano, mes] = mes_referencia.split('-');
+        const proximoMes = mes === '12'
+            ? `${Number(ano) + 1}-01-01`
+            : `${ano}-${String(Number(mes) + 1).padStart(2, '0')}-01`;
+
+        const { data: eventos, error: evErr } = await supabase
+            .from('distribution_events')
+            .select('*')
+            .eq('project_id', project_id)
+            .gte('data_evento', mes_referencia)
+            .lt('data_evento', proximoMes)
+            .order('data_evento', { ascending: true });
+        if (evErr) throw evErr;
+
+        const custos = Array.isArray(relatorio.custos_por_evento) ? relatorio.custos_por_evento : [];
+        const totalCustos = custos.reduce((s, c) => s + (Number(c.valor) || 0), 0);
+
+        const secoesEventos = [];
+        for (let i = 0; i < (eventos || []).length; i++) {
+            secoesEventos.push(...(await buildSecaoEventoM3(eventos[i], `2.${i + 1}`, i + 1)));
+            secoesEventos.push(new Paragraph({ children: [new PageBreak()] }));
+        }
+
+        const children = [
+            new Paragraph({ text: 'RELATÓRIO DE ATIVIDADES', heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER, spacing: { after: 80 } }),
+            new Paragraph({ text: projeto ? `${projeto.nome} (PRONAC ${projeto.pronac})` : '', alignment: AlignmentType.CENTER, spacing: { after: 40 } }),
+            new Paragraph({ text: `Período: ${fmtDataBRRelatorio(mes_referencia)}`, alignment: AlignmentType.CENTER, spacing: { after: 240 } }),
+
+            relHeading('1. Identificação do Especialista', HeadingLevel.HEADING_1),
+            relLabelValueParagraph('Nome', relatorio.especialista_nome),
+            relLabelValueParagraph('Função', relatorio.especialista_funcao),
+            relLabelValueParagraph('Projeto', projeto && projeto.codigo_projeto_contrato),
+            relLabelValueParagraph('Projeto de atuação', projeto && projeto.nome),
+
+            new Paragraph({ children: [new PageBreak()] }),
+            relHeading('2. Realizações', HeadingLevel.HEADING_1),
+            ...secoesEventos,
+
+            relHeading('3. Resultado Financeiro', HeadingLevel.HEADING_1),
+            ...(custos.length
+                ? custos.map(relCustoLinha)
+                : [relBodyParagraph('Nenhum custo informado.')]),
+            new Paragraph({
+                children: [new TextRun({ text: `Custo total: R$ ${totalCustos.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, bold: true })],
+                spacing: { before: 120, after: 240 },
+            }),
+
+            relHeading('4. Principais Desafios do Período', HeadingLevel.HEADING_1),
+            ...relMultilineParagraphs(relatorio.desafios_periodo),
+
+            relHeading('5. Gerenciamento de Equipe', HeadingLevel.HEADING_1),
+            ...relMultilineParagraphs(relatorio.gerenciamento_equipe),
+
+            relHeading('6. Dados Gerais de Comunicação', HeadingLevel.HEADING_1),
+            ...relTabelaComunicacao(relatorio),
+
+            new Paragraph({ children: [new PageBreak()] }),
+            relHeading('Assinatura', HeadingLevel.HEADING_1),
+            relBodyParagraph(relatorio.assinatura_cidade_data || '—'),
+            relBodyParagraph(relatorio.assinatura_nome || '—'),
+            relBodyParagraph(relatorio.assinatura_cargo || '—'),
+            relBodyParagraph(relatorio.assinatura_local_projeto || '—'),
+        ];
+
+        const doc = new Document({ sections: [{ children }] });
+        const buffer = await Packer.toBuffer(doc);
+        const filePath = await uploadRelatorioDocxM3(buffer, project_id, `relatorio-mensal-${mes_referencia}.docx`);
+
+        await supabase.from('distribution_monthly_reports').update({
+            relatorio_file_path: filePath,
+            relatorio_gerado_em: new Date(),
+            atualizado_em: new Date(),
+        }).eq('id', relatorio.id);
+
+        const { data: signed, error: signErr } = await supabase.storage
+            .from('reports')
+            .createSignedUrl(filePath.trim(), 3600);
+        if (signErr) throw new Error('Falha ao gerar link de download: ' + signErr.message);
+
+        return res.json({ success: true, path: filePath, url: signed.signedUrl });
+    } catch (err) {
+        console.error('[RELATORIO-PERIODO-M3] Erro:', err.message);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/admin/usuarios/operador', requireAuth, async (req, res) => {
+    try {
+        const callerRole = req.user?.app_metadata?.role
+                        || req.user?.user_metadata?.role;
+        if (callerRole !== 'admin')
+            return res.status(403).json({ error: 'Apenas administradores podem criar operadores' });
+
+        const { email, nome, organization_id } = req.body;
+        if (!email || !nome)
+            return res.status(400).json({ error: 'email e nome são obrigatórios' });
+
+        const orgId = organization_id || req.user?.app_metadata?.org_id;
+
+        const { data: newUser, error } = await supabase.auth.admin.createUser({
+            email,
+            email_confirm: true,
+            app_metadata:  { role: 'operador', org_id: orgId },
+            user_metadata: { full_name: nome, role: 'operador', org_id: orgId },
+        });
+        if (error) throw error;
+
+        await supabase.from('organization_users').insert({
+            organization_id: orgId,
+            user_id:         newUser.user.id,
+            role:            'operador',
+        });
+
+        return res.json({
+            sucesso:  true,
+            usuario:  { id: newUser.user.id, email: newUser.user.email, role: 'operador' },
+            mensagem: `Operador ${nome} criado. E-mail de convite enviado para ${email}.`,
+        });
+    } catch (e) {
+        return res.status(500).json({ error: e.message });
     }
 });
 

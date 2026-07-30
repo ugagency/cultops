@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Campo M3</title>
+
+    <link rel="manifest" href="pwa/manifest.json">
+    <meta name="theme-color" content="#1547FF">
+
+    <!--
+        Esta página era o hub de cards do Módulo 3 (navegação antiga).
+        A navegação foi unificada na sidebar persistente (renderSidebarM3):
+        agora ela apenas redireciona para eventos.html, que já cuida de
+        sessão (login) e seleção de projeto. O arquivo é mantido para não
+        quebrar links/favoritos que apontem para modulo3/index.html.
+    -->
+    <script>window.location.replace('eventos.html');</script>
+    <noscript>
+        <meta http-equiv="refresh" content="0; url=eventos.html">
+    </noscript>
+</head>
+<body>
+    <p style="font-family:sans-serif;padding:2rem;">
+        Redirecionando… <a href="eventos.html">Clique aqui se não for redirecionado.</a>
+    </p>
+</body>
+</html>

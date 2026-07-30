@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Eventos (M3)</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m3-shared.css">
+
+    <style>
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 0.35rem;
+        }
+        .breadcrumb span { color: var(--text-muted); }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+            gap: 1.25rem;
+        }
+
+        .ev-card {
+            display: flex;
+            flex-direction: column;
+            gap: 0.9rem;
+            margin-bottom: 0;
+            transition: box-shadow 0.2s, transform 0.2s;
+        }
+        .ev-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(21,71,255,0.13);
+        }
+
+        .ev-card-top {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.5rem;
+        }
+
+        .ev-card-title {
+            font-weight: 700;
+            font-size: 1rem;
+            color: var(--text-primary);
+            line-height: 1.3;
+        }
+
+        .ev-card-info {
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+        .ev-card-info-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .ev-ingressos {
+            display: flex;
+            gap: 1rem;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            padding: 0.6rem 0.75rem;
+            background: #f8fafc;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-light);
+        }
+        .ev-ingressos span { font-weight: 700; color: var(--text-primary); }
+
+        .ev-card-footer {
+            border-top: 1px solid #f1f5f9;
+            padding-top: 0.75rem;
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        /* Status badges */
+        .badge-rascunho  { background: #F1F5F9; color: #64748b; }
+        .badge-ativo     { background: #E3E8FF; color: #1547FF; }
+        .badge-encerrado { background: #DCFCE7; color: #16a34a; }
+        .badge-cancelado { background: #FFECE4; color: #FF5807; }
+    </style>
+</head>
+<body>
+    <main class="main-content">
+        <header class="page-header">
+            <div>
+                <div class="breadcrumb">
+                    <span>Contrapartidas</span>
+                    <i data-lucide="chevron-right" style="width:14px;"></i>
+                    <span>Eventos</span>
+                    <i data-lucide="chevron-right" style="width:14px;" id="bc-sep" style="display:none;"></i>
+                    <span id="bc-project" style="color:var(--text-primary);font-weight:600;display:none;"></span>
+                </div>
+                <h1>Eventos</h1>
+                <p id="header-sub">Eventos culturais vinculados ao projeto selecionado.</p>
+            </div>
+            <div class="header-actions">
+                <div class="project-selector-container">
+                    <i data-lucide="folder-kanban" style="width: 18px; color: var(--text-secondary);"></i>
+                    <select id="project-selector">
+                        <option value="">Carregando projetos...</option>
+                    </select>
+                </div>
+                <a class="btn-primary" id="btn-novo-evento" href="evento-form.html" style="text-decoration:none;pointer-events:none;opacity:0.55;">
+                    <i data-lucide="plus" style="width:16px;"></i> Novo Evento
+                </a>
+            </div>
+        </header>
+
+        <div id="cards-area"></div>
+    </main>
+
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper-m3.js?v=2"></script>
+    <script>
+        // ── State ────────────────────────────────────────────
+        let currentProject = null;
+        let _role = null;
+
+        // ── Utilities ────────────────────────────────────────
+        function esc(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+                .replace(/'/g,'&#39;');
+        }
+
+        function showToast(msg, type = 'success') {
+            const c = document.getElementById('toast-container');
+            const t = document.createElement('div');
+            t.className = `toast toast-${type}`;
+            t.innerHTML = `<i data-lucide="${type==='success'?'check-circle':'alert-circle'}" style="width:18px;flex-shrink:0;"></i><span>${esc(msg)}</span>`;
+            c.appendChild(t);
+            reIcons();
+            setTimeout(() => t.remove(), 4500);
+        }
+
+        function reIcons() { if (window.lucide) window.lucide.createIcons(); }
+
+        function fmtDate(d) {
+            if (!d) return '—';
+            try { return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR'); } catch { return d; }
+        }
+
+        const STATUS_LABEL = { rascunho:'Rascunho', ativo:'Ativo', encerrado:'Encerrado', cancelado:'Cancelado' };
+        const STATUS_CLS   = { rascunho:'badge-rascunho', ativo:'badge-ativo', encerrado:'badge-encerrado', cancelado:'badge-cancelado' };
+
+        // ── Init ─────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', async () => {
+            renderSidebarM3();
+            reIcons();
+
+            const sb = await initSupabase();
+            if (!sb) return;
+            const { data: { session } } = await sb.auth.getSession();
+            if (!session) { window.location.href = '../index.html#login'; return; }
+            _role = session.user?.app_metadata?.role || session.user?.user_metadata?.role || null;
+
+            await popularSeletorProjeto();
+        });
+
+        async function popularSeletorProjeto() {
+            const selector = document.getElementById('project-selector');
+            let projects = [];
+            try {
+                projects = await getProjectsM3();
+            } catch (err) {
+                console.error('[eventos] erro ao buscar projetos:', err);
+            }
+
+            if (!projects.length) {
+                selector.innerHTML = '<option value="">Nenhum projeto encontrado</option>';
+                showNoProjectState();
+                return;
+            }
+
+            selector.innerHTML = '<option value="">Selecione um projeto</option>' +
+                projects.map(p => `<option value="${p.id}">${p.pronac ? p.pronac + ' — ' : ''}${p.nome}</option>`).join('');
+
+            const saved = ProjectManagerM3.getSelected();
+            const initialId = (saved && projects.some(p => p.id === saved)) ? saved : projects[0].id;
+
+            selector.value = initialId;
+            ProjectManagerM3.setSelected(initialId);
+            await selecionarProjetoEventos(initialId);
+
+            selector.onchange = async (e) => {
+                const pid = e.target.value;
+                if (!pid) { showNoProjectState(); return; }
+                ProjectManagerM3.setSelected(pid);
+                await selecionarProjetoEventos(pid);
+            };
+        }
+
+        async function selecionarProjetoEventos(pid) {
+            const sb = await initSupabase();
+            const { data: proj } = await sb
+                .from('projects')
+                .select('pronac, nome')
+                .eq('id', pid)
+                .maybeSingle();
+
+            if (proj) {
+                currentProject = proj;
+                const label = [proj.pronac, proj.nome].filter(Boolean).join(' — ');
+                const bcProj = document.getElementById('bc-project');
+                const bcSep  = document.getElementById('bc-sep');
+                bcProj.textContent = label;
+                bcProj.style.display = '';
+                bcSep.style.display = '';
+                document.getElementById('header-sub').textContent =
+                    `Eventos do projeto ${label}.`;
+            }
+
+            const btnNovo = document.getElementById('btn-novo-evento');
+            if (_role === 'operador') {
+                btnNovo.style.pointerEvents = 'none';
+                btnNovo.style.opacity = '0.55';
+                btnNovo.title = 'Apenas gestor/admin podem criar eventos';
+            } else {
+                btnNovo.style.pointerEvents = 'auto';
+                btnNovo.style.opacity = '1';
+                btnNovo.title = '';
+            }
+            await loadCards(pid);
+        }
+
+        function showNoProjectState() {
+            const btnNovo = document.getElementById('btn-novo-evento');
+            btnNovo.style.pointerEvents = 'none';
+            btnNovo.style.opacity = '0.55';
+            document.getElementById('cards-area').innerHTML = `
+                <div class="empty-state" style="padding:4rem 1rem;">
+                    <i data-lucide="folder-open" style="width:48px;height:48px;opacity:0.4;"></i>
+                    <div style="margin-top:1rem;font-size:1rem;font-weight:600;color:var(--text-primary);">Nenhum projeto cadastrado</div>
+                    <div style="margin-top:0.4rem;font-size:0.875rem;">
+                        Crie ou importe um projeto no Módulo II para gerenciar eventos.
+                    </div>
+                    <a href="../modulo2/projeto-setup.html" class="btn-primary" style="margin-top:1.25rem;text-decoration:none;">
+                        <i data-lucide="arrow-right" style="width:16px;"></i> Ir para o Módulo II
+                    </a>
+                </div>
+            `;
+            reIcons();
+        }
+
+        // ── Load & Render ─────────────────────────────────────
+        async function loadCards(projectId) {
+            const area = document.getElementById('cards-area');
+            area.innerHTML = `<div class="empty-state"><i data-lucide="loader" class="spin" style="width:28px;"></i><div style="margin-top:0.5rem;">Carregando…</div></div>`;
+            reIcons();
+
+            try {
+                const list = await getEventosByProject(projectId || ProjectManagerM3.getSelected());
+
+                if (!list.length) {
+                    area.innerHTML = `<div class="empty-state">
+                        <i data-lucide="calendar-x" style="width:36px;"></i>
+                        <div style="margin-top:0.75rem;">Nenhum evento cadastrado para este projeto.<br>Clique em <strong>Novo Evento</strong> para começar.</div>
+                    </div>`;
+                    reIcons();
+                    return;
+                }
+
+                area.innerHTML = `<div class="cards-grid">${list.map(renderCard).join('')}</div>`;
+                reIcons();
+            } catch (err) {
+                console.error(err);
+                area.innerHTML = `<div class="empty-state" style="color:#FF5807;"><i data-lucide="alert-circle" style="width:28px;"></i><div style="margin-top:0.5rem;">Erro: ${esc(err.message)}</div></div>`;
+                reIcons();
+            }
+        }
+
+        function renderCard(ev) {
+            const statusCls   = STATUS_CLS[ev.status]   || 'badge-rascunho';
+            const statusLabel = STATUS_LABEL[ev.status] || ev.status;
+            const tipoLabel   = { cultural:'Cultural', esportivo:'Esportivo', outro:'Outro' }[ev.tipo] || ev.tipo;
+
+            return `
+                <div class="glass-card ev-card">
+                    <div class="ev-card-top">
+                        <div style="flex:1;min-width:0;">
+                            <div class="ev-card-title">${esc(ev.titulo)}</div>
+                            <div style="margin-top:0.35rem;display:flex;gap:0.4rem;flex-wrap:wrap;">
+                                <span class="badge ${statusCls}">${esc(statusLabel)}</span>
+                                <span class="badge badge-gray">${esc(tipoLabel)}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ev-card-info">
+                        <div class="ev-card-info-row">
+                            <i data-lucide="calendar" style="width:14px;flex-shrink:0;color:#94a3b8;"></i>
+                            <span>${fmtDate(ev.data_evento)}${ev.horario ? ' · ' + ev.horario.slice(0,5) : ''}</span>
+                        </div>
+                        <div class="ev-card-info-row">
+                            <i data-lucide="map-pin" style="width:14px;flex-shrink:0;color:#94a3b8;"></i>
+                            <span>${esc(ev.nome_local)}, ${esc(ev.cidade)}/${esc(ev.estado)}</span>
+                        </div>
+                    </div>
+
+                    <div class="ev-ingressos">
+                        <div>OS: <span>${ev.ingressos_os}</span></div>
+                        <div>PA: <span>${ev.ingressos_pa}</span></div>
+                        <div style="margin-left:auto;">Total: <span>${ev.total_ingressos}</span></div>
+                    </div>
+
+                    <div class="ev-card-footer">
+                        <a class="btn-secondary" style="padding:0.4rem 0.85rem;font-size:0.8rem;text-decoration:none;" href="evento-form.html?id=${esc(ev.id)}">
+                            <i data-lucide="pencil" style="width:13px;"></i> Editar
+                        </a>
+                        <a href="evento-detalhe.html?id=${esc(ev.id)}" class="btn-primary" style="padding:0.4rem 0.85rem;font-size:0.8rem;">
+                            <i data-lucide="list" style="width:13px;"></i> Detalhes
+                        </a>
+                        <button class="btn-secondary" style="padding:0.4rem 0.85rem;font-size:0.8rem;" onclick="window.location.href='portaria.html?event_id=${esc(ev.id)}'">
+                            <i data-lucide="door-open" style="width:13px;"></i> Portaria
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>

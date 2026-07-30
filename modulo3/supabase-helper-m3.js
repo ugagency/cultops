@@ -1,0 +1,674 @@
+// modulo3/supabase-helper-m3.js
+
+let sbClient = null;
+
+async function initSupabase() {
+    if (sbClient) return sbClient;
+    const url = typeof CONFIG !== 'undefined' ? CONFIG.SUPABASE_URL : null;
+    const key = typeof CONFIG !== 'undefined' ? CONFIG.SUPABASE_KEY : null;
+    if (!url || !key) {
+        console.error('Configuração do Supabase não encontrada! Verifique ../config.js');
+        return null;
+    }
+    sbClient = window.supabase.createClient(url, key);
+    return sbClient;
+}
+
+// ── Sidebar ───────────────────────────────────────────────────
+
+async function renderSidebarM3() {
+    const existing = document.querySelector('.sidebar');
+    if (existing) existing.remove();
+
+    let _role = null;
+    try {
+        const _sb = await initSupabase();
+        const { data: { session: _s } } = await _sb.auth.getSession();
+        _role = _s?.user?.app_metadata?.role || _s?.user?.user_metadata?.role || null;
+    } catch (_) {}
+
+    const sidebar = document.createElement('aside');
+    sidebar.className = 'sidebar';
+
+    const navItems = [
+        { label: 'Org. Sociais',    icon: 'users',        path: 'os.html' },
+        { label: 'Patrocinadores',  icon: 'building-2',   path: 'pa.html' },
+        { label: 'Eventos',         icon: 'calendar',     path: 'eventos.html' },
+        { label: 'Relatórios',      icon: 'file-text',    path: 'relatorios.html' },
+        { label: 'Dashboard',       icon: 'layout-dashboard', path: 'contrapartidas.html' },
+        // App separado/instalável — abre em nova aba (blank), fora da navegação normal.
+        // Portaria não tem item próprio: é sempre por evento, acessada pelo botão
+        // "Portaria" de cada card em eventos.html (portaria.html?event_id=X).
+        { label: 'Campo (PWA)',     icon: 'smartphone',   path: 'pwa/index.html', blank: true },
+    ];
+
+    const _filtered = navItems.filter(item =>
+        !(_role === 'operador' && ['os.html', 'pa.html'].includes(item.path))
+    );
+
+    const currentFile = window.location.pathname.split('/').pop();
+
+    const navHtml = _filtered.map(item => {
+        const active  = item.path && currentFile === item.path;
+        const soon    = !item.path;
+        const attrs   = soon ? 'onclick="return false"'
+                      : item.blank ? 'target="_blank" rel="noopener"'
+                      : 'data-path="' + item.path + '"';
+        return `
+            <a href="${item.path || '#'}" ${attrs} class="nav-item ${active ? 'active' : ''}"
+               ${soon ? 'style="color:#c0c8d8;cursor:default;"' : ''}>
+                <i data-lucide="${item.icon}"></i>
+                <span>${item.label}</span>
+                ${soon ? '<span style="margin-left:auto;font-size:0.65rem;background:#f1f5f9;color:var(--text-muted);padding:0.1rem 0.45rem;border-radius:999px;font-weight:600;">Em breve</span>' : ''}
+            </a>
+        `;
+    }).join('');
+
+    sidebar.innerHTML = `
+        <div class="sidebar-logo">
+            <img class="sidebar-logo-full" src="../PAI-Logo-Azul.png" alt="Prestaí">
+            <img class="sidebar-logo-icon" src="../PAI-Icone-Azul.png" alt="Prestaí">
+        </div>
+        <div style="font-size:0.65rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.1em;margin:-0.75rem 0 0.5rem 0.75rem;">
+            Módulo III · Distribuição
+        </div>
+        <nav class="sidebar-nav">
+            ${navHtml}
+        </nav>
+        <div class="sidebar-footer">
+            <div class="sidebar-user">
+                <div class="sidebar-avatar">A</div>
+                <div style="overflow: hidden;">
+                    <p class="sidebar-user-name" style="font-size: 13px; font-weight: 600; color: var(--text-primary); white-space: nowrap; text-overflow: ellipsis;"></p>
+                    <p class="sidebar-user-role" style="font-size: 11px; color: var(--text-secondary);"></p>
+                </div>
+            </div>
+            <a href="../module-selector.html" class="nav-item" style="color: var(--primary);">
+                <i data-lucide="grid-2x2"></i>
+                <span>Trocar Módulo</span>
+            </a>
+            <a href="#" onclick="handleLogout(event)" class="nav-item" style="color: var(--error);">
+                <i data-lucide="log-out"></i>
+                <span>Sair</span>
+            </a>
+        </div>
+    `;
+
+    document.body.prepend(sidebar);
+
+    sidebar.querySelectorAll('a[data-path]').forEach(function(el) {
+        el.addEventListener('click', function(e) {
+            e.preventDefault();
+            window.location.href = el.dataset.path;
+        });
+    });
+
+    // Preenche os dados do usuário no rodapé (assíncrono, não bloqueia o render).
+    // A responsividade (hamburger, overlay, colapso) vem de style.css, igual ao M1/M2.
+    (async () => {
+        try {
+            const sb = await initSupabase();
+            if (!sb) return;
+            const { data: { session } } = await sb.auth.getSession();
+            const user = session?.user;
+            if (!user || !user.email) return;
+            const role = user.app_metadata?.role || user.user_metadata?.role;
+            const labels = { admin: 'Administrador', gestor: 'Gestor', analista: 'Analista', operador: 'Operador', fornecedor: 'Fornecedor' };
+            const avatarEl = sidebar.querySelector('.sidebar-avatar');
+            const nameEl = sidebar.querySelector('.sidebar-user-name');
+            const roleEl = sidebar.querySelector('.sidebar-user-role');
+            if (avatarEl) avatarEl.textContent = user.email[0].toUpperCase();
+            if (nameEl) nameEl.textContent = user.email.split('@')[0];
+            if (roleEl) roleEl.textContent = labels[role] || 'Gestor';
+        } catch (_) {}
+    })();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'sidebar-overlay';
+    overlay.addEventListener('click', () => {
+        sidebar.classList.remove('sidebar-open');
+        overlay.classList.remove('active');
+    });
+    document.body.appendChild(overlay);
+
+    const hamburger = document.createElement('button');
+    hamburger.className = 'hamburger-btn';
+    hamburger.setAttribute('aria-label', 'Abrir menu');
+    hamburger.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>`;
+    hamburger.addEventListener('click', () => {
+        sidebar.classList.toggle('sidebar-open');
+        overlay.classList.toggle('active');
+    });
+    document.body.appendChild(hamburger);
+    // ──────────────────────────────────────────────────────────
+
+    if (window.lucide) window.lucide.createIcons();
+    else setTimeout(() => { if (window.lucide) window.lucide.createIcons(); }, 500);
+
+    if (!window.handleLogout) {
+        window.handleLogout = async function (e) {
+            if (e) e.preventDefault();
+            const config = window.CONFIG;
+            if (window.supabase && config) {
+                const sb = window.supabase.createClient(config.SUPABASE_URL, config.SUPABASE_KEY);
+                await sb.auth.signOut();
+            }
+            localStorage.removeItem('prestai_modulo_ativo');
+            window.location.href = '../index.html#login';
+        };
+    }
+}
+
+// ── org_id helper ─────────────────────────────────────────────
+
+const _orgCache = { value: undefined };
+
+async function getCurrentOrgIdM3() {
+    if (_orgCache.value !== undefined) return _orgCache.value;
+    const sb = await initSupabase();
+    if (!sb) return null;
+    try {
+        const { data } = await sb.auth.getSession();
+        _orgCache.value = data?.session?.user?.app_metadata?.org_id || null;
+    } catch (_) {
+        _orgCache.value = null;
+    }
+    return _orgCache.value;
+}
+
+// ── Organizações Sociais ──────────────────────────────────────
+
+async function getOrganizacoesSociais(busca = '') {
+    const sb = await initSupabase();
+    let query = sb.from('distribution_os').select('*').order('nome');
+    if (busca.trim()) query = query.ilike('nome', `%${busca.trim()}%`);
+    const { data, error } = await query;
+    if (error) throw error;
+    return data || [];
+}
+
+async function createOrganizacaoSocial(dados) {
+    const sb  = await initSupabase();
+    const org = await getCurrentOrgIdM3();
+    const { data, error } = await sb
+        .from('distribution_os')
+        .insert({ ...dados, organization_id: org })
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
+async function updateOrganizacaoSocial(id, dados) {
+    const sb = await initSupabase();
+    const { data, error } = await sb
+        .from('distribution_os')
+        .update(dados)
+        .eq('id', id)
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
+async function deleteOrganizacaoSocial(id) {
+    const sb = await initSupabase();
+    const { error } = await sb.from('distribution_os').delete().eq('id', id);
+    if (error) throw error;
+}
+
+// Filtra OS no raio de 30 km usando Haversine (equivalente ao distancia_km do banco)
+function _haversineKm(lat1, lon1, lat2, lon2) {
+    const R    = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a    = Math.sin(dLat / 2) ** 2 +
+                 Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                 Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+async function getOsProximas(eventLat, eventLon) {
+    const sb = await initSupabase();
+    const { data, error } = await sb
+        .from('distribution_os')
+        .select('*')
+        .not('lat', 'is', null)
+        .not('lon', 'is', null)
+        .order('nome');
+    if (error) throw error;
+    return (data || []).filter(os =>
+        _haversineKm(Number(eventLat), Number(eventLon), Number(os.lat), Number(os.lon)) <= 30
+    );
+}
+
+// ── Patrocinadores ────────────────────────────────────────────
+
+async function getPatrocinadores(busca = '') {
+    const sb = await initSupabase();
+    let query = sb.from('distribution_pa').select('*').order('nome');
+    if (busca.trim()) query = query.ilike('nome', `%${busca.trim()}%`);
+    const { data, error } = await query;
+    if (error) throw error;
+    return data || [];
+}
+
+async function createPatrocinador(dados) {
+    const sb  = await initSupabase();
+    const org = await getCurrentOrgIdM3();
+    const { data, error } = await sb
+        .from('distribution_pa')
+        .insert({ ...dados, organization_id: org })
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
+async function updatePatrocinador(id, dados) {
+    const sb = await initSupabase();
+    const { data, error } = await sb
+        .from('distribution_pa')
+        .update(dados)
+        .eq('id', id)
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
+async function deletePatrocinador(id) {
+    const sb = await initSupabase();
+    const { error } = await sb.from('distribution_pa').delete().eq('id', id);
+    if (error) throw error;
+}
+
+// ── ProjectManagerM3 ─────────────────────────────────────────
+// Usa a mesma chave do M2 para compatibilidade de navegação entre módulos
+
+const ProjectManagerM3 = {
+    getSelected() { return localStorage.getItem('prestai_project_id'); },
+    setSelected(id) {
+        localStorage.setItem('prestai_project_id', id);
+        window.dispatchEvent(new CustomEvent('projectChanged', { detail: { id } }));
+    }
+};
+
+/**
+ * Lista os projetos acessíveis ao usuário logado, para popular o seletor
+ * de PRONAC no header das páginas do M3 (RLS já escopa por organização).
+ */
+async function getProjectsM3() {
+    const sb = await initSupabase();
+    const { data, error } = await sb
+        .from('projects')
+        .select('id, pronac, nome')
+        .order('nome', { ascending: true });
+    if (error) throw error;
+    return data || [];
+}
+
+window.getProjectsM3 = getProjectsM3;
+
+// ── Eventos ───────────────────────────────────────────────────
+
+async function getEventosByProject(projectId) {
+    const sb = await initSupabase();
+    const { data, error } = await sb
+        .from('distribution_events')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('data_evento', { ascending: true });
+    if (error) throw error;
+    return data || [];
+}
+
+async function createEvento(dados) {
+    const sb  = await initSupabase();
+    const org = await getCurrentOrgIdM3();
+    const pid = ProjectManagerM3.getSelected();
+    const { data, error } = await sb
+        .from('distribution_events')
+        .insert({ ...dados, organization_id: org, project_id: pid })
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
+async function updateEvento(id, dados) {
+    const sb = await initSupabase();
+    const { data, error } = await sb
+        .from('distribution_events')
+        .update(dados)
+        .eq('id', id)
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
+async function getEventoDetalhe(id) {
+    const sb = await initSupabase();
+    const { data, error } = await sb
+        .from('distribution_events')
+        .select(`
+            *,
+            distribution_event_os ( *, distribution_os (*) ),
+            distribution_event_pa ( *, distribution_pa (*) )
+        `)
+        .eq('id', id)
+        .single();
+    if (error) throw error;
+    return data;
+}
+
+// ── OS links ──────────────────────────────────────────────────
+
+async function vincularOs(eventId, osId, ingressosAlocados) {
+    const sb  = await initSupabase();
+    const org = await getCurrentOrgIdM3();
+    const { data, error } = await sb
+        .from('distribution_event_os')
+        .insert({ event_id: eventId, os_id: osId, ingressos_alocados: ingressosAlocados, organization_id: org })
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
+async function desvincularOs(eventId, osId) {
+    const sb = await initSupabase();
+    const { error } = await sb
+        .from('distribution_event_os')
+        .delete()
+        .eq('event_id', eventId)
+        .eq('os_id', osId);
+    if (error) throw error;
+}
+
+async function atualizarStatusOs(eventId, osId, novoStatus) {
+    const sb = await initSupabase();
+    const { data, error } = await sb
+        .from('distribution_event_os')
+        .update({ status: novoStatus })
+        .eq('event_id', eventId)
+        .eq('os_id', osId)
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
+// ── PA links ──────────────────────────────────────────────────
+
+async function vincularPa(eventId, paId, ingressosAlocados) {
+    const sb  = await initSupabase();
+    const org = await getCurrentOrgIdM3();
+    const { data, error } = await sb
+        .from('distribution_event_pa')
+        .insert({ event_id: eventId, pa_id: paId, ingressos_alocados: ingressosAlocados, organization_id: org })
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
+async function desvincularPa(eventId, paId) {
+    const sb = await initSupabase();
+    const { error } = await sb
+        .from('distribution_event_pa')
+        .delete()
+        .eq('event_id', eventId)
+        .eq('pa_id', paId);
+    if (error) throw error;
+}
+
+async function atualizarStatusPa(eventId, paId, novoStatus) {
+    const sb = await initSupabase();
+    const { data, error } = await sb
+        .from('distribution_event_pa')
+        .update({ status: novoStatus })
+        .eq('event_id', eventId)
+        .eq('pa_id', paId)
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
+// ── Convidados ────────────────────────────────────────
+
+async function getConvidadosByEvento(eventId) {
+    const sb = await initSupabase();
+    const { data, error } = await sb
+        .from('distribution_guests')
+        .select('*, distribution_os(*), distribution_pa(*)')
+        .eq('event_id', eventId)
+        .order('nome_completo');
+    if (error) throw error;
+    return data || [];
+}
+
+async function addConvidado(dados) {
+    if (dados.cpf && !dados.lgpd_consent) throw new Error('CPF_SEM_LGPD');
+    const sb  = await initSupabase();
+    const org = await getCurrentOrgIdM3();
+    const row = {
+        ...dados,
+        cpf:             dados.cpf ? dados.cpf.replace(/\D/g, '') || null : null,
+        lgpd_consent_at: dados.lgpd_consent ? new Date().toISOString() : null,
+        organization_id: org,
+    };
+    const { data, error } = await sb
+        .from('distribution_guests')
+        .insert(row)
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
+async function removeConvidado(id) {
+    const sb = await initSupabase();
+    const { error } = await sb.from('distribution_guests').delete().eq('id', id);
+    if (error) throw error;
+}
+
+async function buscarConvidadoPortaria(eventId, termo) {
+    const sb = await initSupabase();
+    const normalTermo = termo.replace(/[\.\-\s]/g, '');
+    const isCpf = /^\d{11}$/.test(normalTermo);
+
+    const { data, error } = await sb
+        .from('distribution_guests')
+        .select('*, distribution_os(*), distribution_pa(*)')
+        .eq('event_id', eventId);
+    if (error) throw error;
+
+    return (data || []).filter(g => {
+        if (isCpf) {
+            return (g.cpf || '').replace(/\D/g, '') === normalTermo;
+        }
+        return g.nome_completo.toLowerCase().includes(termo.toLowerCase());
+    });
+}
+
+async function getEvidenciasByEvento(eventId) {
+    const sb = await initSupabase();
+    const { data, error } = await sb
+        .from('physical_evidences')
+        .select('*, rubricas(nome), distribution_events(titulo)')
+        .eq('distribution_event_id', eventId)
+        .order('criado_em', { ascending: false });
+    if (error) throw error;
+    return data || [];
+}
+
+function formatCurrency(value) {
+    const n = Number(value) || 0;
+    return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+async function getSignedUrlsM3(paths) {
+    const sb = await initSupabase();
+    const clean = paths.filter(Boolean).map(p => p.trim());
+    if (!clean.length) return {};
+    const { data, error } = await sb.storage.from('physical-evidences').createSignedUrls(clean, 3600);
+    if (error) throw error;
+    const map = {};
+    (data || []).forEach(item => { if (item.signedUrl) map[item.path] = item.signedUrl; });
+    return map;
+}
+
+async function createEvidencia(dados) {
+    const sb  = await initSupabase();
+    const org = await getCurrentOrgIdM3();
+    const { data: { user } } = await sb.auth.getUser();
+    const { data, error } = await sb
+        .from('physical_evidences')
+        .insert({
+            ...dados,
+            organization_id:   org,
+            enviado_por:       user.id,
+            status_validacao:  'pendente',
+        })
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
+async function getAttendanceByEvento(eventId) {
+    const sb = await initSupabase();
+    const { data, error } = await sb
+        .from('distribution_attendance')
+        .select('*')
+        .eq('event_id', eventId)
+        .order('uploaded_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+}
+
+async function createAttendance(dados) {
+    const sb  = await initSupabase();
+    const org = await getCurrentOrgIdM3();
+    const { data: { user } } = await sb.auth.getUser();
+    const { data, error } = await sb
+        .from('distribution_attendance')
+        .insert({ ...dados, organization_id: org, uploaded_by: user.id })
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
+async function encerrarEvento(eventId) {
+    const sb = await initSupabase();
+    const { data: { session } } = await sb.auth.getSession();
+    const token = session.access_token;
+    const r = await fetch('/api/m3/eventos/' + eventId + '/encerrar', {
+        method: 'PUT',
+        headers: {
+            'Authorization': 'Bearer ' + token,
+            'Content-Type': 'application/json',
+        },
+    });
+    const json = await r.json();
+    if (!r.ok) throw new Error(json.error || 'Erro ao encerrar evento');
+    return json;
+}
+
+async function getKpisM3(projectId) {
+    const sb  = await initSupabase();
+    const org = await getCurrentOrgIdM3();
+
+    const [
+        { count: eventosAtivos },
+        { count: totalOs },
+        { count: totalPa },
+        { data: vincOs },
+        { data: vincPa },
+        { data: eventosAtivosData },
+        { count: evidenciasPendentes },
+        { data: eventosAtivosDataPa },
+    ] = await Promise.all([
+        sb.from('distribution_events').select('id', { count: 'exact', head: true })
+            .eq('project_id', projectId).eq('status', 'ativo'),
+        sb.from('distribution_os').select('id', { count: 'exact', head: true })
+            .eq('organization_id', org),
+        sb.from('distribution_pa').select('id', { count: 'exact', head: true })
+            .eq('organization_id', org),
+        sb.from('distribution_event_os')
+            .select('status, distribution_events!inner(project_id)')
+            .eq('distribution_events.project_id', projectId)
+            .eq('status', 'confirmado'),
+        sb.from('distribution_event_pa')
+            .select('status, distribution_events!inner(project_id)')
+            .eq('distribution_events.project_id', projectId)
+            .eq('status', 'confirmado'),
+        sb.from('distribution_event_os')
+            .select('ingressos_alocados, distribution_events!inner(project_id, status, ingressos_os)')
+            .eq('distribution_events.project_id', projectId)
+            .eq('distribution_events.status', 'ativo'),
+        sb.from('physical_evidences')
+            .select('id', { count: 'exact', head: true })
+            .eq('project_id', projectId)
+            .eq('status_validacao', 'pendente')
+            .not('distribution_event_id', 'is', null),
+        sb.from('distribution_event_pa')
+            .select('ingressos_alocados, distribution_events!inner(project_id, status, ingressos_pa)')
+            .eq('distribution_events.project_id', projectId)
+            .eq('distribution_events.status', 'ativo'),
+    ]);
+
+    const confirmados = (vincOs?.length || 0) + (vincPa?.length || 0);
+
+    let ocupacaoOsPct = 0;
+    let ocupacaoPaPct = 0;
+    if (eventosAtivosData?.length) {
+        const totalAlocOs = eventosAtivosData.reduce((s, v) => s + (v.ingressos_alocados || 0), 0);
+        const totalCapOs  = eventosAtivosData.reduce((s, v) => s + (v.distribution_events?.ingressos_os || 0), 0);
+        if (totalCapOs > 0) ocupacaoOsPct = Math.round(totalAlocOs / totalCapOs * 100);
+    }
+    if (eventosAtivosDataPa?.length) {
+        const totalAlocPa = eventosAtivosDataPa.reduce((s, v) => s + (v.ingressos_alocados || 0), 0);
+        const totalCapPa  = eventosAtivosDataPa.reduce((s, v) => s + (v.distribution_events?.ingressos_pa || 0), 0);
+        if (totalCapPa > 0) ocupacaoPaPct = Math.round(totalAlocPa / totalCapPa * 100);
+    }
+
+    return {
+        eventosAtivos:        eventosAtivos || 0,
+        totalOs:              totalOs || 0,
+        totalPa:              totalPa || 0,
+        confirmados,
+        ocupacaoOsPct,
+        ocupacaoPaPct,
+        evidenciasPendentes:  evidenciasPendentes || 0,
+    };
+}
+
+// ── Exports ───────────────────────────────────────────────────
+
+window.initSupabase            = window.initSupabase || initSupabase;
+window.renderSidebarM3         = renderSidebarM3;
+window.getCurrentOrgIdM3       = getCurrentOrgIdM3;
+window.ProjectManagerM3        = ProjectManagerM3;
+window.getOrganizacoesSociais  = getOrganizacoesSociais;
+window.createOrganizacaoSocial = createOrganizacaoSocial;
+window.updateOrganizacaoSocial = updateOrganizacaoSocial;
+window.deleteOrganizacaoSocial = deleteOrganizacaoSocial;
+window.getOsProximas           = getOsProximas;
+window.getPatrocinadores       = getPatrocinadores;
+window.createPatrocinador      = createPatrocinador;
+window.updatePatrocinador      = updatePatrocinador;
+window.deletePatrocinador      = deletePatrocinador;
+window.getEventosByProject     = getEventosByProject;
+window.createEvento            = createEvento;
+window.updateEvento            = updateEvento;
+window.getEventoDetalhe        = getEventoDetalhe;
+window.vincularOs              = vincularOs;
+window.desvincularOs           = desvincularOs;
+window.atualizarStatusOs       = atualizarStatusOs;
+window.vincularPa              = vincularPa;
+window.desvincularPa           = desvincularPa;
+window.atualizarStatusPa       = atualizarStatusPa;
+window.getConvidadosByEvento   = getConvidadosByEvento;
+window.addConvidado            = addConvidado;
+window.removeConvidado         = removeConvidado;
+window.buscarConvidadoPortaria = buscarConvidadoPortaria;
+window.getEvidenciasByEvento   = getEvidenciasByEvento;
+window.getSignedUrlsM3         = getSignedUrlsM3;
+window.formatCurrency          = formatCurrency;
+window.createEvidencia         = createEvidencia;
+window.getAttendanceByEvento   = getAttendanceByEvento;
+window.createAttendance        = createAttendance;
+window.encerrarEvento          = encerrarEvento;
+window.getKpisM3               = getKpisM3;
