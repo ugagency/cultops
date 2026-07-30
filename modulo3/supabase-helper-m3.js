@@ -29,17 +29,6 @@ async function renderSidebarM3() {
 
     const sidebar = document.createElement('aside');
     sidebar.className = 'sidebar';
-    sidebar.style.cssText = `
-        position: fixed; left: 0; top: 0; height: 100vh;
-        width: var(--sidebar-width, 260px);
-        background: white;
-        border-right: 1px solid var(--glass-border, #e2e8f0);
-        padding: 1.5rem;
-        display: flex; flex-direction: column; gap: 2rem;
-        z-index: 1000;
-        box-shadow: 4px 0 24px rgba(0,0,0,0.02);
-        overflow-y: auto;
-    `;
 
     const navItems = [
         { label: 'Org. Sociais',    icon: 'users',        path: 'os.html' },
@@ -66,18 +55,9 @@ async function renderSidebarM3() {
                       : item.blank ? 'target="_blank" rel="noopener"'
                       : 'data-path="' + item.path + '"';
         return `
-            <a href="${item.path || '#'}" ${attrs} style="
-                display: flex; align-items: center; gap: 0.75rem;
-                padding: 0.75rem 1rem; border-radius: 12px;
-                text-decoration: none;
-                color: ${active ? 'var(--color-primary)' : soon ? '#c0c8d8' : 'var(--text-secondary)'};
-                background: ${active ? 'rgba(21,71,255,0.08)' : 'transparent'};
-                font-weight: ${active ? '700' : '500'};
-                font-size: 0.9rem;
-                cursor: ${soon ? 'default' : 'pointer'};
-                transition: all 0.2s;
-            ">
-                <i data-lucide="${item.icon}" style="width:18px;height:18px;flex-shrink:0;"></i>
+            <a href="${item.path || '#'}" ${attrs} class="nav-item ${active ? 'active' : ''}"
+               ${soon ? 'style="color:#c0c8d8;cursor:default;"' : ''}>
+                <i data-lucide="${item.icon}"></i>
                 <span>${item.label}</span>
                 ${soon ? '<span style="margin-left:auto;font-size:0.65rem;background:#f1f5f9;color:var(--text-muted);padding:0.1rem 0.45rem;border-radius:999px;font-weight:600;">Em breve</span>' : ''}
             </a>
@@ -85,22 +65,30 @@ async function renderSidebarM3() {
     }).join('');
 
     sidebar.innerHTML = `
-        <div style="display:flex;align-items:center;padding-bottom:0.5rem;margin-bottom:0.5rem;">
-            <img src="../PAI-Logo-Azul.png" alt="Prestaí" style="height:28px;width:auto;">
+        <div class="sidebar-logo">
+            <img class="sidebar-logo-full" src="../PAI-Logo-Azul.png" alt="Prestaí">
+            <img class="sidebar-logo-icon" src="../PAI-Icone-Azul.png" alt="Prestaí">
         </div>
-        <div style="font-size:0.65rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.1em;margin:-1.5rem 0 -1rem 0.25rem;">
+        <div style="font-size:0.65rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.1em;margin:-0.75rem 0 0.5rem 0.75rem;">
             Módulo III · Distribuição
         </div>
-        <nav style="display:flex;flex-direction:column;gap:0.25rem;flex:1;">
+        <nav class="sidebar-nav">
             ${navHtml}
         </nav>
-        <div style="border-top:1px solid #f1f5f9;padding-top:1.25rem;display:flex;flex-direction:column;gap:0.25rem;">
-            <a href="../module-selector.html" style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 1rem;text-decoration:none;color:var(--text-secondary);font-size:0.875rem;font-weight:500;border-radius:12px;transition:all 0.2s;">
-                <i data-lucide="arrow-left-right" style="width:16px;"></i>
+        <div class="sidebar-footer">
+            <div class="sidebar-user">
+                <div class="sidebar-avatar">A</div>
+                <div style="overflow: hidden;">
+                    <p class="sidebar-user-name" style="font-size: 13px; font-weight: 600; color: var(--text-primary); white-space: nowrap; text-overflow: ellipsis;"></p>
+                    <p class="sidebar-user-role" style="font-size: 11px; color: var(--text-secondary);"></p>
+                </div>
+            </div>
+            <a href="../module-selector.html" class="nav-item" style="color: var(--primary);">
+                <i data-lucide="grid-2x2"></i>
                 <span>Trocar Módulo</span>
             </a>
-            <a href="#" onclick="handleLogout(event)" style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 1rem;text-decoration:none;color:var(--error);font-size:0.875rem;font-weight:500;border-radius:12px;transition:all 0.2s;">
-                <i data-lucide="log-out" style="width:16px;"></i>
+            <a href="#" onclick="handleLogout(event)" class="nav-item" style="color: var(--error);">
+                <i data-lucide="log-out"></i>
                 <span>Sair</span>
             </a>
         </div>
@@ -115,54 +103,25 @@ async function renderSidebarM3() {
         });
     });
 
-    // ── Responsividade mobile ──────────────────────────────────
-    if (!document.getElementById('sidebar-responsive-css')) {
-        const st = document.createElement('style');
-        st.id = 'sidebar-responsive-css';
-        st.textContent = `
-            .hamburger-btn {
-                display: none;
-                position: fixed;
-                top: 0.875rem;
-                left: 0.875rem;
-                z-index: 1100;
-                background: white;
-                border: 1px solid #e2e8f0;
-                border-radius: 10px;
-                padding: 0.5rem 0.625rem;
-                cursor: pointer;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.10);
-                align-items: center;
-                justify-content: center;
-            }
-            .hamburger-btn:hover { background: #f8fafc; }
-            .sidebar-overlay {
-                display: none;
-                position: fixed;
-                inset: 0;
-                background: rgba(0,0,0,0.35);
-                z-index: 998;
-            }
-            .sidebar-overlay.active { display: block; }
-            @media (max-width: 768px) {
-                .sidebar {
-                    transform: translateX(-100%) !important;
-                    transition: transform 0.28s cubic-bezier(0.4,0,0.2,1) !important;
-                    box-shadow: none !important;
-                }
-                .sidebar.sidebar-open {
-                    transform: translateX(0) !important;
-                    box-shadow: 8px 0 40px rgba(0,0,0,0.18) !important;
-                }
-                .hamburger-btn { display: flex !important; }
-                .main-content {
-                    margin-left: 0 !important;
-                    padding: 4.5rem 1rem 1.5rem !important;
-                }
-            }
-        `;
-        document.head.appendChild(st);
-    }
+    // Preenche os dados do usuário no rodapé (assíncrono, não bloqueia o render).
+    // A responsividade (hamburger, overlay, colapso) vem de style.css, igual ao M1/M2.
+    (async () => {
+        try {
+            const sb = await initSupabase();
+            if (!sb) return;
+            const { data: { session } } = await sb.auth.getSession();
+            const user = session?.user;
+            if (!user || !user.email) return;
+            const role = user.app_metadata?.role || user.user_metadata?.role;
+            const labels = { admin: 'Administrador', gestor: 'Gestor', analista: 'Analista', operador: 'Operador', fornecedor: 'Fornecedor' };
+            const avatarEl = sidebar.querySelector('.sidebar-avatar');
+            const nameEl = sidebar.querySelector('.sidebar-user-name');
+            const roleEl = sidebar.querySelector('.sidebar-user-role');
+            if (avatarEl) avatarEl.textContent = user.email[0].toUpperCase();
+            if (nameEl) nameEl.textContent = user.email.split('@')[0];
+            if (roleEl) roleEl.textContent = labels[role] || 'Gestor';
+        } catch (_) {}
+    })();
 
     const overlay = document.createElement('div');
     overlay.className = 'sidebar-overlay';

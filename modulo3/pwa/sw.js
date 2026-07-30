@@ -1,4 +1,4 @@
-const CACHE_NAME = 'prestai-campo-v2';
+const CACHE_NAME = 'prestai-campo-v3';
 const ASSETS = [
     '/modulo3/pwa/index.html',
     '/modulo3/pwa/idb.js',

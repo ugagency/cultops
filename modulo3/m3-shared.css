@@ -15,21 +15,15 @@
     --glass-shadow:    0 8px 32px 0 rgba(21, 71, 255, 0.1);
 }
 
+/* Fundo branco e tipografia vêm de style.css — mesmas regras do M1/M2 */
 body {
-    font-family: var(--font-body);
-    background: radial-gradient(circle at top left, var(--color-beige), var(--color-blue-15));
     min-height: 100vh;
-    color: var(--text-primary);
     margin: 0;
 }
 
-h1, h2, h3, h4 { font-family: var(--font-heading); }
-
 /* ── Layout ─────────────────────────────────────────────── */
-.main-content {
-    margin-left: var(--sidebar-width);
-    padding: 2rem;
-}
+/* .main-content (margens, padding e responsividade) vem integralmente
+   de style.css — mesmas regras do M1/M2 */
 
 .page-header {
     display: flex;
@@ -43,10 +37,6 @@ h1, h2, h3, h4 { font-family: var(--font-heading); }
 .page-header h1 {
     font-size: 2rem;
     font-weight: 800;
-    background: linear-gradient(135deg, var(--text-primary) 0%, var(--m3-accent) 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
     margin: 0 0 0.25rem 0;
     line-height: 1.2;
 }
@@ -62,7 +52,7 @@ h1, h2, h3, h4 { font-family: var(--font-heading); }
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    background: white;
+    background: var(--glass-bg);
     padding: 0.5rem 1rem;
     border-radius: var(--radius-md);
     border: 1px solid var(--border-light);
