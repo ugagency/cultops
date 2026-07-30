@@ -413,6 +413,17 @@
                     Este projeto ainda não possui produtos importados da planilha orçamentária. Digite o produto manualmente — será corrigido automaticamente no próximo reprocessamento.
                 </p>
             </div>
+            <div style="margin-bottom: 1rem;" id="evento-field-container">
+                <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.4rem;">
+                    Vincular a evento (opcional)
+                </label>
+                <select id="ev-evento"
+                    style="width: 100%; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white; box-sizing: border-box;">
+                </select>
+                <p id="evento-info" style="display:none; font-size: 0.78rem; color: var(--text-secondary); margin-top:0.4rem;">
+                    Este projeto ainda não possui eventos cadastrados no Módulo 3. A evidência será salva sem vínculo a um evento específico.
+                </p>
+            </div>
             <div style="margin-bottom: 1rem;">
                 <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.4rem;">Observações</label>
                 <textarea id="gestor-observacoes" rows="3" maxlength="500"
@@ -506,6 +517,7 @@
         let allProjects = [];
         let allEvidences = [];
         let allProdutos = [];
+        let allEventosM3 = [];
         let signedUrls = {};
         let pendingRejectId = null;
         let pendingComplementId = null;
@@ -533,6 +545,7 @@
                 document.getElementById('project-select').value = currentProjectId;
                 await loadEvidences();
                 await loadProdutos();
+                await loadEventosM3();
                 setupRealtime(currentProjectId);
             }
         });
@@ -564,6 +577,7 @@
             await teardownRealtime();
             await loadEvidences();
             await loadProdutos();
+            await loadEventosM3();
             if (id) setupRealtime(id);
         }
 
@@ -626,6 +640,41 @@
                 select.innerHTML = '';
                 manualInput.style.display = '';
                 warning.style.display = '';
+            }
+        }
+
+        async function loadEventosM3() {
+            allEventosM3 = [];
+            if (!currentProjectId) { renderEventoField(); return; }
+
+            const sb = await initSupabase();
+            const { data, error } = await sb
+                .from('distribution_events')
+                .select('id, titulo, data_evento')
+                .eq('project_id', currentProjectId)
+                .order('data_evento', { ascending: false });
+
+            if (error) { console.error('[loadEventosM3]', error); renderEventoField(); return; }
+
+            allEventosM3 = data || [];
+            renderEventoField();
+        }
+
+        function renderEventoField() {
+            const select = document.getElementById('ev-evento');
+            const info = document.getElementById('evento-info');
+
+            if (allEventosM3.length > 0) {
+                select.innerHTML = '<option value="">Nenhum evento (evidência solta)</option>' +
+                    allEventosM3.map(ev =>
+                        `<option value="${ev.id}">${escapeHtml(ev.titulo)} — ${formatDataCaptura(ev.data_evento)}</option>`
+                    ).join('');
+                select.style.display = '';
+                info.style.display = 'none';
+            } else {
+                select.innerHTML = '';
+                select.style.display = 'none';
+                info.style.display = '';
             }
         }
 
@@ -1033,6 +1082,8 @@
             }
             const observacoesTexto = document.getElementById('gestor-observacoes')?.value?.trim() || null;
             const dataCaptura = document.getElementById('ev-data-captura')?.value || null;
+            // Resolvido uma vez antes do loop — todo o lote grava o mesmo evento.
+            const eventoSelecionado = document.getElementById('ev-evento')?.value || null;
             let sucessos = 0, falhas = 0;
 
             for (const file of files) {
@@ -1075,6 +1126,7 @@
                     descricao: observacoesTexto || null,
                     produto_evidencia: produtoSelecionado,
                     data_captura: dataCaptura,
+                    distribution_event_id: eventoSelecionado,
                     file_path: filePath,
                     file_name: file.name,
                     file_size: file.size,

@@ -575,7 +575,7 @@
             try {
                 const [rubricasRes, despesasExecRes, impostosRes, checklistRes, contratosRes, despesasRecentesRes, projectDataRes, fornecedoresIn23Res, valorEfetivoRes] = await Promise.all([
                     sb.from('rubricas')
-                        .select('nome, codigo, valor_aprovado, valor_utilizado, alerta_limite_ativo, percentual_alerta')
+                        .select('nome, rubrica_id, valor_aprovado, valor_utilizado, alerta_limite_ativo, percentual_alerta')
                         .eq('project_id', projectId)
                         .order('nome', { ascending: true }),
                     sb.from('despesas')
@@ -592,7 +592,8 @@
                     sb.from('contracts')
                         .select('status, valor_total')
                         .eq('project_id', projectId)
-                        .is('contrato_pai_id', null),
+                        .is('contrato_pai_id', null)
+                        .is('excluido_em', null),
                     sb.from('despesas')
                         .select('data_pagamento, valor, status, fornecedor_nome, rubricas(nome)')
                         .eq('project_id', projectId)
@@ -742,7 +743,7 @@
                     <tr>
                         <td>
                             <div style="font-weight: 600;">${escapeHtml(r.nome || '—')}</div>
-                            ${r.codigo ? `<div style="font-size: 0.7rem; color: var(--text-muted);">${escapeHtml(r.codigo)}</div>` : ''}
+                            ${r.rubrica_id ? `<div style="font-size: 0.7rem; color: var(--text-muted);">${escapeHtml(r.rubrica_id)}</div>` : ''}
                         </td>
                         <td class="num">${fmtBRL(aprov)}</td>
                         <td class="num" style="display:none;">${fmtBRL(util)}</td>
@@ -851,7 +852,7 @@
 
         function categorizeRubrica(r) {
             if (r.categoria) return String(r.categoria).toLowerCase().trim();
-            const text = ((r.nome || '') + ' ' + (r.codigo || '')).toLowerCase();
+            const text = ((r.nome || '') + ' ' + (r.rubrica_id || '')).toLowerCase();
             if (/proponente/.test(text)) return 'proponente';
             if (/administr/.test(text)) return 'administracao';
             if (/divulg|comunic|acessib/.test(text)) return 'divulgacao';

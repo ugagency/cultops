@@ -591,9 +591,9 @@
         async function carregarRubricas(pid) {
             const { data, error } = await sbClient
                 .from('rubricas')
-                .select('id, nome, codigo')
+                .select('id, nome, rubrica_id')
                 .eq('project_id', pid)
-                .order('codigo', { ascending: true });
+                .order('rubrica_id', { ascending: true });
 
             const select = document.getElementById('csv-rubrica');
             select.innerHTML = '<option value="">Todas</option>';
@@ -602,7 +602,7 @@
             data.forEach(r => {
                 const opt = document.createElement('option');
                 opt.value = r.id;
-                opt.textContent = `${r.codigo || ''} ${r.nome}`.trim();
+                opt.textContent = `${r.rubrica_id || ''} ${r.nome}`.trim();
                 select.appendChild(opt);
             });
         }
@@ -759,7 +759,7 @@
                 ] = await Promise.all([
                     sbClient.from('projects').select('*').eq('id', pid).maybeSingle(),
                     sbClient.from('rubricas')
-                        .select('nome, codigo, valor_aprovado, valor_utilizado, etapa')
+                        .select('nome, rubrica_id, valor_aprovado, valor_utilizado, etapa')
                         .eq('project_id', pid)
                         .order('nome', { ascending: true }),
                     sbClient.from('despesas')
@@ -769,6 +769,7 @@
                     sbClient.from('contracts')
                         .select('id, numero, objeto, valor_total, data_inicio, data_fim, status, fornecedores(razao_social, cnpj)')
                         .eq('project_id', pid)
+                        .is('excluido_em', null)
                         .order('data_inicio', { ascending: true }),
                     sbClient.from('contract_parcelas')
                         .select('contract_id, status, contracts!inner(project_id)')
@@ -873,7 +874,7 @@
                     const sld = aprov - util;
                     const perc = aprov > 0 ? ((util / aprov) * 100).toFixed(1) + '%' : '0%';
                     const status = util > aprov ? 'Excedida' : (aprov > 0 && util / aprov >= 0.9) ? 'Atenção' : 'OK';
-                    return [r.codigo || '—', r.nome, aprov, status];
+                    return [r.rubrica_id || '—', r.nome, aprov, status];
                 });
                 XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headerRubricas, ...dadosRubricas]), 'Rubricas');
 
@@ -1020,7 +1021,8 @@
                     .from('contracts')
                     .select('arquivo_path, numero')
                     .eq('project_id', pid)
-                    .not('arquivo_path', 'is', null);
+                    .not('arquivo_path', 'is', null)
+                    .is('excluido_em', null);
                 if (error) throw error;
                 return (data || []).map(c => ({
                     tipo, bucket: ZIP_BUCKETS.contratos,
@@ -1320,6 +1322,7 @@
                     sbClient.from('contracts')
                         .select('numero, objeto, valor_total, status, data_inicio, data_fim')
                         .eq('project_id', pid)
+                        .is('excluido_em', null)
                         .order('data_inicio', { ascending: true }),
                     sbClient.from('tax_guides')
                         .select('tipo_imposto, competencia, valor, status, data_vencimento, data_pagamento')
@@ -1653,7 +1656,8 @@
                         .eq('project_id', pid)
                         .not('file_path', 'is', null),
                     sbClient.from('contracts').select('id, arquivo_path, numero')
-                        .eq('project_id', pid).not('arquivo_path', 'is', null),
+                        .eq('project_id', pid).not('arquivo_path', 'is', null)
+                        .is('excluido_em', null),
                     sbClient.from('tax_guides').select('id, arquivo_guia_path, tipo_imposto')
                         .eq('project_id', pid).eq('status', 'paga')
                         .not('arquivo_guia_path', 'is', null),
