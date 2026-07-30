@@ -23,7 +23,7 @@
     <style>
         .evidence-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
             gap: 1.5rem;
             margin-top: 2rem;
         }
@@ -369,27 +369,6 @@
             margin-top: 0.25rem;
         }
 
-        .btn-salic {
-            flex: 1;
-            padding: 0.5rem;
-            border: none;
-            border-radius: var(--radius-sm);
-            background: #1547FF;
-            color: white;
-            font-weight: 600;
-            font-size: 0.8rem;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.3rem;
-            transition: all 0.2s;
-        }
-        .btn-salic:disabled {
-            background: #e2e8f0;
-            color: #94a3b8;
-            cursor: not-allowed;
-        }
     </style>
 </head>
 <body>
@@ -416,19 +395,34 @@
             <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem;">
                 <label style="font-weight: 600; font-size: 0.9rem; white-space: nowrap;">Tipo:</label>
                 <select id="gestor-tipo-evidencia" style="flex: 1; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white;">
-                    <option value="fotos">Fotos</option>
-                    <option value="videos">Vídeos</option>
-                    <option value="arquivos">Arquivos</option>
+                    <option value="foto_evento">Foto do evento</option>
+                    <option value="relatorio_objeto">Relatório do objeto</option>
+                    <option value="peca_marketing">Peça de marketing</option>
+                    <option value="outros">Outros</option>
                 </select>
             </div>
-            <div style="margin-bottom: 1rem;">
-                <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.4rem;">Rubrica vinculada</label>
-                <input type="text" id="gestor-rubrica" list="rubrica-datalist"
-                    placeholder="Digite para buscar rubricas..."
-                    oninput="handleRubricaChange()"
-                    autocomplete="off"
+            <div style="margin-bottom: 1rem;" id="produto-field-container">
+                <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.4rem;">Produto vinculado</label>
+                <select id="ev-produto" onchange="handleProdutoChange()"
+                    style="width: 100%; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white; box-sizing: border-box; display:none;">
+                </select>
+                <input type="text" id="ev-produto-manual" placeholder="Digite o produto (ex: Curso / Oficina / Capacitação)"
+                    oninput="handleProdutoChange()" autocomplete="off"
+                    style="width: 100%; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white; box-sizing: border-box; display:none;">
+                <p id="produto-warning" style="display:none; font-size: 0.78rem; color: #b45309; margin-top:0.4rem;">
+                    Este projeto ainda não possui produtos importados da planilha orçamentária. Digite o produto manualmente — será corrigido automaticamente no próximo reprocessamento.
+                </p>
+            </div>
+            <div style="margin-bottom: 1rem;" id="evento-field-container">
+                <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.4rem;">
+                    Vincular a evento (opcional)
+                </label>
+                <select id="ev-evento"
                     style="width: 100%; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white; box-sizing: border-box;">
-                <datalist id="rubrica-datalist"></datalist>
+                </select>
+                <p id="evento-info" style="display:none; font-size: 0.78rem; color: var(--text-secondary); margin-top:0.4rem;">
+                    Este projeto ainda não possui eventos cadastrados no Módulo 3. A evidência será salva sem vínculo a um evento específico.
+                </p>
             </div>
             <div style="margin-bottom: 1rem;">
                 <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.4rem;">Observações</label>
@@ -437,6 +431,11 @@
                     oninput="updateCharCounter()"
                     style="width: 100%; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-family: inherit; resize: vertical; font-size: 0.9rem; box-sizing: border-box;"></textarea>
                 <div class="char-counter" id="obs-char-counter">0/500</div>
+            </div>
+            <div style="margin-bottom: 1rem;">
+                <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.4rem;">Data da captura</label>
+                <input type="date" id="ev-data-captura"
+                    style="width: 100%; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white; box-sizing: border-box;">
             </div>
             <div class="upload-zone" onclick="document.getElementById('file-input').click()">
                 <i data-lucide="image-plus" style="width: 48px; height: 48px; color: var(--m2-accent); margin-bottom: 1rem;"></i>
@@ -517,11 +516,20 @@
         let currentProjectId = ProjectManager.getSelected();
         let allProjects = [];
         let allEvidences = [];
-        let allRubricas = [];
+        let allProdutos = [];
+        let allEventosM3 = [];
         let signedUrls = {};
         let pendingRejectId = null;
         let pendingComplementId = null;
         let evidencesChannel = null;
+
+        function hojeLocalISO() {
+            const d = new Date();
+            const yyyy = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd}`;
+        }
 
         document.addEventListener('DOMContentLoaded', async () => {
             if (window.verificarAcessoM2 && !(await window.verificarAcessoM2())) return;
@@ -529,10 +537,15 @@
             await initSupabase();
             await populateProjectSelect();
 
+            const inputDataCaptura = document.getElementById('ev-data-captura');
+            inputDataCaptura.max = hojeLocalISO();
+            inputDataCaptura.value = hojeLocalISO();
+
             if (currentProjectId) {
                 document.getElementById('project-select').value = currentProjectId;
                 await loadEvidences();
-                await loadRubricas();
+                await loadProdutos();
+                await loadEventosM3();
                 setupRealtime(currentProjectId);
             }
         });
@@ -563,7 +576,8 @@
             ProjectManager.setSelected(id);
             await teardownRealtime();
             await loadEvidences();
-            await loadRubricas();
+            await loadProdutos();
+            await loadEventosM3();
             if (id) setupRealtime(id);
         }
 
@@ -592,44 +606,93 @@
                 .subscribe();
         }
 
-        async function loadRubricas() {
-            const datalist = document.getElementById('rubrica-datalist');
-            const input = document.getElementById('gestor-rubrica');
-            datalist.innerHTML = '';
-            allRubricas = [];
-            if (!currentProjectId) return;
+        async function loadProdutos() {
+            allProdutos = [];
+            if (!currentProjectId) { renderProdutoField(); return; }
 
             const sb = await initSupabase();
             const { data, error } = await sb
                 .from('rubricas')
-                .select('id, nome, rubrica_id, valor_aprovado')
+                .select('produto')
                 .eq('project_id', currentProjectId)
-                .order('rubrica_id', { ascending: true });
+                .not('produto', 'is', null);
 
-            if (error) { console.error('[loadRubricas]', error); return; }
-            allRubricas = data || [];
-            allRubricas.forEach(r => {
-                const opt = document.createElement('option');
-                opt.value = r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome;
-                datalist.appendChild(opt);
-            });
-            if (input) input.placeholder = allRubricas.length > 0
-                ? `Digite para buscar entre ${allRubricas.length} rubricas...`
-                : 'Sem rubricas disponíveis';
+            if (error) { console.error('[loadProdutos]', error); renderProdutoField(); return; }
+
+            allProdutos = [...new Set((data || []).map(r => r.produto).filter(p => p && p.trim()))].sort();
+            renderProdutoField();
         }
 
-        function handleRubricaChange() {
-            const inputText = document.getElementById('gestor-rubrica').value;
-            const rubrica = allRubricas.find(r => {
-                const label = r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome;
-                return label === inputText || r.nome === inputText;
-            });
-            if (!rubrica) return;
+        function renderProdutoField() {
+            const select = document.getElementById('ev-produto');
+            const manualInput = document.getElementById('ev-produto-manual');
+            const warning = document.getElementById('produto-warning');
+
+            if (allProdutos.length > 0) {
+                select.innerHTML = '<option value="">Selecione um produto...</option>' +
+                    allProdutos.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+                select.style.display = '';
+                manualInput.style.display = 'none';
+                manualInput.value = '';
+                warning.style.display = 'none';
+            } else {
+                select.style.display = 'none';
+                select.innerHTML = '';
+                manualInput.style.display = '';
+                warning.style.display = '';
+            }
+        }
+
+        async function loadEventosM3() {
+            allEventosM3 = [];
+            if (!currentProjectId) { renderEventoField(); return; }
+
+            const sb = await initSupabase();
+            const { data, error } = await sb
+                .from('distribution_events')
+                .select('id, titulo, data_evento')
+                .eq('project_id', currentProjectId)
+                .order('data_evento', { ascending: false });
+
+            if (error) { console.error('[loadEventosM3]', error); renderEventoField(); return; }
+
+            allEventosM3 = data || [];
+            renderEventoField();
+        }
+
+        function renderEventoField() {
+            const select = document.getElementById('ev-evento');
+            const info = document.getElementById('evento-info');
+
+            if (allEventosM3.length > 0) {
+                select.innerHTML = '<option value="">Nenhum evento (evidência solta)</option>' +
+                    allEventosM3.map(ev =>
+                        `<option value="${ev.id}">${escapeHtml(ev.titulo)} — ${formatDataCaptura(ev.data_evento)}</option>`
+                    ).join('');
+                select.style.display = '';
+                info.style.display = 'none';
+            } else {
+                select.innerHTML = '';
+                select.style.display = 'none';
+                info.style.display = '';
+            }
+        }
+
+        function getProdutoValorAtual() {
+            if (allProdutos.length > 0) {
+                return document.getElementById('ev-produto')?.value?.trim() || '';
+            }
+            return document.getElementById('ev-produto-manual')?.value?.trim() || '';
+        }
+
+        function handleProdutoChange() {
+            const produtoValor = getProdutoValorAtual();
+            if (!produtoValor) return;
             const tipoVal = document.getElementById('gestor-tipo-evidencia').value || 'evidência';
             const tipoLabel = tipoVal.replace(/_/g, ' ');
             const hoje = new Date().toLocaleDateString('pt-BR');
             const ta = document.getElementById('gestor-observacoes');
-            ta.value = `Comprovação da rubrica ${rubrica.nome} — ${tipoLabel} de ${hoje}.`;
+            ta.value = `Comprovação do produto ${produtoValor} — ${tipoLabel} de ${hoje}.`;
             updateCharCounter();
         }
 
@@ -647,12 +710,6 @@
                 .from('physical_evidences')
                 .select(`
                     *,
-                    rubricas (
-                        id,
-                        nome,
-                        rubrica_id,
-                        valor_aprovado
-                    ),
                     distribution_events (
                         titulo
                     )
@@ -707,6 +764,12 @@
             return filePath.split('.').pop().toLowerCase() === 'pdf';
         }
 
+        function formatDataCaptura(dateStr) {
+            if (!dateStr) return null;
+            const [ano, mes, dia] = dateStr.split('-');
+            return `${dia}/${mes}/${ano}`;
+        }
+
         function renderEvidences(evidences) {
             const container = document.getElementById('evidence-list');
             if (!evidences || evidences.length === 0) {
@@ -736,7 +799,6 @@
                 const motivoMsg = ev.motivo_reprovacao || '';
                 const showMotivo = (ev.status_validacao === 'reprovada' || ev.status_validacao === 'pendente_complemento') && motivoMsg;
                 const motivoLabel = ev.status_validacao === 'pendente_complemento' ? 'Complemento solicitado' : 'Motivo';
-                const rubrica = ev.rubricas;
                 const descTrunc = ev.descricao
                     ? (ev.descricao.length > 80 ? ev.descricao.slice(0, 80) + '...' : ev.descricao)
                     : null;
@@ -770,9 +832,9 @@
                         </div>` : ''}
 
                         <div style="margin-bottom: 0.4rem;">
-                            ${rubrica
-                                ? `<span class="badge-rubrica"><i data-lucide="tag" style="width:10px;height:10px;"></i> ${escapeHtml(rubrica.rubrica_id ? rubrica.rubrica_id + ' - ' + rubrica.nome : rubrica.nome)}</span>`
-                                : `<span class="badge-sem-rubrica">Sem rubrica</span>`
+                            ${ev.produto_evidencia
+                                ? `<span class="badge-rubrica"><i data-lucide="tag" style="width:10px;height:10px;"></i> ${escapeHtml(ev.produto_evidencia)}</span>`
+                                : `<span class="badge-sem-rubrica">Produto não definido</span>`
                             }
                         </div>
 
@@ -780,6 +842,12 @@
                         <div style="font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 0.5rem; font-style: italic;"
                              title="${escapeHtml(ev.descricao)}">
                             ${escapeHtml(descTrunc)}
+                        </div>` : ''}
+
+                        ${ev.data_captura ? `
+                        <div style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 0.4rem;">
+                            <i data-lucide="calendar" style="width:11px;height:11px;vertical-align:-1px;"></i>
+                            Capturada em ${formatDataCaptura(ev.data_captura)}
                         </div>` : ''}
 
                         <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
@@ -805,26 +873,6 @@
                                     <i data-lucide="x" style="width: 14px; height: 14px;"></i> Reprovar
                                 </button>
                             </div>
-                        ` : ''}
-
-                        ${ev.status_validacao === 'aprovada' ? `
-                        <div class="card-actions" onclick="event.stopPropagation()">
-                            <button class="btn-salic"
-                                data-salic-id="${ev.id}"
-                                ${!ev.rubrica_id_fk ? 'disabled title="Vincule uma rubrica antes de enviar"' : `onclick="enviarAoSalic('${ev.id}')"`}>
-                                <i data-lucide="upload" style="width:14px;height:14px;"></i> Enviar ao SALIC
-                            </button>
-                        </div>
-                        ` : ''}
-
-                        ${ev.status_validacao === 'erro_rpa' ? `
-                        <div class="card-actions" onclick="event.stopPropagation()">
-                            <button class="btn-salic"
-                                data-salic-id="${ev.id}"
-                                ${!ev.rubrica_id_fk ? 'disabled title="Vincule uma rubrica antes de enviar"' : `onclick="enviarAoSalic('${ev.id}')"`}>
-                                <i data-lucide="refresh-cw" style="width:14px;height:14px;"></i> Tentar novamente
-                            </button>
-                        </div>
                         ` : ''}
                     </div>
                 `;
@@ -1060,13 +1108,15 @@
             }
 
             const tipoSelecionado = document.getElementById('gestor-tipo-evidencia').value;
-            const rubricaInputText = document.getElementById('gestor-rubrica')?.value || '';
-            const rubricaObj = allRubricas.find(r => {
-                const label = r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome;
-                return label === rubricaInputText || r.nome === rubricaInputText;
-            });
-            const rubricaSelecionadaId = rubricaObj?.id || null;
+            const produtoSelecionado = getProdutoValorAtual();
+            if (!produtoSelecionado) {
+                showToast('Selecione ou digite o produto antes de enviar evidências.', 'error');
+                return;
+            }
             const observacoesTexto = document.getElementById('gestor-observacoes')?.value?.trim() || null;
+            const dataCaptura = document.getElementById('ev-data-captura')?.value || null;
+            // Resolvido uma vez antes do loop — todo o lote grava o mesmo evento.
+            const eventoSelecionado = document.getElementById('ev-evento')?.value || null;
             let sucessos = 0, falhas = 0;
 
             for (const file of files) {
@@ -1107,7 +1157,9 @@
                     enviado_por: user?.id || null,
                     tipo_evidencia: tipoSelecionado,
                     descricao: observacoesTexto || null,
-                    rubrica_id_fk: rubricaSelecionadaId || null,
+                    produto_evidencia: produtoSelecionado,
+                    data_captura: dataCaptura,
+                    distribution_event_id: eventoSelecionado,
                     file_path: filePath,
                     file_name: file.name,
                     file_size: file.size,
@@ -1135,44 +1187,6 @@
             }
             // Realtime já dispara loadEvidences; mas se a sub não estiver ativa, fazemos um refresh manual
             if (!evidencesChannel) await loadEvidences();
-        }
-
-        async function enviarAoSalic(evidenciaId) {
-            if (!confirm('Enviar esta evidência ao SALIC?')) return;
-
-            const btn = document.querySelector(`[data-salic-id="${evidenciaId}"]`);
-            if (btn) {
-                btn.disabled = true;
-                btn.innerHTML = '<i data-lucide="loader-2" style="width:14px;height:14px;" class="spin"></i> Enviando...';
-                if (window.lucide) window.lucide.createIcons();
-            }
-
-            const sb = await initSupabase();
-            const { data: { user } } = await sb.auth.getUser();
-
-            try {
-                const res = await fetch('/api/salic/comprovar-fisico', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ evidenciaId, userId: user?.id })
-                });
-
-                if (!res.ok) {
-                    const err = await res.json().catch(() => ({ message: res.statusText }));
-                    throw new Error(err.message || 'Erro desconhecido');
-                }
-
-                const idx = allEvidences.findIndex(e => e.id === evidenciaId);
-                if (idx !== -1) allEvidences[idx].status_validacao = 'enviada_salic';
-                showToast('Evidência enviada ao SALIC', 'success');
-                renderEvidences(allEvidences);
-            } catch (e) {
-                await sb.from('physical_evidences').update({ status_validacao: 'erro_rpa' }).eq('id', evidenciaId);
-                const idx = allEvidences.findIndex(e => e.id === evidenciaId);
-                if (idx !== -1) allEvidences[idx].status_validacao = 'erro_rpa';
-                showToast('Erro no envio: ' + e.message, 'error');
-                renderEvidences(allEvidences);
-            }
         }
 
         function escapeHtml(s) {

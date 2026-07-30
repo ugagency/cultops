@@ -34,6 +34,15 @@
             align-items: center;
             padding: 1.25rem 1.5rem;
         }
+
+        @media (max-width: 640px) {
+            .rubrica-card,
+            .rubrica-list-header {
+                grid-template-columns: 1fr 1fr !important;
+                row-gap: 0.5rem;
+            }
+            .rubrica-list-header { display: none !important; }
+        }
         
         .progress-container {
             width: 100%;
@@ -355,7 +364,7 @@
         <div class="rubrica-list" id="rubrica-list">
             <!-- Rubricas summary table headers -->
             <div class="glass-card" style="margin-bottom: 0; padding: 0.75rem 1.5rem; background: var(--bg-sidebar); border-radius: var(--radius-md) var(--radius-md) 0 0; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--text-secondary);">
-                <div style="display: grid; grid-template-columns: 80px 2fr 1.5fr 1fr; gap: 1rem;">
+                <div class="rubrica-list-header" style="display: grid; grid-template-columns: 80px 2fr 1.5fr 1fr; gap: 1rem;">
                     <div>Cód</div>
                     <div>Rubrica / Nome</div>
                     <div>Valor Aprovado</div>
@@ -701,7 +710,12 @@
 
         function formatHistDate(iso) {
             if (!iso) return '—';
-            try { return new Date(iso).toLocaleDateString('pt-BR'); } catch { return '—'; }
+            try {
+                const temHora = iso.includes('T') || iso.includes(' ');
+                const dt = temHora ? new Date(iso) : new Date(iso + 'T00:00:00');
+                if (isNaN(dt)) return iso;
+                return dt.toLocaleDateString('pt-BR');
+            } catch { return '—'; }
         }
 
         function escapeHtml(s) {

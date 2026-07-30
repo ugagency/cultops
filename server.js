@@ -160,7 +160,9 @@ app.get('/config.js', (req, res) => {
         N8N_WEBHOOK_SALIC_PROJECT_URL: "https://automacoes-n8n.infrassys.com/webhook/cultops-projeto",
         N8N_WEBHOOK_SALIC_IMPORT_RUBRICAS_URL: "https://automacoes-n8n.infrassys.com/webhook/uploadrubricas",
         N8N_WEBHOOK_CRIAR_PDF_URL: "https://automacoes-n8n.infrassys.com/webhook/relatorio",
-        SALIC_API_URL: "/api/salic/inserir"
+        SALIC_API_URL: process.env.RAILWAY_URL
+            ? process.env.RAILWAY_URL + "/api/salic/inserir"
+            : "/api/salic/inserir"
     };
     res.type('application/javascript');
     res.send(`const CONFIG = ${JSON.stringify(publicConfig, null, 2)};`);
@@ -189,7 +191,35 @@ if (process.env.DISABLE_FRONTEND === 'true') {
  * Endpoint para disparar o robô do SALIC
  */
 app.post('/api/salic/inserir', async (req, res) => {
-    // Carregamento "Lazy" do robô para economizar memória na Vercel
+    // Se rodando na Vercel, delegar ao Railway onde o Puppeteer funciona
+    if (process.env.VERCEL) {
+        const railwayUrl = process.env.RAILWAY_URL;
+        if (!railwayUrl) {
+            return res.status(500).json({
+                error: 'RAILWAY_URL não configurada na Vercel.'
+            });
+        }
+        try {
+            console.log('[PROXY→RAILWAY] Encaminhando para:', railwayUrl);
+            const response = await fetch(
+                `${railwayUrl}/api/salic/inserir`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(req.body),
+                }
+            );
+            const data = await response.json();
+            return res.status(response.status).json(data);
+        } catch (err) {
+            console.error('[PROXY→RAILWAY] Erro:', err.message);
+            return res.status(500).json({
+                error: 'Falha ao conectar com o Railway RPA: ' + err.message
+            });
+        }
+    }
+
+    // Abaixo: código original do handler (Puppeteer no Railway)
     const { executarInsercaoSalic } = require('./salic_insertion.cjs');
 
     const { documentId, userId } = req.body;
@@ -413,7 +443,7 @@ app.post('/api/gestor/criar-analista',
 
             const { error: linkErr } = await supabase
                 .from('organization_users')
-                .insert({ organization_id: orgId, user_id: newUserId, role: 'membro' });
+                .insert({ organization_id: orgId, user_id: newUserId, role: 'analista' });
             if (linkErr) {
                 // Rollback: remove o user criado para não deixar órfão sem vínculo
                 await supabase.auth.admin.deleteUser(newUserId);

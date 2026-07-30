@@ -206,25 +206,39 @@ function parseValorBR(v) {
 
 const isSolicitanteMode = window.location.pathname.includes('solicitante') || window.location.hash.includes('solicitante') || window.location.search.includes('solicitante');
 
+// Cria o objeto de filtros com o campo `project` persistido em localStorage
+// (mesma chave do M2, para lembrar o último projeto entre navegações, reloads
+// e troca de módulo). Ler/escrever state.filters.project passa pelo accessor.
+function createFilters() {
+    const PROJECT_KEY = 'prestai_project_id';
+    const f = { startDate: '', endDate: '', search: '', sort: 'date_desc', status: '' };
+    let _project = localStorage.getItem(PROJECT_KEY) || '';
+    Object.defineProperty(f, 'project', {
+        get() { return _project; },
+        set(v) {
+            _project = v || '';
+            if (_project) localStorage.setItem(PROJECT_KEY, _project);
+            else localStorage.removeItem(PROJECT_KEY);
+        },
+        enumerable: true,
+        configurable: true
+    });
+    return f;
+}
+
 const state = {
     isSolicitanteMode: isSolicitanteMode,
     currentView: isSolicitanteMode ? 'solicitante_login' : 'login',
     user: null,
     projects: [],
+    planilhasPorProjeto: {}, // project_id -> { name, file_path } da planilha orçamentária
     documents: [],
     rubricas_disponiveis: [],
     catalogo_rubricas: [],
     currentDocument: null,
     loading: false,
     rubricas: [],
-    filters: {
-        project: '',
-        startDate: '',
-        endDate: '',
-        search: '',
-        sort: 'date_desc',
-        status: ''
-    },
+    filters: createFilters(),
     all_solicitantes: [],
     vinculos_solicitantes: [],
     uploadLoteQueue: [],
@@ -377,21 +391,21 @@ const Sidebar = () => `
             <i data-lucide="briefcase"></i>
             <span>Projetos</span>
         </a>
+        <a class="nav-item ${['orcamento', 'rubricas'].includes(state.currentView) ? 'active' : ''}" onclick="window.navigate('orcamento')">
+            <i data-lucide="list-checks"></i>
+            <span>Rubricas</span>
+        </a>
         <a class="nav-item ${['upload', 'details'].includes(state.currentView) ? 'active' : ''}" onclick="window.navigate('upload')">
             <i data-lucide="file-text"></i>
             <span>Documentos</span>
         </a>
         <a class="nav-item ${state.currentView === 'upload_lote' ? 'active' : ''}" onclick="window.navigate('upload_lote')">
             <i data-lucide="layers"></i>
-            <span>Upload em Lote</span>
+            <span>Documentos em Lote</span>
         </a>
         <a class="nav-item ${state.currentView === 'envio_lote_salic' ? 'active' : ''}" onclick="window.navigate('envio_lote_salic')">
             <i data-lucide="send"></i>
             <span>Envio SALIC</span>
-        </a>
-        <a class="nav-item ${['orcamento', 'rubricas'].includes(state.currentView) ? 'active' : ''}" onclick="window.navigate('orcamento')">
-            <i data-lucide="list-checks"></i>
-            <span>Rubricas</span>
         </a>
         <a class="nav-item ${state.currentView === 'financeiro' ? 'active' : ''}" onclick="window.navigate('financeiro')">
             <i data-lucide="bar-chart-3"></i>
@@ -420,15 +434,15 @@ const Sidebar = () => `
     </nav>
 
     <div class="sidebar-footer">
-        <div style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; margin-bottom: 0.5rem;">
-            <div style="width: 32px; height: 32px; background: var(--border-light); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: var(--text-secondary);">
+        <div class="sidebar-user">
+            <div class="sidebar-avatar">
                 ${state.user ? state.user.email[0].toUpperCase() : 'A'}
             </div>
             <div style="overflow: hidden;">
                 <p style="font-size: 13px; font-weight: 600; color: var(--text-primary); white-space: nowrap; text-overflow: ellipsis;">
                     ${state.user ? state.user.email.split('@')[0] : 'Admin'}
                 </p>
-                <p style="font-size: 11px; color: var(--text-secondary);">Gestor</p>
+                <p style="font-size: 11px; color: var(--text-secondary);">${ROLE_LABELS[getUserRole()] || 'Gestor'}</p>
             </div>
         </div>
         <a class="nav-item" href="/module-selector.html" style="color: var(--primary);">
@@ -445,6 +459,18 @@ const Sidebar = () => `
 
 // Helper for Header compatibility if needed
 const Header = Sidebar;
+
+// Botão para visualizar a Planilha Orçamentária (PDF do SALIC) do projeto
+// atualmente selecionado. Retorna '' se não houver projeto ou planilha.
+// Usado nas telas de Rubricas, Documentos e Documentos em Lote.
+function planilhaOrcamentariaBtn() {
+    const pl = state.planilhasPorProjeto && state.planilhasPorProjeto[state.filters.project];
+    if (!pl || !pl.file_path) return '';
+    const url = `${CONFIG.SUPABASE_URL}/storage/v1/object/public/documentos/${pl.file_path}`;
+    return `<button class="btn btn-primary" onclick="window.open('${url}', '_blank')" title="Abrir a Planilha Orçamentária (PDF do SALIC) deste projeto">
+        <i data-lucide="file-spreadsheet" style="width: 16px;"></i> Veja a Planilha Orçamentária
+    </button>`;
+}
 
 
 const SolicitanteHeader = () => `
@@ -1151,11 +1177,13 @@ ${Sidebar()}
 
                 <div class="form-group mb-4">
                     <label>Projeto / PRONAC</label>
-                    <select id="project-selector" onchange="window.handleProjectSelectChange(this.value); state.filters.project = this.value;">
+                    <select id="project-selector" onchange="state.filters.project = this.value; window.handleProjectSelectChange(this.value); render();">
                         <option value="">Selecione um projeto...</option>
                         ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
                     </select>
                 </div>
+
+                ${planilhaOrcamentariaBtn() ? `<div class="mb-4">${planilhaOrcamentariaBtn()}</div>` : ''}
 
                 <div class="form-group mb-4">
                     <label>Rubrica Orçamentária (Obrigatório)</label>
@@ -1208,7 +1236,7 @@ const UploadLoteView = () => {
 ${Sidebar()}
     <main class="main-content view-content">
         <header class="content-header">
-            <h1>Upload em Lote</h1>
+            <h1>Documentos em Lote</h1>
             <p class="page-subtitle">Envie vários PDFs de uma vez. Depois escolha a rubrica de cada um e clique em Processar para iniciar o OCR.</p>
         </header>
 
@@ -1223,6 +1251,8 @@ ${Sidebar()}
                         ${state.projects.map(p => `<option value="${p.id}" ${projetoSelecionado === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
                     </select>
                 </div>
+
+                ${planilhaOrcamentariaBtn() ? `<div class="mb-4">${planilhaOrcamentariaBtn()}</div>` : ''}
 
                 <div class="upload-area" onclick="if(document.getElementById('lote-project-selector').value) document.getElementById('lote-file-input').click(); else alert('Selecione um projeto primeiro!');">
                     <input type="file" id="lote-file-input" multiple accept=".pdf" style="display: none;" onchange="window.handleLoteFilesSelected(this.files)">
@@ -1804,7 +1834,11 @@ ${Sidebar()}
         data:   !doc.data_emissao,
         numero: !doc.numero_nf
     };
-    camposPendentes.algum = Object.values(camposPendentes).some(Boolean);
+    // So exibe o bloco de preenchimento manual quando o OCR de fato falhou
+    // (status 'revisao_manual'); enquanto o OCR ainda esta processando, os
+    // campos ficam null naturalmente e nao devem disparar o aviso.
+    camposPendentes.algum = doc.status === 'revisao_manual'
+        && Object.values(camposPendentes).some(Boolean);
 
     return `
 ${Sidebar()}
@@ -1916,7 +1950,7 @@ ${Sidebar()}
                         </div>
                         <div class="info-item">
                             <label>Data de Emissão</label>
-                            <p class="text-sm">${doc.data_emissao ? new Date(doc.data_emissao).toLocaleDateString('pt-BR') : '---'}</p>
+                            <p class="text-sm">${doc.data_emissao ? _laudoFmtDate(doc.data_emissao) : '---'}</p>
                         </div>
                         <div class="info-item">
                             <label>Nr. Comprovante</label>
@@ -2216,6 +2250,22 @@ window.handleForcarAvanco = async function (docId, currentStatus) {
             .eq('id', docId);
 
         if (error) throw error;
+
+        // Ao pular a revisão manual do OCR direto para a Auditoria IA, o n8n precisa
+        // ser notificado para rodar a validação de conformidade (CNAE vs. rubrica);
+        // sem isso o documento fica "em auditoria" mas nunca é de fato auditado.
+        if (currentStatus === 'revisao_manual' && CONFIG.N8N_WEBHOOK_VALIDATION_URL) {
+            fetch(CONFIG.N8N_WEBHOOK_VALIDATION_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                mode: 'cors',
+                body: JSON.stringify({
+                    document_id: docId,
+                    cnpj_fornecedor: state.currentDocument?.cnpj_emissor
+                })
+            }).then(r => console.log("n8n Validation Triggered (forçar avanço):", r.status))
+                .catch(e => console.error("Erro ao notificar n8n:", e.message));
+        }
 
         window.showToast('Documento avançado manualmente com sucesso.', 'warning');
         await fetchDocumentDetails(docId);
@@ -2650,8 +2700,10 @@ window.handleLogin = async function () {
 
         const _roleLogin = data.user.app_metadata?.role
                         || data.user.user_metadata?.role;
+        // NOTA: quando feature/modulo-3 for mergeada em main, reverter para
+        // window.location.href = 'modulo3/index.html' (a rota passa a existir).
         if (_roleLogin === 'operador') {
-            window.location.href = 'modulo3/index.html';
+            window.navigate('sem_acesso');
             return;
         }
 
@@ -3148,9 +3200,10 @@ const OrcamentoView = () => {
                         <span class="font-bold text-sm">Importante</span>
                     </div>
                     <p class="text-xs text-secondary" style="line-height: 1.6;">
-                        O PDF deve ter sido gerado diretamente pelo portal SALIC (Opção "Imprimir"). 
+                        O PDF deve ter sido gerado diretamente pelo portal SALIC (Opção "Imprimir").
                         O sistema utiliza OCR inteligente para ler as colunas de Etapa, Local, Nome da Rubrica e Valores.
                     </p>
+                    ${planilhaOrcamentariaBtn() ? `<div style="margin-top: 1.25rem;">${planilhaOrcamentariaBtn()}</div>` : ''}
                     <div style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border-light);">
                         <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; color: var(--text-secondary);">
                             <i data-lucide="history" style="width: 18px;"></i>
@@ -3316,7 +3369,7 @@ window.navigate = async function (view, id = null) {
     state.error = null; // Limpa erros ao navegar
 
     if (view === 'dashboard') {
-        state.filters.project = '';
+        // Mantém o projeto filtrado (persistido) ao voltar ao dashboard
         state.filters.status = '';
         await fetchProjects(); // Sempre recarrega projetos ao voltar ao dashboard
         await fetchDocuments();
@@ -3592,9 +3645,15 @@ window.salvarCamposManuais = async function (documentId) {
         rubrica_id_fk: doc?.rubrica_id_fk
     };
 
+    let avancouParaConformidade = false;
+
     if (doc?.status === 'aguardando_rubrica'
         && merged.cnpj_emissor && merged.valor && merged.data_emissao && merged.rubrica_id_fk) {
         updateFields.status = 'aguardando_conciliacao_bancaria';
+    } else if (doc?.status === 'revisao_manual'
+        && merged.cnpj_emissor && merged.valor && merged.data_emissao && merged.rubrica_id_fk) {
+        updateFields.status = 'aguardando_conformidade';
+        avancouParaConformidade = true;
     }
 
     const { error } = await supabaseClient
@@ -3603,6 +3662,25 @@ window.salvarCamposManuais = async function (documentId) {
         .eq('id', documentId);
 
     if (error) { showToast('Erro ao salvar: ' + error.message, 'error'); return; }
+
+    // Ao completar a revisao manual (OCR falhou, humano preencheu os campos), o n8n
+    // precisa ser notificado para rodar a validacao de conformidade (CNAE vs. rubrica);
+    // sem isso o documento fica "em auditoria" mas nunca e de fato auditado.
+    if (avancouParaConformidade && CONFIG.N8N_WEBHOOK_VALIDATION_URL) {
+        fetch(CONFIG.N8N_WEBHOOK_VALIDATION_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            mode: 'cors',
+            body: JSON.stringify({
+                document_id: documentId,
+                cnpj_fornecedor: merged.cnpj_emissor
+            })
+        }).then(r => console.log("n8n Validation Triggered (salvarCamposManuais):", r.status))
+            .catch(e => {
+                console.error("Erro ao notificar n8n:", e.message);
+                window.showToast('Dados salvos, mas houve falha ao notificar o sistema de validação. Se o documento não avançar em alguns minutos, contate o suporte.', 'warning');
+            });
+    }
 
     showToast('Campos salvos com sucesso', 'success');
     fetchDocumentDetails(documentId);
@@ -3780,6 +3858,27 @@ async function fetchProjects() {
         return;
     }
     state.projects = data || [];
+
+    // Mapa project_id -> planilha orçamentária (mais recente), para o botão
+    // "Visualizar Planilha Orçamentária" nas telas de Rubricas/Documentos/Lote.
+    try {
+        const ids = state.projects.map(p => p.id);
+        const map = {};
+        if (ids.length) {
+            const { data: planilhas } = await supabaseClient
+                .from('documents')
+                .select('project_id, name, file_path, created_at')
+                .eq('tipo_documento', 'planilha_orcamentaria')
+                .in('project_id', ids)
+                .order('created_at', { ascending: false });
+            (planilhas || []).forEach(pl => {
+                if (!map[pl.project_id]) map[pl.project_id] = { name: pl.name, file_path: pl.file_path };
+            });
+        }
+        state.planilhasPorProjeto = map;
+    } catch (e) {
+        console.error('Erro ao buscar planilhas orçamentárias:', e);
+    }
 }
 
 async function fetchDocuments() {
@@ -3833,7 +3932,13 @@ window.updateFilters = function (key, value) {
 };
 
 window.clearFilters = function () {
-    state.filters = { project: '', startDate: '', endDate: '', search: '', sort: 'date_desc', status: '' };
+    // Reset campo a campo para preservar o accessor persistido de `project`
+    state.filters.project = '';
+    state.filters.startDate = '';
+    state.filters.endDate = '';
+    state.filters.search = '';
+    state.filters.sort = 'date_desc';
+    state.filters.status = '';
     fetchDocuments().then(render);
 };
 
@@ -4244,7 +4349,7 @@ ${Sidebar()}
 
 
 // --- Equipe (S1-B) ---
-const ROLE_LABELS = { gestor: 'Gestor', analista: 'Analista', fornecedor: 'Fornecedor' };
+const ROLE_LABELS = { admin: 'Administrador', gestor: 'Gestor', analista: 'Analista', fornecedor: 'Fornecedor' };
 
 const EquipeView = () => `
 ${Sidebar()}
@@ -4791,6 +4896,7 @@ async function subirParaStorage(file, projectId, opts = {}) {
     const status = opts.status || 'processing_ocr';
     const rubrica = opts.rubrica || null;
     const tipoDocumento = opts.tipo_documento || 'nf';
+    const projeto = state.projects.find(p => p.id === projectId);
 
     const fileExt = file.name.split('.').pop();
     const fileName = `${Math.random()}.${fileExt} `;
@@ -4811,7 +4917,9 @@ async function subirParaStorage(file, projectId, opts = {}) {
             file_path: filePath,
             status: status,
             tipo_documento: tipoDocumento,
-            rubrica: rubrica
+            rubrica: rubrica,
+            rubrica_id_fk: opts.rubrica_id_fk || null,
+            organization_id: projeto?.organization_id || null
         })
         .select()
         .single();

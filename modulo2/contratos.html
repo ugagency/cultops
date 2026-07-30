@@ -169,7 +169,7 @@
         }
         .modal-dialog h3 { margin: 0 0 1.25rem 0; font-size: 1.2rem; }
         .form-grid { display: flex; flex-direction: column; gap: 1rem; }
-        .form-grid .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .form-grid .row-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); gap: 1rem; }
         .form-grid label {
             display: flex; flex-direction: column; gap: 0.35rem;
             font-size: 0.78rem; font-weight: 600; color: var(--text-secondary);
@@ -231,6 +231,18 @@
         }
         .btn-inline.primary:hover { background: var(--m2-accent-hover); color: white; }
 
+        .btn-icon {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 30px; height: 30px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border-light);
+            background: white;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .btn-icon:hover { border-color: var(--m2-accent); color: var(--m2-accent); background: rgba(21,71,255,0.05); }
+
         .empty-mini {
             padding: 1.5rem 1rem;
             text-align: center;
@@ -269,6 +281,39 @@
             </div>
         </header>
 
+        <div class="glass-card mb-4" id="contratos-filtros">
+            <div style="display:flex; gap:0.8rem; flex-wrap:wrap; align-items:center;">
+
+                <input type="text" id="filter-contrato-busca"
+                    placeholder="Buscar por razão social, número ou objeto..."
+                    oninput="aplicarFiltrosContratos()"
+                    style="flex:2; min-width:220px; padding:0.5rem 0.8rem; border:1px solid var(--border-light); border-radius:var(--radius-md);">
+
+                <select id="filter-contrato-rubrica" onchange="aplicarFiltrosContratos()"
+                    style="flex:1; min-width:160px; padding:0.5rem 0.8rem; border:1px solid var(--border-light); border-radius:var(--radius-md); background:white;">
+                    <option value="">Todas as rubricas</option>
+                </select>
+
+                <select id="filter-contrato-ano" onchange="aplicarFiltrosContratos()"
+                    style="min-width:110px; padding:0.5rem 0.8rem; border:1px solid var(--border-light); border-radius:var(--radius-md); background:white;">
+                    <option value="">Todos os anos</option>
+                </select>
+
+                <select id="filter-contrato-status" onchange="aplicarFiltrosContratos()"
+                    style="min-width:140px; padding:0.5rem 0.8rem; border:1px solid var(--border-light); border-radius:var(--radius-md); background:white;">
+                    <option value="">Todos os status</option>
+                    <option value="ativo">Ativo</option>
+                    <option value="suspenso">Suspenso</option>
+                    <option value="encerrado">Encerrado</option>
+                </select>
+
+                <button class="btn-inline" onclick="limparFiltrosContratos()">
+                    <i data-lucide="x" style="width:14px;"></i> Limpar
+                </button>
+            </div>
+            <div id="contratos-filter-count" style="font-size:0.85rem; color:var(--text-secondary); margin-top:0.6rem;"></div>
+        </div>
+
         <div class="glass-card" style="padding: 0; overflow: hidden;">
             <table class="m2-table">
                 <thead>
@@ -280,11 +325,12 @@
                         <th>Vigência</th>
                         <th>Valor Total</th>
                         <th>Status</th>
+                        <th style="width: 90px;">Ações</th>
                     </tr>
                 </thead>
                 <tbody id="contracts-list">
                     <tr>
-                        <td colspan="7" style="text-align: center; padding: 3rem; color: var(--text-muted);">
+                        <td colspan="8" style="text-align: center; padding: 3rem; color: var(--text-muted);">
                             Selecione um projeto para listar os contratos.
                         </td>
                     </tr>
@@ -305,7 +351,7 @@
                     </label>
                     <label>
                         Valor total (R$) <span style="color:#FF5807;">*</span>
-                        <input type="number" step="0.01" min="0.01" id="c-valor" required>
+                        <input type="number" step="0.01" min="0" id="c-valor" required>
                     </label>
                 </div>
 
@@ -349,7 +395,10 @@
                     <span id="ocr-status-contrato" style="display:none; margin-top:0.35rem; font-size:0.8rem; color:var(--text-secondary); align-items:center; gap:0.4rem;">
                         <i data-lucide="loader" class="spin" style="width:14px;height:14px;"></i> Enviando e analisando com IA…
                     </span>
+                    <p id="c-arquivo-atual-info" style="display:none; font-size:0.82rem; color:var(--text-secondary); margin-top:0.3rem;"></p>
                 </label>
+
+                <input type="hidden" id="c-contrato-pai-id" value="">
 
                 <div class="modal-actions">
                     <button type="button" class="btn-modal btn-modal-cancel" onclick="closeContratoModal()">Cancelar</button>
@@ -446,10 +495,13 @@
         let contractsCache = [];
         let parcelasVencidasSet = new Set();
         let expandedContractId = null;
+        let anexosCache = {};
+        let expandedAnexoId = null;
         let parcelaModalCtx = null;   // { contractId, projectId }
         let aditivoModalCtx = null;   // { contractId, projectId, contract }
         let _ocrContratFilePath = null;   // path já enviado ao Storage durante OCR
         let _ocrFornecedorPendente = null; // { cnpj, nome } caso fornecedor não cadastrado
+        let _editandoContratoId = null;   // id do contrato em edição (null = modo criação)
 
         document.addEventListener('DOMContentLoaded', async () => {
             if (window.verificarAcessoM2 && !(await window.verificarAcessoM2())) return;
@@ -491,8 +543,10 @@
 
             const [contratosRes, vencidasRes] = await Promise.all([
                 sb.from('contracts')
-                    .select('*, fornecedores(razao_social, cnpj)')
+                    .select('*, fornecedores(razao_social, cnpj), rubricas(nome, rubrica_id)')
                     .eq('project_id', currentProjectId)
+                    .is('contrato_pai_id', null)
+                    .is('excluido_em', null)
                     .order('data_inicio', { ascending: false }),
                 sb.from('contract_parcelas')
                     .select('contract_id')
@@ -509,7 +563,84 @@
 
             contractsCache = contratosRes.data || [];
             parcelasVencidasSet = new Set((vencidasRes.data || []).map(p => p.contract_id));
-            renderContracts(contractsCache);
+            popularFiltrosContratos();
+            aplicarFiltrosContratos();
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // FILTROS (client-side sobre contractsCache)
+        // ─────────────────────────────────────────────────────────────
+        function popularFiltrosContratos() {
+            // Preserva a seleção atual — loadContracts() roda de novo após
+            // ações (mudar status, excluir), e o rebuild não deve zerar filtros.
+            const selRubrica = document.getElementById('filter-contrato-rubrica');
+            const selAno = document.getElementById('filter-contrato-ano');
+            const rubricaAtual = selRubrica.value;
+            const anoAtual = selAno.value;
+
+            // value = FK uuid (contracts.rubrica_id); o código legível
+            // (rubricas.rubrica_id, ex: "3") entra só no texto da option.
+            const rubricasUnicas = [...new Map(
+                contractsCache
+                    .filter(c => c.rubrica_id && c.rubricas)
+                    .map(c => [c.rubrica_id, { fk: c.rubrica_id, codigo: c.rubricas.rubrica_id, nome: c.rubricas.nome }])
+            ).values()];
+            selRubrica.innerHTML = '<option value="">Todas as rubricas</option>' +
+                rubricasUnicas.map(r =>
+                    `<option value="${r.fk}">${r.codigo ? r.codigo + ' — ' : ''}${escapeHtml(r.nome || '')}</option>`
+                ).join('');
+            if ([...selRubrica.options].some(o => o.value === rubricaAtual)) selRubrica.value = rubricaAtual;
+
+            // Ano por split de string — nunca new Date() em coluna date pura.
+            const anosUnicos = [...new Set(
+                contractsCache
+                    .filter(c => c.data_inicio)
+                    .map(c => c.data_inicio.split('-')[0])
+            )].sort((a, b) => b - a);
+            selAno.innerHTML = '<option value="">Todos os anos</option>' +
+                anosUnicos.map(a => `<option value="${a}">${a}</option>`).join('');
+            if ([...selAno.options].some(o => o.value === anoAtual)) selAno.value = anoAtual;
+        }
+
+        function aplicarFiltrosContratos() {
+            let resultado = [...contractsCache];
+
+            const busca = document.getElementById('filter-contrato-busca').value.trim().toLowerCase();
+            if (busca) {
+                resultado = resultado.filter(c =>
+                    (c.fornecedores?.razao_social || '').toLowerCase().includes(busca) ||
+                    (c.numero || '').toLowerCase().includes(busca) ||
+                    (c.objeto || '').toLowerCase().includes(busca)
+                );
+            }
+
+            const rubricaId = document.getElementById('filter-contrato-rubrica').value;
+            if (rubricaId) {
+                resultado = resultado.filter(c => c.rubrica_id === rubricaId);
+            }
+
+            const ano = document.getElementById('filter-contrato-ano').value;
+            if (ano) {
+                resultado = resultado.filter(c => c.data_inicio && c.data_inicio.startsWith(ano));
+            }
+
+            const status = document.getElementById('filter-contrato-status').value;
+            if (status) {
+                resultado = resultado.filter(c => (c.status || 'ativo') === status);
+            }
+
+            document.getElementById('contratos-filter-count').textContent =
+                `${resultado.length} de ${contractsCache.length} contrato(s)`;
+
+            renderContracts(resultado);
+        }
+
+        function limparFiltrosContratos() {
+            document.getElementById('filter-contrato-busca').value = '';
+            document.getElementById('filter-contrato-rubrica').value = '';
+            document.getElementById('filter-contrato-ano').value = '';
+            document.getElementById('filter-contrato-status').value = '';
+            aplicarFiltrosContratos();
         }
 
         function renderContracts(contracts) {
@@ -517,7 +648,7 @@
             if (!contracts || contracts.length === 0) {
                 container.innerHTML = `
                     <tr>
-                        <td colspan="7" style="text-align: center; padding: 3rem; color: var(--text-muted);">
+                        <td colspan="8" style="text-align: center; padding: 3rem; color: var(--text-muted);">
                             Nenhum contrato encontrado para este projeto.
                         </td>
                     </tr>
@@ -548,10 +679,26 @@
                             ${hasVencidas ? `<div style="margin-top:4px;"><span class="alert-pill alert-vencida">Parcela vencida</span></div>` : ''}
                             ${actionBtns ? `<div class="status-actions">${actionBtns}</div>` : ''}
                         </td>
+                        <td onclick="event.stopPropagation()" style="white-space:nowrap;">
+                            ${c.arquivo_path ? `
+                                <button class="btn-icon" title="Ver arquivo do contrato"
+                                    onclick="openContractFile('${c.arquivo_path.replace(/'/g, "\\'")}')">
+                                    <i data-lucide="file-text" style="width:16px;"></i>
+                                </button>
+                            ` : ''}
+                            <button class="btn-icon" title="Editar contrato"
+                                onclick="openEditContrato('${c.id}')">
+                                <i data-lucide="pencil" style="width:16px;"></i>
+                            </button>
+                            <button class="btn-icon" title="Excluir contrato"
+                                onclick="confirmarExclusaoContrato('${c.id}', '${escapeHtml(c.numero || 'S/N')}')">
+                                <i data-lucide="trash-2" style="width:16px; color:var(--color-alert);"></i>
+                            </button>
+                        </td>
                     </tr>
                     ${isExpanded ? `
                         <tr class="accordion-row">
-                            <td colspan="7">
+                            <td colspan="8">
                                 <div class="accordion-content">
                                     <div class="accordion-tabs">
                                         <button class="accordion-tab active" data-tab="parcelas" onclick="switchTab(event, 'parcelas')">
@@ -559,6 +706,9 @@
                                         </button>
                                         <button class="accordion-tab" data-tab="aditivos" onclick="switchTab(event, 'aditivos')">
                                             <i data-lucide="git-branch" style="width:14px; vertical-align:-2px;"></i> Aditivos
+                                        </button>
+                                        <button class="accordion-tab" data-tab="anexos" onclick="switchTab(event, 'anexos')">
+                                            <i data-lucide="paperclip" style="width:14px; vertical-align:-2px;"></i> Anexos<span id="anexos-count-${c.id}"></span>
                                         </button>
                                         ${c.arquivo_path ? `
                                             <button class="accordion-tab" style="margin-left:auto;" onclick="openContractFile('${c.arquivo_path.replace(/'/g, "\\'")}')">
@@ -572,6 +722,9 @@
                                     <div class="tab-panel" id="panel-aditivos-${c.id}">
                                         <div class="empty-mini"><i data-lucide="loader" class="spin"></i> Carregando aditivos…</div>
                                     </div>
+                                    <div class="tab-panel" id="panel-anexos-${c.id}">
+                                        <div class="empty-mini"><i data-lucide="loader" class="spin"></i> Carregando anexos…</div>
+                                    </div>
                                 </div>
                             </td>
                         </tr>
@@ -584,23 +737,25 @@
             if (expandedContractId) {
                 loadParcelas(expandedContractId);
                 loadAditivos(expandedContractId);
+                loadAnexos(expandedContractId);
             }
         }
 
         function toggleContract(id) {
             expandedContractId = (expandedContractId === id) ? null : id;
-            renderContracts(contractsCache);
+            // Re-renderiza mantendo os filtros ativos (não voltar ao cache completo).
+            aplicarFiltrosContratos();
         }
 
         function switchTab(e, tab) {
             e.stopPropagation();
             const tabsRoot = e.target.closest('.accordion-content');
-            tabsRoot.querySelectorAll('.accordion-tab').forEach(b => {
+            tabsRoot.querySelectorAll(':scope > .accordion-tabs > .accordion-tab').forEach(b => {
                 if (b.dataset && b.dataset.tab) {
                     b.classList.toggle('active', b.dataset.tab === tab);
                 }
             });
-            tabsRoot.querySelectorAll('.tab-panel').forEach(p => {
+            tabsRoot.querySelectorAll(':scope > .tab-panel').forEach(p => {
                 p.classList.toggle('active', p.id.includes('panel-' + tab));
             });
         }
@@ -608,16 +763,79 @@
         // ─────────────────────────────────────────────────────────────
         // CADASTRO DE CONTRATO
         // ─────────────────────────────────────────────────────────────
-        async function openContratoModal() {
+        async function openContratoModal(parentContractId = null) {
             if (!currentProjectId) {
                 showToast('Selecione um projeto primeiro!', 'error');
                 return;
             }
+            _editandoContratoId = null;
             document.getElementById('form-contrato').reset();
+            document.getElementById('c-contrato-pai-id').value = parentContractId || '';
+            document.querySelector('#modal-contrato h3').innerHTML = parentContractId
+                ? '<i data-lucide="paperclip" style="width:18px; vertical-align:-3px;"></i> Cadastrar anexo de contrato'
+                : '<i data-lucide="file-plus" style="width:18px; vertical-align:-3px;"></i> Cadastrar novo contrato';
             document.getElementById('btn-salvar-contrato').disabled = false;
             document.getElementById('btn-salvar-contrato').innerHTML = '<i data-lucide="check" style="width:16px;"></i> Salvar contrato';
+            const arquivoAtualEl = document.getElementById('c-arquivo-atual-info');
+            if (arquivoAtualEl) arquivoAtualEl.style.display = 'none';
             await loadFornecedoresSelect();
             await loadRubricasSelect();
+            document.getElementById('modal-contrato').hidden = false;
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        async function openEditContrato(contractId) {
+            if (!currentProjectId) {
+                showToast('Selecione um projeto primeiro!', 'error');
+                return;
+            }
+
+            const { data: contrato, error } = await sb
+                .from('contracts')
+                .select('*')
+                .eq('id', contractId)
+                .single();
+
+            if (error || !contrato) {
+                showToast('Erro ao carregar contrato para edição.', 'error');
+                return;
+            }
+            if (contrato.excluido_em) {
+                showToast('Este contrato foi excluído e não pode ser editado.', 'error');
+                return;
+            }
+
+            _editandoContratoId = contractId;
+
+            document.getElementById('form-contrato').reset();
+            document.getElementById('c-contrato-pai-id').value = contrato.contrato_pai_id || '';
+            document.querySelector('#modal-contrato h3').innerHTML =
+                '<i data-lucide="pencil" style="width:18px; vertical-align:-3px;"></i> Editar contrato';
+
+            await loadFornecedoresSelect();
+            await loadRubricasSelect();
+
+            document.getElementById('c-numero').value = contrato.numero || '';
+            document.getElementById('c-objeto').value = contrato.objeto || '';
+            document.getElementById('c-valor').value = contrato.valor_total ?? '';
+            document.getElementById('c-inicio').value = contrato.data_inicio || '';
+            document.getElementById('c-fim').value = contrato.data_fim || '';
+            document.getElementById('c-fornecedor').value = contrato.fornecedor_id || '';
+            document.getElementById('c-rubrica').value = contrato.rubrica_id || '';
+
+            // Arquivo é opcional na edição — se nenhum novo for selecionado,
+            // mantém o arquivo_path já existente.
+            const arquivoAtualEl = document.getElementById('c-arquivo-atual-info');
+            if (arquivoAtualEl) {
+                arquivoAtualEl.textContent = contrato.arquivo_path
+                    ? 'Arquivo atual: ' + contrato.arquivo_path.split('/').pop()
+                    : 'Nenhum arquivo anexado ainda';
+                arquivoAtualEl.style.display = '';
+            }
+
+            document.getElementById('btn-salvar-contrato').disabled = false;
+            document.getElementById('btn-salvar-contrato').innerHTML =
+                '<i data-lucide="check" style="width:16px;"></i> Salvar alterações';
             document.getElementById('modal-contrato').hidden = false;
             if (window.lucide) window.lucide.createIcons();
         }
@@ -750,6 +968,23 @@
         // ─────────────────────────────────────────────────────────────────────
         async function changeContratoStatus(contractId, newStatus, e) {
             e.stopPropagation();
+
+            if (newStatus === 'encerrado' || newStatus === 'cancelado') {
+                const { count } = await sb.from('contracts')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('contrato_pai_id', contractId);
+                if (count && count > 0) {
+                    const acao = newStatus === 'encerrado' ? 'encerrar' : 'cancelar';
+                    const ok = confirm(
+                        `Este contrato possui ${count} anexo(s) vinculado(s).\n\n` +
+                        `Ao ${acao} o contrato pai, os anexos NÃO serão automaticamente alterados — ` +
+                        `eles continuarão com seus status atuais e vinculados a este contrato.\n\n` +
+                        `Deseja continuar mesmo assim?`
+                    );
+                    if (!ok) return;
+                }
+            }
+
             const session = await sb.auth.getSession();
             const token = session?.data?.session?.access_token;
             const resp = await fetch(`/api/m2/contracts/${contractId}/status`, {
@@ -810,7 +1045,7 @@
 
             const { data, error } = await sb
                 .from('rubricas')
-                .select('id, nome, codigo, valor_aprovado, valor_utilizado')
+                .select('id, nome, rubrica_id, valor_aprovado, valor_utilizado')
                 .eq('project_id', currentProjectId)
                 .order('nome', { ascending: true });
             if (error) {
@@ -828,7 +1063,7 @@
                 const saldo = Number(r.valor_aprovado || 0) - Number(r.valor_utilizado || 0);
                 const opt = document.createElement('option');
                 opt.value = r.id;
-                const codigo = r.codigo ? `${r.codigo} — ` : '';
+                const codigo = r.rubrica_id ? `${r.rubrica_id} — ` : '';
                 opt.textContent = `${codigo}${r.nome} (saldo ${formatCurrency(saldo)})`;
                 select.appendChild(opt);
             });
@@ -843,8 +1078,9 @@
             const fornecedorId = document.getElementById('c-fornecedor').value || null;
             const rubricaId = document.getElementById('c-rubrica').value || null;
             const arquivo = document.getElementById('c-arquivo').files[0] || null;
+            const contratoPaiId = document.getElementById('c-contrato-pai-id').value || null;
 
-            if (!numero || !objeto || !Number.isFinite(valorTotal) || valorTotal <= 0 || !inicio || !fim || !fornecedorId || !rubricaId) {
+            if (!numero || !objeto || !Number.isFinite(valorTotal) || valorTotal < 0 || !inicio || !fim || !fornecedorId || !rubricaId) {
                 showToast('Preencha todos os campos obrigatórios.', 'error');
                 return;
             }
@@ -855,6 +1091,30 @@
             if (arquivo && arquivo.type !== 'application/pdf') {
                 showToast('O arquivo do contrato deve ser PDF.', 'error');
                 return;
+            }
+
+            if (_editandoContratoId) {
+                // Edição não recria o vínculo de anexo (contrato_pai_id não é
+                // editável neste formulário) — pula a checagem de hierarquia,
+                // que só se aplica ao criar um vínculo novo.
+                await executarUpdateContrato();
+                return;
+            }
+
+            if (contratoPaiId) {
+                const { data: parentCheck, error: parentErr } = await sb
+                    .from('contracts')
+                    .select('contrato_pai_id')
+                    .eq('id', contratoPaiId)
+                    .maybeSingle();
+                if (parentErr) {
+                    showToast('Erro ao validar contrato pai: ' + parentErr.message, 'error');
+                    return;
+                }
+                if (parentCheck && parentCheck.contrato_pai_id) {
+                    showToast('Não é possível criar um anexo de outro anexo (limite de 1 nível de hierarquia).', 'error');
+                    return;
+                }
             }
 
             const btn = document.getElementById('btn-salvar-contrato');
@@ -901,6 +1161,7 @@
                     data_inicio: inicio, data_fim: fim,
                     arquivo_path: arquivoPath,
                     status: 'ativo',
+                    contrato_pai_id: contratoPaiId,
                     criado_por: user ? user.id : null
                 });
                 if (insErr) {
@@ -924,6 +1185,75 @@
             }
         }
 
+        async function executarUpdateContrato() {
+            const numero = document.getElementById('c-numero').value.trim();
+            const objeto = document.getElementById('c-objeto').value.trim();
+            const valorTotal = parseFloat(document.getElementById('c-valor').value);
+            const inicio = document.getElementById('c-inicio').value;
+            const fim = document.getElementById('c-fim').value;
+            const fornecedorId = document.getElementById('c-fornecedor').value || null;
+            const rubricaId = document.getElementById('c-rubrica').value || null;
+            const arquivo = document.getElementById('c-arquivo').files[0] || null;
+
+            const btn = document.getElementById('btn-salvar-contrato');
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:16px;"></i> Salvando…';
+            if (window.lucide) window.lucide.createIcons();
+
+            try {
+                const updatePayload = {
+                    numero, objeto,
+                    valor_total: valorTotal,
+                    data_inicio: inicio,
+                    data_fim: fim,
+                    fornecedor_id: fornecedorId,
+                    rubrica_id: rubricaId,
+                    atualizado_em: new Date().toISOString()
+                };
+
+                // Arquivo é opcional na edição — só faz upload e substitui
+                // arquivo_path se um novo arquivo foi selecionado.
+                if (arquivo) {
+                    const newUuid = (crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                    const safeName = arquivo.name.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9._-]/g, '_').replace(/_+/g, '_');
+                    const novoArquivoPath = `${currentProjectId}/${newUuid}/${safeName}`;
+
+                    btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:16px;"></i> Enviando arquivo…';
+                    if (window.lucide) window.lucide.createIcons();
+
+                    const { error: upErr } = await sb.storage
+                        .from('contracts')
+                        .upload(novoArquivoPath, arquivo, { cacheControl: '3600', upsert: false, contentType: 'application/pdf' });
+                    if (upErr) {
+                        showToast('Falha no upload do arquivo: ' + upErr.message, 'error');
+                        return;
+                    }
+                    updatePayload.arquivo_path = novoArquivoPath;
+                    // O arquivo antigo NÃO é removido do Storage — decisão consciente,
+                    // evita perda de histórico se algo der errado; limpeza de
+                    // arquivos órfãos fica para rotina separada, se necessário.
+                }
+
+                const { error: updErr } = await sb.from('contracts')
+                    .update(updatePayload)
+                    .eq('id', _editandoContratoId);
+
+                if (updErr) throw updErr;
+
+                closeContratoModal();
+                showToast('Contrato atualizado com sucesso.', 'success');
+                _editandoContratoId = null;
+                await loadContracts();
+            } catch (err) {
+                console.error('[executarUpdateContrato]', err);
+                showToast('Erro ao atualizar: ' + (err.message || 'desconhecido'), 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i data-lucide="check" style="width:16px;"></i> Salvar alterações';
+                if (window.lucide) window.lucide.createIcons();
+            }
+        }
+
         async function openContractFile(path) {
             event.stopPropagation && event.stopPropagation();
             if (!path) return;
@@ -933,6 +1263,62 @@
                 return;
             }
             window.open(data.signedUrl, '_blank');
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // EXCLUSÃO (soft delete) — cascata para anexos vinculados
+        // ─────────────────────────────────────────────────────────────
+        async function confirmarExclusaoContrato(contractId, numeroContrato) {
+            const { count } = await sb.from('contracts')
+                .select('id', { count: 'exact', head: true })
+                .eq('contrato_pai_id', contractId)
+                .is('excluido_em', null);
+
+            let mensagem;
+            if (count && count > 0) {
+                mensagem = `O contrato ${numeroContrato} possui `
+                    + `${count} anexo(s) vinculado(s).\n\n`
+                    + `Ao excluir, TODOS os anexos serão excluídos `
+                    + `permanentemente junto — essa ação não pode `
+                    + `ser desfeita.\n\nDeseja continuar?`;
+            } else {
+                mensagem = `Confirma a exclusão do contrato `
+                    + `${numeroContrato}?\n\nEssa ação não pode `
+                    + `ser desfeita.`;
+            }
+
+            if (!confirm(mensagem)) return;
+
+            await executarExclusaoContrato(contractId, count > 0);
+        }
+
+        async function executarExclusaoContrato(contractId, temAnexos) {
+            const { data: { user } } = await sb.auth.getUser();
+            const agora = new Date().toISOString();
+
+            if (temAnexos) {
+                const { error: errAnexos } = await sb
+                    .from('contracts')
+                    .update({ excluido_em: agora, excluido_por: user?.id || null })
+                    .eq('contrato_pai_id', contractId)
+                    .is('excluido_em', null);
+                if (errAnexos) {
+                    showToast('Erro ao excluir anexos: ' + errAnexos.message, 'error');
+                    return;
+                }
+            }
+
+            const { error } = await sb.from('contracts')
+                .update({ excluido_em: agora, excluido_por: user?.id || null })
+                .eq('id', contractId);
+
+            if (error) {
+                showToast('Erro ao excluir contrato: ' + error.message, 'error');
+                return;
+            }
+
+            showToast('Contrato excluído com sucesso.', 'success');
+            await loadContracts();
         }
 
         // ─────────────────────────────────────────────────────────────
@@ -1154,6 +1540,134 @@
                 </table>
             `;
             if (window.lucide) window.lucide.createIcons();
+        }
+
+        async function loadAnexos(contractId) {
+            const panel = document.getElementById(`panel-anexos-${contractId}`);
+            if (!panel) return;
+
+            const { data, error } = await sb
+                .from('contracts')
+                .select('*, fornecedores(razao_social, cnpj)')
+                .eq('contrato_pai_id', contractId)
+                .is('excluido_em', null)
+                .order('criado_em', { ascending: false });
+            if (error) {
+                console.error('[loadAnexos]', error);
+                panel.innerHTML = `<div class="empty-mini">Erro: ${escapeHtml(error.message)}</div>`;
+                return;
+            }
+
+            anexosCache[contractId] = data || [];
+            const countEl = document.getElementById(`anexos-count-${contractId}`);
+            if (countEl) countEl.textContent = data.length ? ` (${data.length})` : '';
+
+            renderAnexos(contractId);
+        }
+
+        function renderAnexos(contractId) {
+            const panel = document.getElementById(`panel-anexos-${contractId}`);
+            if (!panel) return;
+            const anexos = anexosCache[contractId] || [];
+
+            const toolbar = `
+                <div class="toolbar-row">
+                    <div style="font-weight: 600; color: var(--text-secondary); font-size: 0.85rem;">${anexos.length} anexo(s)</div>
+                    <button class="btn-inline primary" onclick="openContratoModal('${contractId}')"><i data-lucide="plus" style="width:14px;"></i> Adicionar anexo</button>
+                </div>
+            `;
+
+            if (anexos.length === 0) {
+                panel.innerHTML = toolbar + `<div class="empty-mini">Nenhum anexo vinculado a este contrato. Clique em "+ Adicionar Anexo" para cadastrar um contrato derivado.</div>`;
+                if (window.lucide) window.lucide.createIcons();
+                return;
+            }
+
+            const rows = anexos.map(a => {
+                const isOpen = expandedAnexoId === a.id;
+                return `
+                    <tr class="contract-row ${isOpen ? 'expanded' : ''}" onclick="toggleAnexoRow('${a.id}','${contractId}')">
+                        <td><i data-lucide="chevron-down" class="row-chevron" style="width:16px;"></i></td>
+                        <td style="font-weight: 700;">${escapeHtml(a.numero || 'S/N')}</td>
+                        <td>${escapeHtml(a.fornecedores ? a.fornecedores.razao_social : 'Não informado')}</td>
+                        <td style="white-space: nowrap;">${formatDate(a.data_inicio)} → ${formatDate(a.data_fim)}</td>
+                        <td class="num" style="font-weight: 700; color: var(--m2-accent);">${formatCurrency(a.valor_total)}</td>
+                        <td onclick="event.stopPropagation()">
+                            <span class="badge-m2 badge-${a.status || 'ativo'}">${a.status || 'ativo'}</span>
+                            <button class="btn-inline" style="margin-left:6px;" onclick="event.stopPropagation(); removerVinculoAnexo('${a.id}','${contractId}')">
+                                <i data-lucide="unlink" style="width:12px;"></i> Remover vínculo
+                            </button>
+                        </td>
+                    </tr>
+                    ${isOpen ? `
+                        <tr class="accordion-row">
+                            <td colspan="6">
+                                <div class="accordion-content">
+                                    <div class="accordion-tabs">
+                                        <button class="accordion-tab active" data-tab="parcelas" onclick="switchTab(event, 'parcelas')">
+                                            <i data-lucide="layers" style="width:14px; vertical-align:-2px;"></i> Parcelas
+                                        </button>
+                                        <button class="accordion-tab" data-tab="aditivos" onclick="switchTab(event, 'aditivos')">
+                                            <i data-lucide="git-branch" style="width:14px; vertical-align:-2px;"></i> Aditivos
+                                        </button>
+                                        ${a.arquivo_path ? `
+                                            <button class="accordion-tab" style="margin-left:auto;" onclick="event.stopPropagation(); openContractFile('${a.arquivo_path.replace(/'/g, "\\'")}')">
+                                                <i data-lucide="file-text" style="width:14px; vertical-align:-2px;"></i> Ver arquivo
+                                            </button>
+                                        ` : ''}
+                                    </div>
+                                    <div class="tab-panel active" id="panel-parcelas-${a.id}">
+                                        <div class="empty-mini"><i data-lucide="loader" class="spin"></i> Carregando parcelas…</div>
+                                    </div>
+                                    <div class="tab-panel" id="panel-aditivos-${a.id}">
+                                        <div class="empty-mini"><i data-lucide="loader" class="spin"></i> Carregando aditivos…</div>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                    ` : ''}
+                `;
+            }).join('');
+
+            panel.innerHTML = toolbar + `
+                <table class="inner-table">
+                    <thead>
+                        <tr>
+                            <th style="width:24px;"></th>
+                            <th>Nº</th>
+                            <th>Fornecedor</th>
+                            <th>Vigência</th>
+                            <th class="num">Valor</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            `;
+            if (window.lucide) window.lucide.createIcons();
+
+            if (expandedAnexoId && anexos.some(a => a.id === expandedAnexoId)) {
+                loadParcelas(expandedAnexoId);
+                loadAditivos(expandedAnexoId);
+            }
+        }
+
+        function toggleAnexoRow(anexoId, parentContractId) {
+            expandedAnexoId = (expandedAnexoId === anexoId) ? null : anexoId;
+            renderAnexos(parentContractId);
+        }
+
+        async function removerVinculoAnexo(anexoId, parentContractId) {
+            if (!confirm('Remover o vínculo deste anexo com o contrato pai? Ele passará a aparecer como contrato independente na listagem principal.')) return;
+            const { error } = await sb.from('contracts').update({ contrato_pai_id: null }).eq('id', anexoId);
+            if (error) {
+                showToast('Erro ao remover vínculo: ' + error.message, 'error');
+                return;
+            }
+            showToast('Anexo desvinculado — agora aparece como contrato avulso na listagem principal.', 'success');
+            if (expandedAnexoId === anexoId) expandedAnexoId = null;
+            await loadAnexos(parentContractId);
+            await loadContracts();
         }
 
         function openAditivoModal(contractId) {

@@ -208,6 +208,9 @@
         /* Grid helpers */
         .grid-2 { display: grid; grid-template-columns: 1fr 160px; gap: 1rem; }
         .grid-date { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        @media (max-width: 640px) {
+            .grid-2, .grid-date { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>

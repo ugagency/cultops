@@ -45,7 +45,7 @@
         /* Checklist */
         .checklist-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(min(400px, 100%), 1fr));
             gap: 1rem;
             margin-bottom: 1.5rem;
         }
@@ -530,7 +530,7 @@
 
         function categorizeRubrica(r) {
             if (r.categoria) return String(r.categoria).toLowerCase().trim();
-            const text = ((r.nome || '') + ' ' + (r.codigo || '')).toLowerCase();
+            const text = ((r.nome || '') + ' ' + (r.rubrica_id || '')).toLowerCase();
             if (/proponente/.test(text)) return 'proponente';
             if (/administr/.test(text)) return 'administracao';
             if (/divulg|comunic|acessib/.test(text)) return 'divulgacao';
@@ -604,7 +604,7 @@
             // P07: sem evidencias pendentes
             const q7 = getCount(sbClient.from('physical_evidences').select('*', { count: 'exact', head: true }).eq('project_id', pid).in('status_validacao', ['pendente','pendente_complemento']));
             // P08: contratos expirados
-            const q8 = getCount(sbClient.from('contracts').select('*', { count: 'exact', head: true }).eq('project_id', pid).eq('status', 'ativo').lt('data_fim', today));
+            const q8 = getCount(sbClient.from('contracts').select('*', { count: 'exact', head: true }).eq('project_id', pid).eq('status', 'ativo').lt('data_fim', today).is('contrato_pai_id', null).is('excluido_em', null));
             // P09: contract_parcelas — atrasada OU (pendente AND vencimento < hoje)
             // Fecha falso positivo causado pela ausência do CRON-03
             const q9 = getCount(
@@ -632,7 +632,7 @@
 
             const [results, rubricasRes, projValRes, despExecRes, docFncCount] = await Promise.all([
                 Promise.all([q1, q2, q3, q4, q5, q6, q7, q8, q9]),
-                sbClient.from('rubricas').select('nome, codigo, categoria, valor_aprovado, valor_utilizado').eq('project_id', pid),
+                sbClient.from('rubricas').select('nome, rubrica_id, categoria, valor_aprovado, valor_utilizado').eq('project_id', pid),
                 sbClient.from('projects').select('valor_captado').eq('id', pid).single(),
                 sbClient.from('despesas').select('valor').eq('project_id', pid).in('status', ['enviado_salic', 'concluido', 'liberado_rpa', 'aguardando_d3']),
                 getCount(sbClient.from('documents').select('*', { count: 'exact', head: true }).eq('project_id', pid).eq('tipo', 'recolhimento_fnc'))

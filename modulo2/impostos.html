@@ -23,7 +23,7 @@
     <style>
         .tax-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
             gap: 1.5rem;
             margin-top: 2rem;
         }
@@ -162,7 +162,7 @@
             </div>
         </header>
 
-        <div id="stats-container" class="metrics-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 2rem;">
+        <div id="stats-container" class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); margin-bottom: 2rem;">
             <!-- Stats will be injected here -->
         </div>
 
@@ -195,7 +195,7 @@
                     </select>
                 </div>
 
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); gap: 1rem;">
                     <div class="form-group mb-3">
                         <label>Código Receita</label>
                         <input type="text" id="codigo_receita" placeholder="Ex: 5952" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm);">
@@ -206,7 +206,7 @@
                     </div>
                 </div>
 
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); gap: 1rem;">
                     <div class="form-group mb-3">
                         <label>Valor (R$)</label>
                         <input type="number" step="0.01" id="valor" placeholder="0,00" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm);">
