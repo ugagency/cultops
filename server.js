@@ -317,7 +317,7 @@ app.post('/api/salic/inserir', async (req, res) => {
 
 // --- Endpoints de gestão de usuários (S1-B) ---
 
-const ROLES_VALIDOS = ['analista', 'gestor', 'fornecedor'];
+const ROLES_VALIDOS = ['analista', 'gestor', 'fornecedor', 'operador'];
 
 app.get('/api/gestor/usuarios',
     requireAuth, requireRole('gestor', 'admin'),
@@ -411,11 +411,15 @@ app.post('/api/gestor/set-role',
 );
 
 // POST /api/gestor/criar-analista (S1-C)
-// Cria um usuário com role 'analista', já vinculado à org do gestor que está chamando.
+// Cria um usuário operacional (analista ou operador), já vinculado à org de quem chama.
 app.post('/api/gestor/criar-analista',
     requireAuth, requireRole('gestor', 'admin'),
     async (req, res) => {
         const { email, password, nome } = req.body || {};
+        const role = req.body?.role || 'analista';
+        if (!['analista', 'operador'].includes(role)) {
+            return res.status(400).json({ error: 'Role inválido. Use analista ou operador.' });
+        }
         if (!email || !password) {
             return res.status(400).json({ error: 'email e password são obrigatórios.' });
         }
@@ -433,8 +437,8 @@ app.post('/api/gestor/criar-analista',
                 email,
                 password,
                 email_confirm: true,
-                user_metadata: { role: 'analista', nome: nome || null, org_id: orgId },
-                app_metadata:  { role: 'analista', org_id: orgId }
+                user_metadata: { role, nome: nome || null, org_id: orgId },
+                app_metadata:  { role, org_id: orgId }
             });
             if (createErr) throw createErr;
 
@@ -443,7 +447,7 @@ app.post('/api/gestor/criar-analista',
 
             const { error: linkErr } = await supabase
                 .from('organization_users')
-                .insert({ organization_id: orgId, user_id: newUserId, role: 'analista' });
+                .insert({ organization_id: orgId, user_id: newUserId, role });
             if (linkErr) {
                 // Rollback: remove o user criado para não deixar órfão sem vínculo
                 await supabase.auth.admin.deleteUser(newUserId);
@@ -455,15 +459,15 @@ app.post('/api/gestor/criar-analista',
                 registro_id: newUserId,
                 campo: 'criacao',
                 valor_anterior: null,
-                valor_novo: 'analista',
+                valor_novo: role,
                 alterado_por: req.user.id,
                 origem: 'gestor_ui'
             });
 
-            res.json({ ok: true, user: { id: newUserId, email, role: 'analista' } });
+            res.json({ ok: true, user: { id: newUserId, email, role } });
         } catch (err) {
             console.error('[GESTOR] criar-analista:', err);
-            const msg = err?.message || 'Erro ao criar analista.';
+            const msg = err?.message || 'Erro ao criar usuário.';
             const status = /already.*registered|duplicate|exists/i.test(msg) ? 409 : 500;
             res.status(status).json({ error: msg });
         }

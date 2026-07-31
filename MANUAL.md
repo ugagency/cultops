@@ -172,8 +172,8 @@ Autoriza fornecedores a enviarem documentos diretamente pelo Portal do Solicitan
 ### 4.12 Equipe (somente admin)
 
 - Tabela de usuários com e-mail, perfil e data de cadastro.
-- **Adicionar Analista**: cria usuário com senha provisória.
-- **Alterar Perfil**: muda entre Analista, Gestor e Fornecedor. O usuário precisa relogar para valer.
+- **Adicionar Usuário**: cria usuário com senha provisória, escolhendo o perfil — **Analista** (opera os Módulos I e II) ou **Operador** (campo, apenas Módulo III).
+- **Alterar Perfil**: muda entre Analista, Gestor, Operador e Fornecedor. O usuário precisa relogar para valer.
 
 ### 4.13 Portal do Solicitante (perfil Fornecedor)
 

@@ -4344,7 +4344,7 @@ ${Sidebar()}
 
 
 // --- Equipe (S1-B) ---
-const ROLE_LABELS = { admin: 'Administrador', gestor: 'Gestor', analista: 'Analista', fornecedor: 'Fornecedor' };
+const ROLE_LABELS = { admin: 'Administrador', gestor: 'Gestor', analista: 'Analista', operador: 'Operador', fornecedor: 'Fornecedor' };
 
 const EquipeView = () => `
 ${Sidebar()}
@@ -4362,7 +4362,7 @@ ${Sidebar()}
             </div>
             <button class="btn btn-primary" onclick="window.openCriarAnalistaModal()">
                 <i data-lucide="user-plus" style="width: 14px;"></i>
-                Adicionar Analista
+                Adicionar Usuário
             </button>
         </div>
 
@@ -4419,6 +4419,7 @@ ${Sidebar()}
                 <select id="equipe-modal-role">
                     <option value="analista">Analista</option>
                     <option value="gestor">Gestor</option>
+                    <option value="operador">Operador (campo — Módulo III)</option>
                     <option value="fornecedor">Fornecedor</option>
                 </select>
             </div>
@@ -4437,11 +4438,11 @@ ${Sidebar()}
         </div>
     </div>
 
-    <!-- Modal: Adicionar Analista -->
+    <!-- Modal: Adicionar Usuário -->
     <div id="modal-criar-analista" class="modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
         <div class="card" style="width: 100%; max-width: 480px; margin: 1rem;">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
-                <h3 class="h2">Adicionar Analista</h3>
+                <h3 class="h2">Adicionar Usuário</h3>
                 <button class="btn btn-ghost" onclick="document.getElementById('modal-criar-analista').style.display='none'">
                     <i data-lucide="x"></i>
                 </button>
@@ -4449,13 +4450,21 @@ ${Sidebar()}
 
             <form onsubmit="event.preventDefault(); window.handleCriarAnalista();">
                 <div class="form-group mb-4">
+                    <label for="criar-analista-perfil">Perfil</label>
+                    <select id="criar-analista-perfil">
+                        <option value="analista">Analista — opera os Módulos I e II</option>
+                        <option value="operador">Operador — campo (Módulo III)</option>
+                    </select>
+                </div>
+
+                <div class="form-group mb-4">
                     <label for="criar-analista-nome">Nome (opcional)</label>
                     <input type="text" id="criar-analista-nome" placeholder="Maria Silva" />
                 </div>
 
                 <div class="form-group mb-4">
                     <label for="criar-analista-email">E-mail</label>
-                    <input type="email" id="criar-analista-email" placeholder="analista@empresa.com" required />
+                    <input type="email" id="criar-analista-email" placeholder="usuario@empresa.com" required />
                 </div>
 
                 <div class="form-group mb-4">
@@ -4466,13 +4475,13 @@ ${Sidebar()}
                 <div style="padding: 0.75rem; background: var(--bg-sidebar); border-radius: var(--radius-sm); margin-bottom: 1.5rem; display: flex; gap: 0.5rem; align-items: flex-start;">
                     <i data-lucide="info" style="width: 16px; flex-shrink: 0; margin-top: 2px;"></i>
                     <p class="text-xs" style="color: var(--text-secondary); line-height: 1.5;">
-                        O analista será criado já vinculado à sua organização com perfil <strong>Analista</strong>. Compartilhe a senha provisória de forma segura — o analista poderá trocá-la depois.
+                        O usuário será criado já vinculado à sua organização. O <strong>Operador</strong> acessa apenas o Módulo III (execução em campo). Compartilhe a senha provisória de forma segura — o usuário poderá trocá-la depois.
                     </p>
                 </div>
 
                 <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
                     <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-criar-analista').style.display='none'">Cancelar</button>
-                    <button type="submit" class="btn btn-primary" id="criar-analista-submit">Criar Analista</button>
+                    <button type="submit" class="btn btn-primary" id="criar-analista-submit">Criar Usuário</button>
                 </div>
             </form>
         </div>
@@ -4536,6 +4545,7 @@ window.handleSetRole = async function () {
 };
 
 window.openCriarAnalistaModal = function () {
+    document.getElementById('criar-analista-perfil').value = 'analista';
     document.getElementById('criar-analista-nome').value = '';
     document.getElementById('criar-analista-email').value = '';
     document.getElementById('criar-analista-senha').value = '';
@@ -4543,6 +4553,7 @@ window.openCriarAnalistaModal = function () {
 };
 
 window.handleCriarAnalista = async function () {
+    const role = document.getElementById('criar-analista-perfil').value;
     const nome = document.getElementById('criar-analista-nome').value.trim();
     const email = document.getElementById('criar-analista-email').value.trim();
     const password = document.getElementById('criar-analista-senha').value;
@@ -4560,12 +4571,12 @@ window.handleCriarAnalista = async function () {
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${session.access_token}`
             },
-            body: JSON.stringify({ email, password, nome: nome || null })
+            body: JSON.stringify({ email, password, nome: nome || null, role })
         });
         const json = await resp.json().catch(() => ({}));
-        if (!resp.ok) throw new Error(json.error || 'Falha ao criar analista.');
+        if (!resp.ok) throw new Error(json.error || 'Falha ao criar usuário.');
 
-        window.showToast(`Analista ${email} criado com sucesso.`, 'success');
+        window.showToast(`${ROLE_LABELS[role] || 'Usuário'} ${email} criado com sucesso.`, 'success');
         document.getElementById('modal-criar-analista').style.display = 'none';
         await fetchEquipe();
         render();
@@ -4573,7 +4584,7 @@ window.handleCriarAnalista = async function () {
         window.showToast(err.message, 'error');
     } finally {
         submitBtn.disabled = false;
-        submitBtn.textContent = 'Criar Analista';
+        submitBtn.textContent = 'Criar Usuário';
     }
 };
 
