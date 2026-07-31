@@ -1938,11 +1938,71 @@ ${Sidebar()}
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 1.5rem;">
             <div style="display: flex; flex-direction: column; gap: 1.5rem;">
                 <div class="card">
-                    <h3 class="h2 mb-4">Dados Extraídos</h3>
+                    ${(() => {
+        // Edição manual: liberada enquanto o documento ainda não foi declarado
+        // ao SALIC nem está no meio de um processamento automático.
+        const podeEditarCampos = !['processing_ocr', 'validating', 'enviado_salic', 'concluido'].includes(doc.status);
+        const emEdicao = state.editingDocFields && podeEditarCampos;
+        const inputStyle = 'padding: 0.5rem 0.75rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: var(--radius-sm); width: 100%; box-sizing: border-box; background: white;';
+        const esc = (v) => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+        return `
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;" class="mb-4">
+                        <h3 class="h2" style="margin: 0;">Dados Extraídos</h3>
+                        ${podeEditarCampos && !emEdicao ? `
+                            <button class="btn btn-secondary" style="padding: 0.4rem 0.75rem; font-size: 12px;" title="Corrigir dados lidos pela IA" onclick="window.toggleEditDocFields(true)">
+                                <i data-lucide="pencil" style="width: 14px;"></i>
+                                Editar dados
+                            </button>
+                        ` : ''}
+                    </div>
+                    ${emEdicao ? `
+                    <div style="padding: 0.875rem 1rem; background: #FFFBEB; border: 1px solid #FDE68A; border-radius: var(--radius-sm); margin-bottom: 1rem; display: flex; gap: 0.5rem; align-items: flex-start;">
+                        <i data-lucide="alert-triangle" style="width: 16px; flex-shrink: 0; margin-top: 2px; color: #92400E;"></i>
+                        <p class="text-xs" style="color: #92400E; line-height: 1.5;">
+                            <strong>Aviso de responsabilidade:</strong> os dados abaixo substituem os extraídos pela IA.
+                            Ao salvar, você declara que as informações conferem com o documento fiscal original e
+                            assume a responsabilidade pelo que será prestado ao MinC/SALIC.
+                        </p>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div>
+                            <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Solicitante (CNPJ/CPF)</label>
+                            <input type="text" id="edit-cnpj-emissor" value="${esc(doc.cnpj_emissor)}" placeholder="Ex: 04.823.360/0001-44" style="${inputStyle}">
+                        </div>
+                        <div>
+                            <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Nome do fornecedor</label>
+                            <input type="text" id="edit-nome-emissor" value="${esc(doc.nome_emissor)}" placeholder="Razão social ou nome" style="${inputStyle}">
+                        </div>
+                        <div>
+                            <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Valor total (R$)</label>
+                            <input type="number" id="edit-valor" value="${doc.valor ?? ''}" step="0.01" min="0.01" placeholder="Ex: 1310.31" style="${inputStyle}">
+                        </div>
+                        <div>
+                            <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Data de emissão</label>
+                            <input type="date" id="edit-data-emissao" value="${doc.data_emissao ? String(doc.data_emissao).split('T')[0] : ''}" max="${new Date().toISOString().split('T')[0]}" style="${inputStyle}">
+                        </div>
+                        <div>
+                            <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Nr. do comprovante</label>
+                            <input type="text" id="edit-numero-nf" value="${esc(doc.numero_nf)}" placeholder="Ex: 505, 042803" style="${inputStyle}">
+                        </div>
+                        <div class="info-item">
+                            <label>Protocolo SALIC</label>
+                            <p class="text-sm">${doc.protocolo_salic || '---'}</p>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem;">
+                        <button class="btn btn-secondary" style="padding: 0.5rem 1rem; font-size: 12px;" onclick="window.toggleEditDocFields(false)">Cancelar</button>
+                        <button class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 12px;" onclick="window.salvarEdicaoCampos('${doc.id}')">Salvar correções</button>
+                    </div>
+                    ` : `
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
                         <div class="info-item">
                             <label>Solicitante (CNPJ/CPF)</label>
                             <p class="text-sm" style="font-weight: 600;">${doc.cnpj_emissor || '---'}</p>
+                        </div>
+                        <div class="info-item">
+                            <label>Fornecedor</label>
+                            <p class="text-sm" style="font-weight: 600;">${doc.nome_emissor || '---'}</p>
                         </div>
                         <div class="info-item">
                             <label>Valor Total</label>
@@ -1961,6 +2021,8 @@ ${Sidebar()}
                             <p class="text-sm">${doc.protocolo_salic || '---'}</p>
                         </div>
                     </div>
+                    `}`;
+    })()}
 
                     ${camposPendentes.algum ? `
                     <div style="margin-top: 1.5rem; padding: 1rem; background: #FFFBEB; border: 1px solid #FDE68A; border-radius: var(--radius-sm);">
@@ -3681,6 +3743,57 @@ window.salvarCamposManuais = async function (documentId) {
     fetchDocumentDetails(documentId);
 };
 
+// --- Edição manual dos dados extraídos (correção de leitura da IA) ---
+
+window.toggleEditDocFields = function (on) {
+    state.editingDocFields = !!on;
+    render();
+};
+
+window.salvarEdicaoCampos = async function (documentId) {
+    const cnpj = document.getElementById('edit-cnpj-emissor')?.value.trim() || null;
+    const nome = document.getElementById('edit-nome-emissor')?.value.trim() || null;
+    const valorRaw = document.getElementById('edit-valor')?.value;
+    const dataEmissao = document.getElementById('edit-data-emissao')?.value || null;
+    const numeroNf = document.getElementById('edit-numero-nf')?.value.trim() || null;
+
+    const valor = valorRaw ? parseFloat(valorRaw) : null;
+    if (valorRaw && (!Number.isFinite(valor) || valor <= 0)) {
+        showToast('Valor total inválido.', 'error');
+        return;
+    }
+    if (dataEmissao && dataEmissao > new Date().toISOString().split('T')[0]) {
+        showToast('A data de emissão não pode ser futura.', 'error');
+        return;
+    }
+
+    const ok = confirm(
+        'Confirmação de responsabilidade\n\n' +
+        'Você está substituindo dados extraídos automaticamente pela IA.\n' +
+        'Ao confirmar, declara que as informações conferem com o documento ' +
+        'fiscal original e assume a responsabilidade pelos dados prestados ' +
+        'ao MinC/SALIC.\n\nDeseja salvar as correções?'
+    );
+    if (!ok) return;
+
+    const { error } = await supabaseClient
+        .from('documents')
+        .update({
+            cnpj_emissor: cnpj,
+            nome_emissor: nome,
+            valor: valor,
+            data_emissao: dataEmissao,
+            numero_nf: numeroNf
+        })
+        .eq('id', documentId);
+
+    if (error) { showToast('Erro ao salvar: ' + error.message, 'error'); return; }
+
+    state.editingDocFields = false;
+    showToast('Dados corrigidos com sucesso.', 'success');
+    fetchDocumentDetails(documentId);
+};
+
 async function fetchDocumentDetails(id, silent = false) {
     // Se o supabase ou o usuário não estiver pronto, aguarda até 3s e tenta de novo
     if (!supabaseClient || !state.user) {
@@ -3701,6 +3814,8 @@ async function fetchDocumentDetails(id, silent = false) {
 
     if (!silent) {
         state.loading = true;
+        // Sai do modo de edição ao abrir outro documento
+        state.editingDocFields = false;
         render();
     }
 
