@@ -213,6 +213,46 @@
                 transform: rotate(360deg);
             }
         }
+
+        /* ── Responsividade mobile ─────────────────────────── */
+        .user-name,
+        .org-name {
+            max-width: 45vw;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        @media (max-width: 768px) {
+            body {
+                overflow-x: hidden;
+                padding: 1rem;
+                /* Espaço para o header fixo não cobrir o título */
+                padding-top: 5.5rem;
+                justify-content: flex-start;
+            }
+
+            .header-top {
+                padding: 1rem;
+            }
+
+            .selector-container h1 {
+                font-size: 1.35rem;
+            }
+
+            .selector-subtitle {
+                margin-bottom: 1.5rem;
+            }
+
+            .modules-grid {
+                gap: 1rem;
+            }
+
+            .module-card {
+                width: 100%;
+                padding: 1.5rem;
+            }
+        }
     </style>
 </head>
 

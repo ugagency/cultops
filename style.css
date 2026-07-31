@@ -523,11 +523,46 @@ textarea:focus {
 }
 
 @media (max-width: 768px) {
+    /* A página nunca rola na horizontal — conteúdo largo (tabelas) rola
+       dentro do próprio container (.data-table-container / .glass-card). */
+    html, body {
+        overflow-x: hidden;
+    }
+
+    /* Tabelas: célula compacta e nomes longos quebram linha, encurtando a
+       largura total; a última coluna (Ações) fica fixa na borda direita,
+       sempre visível sem arrastar. */
+    .data-table th,
+    .data-table td {
+        padding: 0.6rem;
+    }
+
+    .data-table td {
+        max-width: 45vw;
+        overflow-wrap: anywhere;
+    }
+
+    .data-table th:last-child,
+    .data-table td:last-child {
+        position: sticky;
+        right: 0;
+        background: #FFFFFF;
+        box-shadow: -8px 0 8px -8px rgba(0, 0, 0, 0.18);
+    }
+
+    .data-table th:last-child {
+        background: var(--bg-sidebar);
+    }
+
     .sidebar {
         transform: translateX(-100%);
         transition: transform 0.28s cubic-bezier(0.4,0,0.2,1);
         width: var(--sidebar-width) !important;
         padding: 1.5rem 1rem !important;
+        /* Acima do .sidebar-overlay (998) — senão a máscara cobre a própria
+           sidebar aberta e qualquer toque a fecha. Abaixo do hamburger (1100)
+           e dos modais (2000+). */
+        z-index: 1000;
     }
 
     .sidebar.sidebar-open {

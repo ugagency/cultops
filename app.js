@@ -2698,16 +2698,10 @@ window.handleLogin = async function () {
         state.userStatus = getUserRole() || 'gestor';
         await syncOrgMetadata();
 
-        const _roleLogin = data.user.app_metadata?.role
-                        || data.user.user_metadata?.role;
-        // NOTA: quando feature/modulo-3 for mergeada em main, reverter para
-        // window.location.href = 'modulo3/index.html' (a rota passa a existir).
-        if (_roleLogin === 'operador') {
-            window.navigate('sem_acesso');
-            return;
-        }
-
-        window.navigate('dashboard');
+        // Todos os perfis (inclusive operador) passam pelo seletor de módulos,
+        // que decide o destino: operador é redirecionado ao M3 automaticamente.
+        window.location.href = 'module-selector.html';
+        return;
     } catch (error) {
         alert("Erro no login: " + error.message);
     } finally {
@@ -2793,7 +2787,8 @@ window.handleRegister = async function () {
         if (data.user && data.session) {
             state.user = data.user;
             alert("Conta criada com sucesso!");
-            window.navigate('dashboard');
+            window.location.href = 'module-selector.html';
+            return;
         } else {
             alert("Conta criada! Verifique seu e-mail para confirmar o cadastro.");
             window.navigate('login');
@@ -3246,7 +3241,7 @@ const OrcamentoView = () => {
             ${Object.entries(locais).map(([local, rubricas]) => `
                 <div class="local-group mb-4">
                     <h4 class="text-xs font-bold uppercase tracking-wider text-muted mb-3">📍 ${local}</h4>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 1rem;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(min(350px, 100%), 1fr)); gap: 1rem;">
                         ${rubricas.map(r => {
         const aprovado = parseFloat(r.valor_aprovado || 0);
         const utilizado = parseFloat(r.valor_utilizado || 0);
@@ -6140,13 +6135,23 @@ async function init() {
             if (role === 'fornecedor') {
                 state.currentView = 'solicitante_dashboard';
                 await fetchSolicitanteDashboard();
+            } else if (role === 'operador') {
+                // Operador não tem área no M1 — o seletor o redireciona ao M3.
+                window.location.href = 'module-selector.html';
+                return;
             } else if (role && !['gestor', 'admin', 'analista'].includes(role)) {
                 // Contas sem role (legado) continuam tratadas como gestor.
-                // Só roles reconhecidas sem área própria (ex: operador) caem aqui.
+                // Roles reconhecidas sem área própria caem aqui.
                 state.currentView = 'sem_acesso';
             } else {
                 const hash = window.location.hash.replace('#', '');
-                state.currentView = (!hash || hash === 'login' || hash === 'register') ? 'dashboard' : hash;
+                if (!hash || hash === 'login' || hash === 'register') {
+                    // Sessão ativa sem destino explícito: o seletor de módulos é
+                    // sempre a primeira tela. Vir do seletor traz #dashboard etc.
+                    window.location.href = 'module-selector.html';
+                    return;
+                }
+                state.currentView = hash;
                 await fetchProjects();
                 await fetchDocuments();
 
