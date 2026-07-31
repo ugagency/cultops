@@ -31,11 +31,12 @@ async function renderSidebarM3() {
     sidebar.className = 'sidebar';
 
     const navItems = [
+        // Dashboard primeiro — mesmo padrão do M1/M2
+        { label: 'Dashboard',       icon: 'layout-dashboard', path: 'contrapartidas.html' },
         { label: 'Org. Sociais',    icon: 'users',        path: 'os.html' },
         { label: 'Patrocinadores',  icon: 'building-2',   path: 'pa.html' },
         { label: 'Eventos',         icon: 'calendar',     path: 'eventos.html' },
         { label: 'Relatórios',      icon: 'file-text',    path: 'relatorios.html' },
-        { label: 'Dashboard',       icon: 'layout-dashboard', path: 'contrapartidas.html' },
         // App separado/instalável — abre em nova aba (blank), fora da navegação normal.
         // Portaria não tem item próprio: é sempre por evento, acessada pelo botão
         // "Portaria" de cada card em eventos.html (portaria.html?event_id=X).
