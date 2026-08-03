@@ -193,6 +193,28 @@
         });
     }
 
+    // ── Guard soft de módulo (não bloqueia offline) ───────────
+    // Nega apenas com resposta definitiva do servidor (org sem modulo_3).
+    // Offline ou erro de rede NUNCA bloqueiam — o app é usado em campo
+    // sem sinal, e os endpoints /api/m3/pwa/* já exigem autenticação.
+    (async () => {
+        try {
+            if (!navigator.onLine || !window._sb) return;
+            const { data: { session } } = await window._sb.auth.getSession();
+            const orgId = session?.user?.app_metadata?.org_id;
+            if (!orgId) return;
+            const { data: org, error } = await window._sb
+                .from('organizations')
+                .select('modulos')
+                .eq('id', orgId)
+                .maybeSingle();
+            if (!error && org && !(org.modulos || []).includes('modulo_3')) {
+                console.warn('[PWA] Organização sem acesso ao Módulo 3');
+                window.location.href = '../../module-selector.html';
+            }
+        } catch (_) { /* rede indisponível: segue offline normalmente */ }
+    })();
+
     // ── State ─────────────────────────────────────────────────
     let hashAtual = '';
     let eventoAtual = null;

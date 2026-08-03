@@ -208,7 +208,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script src="../config.js"></script>
-    <script src="supabase-helper-m3.js?v=3"></script>
+    <script src="supabase-helper-m3.js?v=4"></script>
     <script>
         // ── State ────────────────────────────────────────────
         let currentEditId = null;
@@ -236,6 +236,7 @@
 
         // ── Init ─────────────────────────────────────────────
         document.addEventListener('DOMContentLoaded', async () => {
+            if (!(await verificarAcessoM3())) return;
             renderSidebarM3();
             reIcons();
 

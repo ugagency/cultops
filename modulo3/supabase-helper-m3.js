@@ -14,6 +14,43 @@ async function initSupabase() {
     return sbClient;
 }
 
+// ── Guard de acesso: organização precisa ter o modulo_3 ───────
+// Menu escondido ≠ página protegida (mesmo padrão do verificarAcessoM2):
+// sem este guard, qualquer usuário de org sem M3 acessa as páginas por URL.
+
+async function verificarAcessoM3() {
+    const sb = await initSupabase();
+    if (!sb) return false;
+
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) {
+        window.location.href = '../index.html#login';
+        return false;
+    }
+
+    const orgId = session.user?.app_metadata?.org_id;
+    if (!orgId) {
+        window.location.href = '../module-selector.html';
+        return false;
+    }
+
+    const { data: org, error } = await sb
+        .from('organizations')
+        .select('modulos')
+        .eq('id', orgId)
+        .maybeSingle();
+
+    if (error || !org || !(org.modulos || []).includes('modulo_3')) {
+        console.warn('[M3] Organização sem acesso ao Módulo 3');
+        window.location.href = '../module-selector.html';
+        return false;
+    }
+
+    return true;
+}
+
+window.verificarAcessoM3 = verificarAcessoM3;
+
 // ── Sidebar ───────────────────────────────────────────────────
 
 async function renderSidebarM3() {

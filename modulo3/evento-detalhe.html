@@ -509,7 +509,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script src="../config.js"></script>
-    <script src="supabase-helper-m3.js?v=3"></script>
+    <script src="supabase-helper-m3.js?v=4"></script>
     <script src="vendor/docx.umd.js"></script>
     <script src="relatorio-docx.js"></script>
     <script src="relatorio-evento.js"></script>
@@ -574,6 +574,7 @@
 
         // ── Init ─────────────────────────────────────────────
         document.addEventListener('DOMContentLoaded', async () => {
+            if (!(await verificarAcessoM3())) return;
             renderSidebarM3();
             reIcons();
 
