@@ -149,6 +149,20 @@ function requireRole(...allowed) {
     };
 }
 
+// Perfil interno SSYS: atravessa organizações (claim direto no usuário,
+// fora de organization_users). Usar sempre APÓS requireAuth, que popula
+// req.user. Bootstrap do claim é manual, via SQL — sem UI para conceder.
+function requirePlatformAdmin(req, res, next) {
+    const isPlatformAdmin =
+        req.user?.app_metadata?.is_platform_admin === true;
+    if (!isPlatformAdmin) {
+        return res.status(403).json({
+            error: 'Acesso restrito à equipe SSYS.'
+        });
+    }
+    next();
+}
+
 // Rota para servir o config.js dinamicamente ao navegador
 app.get('/config.js', (req, res) => {
     const publicConfig = {
@@ -2210,6 +2224,156 @@ app.post('/api/admin/usuarios/operador', requireAuth, async (req, res) => {
         });
     } catch (e) {
         return res.status(500).json({ error: e.message });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GESTÃO DE PLATAFORMA (interno SSYS) — organizações e seus módulos.
+// Autorização no middleware (requirePlatformAdmin), não no banco: os
+// endpoints usam a service role e enxergam TODAS as organizações.
+// ─────────────────────────────────────────────────────────────────────────────
+
+app.get('/api/plataforma/organizacoes', requireAuth, requirePlatformAdmin, async (req, res) => {
+    try {
+        const { data: orgs, error } = await supabase
+            .from('organizations')
+            .select('id, nome, slug, modulos, ativo, criado_em')
+            .order('criado_em', { ascending: false });
+        if (error) throw error;
+
+        const enriquecido = await Promise.all(
+            (orgs || []).map(async (org) => {
+                const [{ count: numProjetos }, { count: numUsuarios }] =
+                    await Promise.all([
+                        supabase.from('projects')
+                            .select('id', { count: 'exact', head: true })
+                            .eq('organization_id', org.id),
+                        supabase.from('organization_users')
+                            .select('user_id', { count: 'exact', head: true })
+                            .eq('organization_id', org.id),
+                    ]);
+                return { ...org, num_projetos: numProjetos || 0, num_usuarios: numUsuarios || 0 };
+            })
+        );
+        res.json({ organizacoes: enriquecido });
+    } catch (e) {
+        console.error('[PLATAFORMA] listar organizacoes:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/plataforma/organizacoes', requireAuth, requirePlatformAdmin, async (req, res) => {
+    const { nome, slug, modulos, admin_email, admin_senha, admin_nome } = req.body || {};
+
+    if (!nome || !slug) {
+        return res.status(400).json({ error: 'nome e slug são obrigatórios.' });
+    }
+    const MODULOS_VALIDOS = ['modulo_1', 'modulo_2', 'modulo_3'];
+    const mods = Array.isArray(modulos) ? modulos.filter(m => MODULOS_VALIDOS.includes(m)) : [];
+    if (!mods.length) {
+        return res.status(400).json({ error: 'Selecione ao menos um módulo.' });
+    }
+    if (!admin_email || !admin_senha) {
+        return res.status(400).json({ error: 'admin_email e admin_senha são obrigatórios.' });
+    }
+    if (typeof admin_senha !== 'string' || admin_senha.length < 6) {
+        return res.status(400).json({ error: 'Senha do admin precisa ter pelo menos 6 caracteres.' });
+    }
+
+    let orgId = null;
+    try {
+        // 1. Cria a organização
+        const { data: org, error: orgErr } = await supabase
+            .from('organizations')
+            .insert({ nome, slug, modulos: mods, ativo: true })
+            .select('id')
+            .single();
+        if (orgErr) throw orgErr;
+        orgId = org.id;
+
+        // 2. Cria o primeiro admin já apontando para a org
+        const { data: created, error: createErr } = await supabase.auth.admin.createUser({
+            email: admin_email,
+            password: admin_senha,
+            email_confirm: true,
+            user_metadata: { role: 'admin', nome: admin_nome || null, org_id: orgId },
+            app_metadata:  { role: 'admin', org_id: orgId }
+        });
+        if (createErr) throw createErr;
+
+        const newUserId = created?.user?.id;
+        if (!newUserId) throw new Error('Falha ao obter id do usuário criado.');
+
+        // 3. Vincula o admin à organização
+        const { error: linkErr } = await supabase
+            .from('organization_users')
+            .insert({ organization_id: orgId, user_id: newUserId, role: 'admin' });
+        if (linkErr) {
+            // Rollback do usuário para não deixar conta órfã sem vínculo
+            await supabase.auth.admin.deleteUser(newUserId).catch(() => {});
+            throw linkErr;
+        }
+
+        await supabase.from('audit_log').insert({
+            tabela: 'organizations',
+            registro_id: orgId,
+            campo: 'criacao',
+            valor_anterior: null,
+            valor_novo: JSON.stringify({ nome, slug, modulos: mods, admin_email }),
+            alterado_por: req.user.id,
+            origem: 'plataforma_ui'
+        });
+
+        res.json({ ok: true, organizacao: { id: orgId, nome, slug, modulos: mods }, admin: { id: newUserId, email: admin_email } });
+    } catch (e) {
+        // Rollback: não deixar organização órfã sem nenhum usuário vinculado
+        if (orgId) {
+            await supabase.from('organizations').delete().eq('id', orgId).catch(() => {});
+        }
+        console.error('[PLATAFORMA] criar organizacao:', e);
+        const msg = e?.message || 'Erro ao criar organização.';
+        const status = /already.*registered|duplicate|exists|unique/i.test(msg) ? 409 : 500;
+        res.status(status).json({ error: msg });
+    }
+});
+
+app.patch('/api/plataforma/organizacoes/:id/modulos', requireAuth, requirePlatformAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { modulos } = req.body || {};
+        const MODULOS_VALIDOS = ['modulo_1', 'modulo_2', 'modulo_3'];
+        const mods = Array.isArray(modulos) ? modulos.filter(m => MODULOS_VALIDOS.includes(m)) : null;
+        if (!mods) {
+            return res.status(400).json({ error: 'modulos deve ser um array.' });
+        }
+
+        const { data: before } = await supabase
+            .from('organizations')
+            .select('modulos')
+            .eq('id', id)
+            .maybeSingle();
+        if (!before) return res.status(404).json({ error: 'Organização não encontrada.' });
+
+        const { error } = await supabase
+            .from('organizations')
+            .update({ modulos: mods })
+            .eq('id', id);
+        if (error) throw error;
+
+        await supabase.from('audit_log').insert({
+            tabela: 'organizations',
+            registro_id: id,
+            campo: 'modulos',
+            valor_anterior: JSON.stringify(before.modulos),
+            valor_novo: JSON.stringify(mods),
+            alterado_por: req.user.id,
+            origem: 'plataforma_ui'
+        });
+
+        res.json({ ok: true, modulos: mods });
+    } catch (e) {
+        console.error('[PLATAFORMA] atualizar modulos:', e);
+        res.status(500).json({ error: e.message });
     }
 });
 

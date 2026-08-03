@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prestaí — Painel da Plataforma (SSYS)</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="style.css">
+
+    <style>
+        /* Página neutra — sem sidebar de módulo, interna SSYS. */
+        body { background-color: var(--bg-main); }
+        .neutral-shell {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem 3rem;
+        }
+        .neutral-back {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            cursor: pointer;
+            background: none;
+            border: none;
+            padding: 0;
+        }
+        .neutral-back:hover { color: var(--text-primary); }
+
+        .badge-mod {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.2rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            background: var(--color-blue-15);
+            color: var(--color-primary);
+            margin-right: 0.25rem;
+            white-space: nowrap;
+        }
+        .badge-inativo {
+            background: var(--color-alert);
+            color: white;
+        }
+        .badge-ativo-org {
+            background: var(--color-primary);
+            color: var(--color-accent);
+        }
+
+        .checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.6rem 0.75rem;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        .checkbox-row:hover { border-color: var(--primary); }
+    </style>
+</head>
+<body>
+    <div class="neutral-shell">
+        <button class="neutral-back" onclick="history.back()">
+            <i data-lucide="arrow-left" style="width: 16px;"></i> Voltar
+        </button>
+
+        <header class="content-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap;">
+            <div>
+                <h1>Painel da Plataforma</h1>
+                <p class="page-subtitle">Interno SSYS — organizações clientes, módulos assinados e visão consolidada.</p>
+            </div>
+            <button class="btn btn-primary" onclick="openCriarOrgModal()">
+                <i data-lucide="building-2" style="width: 14px;"></i>
+                Nova Organização
+            </button>
+        </header>
+
+        <div class="card">
+            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
+                <i data-lucide="globe"></i>
+                <h3 class="h2">Organizações <span id="orgs-count" style="color: var(--text-muted); font-weight: 500;"></span></h3>
+            </div>
+            <div class="data-table-container">
+                <div id="orgs-tabela-wrap" style="min-width: 0;">
+                    <p class="text-sm" style="color: var(--text-muted); padding: 1rem;">Carregando…</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Nova Organização -->
+    <div id="modal-criar-org" class="modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; overflow-y: auto;">
+        <div class="card" style="width: 100%; max-width: 520px; margin: 1rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+                <h3 class="h2">Nova Organização</h3>
+                <button class="btn btn-ghost" onclick="document.getElementById('modal-criar-org').style.display='none'">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+
+            <form onsubmit="event.preventDefault(); handleCriarOrg();">
+                <div class="form-group mb-4">
+                    <label for="org-nome">Nome da organização</label>
+                    <input type="text" id="org-nome" placeholder="Instituto Exemplo" required />
+                </div>
+                <div class="form-group mb-4">
+                    <label for="org-slug">Slug (identificador curto, sem espaços)</label>
+                    <input type="text" id="org-slug" placeholder="instituto-exemplo" pattern="[a-z0-9-]+" title="letras minúsculas, números e hífens" required />
+                </div>
+
+                <div class="form-group mb-4">
+                    <label>Módulos assinados</label>
+                    <label class="checkbox-row"><input type="checkbox" id="org-mod1" value="modulo_1"> Módulo I — Comprovação Financeira</label>
+                    <label class="checkbox-row"><input type="checkbox" id="org-mod2" value="modulo_2"> Módulo II — Prestação de Contas</label>
+                    <label class="checkbox-row"><input type="checkbox" id="org-mod3" value="modulo_3"> Módulo III — Contrapartidas</label>
+                </div>
+
+                <div style="border-top: 1px solid var(--border-subtle); padding-top: 1rem; margin-bottom: 1rem;">
+                    <p class="text-sm" style="font-weight: 700; margin-bottom: 0.75rem;">Primeiro administrador da organização</p>
+                    <div class="form-group mb-4">
+                        <label for="org-admin-nome">Nome (opcional)</label>
+                        <input type="text" id="org-admin-nome" placeholder="Maria Silva" />
+                    </div>
+                    <div class="form-group mb-4">
+                        <label for="org-admin-email">E-mail</label>
+                        <input type="email" id="org-admin-email" placeholder="admin@organizacao.com" required />
+                    </div>
+                    <div class="form-group mb-4">
+                        <label for="org-admin-senha">Senha provisória (mín. 6 caracteres)</label>
+                        <input type="text" id="org-admin-senha" placeholder="••••••" minlength="6" required />
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-criar-org').style.display='none'">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" id="criar-org-submit">Criar Organização</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Editar Módulos -->
+    <div id="modal-editar-modulos" class="modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+        <div class="card" style="width: 100%; max-width: 440px; margin: 1rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+                <h3 class="h2">Editar Módulos</h3>
+                <button class="btn btn-ghost" onclick="document.getElementById('modal-editar-modulos').style.display='none'">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+
+            <p class="text-sm mb-4">Organização: <strong id="editar-modulos-nome">—</strong></p>
+            <input type="hidden" id="editar-modulos-org-id" />
+
+            <div class="form-group mb-4">
+                <label class="checkbox-row"><input type="checkbox" id="edit-mod1" value="modulo_1"> Módulo I — Comprovação Financeira</label>
+                <label class="checkbox-row"><input type="checkbox" id="edit-mod2" value="modulo_2"> Módulo II — Prestação de Contas</label>
+                <label class="checkbox-row"><input type="checkbox" id="edit-mod3" value="modulo_3"> Módulo III — Contrapartidas</label>
+            </div>
+
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                <button class="btn btn-secondary" onclick="document.getElementById('modal-editar-modulos').style.display='none'">Cancelar</button>
+                <button class="btn btn-primary" id="editar-modulos-submit" onclick="handleSalvarModulos()">Salvar</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="config.js"></script>
+    <script>
+        let sbClient = null;
+        async function initSupabase() {
+            if (sbClient) return sbClient;
+            sbClient = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+            return sbClient;
+        }
+
+        function showToast(msg, type = 'success') {
+            const c = document.getElementById('toast-container');
+            const t = document.createElement('div');
+            t.className = `toast toast-${type}`;
+            t.innerHTML = `<div class="toast-content"><p class="toast-message">${msg}</p></div>`;
+            c.appendChild(t);
+            setTimeout(() => {
+                t.classList.add('fade-out');
+                setTimeout(() => t.remove(), 300);
+            }, 4000);
+        }
+
+        function esc(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+                .replace(/'/g,'&#39;');
+        }
+
+        const MOD_LABELS = { modulo_1: 'M1 Financeiro', modulo_2: 'M2 Prestação', modulo_3: 'M3 Contrapartidas' };
+
+        let orgs = [];
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            if (window.lucide) window.lucide.createIcons();
+
+            const sb = await initSupabase();
+            const { data: { session } } = await sb.auth.getSession();
+            if (!session) { window.location.href = 'index.html#login'; return; }
+
+            // CRÍTICO: este guard é o que impede gestor/admin comum de UMA
+            // organização de ver dados de OUTRAS. Sem o claim, sai daqui
+            // antes de qualquer fetch (o backend ainda revalida o claim em
+            // cada endpoint via requirePlatformAdmin).
+            if (session.user?.app_metadata?.is_platform_admin !== true) {
+                window.location.href = 'module-selector.html';
+                return;
+            }
+
+            await fetchOrgs();
+        });
+
+        async function fetchOrgs() {
+            const wrap = document.getElementById('orgs-tabela-wrap');
+            try {
+                const sb = await initSupabase();
+                const { data: { session } } = await sb.auth.getSession();
+                const resp = await fetch('/api/plataforma/organizacoes', {
+                    headers: { Authorization: `Bearer ${session.access_token}` }
+                });
+                const json = await resp.json().catch(() => ({}));
+                if (!resp.ok) throw new Error(json.error || 'Falha ao listar organizações.');
+                orgs = json.organizacoes || [];
+                renderOrgs();
+            } catch (err) {
+                console.error('fetchOrgs:', err);
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(err.message)}</p>`;
+            }
+        }
+
+        function renderOrgs() {
+            const wrap = document.getElementById('orgs-tabela-wrap');
+            document.getElementById('orgs-count').textContent = `(${orgs.length})`;
+
+            if (!orgs.length) {
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--text-muted); padding: 1rem;">Nenhuma organização cadastrada.</p>`;
+                return;
+            }
+
+            wrap.innerHTML = `
+                <table class="data-table" style="width: 100%;">
+                    <thead>
+                        <tr>
+                            <th>Organização</th>
+                            <th>Módulos</th>
+                            <th>Projetos</th>
+                            <th>Usuários</th>
+                            <th>Status</th>
+                            <th>Criada em</th>
+                            <th style="text-align: right;">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${orgs.map(o => `
+                            <tr>
+                                <td>
+                                    <div style="font-weight: 600;">${esc(o.nome)}</div>
+                                    <div class="text-xs" style="color: var(--text-muted);">${esc(o.slug || '')}</div>
+                                </td>
+                                <td>${(o.modulos || []).map(m => `<span class="badge-mod">${esc(MOD_LABELS[m] || m)}</span>`).join('') || '—'}</td>
+                                <td>${o.num_projetos}</td>
+                                <td>${o.num_usuarios}</td>
+                                <td><span class="badge-mod ${o.ativo ? 'badge-ativo-org' : 'badge-inativo'}">${o.ativo ? 'Ativa' : 'Inativa'}</span></td>
+                                <td>${o.criado_em ? new Date(o.criado_em).toLocaleDateString('pt-BR') : '—'}</td>
+                                <td style="text-align: right;">
+                                    <button class="btn btn-secondary" onclick="openEditarModulos('${o.id}')">
+                                        <i data-lucide="sliders-horizontal" style="width: 14px;"></i>
+                                        Editar módulos
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        // ── Nova Organização ─────────────────────────────────
+        function openCriarOrgModal() {
+            ['org-nome', 'org-slug', 'org-admin-nome', 'org-admin-email', 'org-admin-senha'].forEach(id => {
+                document.getElementById(id).value = '';
+            });
+            ['org-mod1', 'org-mod2', 'org-mod3'].forEach(id => {
+                document.getElementById(id).checked = false;
+            });
+            document.getElementById('modal-criar-org').style.display = 'flex';
+        }
+
+        async function handleCriarOrg() {
+            const nome = document.getElementById('org-nome').value.trim();
+            const slug = document.getElementById('org-slug').value.trim().toLowerCase();
+            const modulos = ['org-mod1', 'org-mod2', 'org-mod3']
+                .map(id => document.getElementById(id))
+                .filter(cb => cb.checked)
+                .map(cb => cb.value);
+            const admin_nome = document.getElementById('org-admin-nome').value.trim();
+            const admin_email = document.getElementById('org-admin-email').value.trim();
+            const admin_senha = document.getElementById('org-admin-senha').value;
+
+            if (!modulos.length) { showToast('Selecione ao menos um módulo.', 'error'); return; }
+
+            const btn = document.getElementById('criar-org-submit');
+            btn.disabled = true;
+            btn.textContent = 'Criando…';
+
+            try {
+                const sb = await initSupabase();
+                const { data: { session } } = await sb.auth.getSession();
+                const resp = await fetch('/api/plataforma/organizacoes', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${session.access_token}`
+                    },
+                    body: JSON.stringify({ nome, slug, modulos, admin_email, admin_senha, admin_nome: admin_nome || null })
+                });
+                const json = await resp.json().catch(() => ({}));
+                if (!resp.ok) throw new Error(json.error || 'Falha ao criar organização.');
+
+                showToast(`Organização "${nome}" criada, admin ${admin_email} vinculado.`);
+                document.getElementById('modal-criar-org').style.display = 'none';
+                await fetchOrgs();
+            } catch (err) {
+                showToast(err.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Criar Organização';
+            }
+        }
+
+        // ── Editar Módulos ───────────────────────────────────
+        function openEditarModulos(orgId) {
+            const org = orgs.find(o => o.id === orgId);
+            if (!org) return;
+            document.getElementById('editar-modulos-org-id').value = orgId;
+            document.getElementById('editar-modulos-nome').textContent = org.nome;
+            document.getElementById('edit-mod1').checked = (org.modulos || []).includes('modulo_1');
+            document.getElementById('edit-mod2').checked = (org.modulos || []).includes('modulo_2');
+            document.getElementById('edit-mod3').checked = (org.modulos || []).includes('modulo_3');
+            document.getElementById('modal-editar-modulos').style.display = 'flex';
+        }
+
+        async function handleSalvarModulos() {
+            const orgId = document.getElementById('editar-modulos-org-id').value;
+            const modulos = ['edit-mod1', 'edit-mod2', 'edit-mod3']
+                .map(id => document.getElementById(id))
+                .filter(cb => cb.checked)
+                .map(cb => cb.value);
+
+            const btn = document.getElementById('editar-modulos-submit');
+            btn.disabled = true;
+            btn.textContent = 'Salvando…';
+
+            try {
+                const sb = await initSupabase();
+                const { data: { session } } = await sb.auth.getSession();
+                const resp = await fetch(`/api/plataforma/organizacoes/${orgId}/modulos`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${session.access_token}`
+                    },
+                    body: JSON.stringify({ modulos })
+                });
+                const json = await resp.json().catch(() => ({}));
+                if (!resp.ok) throw new Error(json.error || 'Falha ao atualizar módulos.');
+
+                showToast('Módulos atualizados.');
+                document.getElementById('modal-editar-modulos').style.display = 'none';
+                await fetchOrgs();
+            } catch (err) {
+                showToast(err.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Salvar';
+            }
+        }
+    </script>
+</body>
+</html>

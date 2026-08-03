@@ -387,10 +387,23 @@
                     return;
                 }
 
+                // Perfil interno SSYS (atravessa organizações): ganha o card do
+                // Painel da Plataforma e nunca sofre auto-redirect — precisa
+                // conseguir chegar ao painel mesmo com um único módulo (ou sem
+                // organização nenhuma).
+                const isPlatformAdmin =
+                    session.data.session.user?.app_metadata?.is_platform_admin === true;
+
                 const orgData = await getUserModules();
                 document.getElementById('loading-state').style.display = 'none';
 
                 if (!orgData || !orgData.params.modulos || orgData.params.modulos.length === 0) {
+                    if (isPlatformAdmin) {
+                        renderUserInfo(session.data.session.user, { nome: 'SSYS — Plataforma' });
+                        renderModules([], true);
+                        document.getElementById('content-state').style.display = 'block';
+                        return;
+                    }
                     document.getElementById('error-state').style.display = 'flex';
                     if (orgData && orgData.user) {
                         renderUserInfo(orgData.user, { nome: 'Sem Organização' });
@@ -403,13 +416,13 @@
                 const activeModules = orgData.params.modulos;
                 const availableClickableModules = activeModules.filter(m => MODULE_DEFS[m] && !MODULE_DEFS[m].disabled);
 
-                // Redirecionamento automático
-                if (availableClickableModules.length === 1 && activeModules.length === 1) {
+                // Redirecionamento automático (nunca para admin de plataforma)
+                if (!isPlatformAdmin && availableClickableModules.length === 1 && activeModules.length === 1) {
                     setModuloAtivo(availableClickableModules[0]);
                     return;
                 }
 
-                renderModules(activeModules);
+                renderModules(activeModules, isPlatformAdmin);
                 document.getElementById('content-state').style.display = 'block';
 
             } catch (err) {
@@ -425,7 +438,7 @@
             document.getElementById('org-name').textContent = org.nome;
         }
 
-        function renderModules(userModules) {
+        function renderModules(userModules, isPlatformAdmin = false) {
             const grid = document.getElementById('modules-grid');
             grid.innerHTML = '';
 
@@ -453,6 +466,23 @@
                     grid.appendChild(card);
                 }
             });
+
+            // Card interno SSYS — só para quem tem o claim is_platform_admin.
+            // Invisível para qualquer cliente; plataforma.html revalida o claim.
+            if (isPlatformAdmin) {
+                const card = document.createElement('div');
+                card.className = 'module-card';
+                card.style.borderColor = 'var(--color-primary)';
+                card.onclick = () => { window.location.href = 'plataforma.html'; };
+                card.innerHTML = `
+                    <div class="module-icon">
+                        <i data-lucide="server-cog" style="width: 32px; height: 32px;"></i>
+                    </div>
+                    <div class="module-title">Painel da Plataforma</div>
+                    <div class="module-desc">Interno SSYS — organizações clientes, módulos assinados e visão consolidada</div>
+                `;
+                grid.appendChild(card);
+            }
 
             if (window.lucide) window.lucide.createIcons();
         }
