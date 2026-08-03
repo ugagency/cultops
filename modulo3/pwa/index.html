@@ -560,9 +560,27 @@
         const encontrados = buscarLocal(termo, convidados);
 
         if (!encontrados.length) {
-            resultados.innerHTML = `<div class="empty-pwa">
-                ${icon('search', 40)}
-                <div>Nenhum convidado encontrado</div></div>`;
+            resultados.innerHTML = `
+                <div class="empty-pwa">
+                    ${icon('search', 40)}
+                    <div>Nenhum convidado encontrado</div>
+                </div>
+                <div style="background:white;border:1px solid var(--border-light);border-radius:12px;padding:1rem;margin-top:0.75rem;">
+                    <div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">
+                        Não está na lista? Registre a entrada de <strong>público geral</strong> (ingresso vendido):
+                    </div>
+                    <input type="text" id="pg-nome" placeholder="Nome completo" value="${esc(termo.replace(/\d/g, '').trim())}"
+                        style="width:100%;box-sizing:border-box;padding:0.65rem 0.85rem;border:1px solid var(--border-light);border-radius:10px;font-size:0.9rem;margin-bottom:0.5rem;">
+                    <input type="text" id="pg-cpf" placeholder="CPF (opcional)" inputmode="numeric"
+                        style="width:100%;box-sizing:border-box;padding:0.65rem 0.85rem;border:1px solid var(--border-light);border-radius:10px;font-size:0.9rem;margin-bottom:0.5rem;">
+                    <label style="display:flex;align-items:flex-start;gap:0.5rem;font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.75rem;">
+                        <input type="checkbox" id="pg-lgpd" style="margin-top:2px;">
+                        <span>O convidado autorizou o uso do CPF conforme a LGPD (Lei 13.709/2018)</span>
+                    </label>
+                    <button class="btn-checkin" id="pg-btn" onclick="registrarPublicoGeral()">
+                        ${icon('check', 16, '#16a34a')} Registrar entrada
+                    </button>
+                </div>`;
             return;
         }
 
@@ -577,21 +595,31 @@
         });
 
         resultados.innerHTML = encontrados.map(g => {
-            const tipo    = g.os_id ? 'OS' : 'PA';
+            const tipo    = g.tipo_entrada === 'publico_geral' ? 'Público Geral' : (g.os_id ? 'OS' : 'PA');
+            const tipoCls = g.os_id ? 'os' : (g.pa_id ? 'pa' : 'os');
             const nomeOrg = g.os_id
                 ? (g.distribution_os?.nome || osMap[g.os_id] || '—')
-                : (g.distribution_pa?.nome || paMap[g.pa_id] || '—');
+                : g.pa_id
+                    ? (g.distribution_pa?.nome || paMap[g.pa_id] || '—')
+                    : 'Ingresso vendido';
+            // Proteção de duplicidade na UI: quem já tem checkin_em não ganha
+            // botão (o backend também não sobrescreve — isto é reforço de UX).
+            const jaFez = !!g.checkin_em;
             return `
                 <div class="checkin-result-card">
                     <div class="checkin-result-name">${esc(g.nome_completo)}</div>
                     <div class="checkin-result-org">
-                        <span class="badge-pwa badge-${tipo.toLowerCase()}">${tipo}</span>
+                        <span class="badge-pwa badge-${tipoCls}">${esc(tipo)}</span>
                         ${esc(nomeOrg)}
                     </div>
+                    ${jaFez ? `
+                    <div style="display:flex;align-items:center;gap:0.4rem;padding:0.6rem 0;color:#16a34a;font-weight:600;font-size:0.875rem;">
+                        ${icon('check', 16, '#16a34a')} Já fez check-in${fmtTime(g.checkin_em) ? ' às ' + fmtTime(g.checkin_em) : ''}
+                    </div>` : `
                     <button class="btn-checkin" id="btn-ci-${esc(g.id)}"
                             onclick="fazerCheckin('${esc(eventId)}', '${esc(g.id)}', '${esc(g.nome_completo)}', '${esc(nomeOrg)}', '${tipo}')">
                         ${icon('check', 16, '#16a34a')} Registrar Check-in
-                    </button>
+                    </button>`}
                 </div>`;
         }).join('');
     }
@@ -610,25 +638,79 @@
         if (btn) { btn.disabled = true; btn.textContent = 'Registrando…'; }
 
         try {
+            const ts = new Date().toISOString();
             await IDB.registrarCheckinOffline({
                 event_id:      eventId,
                 guest_id:      guestId,
                 nome_completo: nome,
                 org_nome:      orgNome,
                 tipo,
-                timestamp:     new Date().toISOString(),
+                timestamp:     ts,
                 sync_status:   'pendente',
             });
+
+            // Marca o check-in também no cache local do evento — assim uma nova
+            // busca (mesmo offline) já mostra "já fez check-in" e impede duplicar.
+            const gLocal = (eventoAtual?.distribution_guests || []).find(g => g.id === guestId);
+            if (gLocal) {
+                gLocal.checkin_em = ts;
+                try { await IDB.salvarEventoOffline(eventoAtual); } catch (_) {}
+            }
+
             showToastPwa('Check-in registrado localmente ✓');
             if (btn) {
                 btn.style.background = '#86efac';
                 btn.textContent = '✓ Registrado';
+                btn.disabled = true;
             }
             // Se online, tentar sincronizar imediatamente
             if (navigator.onLine) sincronizarTudo();
         } catch (e) {
             showToastPwa('Erro ao registrar: ' + e.message, 'error');
             if (btn) { btn.disabled = false; btn.innerHTML = icon('check', 16, '#16a34a') + ' Registrar Check-in'; }
+        }
+    }
+
+    // ── Público Geral (ingresso vendido, fora da cota OS/PA) ──
+    async function registrarPublicoGeral() {
+        const nome = document.getElementById('pg-nome')?.value.trim();
+        const cpf  = document.getElementById('pg-cpf')?.value.trim() || null;
+        const lgpd = document.getElementById('pg-lgpd')?.checked || false;
+
+        if (!nome) { showToastPwa('Digite o nome.', 'error'); return; }
+        if (cpf && !lgpd) { showToastPwa('CPF exige consentimento LGPD.', 'error'); return; }
+
+        const btn = document.getElementById('pg-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Registrando…'; }
+
+        try {
+            await IDB.registrarCheckinOffline({
+                event_id:           eventoAtual.id,
+                organization_id:    eventoAtual.organization_id || null,
+                guest_id:           null,
+                novo_publico_geral: true,
+                nome_completo:      nome,
+                cpf,
+                lgpd_consent:       lgpd,
+                org_nome:           'Ingresso vendido',
+                tipo:               'publico_geral',
+                timestamp:          new Date().toISOString(),
+                sync_status:        'pendente',
+            });
+
+            showToastPwa('Entrada registrada localmente ✓');
+            const nomeEl = document.getElementById('pg-nome');
+            const cpfEl  = document.getElementById('pg-cpf');
+            const lgpdEl = document.getElementById('pg-lgpd');
+            if (nomeEl) nomeEl.value = '';
+            if (cpfEl)  cpfEl.value = '';
+            if (lgpdEl) lgpdEl.checked = false;
+            if (btn) { btn.disabled = false; btn.innerHTML = icon('check', 16, '#16a34a') + ' Registrar entrada'; }
+
+            if (navigator.onLine) sincronizarTudo();
+        } catch (e) {
+            showToastPwa('Erro ao registrar: ' + e.message, 'error');
+            if (btn) { btn.disabled = false; btn.innerHTML = icon('check', 16, '#16a34a') + ' Registrar entrada'; }
         }
     }
 

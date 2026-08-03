@@ -1572,7 +1572,10 @@ app.get('/api/m3/pwa/evento/:id', requireAuth, async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/m3/pwa/sync
-// Recebe check-ins offline e registra no audit_log.
+// Recebe check-ins offline e PERSISTE em distribution_guests (checkin_em/
+// checkin_por), com proteção contra duplicidade; público geral (ingresso
+// vendido, fora da cota OS/PA) é criado no ato. audit_log continua sendo
+// gravado para rastreabilidade de toda tentativa, inclusive duplicadas.
 // ─────────────────────────────────────────────────────────────────────────────
 app.post('/api/m3/pwa/sync', requireAuth, async (req, res) => {
     try {
@@ -1584,6 +1587,62 @@ app.post('/api/m3/pwa/sync', requireAuth, async (req, res) => {
 
         for (const checkin of checkins) {
             try {
+                if (checkin.guest_id) {
+                    // Convidado JÁ CADASTRADO (OS/PA pré-registrado) — só marca
+                    // o check-in. Se checkin_em já estiver preenchido, NÃO
+                    // sobrescreve (duplicidade): mantém o horário original e
+                    // registra a tentativa no audit_log abaixo.
+                    const { data: guest } = await supabase
+                        .from('distribution_guests')
+                        .select('checkin_em')
+                        .eq('id', checkin.guest_id)
+                        .maybeSingle();
+
+                    if (guest && !guest.checkin_em) {
+                        await supabase.from('distribution_guests')
+                            .update({
+                                checkin_em: checkin.timestamp,
+                                checkin_por: req.user?.id || null
+                            })
+                            .eq('id', checkin.guest_id);
+                    }
+
+                } else if (checkin.novo_publico_geral) {
+                    // Registro NOVO de público geral, criado na hora na portaria.
+                    // Contador separado da cota: NÃO consome ingressos_os/pa.
+                    let orgId = checkin.organization_id || null;
+                    if (!orgId && checkin.event_id) {
+                        const { data: ev } = await supabase
+                            .from('distribution_events')
+                            .select('organization_id')
+                            .eq('id', checkin.event_id)
+                            .maybeSingle();
+                        orgId = ev?.organization_id || null;
+                    }
+
+                    const { data: novoGuest, error: insErr } =
+                        await supabase.from('distribution_guests')
+                            .insert({
+                                event_id: checkin.event_id,
+                                organization_id: orgId,
+                                nome_completo: checkin.nome_completo,
+                                cpf: checkin.cpf || null,
+                                lgpd_consent: checkin.lgpd_consent || false,
+                                lgpd_consent_at: checkin.lgpd_consent
+                                    ? checkin.timestamp : null,
+                                tipo_entrada: 'publico_geral',
+                                os_id: null,
+                                pa_id: null,
+                                checkin_em: checkin.timestamp,
+                                checkin_por: req.user?.id || null
+                            })
+                            .select('id')
+                            .single();
+
+                    if (insErr) throw insErr;
+                    checkin.guest_id = novoGuest.id; // para o log abaixo
+                }
+
                 await supabase.from('audit_log').insert({
                     tabela:       'distribution_guests',
                     registro_id:  checkin.guest_id || null,

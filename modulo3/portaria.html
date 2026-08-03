@@ -108,7 +108,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script src="../config.js"></script>
-    <script src="supabase-helper-m3.js?v=5"></script>
+    <script src="supabase-helper-m3.js?v=6"></script>
     <script>
         // ── State ─────────────────────────────────────────────
         const params  = new URLSearchParams(location.search);
@@ -228,14 +228,20 @@
             area.innerHTML = resultados.map(g => {
                 const vincOs    = (evento.distribution_event_os || []).find(v => v.os_id === g.os_id);
                 const vincPa    = (evento.distribution_event_pa || []).find(v => v.pa_id === g.pa_id);
-                const tipo      = g.os_id ? 'OS' : 'PA';
-                const nomeOrg   = g.os_id
-                    ? (g.distribution_os?.nome  || vincOs?.distribution_os?.nome  || '—')
-                    : (g.distribution_pa?.nome  || vincPa?.distribution_pa?.nome  || '—');
+                const isPG      = g.tipo_entrada === 'publico_geral';
+                const tipo      = isPG ? 'Público Geral' : (g.os_id ? 'OS' : 'PA');
+                const nomeOrg   = isPG
+                    ? 'Ingresso vendido'
+                    : g.os_id
+                        ? (g.distribution_os?.nome  || vincOs?.distribution_os?.nome  || '—')
+                        : (g.distribution_pa?.nome  || vincPa?.distribution_pa?.nome  || '—');
                 const status    = vincOs?.status || vincPa?.status || '—';
                 const statusCls = status !== '—' ? 'badge-' + status : 'badge-gray';
                 const statusLbl = STATUS_LABELS[status] || status;
                 const ingressos = vincOs?.ingressos_alocados ?? vincPa?.ingressos_alocados ?? '—';
+                const horaCheckin = g.checkin_em
+                    ? new Date(g.checkin_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                    : null;
 
                 return `
                     <div class="result-card">
@@ -245,13 +251,17 @@
                                     ${esc(g.nome_completo)}
                                 </div>
                                 <div style="color:var(--text-muted);font-size:0.875rem;margin-top:0.25rem;display:flex;align-items:center;gap:0.4rem;">
-                                    <span class="badge badge-gray" style="font-size:0.72rem;">${tipo}</span>
+                                    <span class="badge badge-gray" style="font-size:0.72rem;">${esc(tipo)}</span>
                                     ${esc(nomeOrg)}
                                 </div>
                             </div>
                             <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;">
-                                <span class="badge ${esc(statusCls)}">${esc(statusLbl)}</span>
-                                <span style="font-size:0.82rem;color:var(--text-muted);">${ingressos} ingresso(s)</span>
+                                ${horaCheckin ? `
+                                <span style="display:inline-flex;align-items:center;gap:0.35rem;color:#16a34a;font-weight:700;font-size:0.85rem;">
+                                    <i data-lucide="check-circle" style="width:15px;"></i> Check-in às ${horaCheckin}
+                                </span>` : ''}
+                                ${isPG ? '' : `<span class="badge ${esc(statusCls)}">${esc(statusLbl)}</span>
+                                <span style="font-size:0.82rem;color:var(--text-muted);">${ingressos} ingresso(s)</span>`}
                             </div>
                         </div>
                     </div>`;

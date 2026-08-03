@@ -170,6 +170,10 @@
                     <div class="kpi-label">Ocupação PA</div>
                     <div class="kpi-value-pct" id="kpi-ocup-pa">—</div>
                 </div>
+                <div class="kpi-card" title="Ingressos vendidos com entrada registrada na portaria — contador separado da cota de contrapartida OS/PA">
+                    <div class="kpi-label">Público Geral (vendidos)</div>
+                    <div class="kpi-value" id="kpi-publico-geral">—</div>
+                </div>
             </div>
 
             <!-- Card largo: Evidências pendentes -->
@@ -332,7 +336,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script src="../config.js"></script>
-    <script src="supabase-helper-m3.js?v=5"></script>
+    <script src="supabase-helper-m3.js?v=6"></script>
     <script src="vendor/docx.umd.js"></script>
     <script src="relatorio-docx.js"></script>
     <script>
@@ -549,6 +553,7 @@
             document.getElementById('kpi-confirmados').textContent    = kpis.confirmados;
             document.getElementById('kpi-ocup-os').textContent        = kpis.ocupacaoOsPct + '%';
             document.getElementById('kpi-ocup-pa').textContent        = kpis.ocupacaoPaPct + '%';
+            document.getElementById('kpi-publico-geral').textContent  = kpis.publicoGeral;
 
             const cardEv  = document.getElementById('kpi-evidencias-card');
             const temPend = kpis.evidenciasPendentes > 0;

@@ -217,6 +217,20 @@
     async function buildSecaoEvento(evento, numeroSecao, numeroEvento) {
         const evidencias = await getEvidenciasByEvento(evento.id);
         const imagens = await carregarImagens(evidencias);
+
+        // Público geral (ingressos vendidos, fora da cota OS/PA) — presentes
+        // de fato, contados via checkin_em. Linha extra só quando houver
+        // registro, para não alterar o layout do template em eventos sem venda.
+        let publicoGeralCount = 0;
+        try {
+            const sbPG = await initSupabase();
+            const { count } = await sbPG.from('distribution_guests')
+                .select('id', { count: 'exact', head: true })
+                .eq('event_id', evento.id)
+                .eq('tipo_entrada', 'publico_geral')
+                .not('checkin_em', 'is', null);
+            publicoGeralCount = count || 0;
+        } catch (_) { /* contador é informativo; não bloqueia o relatório */ }
         const galExec  = imagens.filter(i => i.tipoEvidencia === 'foto_evento');
         const galAcess = imagens.filter(i => i.tipoEvidencia === 'acessibilidade');
         const galCom   = imagens.filter(i => i.tipoEvidencia === 'peca_marketing');
@@ -242,6 +256,9 @@
         add(blocoCampo('Resumo do evento', multiParas(evento.resumo_evento)));
         add(blocoLista('Quantitativo de atividades incluídas no evento (especificar)', atividades));
         add(blocoCampo('Quantitativo de público x meta estimada', multiParas(publicoTexto(evento))));
+        if (publicoGeralCount > 0) {
+            add(blocoCampo('Público Geral (ingressos vendidos)', multiParas(`${publicoGeralCount} presente(s) com entrada registrada na portaria`)));
+        }
         add(blocoCampo('Perfil do público-alvo', multiParas(evento.perfil_publico)));
         add(blocoLinks('Link aberto para borderôs e listas de presença de atividades', evento.link_borderos));
         add(blocoLinks('Link aberto para fotos, vídeos e comprovantes de execução', evento.link_fotos_execucao));

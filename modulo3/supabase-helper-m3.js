@@ -651,6 +651,15 @@ async function getKpisM3(projectId) {
             .eq('distribution_events.status', 'ativo'),
     ]);
 
+    // Público geral (ingressos vendidos): contador SEPARADO da cota OS/PA —
+    // presentes de fato (checkin_em preenchido), somados nos eventos do projeto.
+    const { count: publicoGeral } = await sb
+        .from('distribution_guests')
+        .select('id, distribution_events!inner(project_id)', { count: 'exact', head: true })
+        .eq('distribution_events.project_id', projectId)
+        .eq('tipo_entrada', 'publico_geral')
+        .not('checkin_em', 'is', null);
+
     const confirmados = (vincOs?.length || 0) + (vincPa?.length || 0);
 
     let ocupacaoOsPct = 0;
@@ -674,6 +683,7 @@ async function getKpisM3(projectId) {
         ocupacaoOsPct,
         ocupacaoPaPct,
         evidenciasPendentes:  evidenciasPendentes || 0,
+        publicoGeral:         publicoGeral || 0,
     };
 }
 
