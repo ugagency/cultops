@@ -74,15 +74,19 @@ async function renderSidebarM3() {
         { label: 'Patrocinadores',  icon: 'building-2',   path: 'pa.html' },
         { label: 'Eventos',         icon: 'calendar',     path: 'eventos.html' },
         { label: 'Relatórios',      icon: 'file-text',    path: 'relatorios.html' },
+        { label: 'Equipe',          icon: 'user-cog',     path: 'equipe.html' },
         // App separado/instalável — abre em nova aba (blank), fora da navegação normal.
         // Portaria não tem item próprio: é sempre por evento, acessada pelo botão
         // "Portaria" de cada card em eventos.html (portaria.html?event_id=X).
         { label: 'Campo (PWA)',     icon: 'smartphone',   path: 'pwa/index.html', blank: true },
     ];
 
-    const _filtered = navItems.filter(item =>
-        !(_role === 'operador' && ['os.html', 'pa.html'].includes(item.path))
-    );
+    const _filtered = navItems.filter(item => {
+        if (_role === 'operador' && ['os.html', 'pa.html'].includes(item.path)) return false;
+        // Equipe: só admin/gestor criam operadores
+        if (item.path === 'equipe.html' && !['admin', 'gestor'].includes(_role)) return false;
+        return true;
+    });
 
     const currentFile = window.location.pathname.split('/').pop();
 

@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrestAI — Equipe de Campo (M3)</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="m3-shared.css">
+
+    <style>
+        .operador-card {
+            background: white;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            padding: 1rem 1.25rem;
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        .operador-avatar {
+            width: 36px; height: 36px;
+            background: var(--color-blue-15);
+            color: var(--color-primary);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 700; font-size: 0.9rem;
+            flex-shrink: 0;
+        }
+    </style>
+</head>
+<body>
+    <main class="main-content">
+        <header class="page-header">
+            <div>
+                <h1>Equipe de Campo</h1>
+                <p>Operadores da sua organização — acesso apenas ao Módulo III (execução em campo).</p>
+            </div>
+            <div class="header-actions">
+                <button class="btn-primary" onclick="openCreateModal()">
+                    <i data-lucide="user-plus" style="width:16px;"></i> Adicionar operador
+                </button>
+            </div>
+        </header>
+
+        <div class="glass-card">
+            <div style="font-weight:700;font-size:1rem;color:var(--text-primary);margin-bottom:1rem;">
+                Operadores cadastrados <span id="operadores-count" style="color:var(--text-muted);font-weight:500;"></span>
+            </div>
+            <div id="operadores-lista">
+                <div class="empty-state"><i data-lucide="loader" class="spin" style="width:28px;"></i><div style="margin-top:0.5rem;">Carregando…</div></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal: novo operador -->
+    <div id="modal-operador" class="modal-backdrop" style="display:none;">
+        <div class="modal-card" style="max-width:480px;">
+            <div class="modal-header">
+                <h2>Adicionar operador</h2>
+                <button class="btn-icon" onclick="closeCreateModal()"><i data-lucide="x" style="width:18px;"></i></button>
+            </div>
+
+            <form onsubmit="event.preventDefault(); criarOperador();" style="display:flex;flex-direction:column;gap:1rem;">
+                <div class="form-group">
+                    <label for="op-nome">Nome</label>
+                    <input type="text" id="op-nome" placeholder="Maria Silva" required>
+                </div>
+                <div class="form-group">
+                    <label for="op-email">E-mail</label>
+                    <input type="email" id="op-email" placeholder="operador@empresa.com" required>
+                </div>
+                <div class="form-group">
+                    <label for="op-senha">Senha provisória (mín. 6 caracteres)</label>
+                    <input type="text" id="op-senha" placeholder="••••••" minlength="6" required>
+                    <span class="hint">Compartilhe de forma segura — o operador poderá trocá-la depois.</span>
+                </div>
+
+                <div style="padding:0.75rem;background:var(--color-blue-15);border-radius:var(--radius-md);font-size:0.8rem;color:var(--text-secondary);line-height:1.5;">
+                    <strong>Operador</strong> acessa apenas o Módulo III: preenche eventos, registra convidados,
+                    faz check-in (inclusive offline pelo app Campo) e sobe evidências. Não cria eventos,
+                    não cadastra OS/Patrocinadores e não aprova evidências.
+                </div>
+
+                <div class="modal-footer">
+                    <div class="actions-right">
+                        <button type="button" class="btn-secondary" onclick="closeCreateModal()">Cancelar</button>
+                        <button type="submit" class="btn-primary" id="op-submit">Criar operador</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="../config.js"></script>
+    <script src="supabase-helper-m3.js?v=5"></script>
+    <script>
+        function esc(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+                .replace(/'/g,'&#39;');
+        }
+        function reIcons() { if (window.lucide) window.lucide.createIcons(); }
+        function showToast(msg, type = 'success') {
+            const c = document.getElementById('toast-container');
+            const t = document.createElement('div');
+            t.className = `toast toast-${type}`;
+            t.innerHTML = `<i data-lucide="${type==='success'?'check-circle':'alert-circle'}" style="width:18px;flex-shrink:0;"></i><span>${esc(msg)}</span>`;
+            c.appendChild(t);
+            reIcons();
+            setTimeout(() => t.remove(), 4500);
+        }
+
+        // ── Init ─────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', async () => {
+            if (!(await verificarAcessoM3())) return;
+            renderSidebarM3();
+            reIcons();
+
+            const sb = await initSupabase();
+            if (!sb) return;
+            const { data: { session } } = await sb.auth.getSession();
+            if (!session) { window.location.href = '../index.html#login'; return; }
+
+            // Somente admin/gestor gerenciam a equipe de campo
+            const _role = session.user?.app_metadata?.role
+                       || session.user?.user_metadata?.role;
+            if (!['admin', 'gestor'].includes(_role)) { location.href = 'eventos.html'; return; }
+
+            await carregarOperadores();
+        });
+
+        // ── Listagem ─────────────────────────────────────────
+        // Emails vivem em auth.users (inacessível ao client) — a lista vem do
+        // endpoint /api/gestor/usuarios (gestor/admin), filtrada por operador.
+        async function carregarOperadores() {
+            const lista = document.getElementById('operadores-lista');
+            try {
+                const sb = await initSupabase();
+                const { data: { session } } = await sb.auth.getSession();
+                const resp = await fetch('/api/gestor/usuarios', {
+                    headers: { Authorization: `Bearer ${session.access_token}` }
+                });
+                const json = await resp.json().catch(() => ({}));
+                if (!resp.ok) throw new Error(json.error || 'Falha ao listar usuários.');
+
+                const operadores = (json.users || []).filter(u => u.role === 'operador');
+                document.getElementById('operadores-count').textContent = `(${operadores.length})`;
+
+                if (!operadores.length) {
+                    lista.innerHTML = `
+                        <div class="empty-state">
+                            <i data-lucide="users" style="width:40px;opacity:0.35;"></i>
+                            <div style="margin-top:0.75rem;">Nenhum operador cadastrado ainda.</div>
+                            <div style="margin-top:0.25rem;font-size:0.8rem;">Clique em "Adicionar operador" para montar a equipe de campo.</div>
+                        </div>`;
+                    reIcons();
+                    return;
+                }
+
+                lista.innerHTML = operadores.map(u => `
+                    <div class="operador-card">
+                        <div style="display:flex;align-items:center;gap:0.75rem;min-width:0;">
+                            <div class="operador-avatar">${esc((u.email || '?')[0].toUpperCase())}</div>
+                            <div style="min-width:0;">
+                                <div style="font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;">${esc(u.email || '—')}</div>
+                                <div style="font-size:0.78rem;color:var(--text-muted);">
+                                    Operador · desde ${u.created_at ? new Date(u.created_at).toLocaleDateString('pt-BR') : '—'}
+                                </div>
+                            </div>
+                        </div>
+                        <span class="badge badge-blue">Módulo III</span>
+                    </div>
+                `).join('');
+                reIcons();
+            } catch (err) {
+                console.error('[equipe]', err);
+                lista.innerHTML = `<div class="empty-state"><i data-lucide="alert-circle" style="width:32px;opacity:0.4;"></i><div style="margin-top:0.5rem;">Erro ao carregar: ${esc(err.message)}</div></div>`;
+                reIcons();
+            }
+        }
+
+        // ── Criação ──────────────────────────────────────────
+        function openCreateModal() {
+            document.getElementById('op-nome').value = '';
+            document.getElementById('op-email').value = '';
+            document.getElementById('op-senha').value = '';
+            document.getElementById('modal-operador').style.display = 'flex';
+            reIcons();
+        }
+        function closeCreateModal() {
+            document.getElementById('modal-operador').style.display = 'none';
+        }
+
+        // Usa /api/gestor/criar-analista com role 'operador' (gestor/admin):
+        // cria com senha, vincula à organização e registra auditoria — o
+        // endpoint /api/admin/usuarios/operador é órfão e cria SEM senha
+        // (a conta nasceria inutilizável), por isso não é usado aqui.
+        async function criarOperador() {
+            const nome = document.getElementById('op-nome').value.trim();
+            const email = document.getElementById('op-email').value.trim();
+            const password = document.getElementById('op-senha').value;
+            if (!email || !password) return;
+
+            const btn = document.getElementById('op-submit');
+            btn.disabled = true;
+            btn.textContent = 'Criando…';
+
+            try {
+                const sb = await initSupabase();
+                const { data: { session } } = await sb.auth.getSession();
+                const resp = await fetch('/api/gestor/criar-analista', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${session.access_token}`
+                    },
+                    body: JSON.stringify({ email, password, nome: nome || null, role: 'operador' })
+                });
+                const json = await resp.json().catch(() => ({}));
+                if (!resp.ok) throw new Error(json.error || 'Falha ao criar operador.');
+
+                showToast(`Operador ${email} criado com sucesso.`);
+                closeCreateModal();
+                await carregarOperadores();
+            } catch (err) {
+                showToast(err.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Criar operador';
+            }
+        }
+    </script>
+</body>
+</html>
