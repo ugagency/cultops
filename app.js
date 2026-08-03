@@ -4072,6 +4072,63 @@ async function fetchDocuments() {
         return;
     }
     state.documents = data || [];
+
+    // Notas vindas de lote COM extrato tentam conciliar sozinhas (não bloqueia
+    // o fetch — roda em background e recarrega a lista se algo casar).
+    tentarConciliacaoAutoLote();
+}
+
+// Conciliação automática de notas de lote: varre as notas que estão paradas em
+// 'aguardando_comprovante' COM extrato_origem_id e pede ao backend que tente
+// casar cada uma contra os lançamentos do próprio extrato.
+// Varre o estado atual em vez de só reagir à transição de status: assim uma nota
+// que mudou de status com a tela fechada também é pega quando a lista abre.
+const _conciliacaoAutoTentada = new Set();
+
+async function tentarConciliacaoAutoLote() {
+    const candidatas = (state.documents || []).filter(d =>
+        d.extrato_origem_id &&
+        d.status === 'aguardando_comprovante' &&
+        !_conciliacaoAutoTentada.has(d.id)
+    );
+    if (!candidatas.length) return;
+
+    candidatas.forEach(d => _conciliacaoAutoTentada.add(d.id));
+
+    try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session) return;
+
+        let conciliadas = 0;
+        for (const doc of candidatas) {
+            try {
+                const resp = await fetch('/api/conciliacao/auto-lote', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${session.access_token}`
+                    },
+                    body: JSON.stringify({ document_id: doc.id })
+                });
+                const json = await resp.json().catch(() => ({}));
+                if (resp.ok && json.conciliado) {
+                    conciliadas++;
+                    showToast(`"${doc.name}" conciliada automaticamente com o extrato do lote.`, 'success');
+                }
+                // conciliado: false é caso normal (sem match / ambíguo) — a nota
+                // segue o fluxo manual, sem aviso ao usuário.
+            } catch (err) {
+                console.warn('[conciliacao-auto-lote]', doc.id, err.message);
+            }
+        }
+
+        if (conciliadas > 0) {
+            await fetchDocuments();
+            render();
+        }
+    } catch (err) {
+        console.warn('[conciliacao-auto-lote] sessão indisponível:', err.message);
+    }
 }
 
 window.updateFilters = function (key, value) {

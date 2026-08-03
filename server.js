@@ -2213,6 +2213,149 @@ app.post('/api/admin/usuarios/operador', requireAuth, async (req, res) => {
     }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/conciliacao/auto-lote
+// Concilia automaticamente uma nota que veio de um lote COM extrato vinculado
+// (documents.extrato_origem_id), dentro do universo fechado daquele extrato:
+// uma nota, um extrato conhecido — a única dúvida é QUAL lançamento.
+// Casando, a nota pula aguardando_comprovante e aguardando_conciliacao_bancaria
+// (o extrato faz as vezes do comprovante) e vai direto para aguardando_d3.
+// Falha segura: sem match ou com ambiguidade, a nota segue o fluxo manual.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/api/conciliacao/auto-lote', requireAuth, async (req, res) => {
+    try {
+        const { document_id } = req.body || {};
+        if (!document_id) {
+            return res.status(400).json({ error: 'document_id é obrigatório.' });
+        }
+
+        const { data: nota, error: notaErr } = await supabase
+            .from('documents')
+            .select('id, status, valor, data_pagamento, autenticacao_bancaria, extrato_origem_id, organization_id')
+            .eq('id', document_id)
+            .maybeSingle();
+        if (notaErr) throw notaErr;
+        if (!nota) return res.status(404).json({ error: 'Documento não encontrado.' });
+
+        // Este endpoint usa service role (ignora RLS) — sem esta checagem, uma
+        // conta válida poderia disparar conciliação em documento de outra org.
+        // Só bloqueia quando ambos os lados têm org definida (linhas legadas
+        // podem ter organization_id nulo e continuam funcionando).
+        const callerOrg = req.user?.app_metadata?.org_id || null;
+        if (nota.organization_id && callerOrg && nota.organization_id !== callerOrg) {
+            return res.status(403).json({ error: 'Documento não pertence à sua organização.' });
+        }
+
+        if (!nota.extrato_origem_id) {
+            // Caso normal: nota que não veio de lote com extrato.
+            return res.json({ conciliado: false, motivo: 'nota sem extrato de lote' });
+        }
+
+        // Idempotência real: o filtro document_id IS NULL abaixo impede reusar o
+        // MESMO lançamento, mas não impede casar a nota com um SEGUNDO lançamento
+        // numa chamada repetida. Esta checagem fecha isso.
+        const { data: jaConciliado, error: jaErr } = await supabase
+            .from('extratos_lancamentos')
+            .select('id')
+            .eq('document_id', nota.id)
+            .limit(1)
+            .maybeSingle();
+        if (jaErr) throw jaErr;
+        if (jaConciliado) {
+            return res.json({ conciliado: false, motivo: 'nota já conciliada anteriormente' });
+        }
+
+        const { data: lancamentos, error: lancErr } = await supabase
+            .from('extratos_lancamentos')
+            .select('id, fitid, valor, data_lancamento')
+            .eq('extrato_id', nota.extrato_origem_id)
+            .eq('status_conciliacao', 'pendente')
+            .is('document_id', null);
+        if (lancErr) throw lancErr;
+
+        if (!lancamentos || !lancamentos.length) {
+            return res.json({ conciliado: false, motivo: 'extrato sem lançamentos pendentes' });
+        }
+
+        // 1º critério: fitid === autenticacao_bancaria
+        let metodo = 'fitid';
+        let matches = [];
+        if (nota.autenticacao_bancaria) {
+            const auth = String(nota.autenticacao_bancaria).trim().toLowerCase();
+            matches = lancamentos.filter(l =>
+                l.fitid && String(l.fitid).trim().toLowerCase() === auth);
+        }
+
+        // 2º critério: valor ±0,01 e data ±3 dias (sem data_pagamento, só valor)
+        if (matches.length === 0) {
+            metodo = 'valor+data';
+            const valorNota = parseFloat(nota.valor || 0);
+            matches = lancamentos.filter(l => {
+                const v = parseFloat(l.valor || 0);
+                // Extrato traz saída de caixa como negativa; a nota é positiva.
+                if (Math.abs(Math.abs(v) - Math.abs(valorNota)) > 0.01) return false;
+                if (!nota.data_pagamento || !l.data_lancamento) return true;
+                // 'T12:00:00' nos dois lados: data pura não passa por new Date()
+                // cru (regra do projeto contra o deslocamento de fuso).
+                const diff = Math.abs(
+                    (new Date(l.data_lancamento + 'T12:00:00')
+                        - new Date(nota.data_pagamento + 'T12:00:00')) / 86400000);
+                return diff <= 3;
+            });
+        }
+
+        if (matches.length === 0) {
+            return res.json({ conciliado: false, motivo: 'nenhum lançamento compatível' });
+        }
+        if (matches.length > 1) {
+            // Regra inegociável: ambíguo nunca casa sozinho.
+            return res.json({
+                conciliado: false,
+                motivo: 'múltiplos lançamentos compatíveis, revisar manualmente'
+            });
+        }
+
+        const lancamento = matches[0];
+
+        // Casa o lançamento só se ele AINDA estiver livre (protege contra duas
+        // chamadas simultâneas para notas diferentes disputando o mesmo lançamento).
+        const { data: updLanc, error: updLancErr } = await supabase
+            .from('extratos_lancamentos')
+            .update({ status_conciliacao: 'conciliado', document_id: nota.id })
+            .eq('id', lancamento.id)
+            .is('document_id', null)
+            .select('id');
+        if (updLancErr) throw updLancErr;
+        if (!updLanc || !updLanc.length) {
+            return res.json({ conciliado: false, motivo: 'lançamento já foi conciliado por outra nota' });
+        }
+
+        const { error: updDocErr } = await supabase
+            .from('documents')
+            .update({
+                status: 'aguardando_d3',
+                justification: `Conciliação automática via lote (${metodo})`
+            })
+            .eq('id', nota.id);
+        if (updDocErr) throw updDocErr;
+
+        await supabase.from('audit_log').insert({
+            tabela: 'documents',
+            registro_id: nota.id,
+            campo: 'status',
+            valor_anterior: nota.status,
+            valor_novo: 'aguardando_d3',
+            alterado_por: req.user?.id || null,
+            origem: 'conciliacao_auto_lote'
+        });
+
+        return res.json({ conciliado: true, metodo, lancamento_id: lancamento.id });
+    } catch (e) {
+        console.error('[CONCILIACAO-AUTO-LOTE]', e);
+        return res.status(500).json({ error: e.message });
+    }
+});
+
 if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
     app.listen(PORT, () => {
         console.log(`[SERVER] Rodando em http://localhost:${PORT}`);
