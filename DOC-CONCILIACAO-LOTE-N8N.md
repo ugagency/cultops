@@ -19,34 +19,43 @@ Copiar **sem alteração** do workflow atual: Edit Fields → Detecta Formato �
 
 ## 3. Node "Busca Candidatos"
 
-Relação NF↔comprovante **confirmada no banco**: comprovantes são linhas próprias em `documents` com `tipo_documento='comprovante'` e **`nf_vinculada_id`** apontando para a NF. Duas queries (Supabase get many) + um Code de junção:
+**CORREÇÃO IMPORTANTE (verificado direto no banco de produção, não presumido):** minha suposição original — de que `tipo_documento='nf'` é o candidato e o comprovante é sempre uma linha filha separada apontando via `nf_vinculada_id` — está incompleta. Existem **dois padrões reais** em `documents`, e o trigger `trg_documents_cria_despesa` até comenta isso ("comprovante misto auto-referenciado" vs. "comprovantes filhos"):
 
-**Query A — NFs pendentes:**
-- Tabela `documents`, filtros: `project_id = {{project_id}}`, `status = aguardando_conciliacao_bancaria`, `tipo_documento = nf`
-- Campos: `id, valor, valor_pago, data_pagamento, autenticacao_bancaria`
+1. **Documento misto (é o padrão dominante nos dados reais hoje):** uma única linha com `tipo_documento='comprovante'` onde **`nf_vinculada_id` aponta para o próprio `id`** — o mesmo PDF é a NF e o comprovante de pagamento. `valor_pago`, `data_pagamento` e `autenticacao_bancaria` já vêm **nessa mesma linha**. Nos dados de produção, **100% dos documentos que chegam a `status = aguardando_conciliacao_bancaria` são deste tipo** (`tipo_documento='comprovante'`) — uma query filtrando `tipo_documento = nf` (como eu tinha escrito antes) retornaria **zero linhas**, mesmo com o projeto tendo pendências reais.
+2. **Comprovante filho (existe no código, mas nenhuma linha assim na produção hoje):** `tipo_documento='nf'` com status `aguardando_conciliacao_bancaria`, e um comprovante **separado**, `tipo_documento='comprovante'`, com `nf_vinculada_id` apontando para o `id` da NF (`id` diferente). `valor_pago`/`data_pagamento`/`autenticacao_bancaria` ficam na linha do comprovante, não na da NF.
 
-**Query B — comprovantes vinculados:**
+A query de candidatos precisa cobrir os dois, então: **não filtrar por `tipo_documento`** na busca principal — filtrar só por `status`. O join com o padrão filho vira um *fallback*, usado só quando o candidato não já trouxer os campos consigo mesmo.
+
+**Query A — candidatos pendentes de conciliação (sem filtro de tipo_documento):**
+- Tabela `documents`, filtros: `project_id = {{project_id}}`, `status = aguardando_conciliacao_bancaria`
+- Campos: `id, tipo_documento, valor, valor_pago, data_pagamento, autenticacao_bancaria, nf_vinculada_id`
+
+**Query B — comprovantes filhos (para o fallback do padrão 2):**
 - Tabela `documents`, filtros: `project_id = {{project_id}}`, `tipo_documento = comprovante`
 - Campos: `id, nf_vinculada_id, valor, valor_pago, data_pagamento, autenticacao_bancaria`
 
-**Code "Monta Candidatos"** (dados do comprovante têm prioridade — é ele que o fluxo 1-para-1 usa no match):
+**Code "Monta Candidatos":**
 
 ```javascript
-const nfs = $('Busca NFs Pendentes').all().map(i => i.json);
+const pendentesNF = $('Busca Candidatos Pendentes').all().map(i => i.json);
 const comprovantes = $('Busca Comprovantes').all().map(i => i.json);
 
+// Só usado como fallback: comprovante FILHO, com id diferente da NF que aponta
 const porNf = {};
 for (const c of comprovantes) {
-  if (c.nf_vinculada_id) porNf[c.nf_vinculada_id] = c;
+  if (c.nf_vinculada_id && c.nf_vinculada_id !== c.id) porNf[c.nf_vinculada_id] = c;
 }
 
-const candidatos = nfs.map(nf => {
-  const comp = porNf[nf.id] || {};
+const candidatos = pendentesNF.map(doc => {
+  // Padrão 1 (misto/auto-referenciado): os campos já estão na própria linha.
+  // Padrão 2 (NF + comprovante filho): cai no fallback via nf_vinculada_id.
+  const temCamposProprios = doc.valor_pago != null || doc.autenticacao_bancaria != null;
+  const comp = temCamposProprios ? doc : (porNf[doc.id] || {});
   return {
-    id: nf.id, // sempre o id da NF — é ela que muda de status
-    valor_pago: comp.valor_pago ?? comp.valor ?? nf.valor_pago ?? nf.valor,
-    data_pagamento: comp.data_pagamento ?? nf.data_pagamento,
-    autenticacao_bancaria: comp.autenticacao_bancaria ?? nf.autenticacao_bancaria,
+    id: doc.id, // sempre o id do documento que está em aguardando_conciliacao_bancaria — é ele que muda de status
+    valor_pago: comp.valor_pago ?? comp.valor ?? doc.valor,
+    data_pagamento: comp.data_pagamento ?? doc.data_pagamento,
+    autenticacao_bancaria: comp.autenticacao_bancaria ?? doc.autenticacao_bancaria,
   };
 });
 
