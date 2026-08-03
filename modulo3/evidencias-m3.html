@@ -234,10 +234,28 @@
         </div>
     </div>
 
+    <!-- Modal: reprovar / solicitar complemento -->
+    <div id="modal-validacao" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9000;align-items:center;justify-content:center;">
+        <div style="background:white;border-radius:var(--radius-lg);padding:1.75rem;width:100%;max-width:440px;margin:1rem;box-shadow:0 24px 80px rgba(0,0,0,0.22);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+                <h2 id="validacao-titulo" style="font-size:1.1rem;font-weight:700;margin:0;color:var(--text-primary);">Reprovar evidência</h2>
+                <button class="btn-icon" onclick="fecharModalValidacao()"><i data-lucide="x" style="width:18px;"></i></button>
+            </div>
+            <div class="form-group">
+                <label for="validacao-motivo">Motivo</label>
+                <textarea id="validacao-motivo" rows="3" maxlength="500" style="padding:0.625rem 0.875rem;border-radius:var(--radius-md);border:1px solid var(--border-light);font-size:0.9rem;font-family:inherit;resize:vertical;"></textarea>
+            </div>
+            <div style="display:flex;gap:0.6rem;justify-content:flex-end;margin-top:1.25rem;">
+                <button class="btn-secondary" onclick="fecharModalValidacao()">Cancelar</button>
+                <button class="btn-danger" id="btn-confirmar-validacao" onclick="confirmarValidacaoM3()">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
     <div id="toast-container" class="toast-container"></div>
 
     <script src="../config.js"></script>
-    <script src="supabase-helper-m3.js?v=4"></script>
+    <script src="supabase-helper-m3.js?v=5"></script>
     <script>
         // ── State ─────────────────────────────────────────────
         const params  = new URLSearchParams(location.search);
@@ -247,6 +265,7 @@
         let evento     = null;
         let attendance = [];
         let evidencias = [];
+        let _role      = null;   // quem valida: admin/gestor/analista (operador só sobe)
         let allProdutosM3 = [];
 
         // ── Utilities ─────────────────────────────────────────
@@ -301,6 +320,8 @@
             if (!sb) return;
             const { data: { session } } = await sb.auth.getSession();
             if (!session) { location.href = '../index.html#login'; return; }
+
+            _role = session.user?.app_metadata?.role || session.user?.user_metadata?.role || null;
 
             await loadData();
         });
@@ -421,15 +442,125 @@
                             <span style="margin-left:0.25rem;">·</span>
                             ${fmtDateTime(ev.criado_em)}
                         </div>
-                        ${ev.status_validacao === 'reprovada' && ev.motivo_reprovacao ? `
+                        ${['reprovada', 'pendente_complemento'].includes(ev.status_validacao) && ev.motivo_reprovacao ? `
                         <div style="display:flex;align-items:center;gap:0.4rem;margin-top:0.5rem;
                                     font-size:0.82rem;color:#FF5807;font-weight:600;">
                             <i data-lucide="alert-triangle" style="width:14px;height:14px;"></i>
                             ${esc(ev.motivo_reprovacao)}
                         </div>` : ''}
+                        ${podeValidarEvidencia() && ['pendente', 'pendente_complemento'].includes(ev.status_validacao || 'pendente') ? `
+                        <div style="display:flex;gap:0.5rem;margin-top:0.7rem;padding-top:0.7rem;border-top:1px solid #f1f5f9;flex-wrap:wrap;">
+                            <button class="btn-primary" style="padding:0.4rem 0.85rem;font-size:0.8rem;" onclick="aprovarEvidenciaM3('${ev.id}')">
+                                <i data-lucide="check" style="width:14px;"></i> Aprovar
+                            </button>
+                            <button class="btn-secondary" style="padding:0.4rem 0.85rem;font-size:0.8rem;" onclick="abrirModalValidacao('${ev.id}', 'complemento')">
+                                <i data-lucide="message-circle" style="width:14px;"></i> Solicitar complemento
+                            </button>
+                            <button class="btn-danger" style="padding:0.4rem 0.85rem;font-size:0.8rem;" onclick="abrirModalValidacao('${ev.id}', 'reprovar')">
+                                <i data-lucide="x" style="width:14px;"></i> Reprovar
+                            </button>
+                        </div>` : ''}
                     </div>`;
             }).join('');
             reIcons();
+        }
+
+        // ── Validação de evidências (aprovar/reprovar/complemento) ─
+        // Operador sobe a evidência mas NÃO valida a própria evidência;
+        // validação é de admin/gestor/analista — mesma regra do M2
+        // (comprovacao-fisica.html), que continua sendo a mesa consolidada.
+        function podeValidarEvidencia() {
+            return ['admin', 'gestor', 'analista'].includes(_role);
+        }
+
+        // Notifica o solicitante da mudança de status (best-effort, igual ao M2)
+        function notificarEvidenciaM3(evidencia_id, novo_status, analista_id) {
+            fetch('/api/m2/evidencia/notificar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ evidencia_id, novo_status, analista_id })
+            }).catch(e => console.warn('[notificar-evidencia]', e.message));
+        }
+
+        function _aplicarValidacaoLocal(evidenceId, status, motivo, userId) {
+            // Fix já aplicado no M2: atualizar o estado local e re-renderizar na
+            // hora, sem depender só do Realtime (card não atualizava sem reload).
+            const idx = evidencias.findIndex(e => e.id === evidenceId);
+            if (idx !== -1) {
+                evidencias[idx].status_validacao = status;
+                evidencias[idx].motivo_reprovacao = motivo;
+                evidencias[idx].validado_por = userId || null;
+                evidencias[idx].validado_em = new Date().toISOString();
+            }
+            renderEvidencias();
+        }
+
+        async function aprovarEvidenciaM3(evidenceId) {
+            if (!podeValidarEvidencia()) { showToast('Apenas gestor/admin/analista podem validar evidências.', 'error'); return; }
+            const sb = await initSupabase();
+            const { data: { user } } = await sb.auth.getUser();
+
+            const { error } = await sb.from('physical_evidences').update({
+                status_validacao: 'aprovada',
+                motivo_reprovacao: null,
+                validado_por: user?.id || null,
+                validado_em: new Date().toISOString()
+            }).eq('id', evidenceId);
+
+            if (error) { showToast('Erro ao aprovar: ' + error.message, 'error'); return; }
+
+            notificarEvidenciaM3(evidenceId, 'aprovada', user?.id);
+            _aplicarValidacaoLocal(evidenceId, 'aprovada', null, user?.id);
+            showToast('Evidência aprovada.');
+        }
+
+        let _validacaoCtx = null; // { evidenceId, modo: 'reprovar' | 'complemento' }
+
+        function abrirModalValidacao(evidenceId, modo) {
+            if (!podeValidarEvidencia()) { showToast('Apenas gestor/admin/analista podem validar evidências.', 'error'); return; }
+            _validacaoCtx = { evidenceId, modo };
+            document.getElementById('validacao-titulo').textContent =
+                modo === 'reprovar' ? 'Reprovar evidência' : 'Solicitar complemento';
+            document.getElementById('validacao-motivo').value = '';
+            document.getElementById('validacao-motivo').placeholder =
+                modo === 'reprovar' ? 'Motivo da reprovação…' : 'Descreva o que precisa ser complementado…';
+            document.getElementById('btn-confirmar-validacao').textContent =
+                modo === 'reprovar' ? 'Confirmar reprovação' : 'Solicitar complemento';
+            document.getElementById('modal-validacao').style.display = 'flex';
+            reIcons();
+        }
+
+        function fecharModalValidacao() {
+            document.getElementById('modal-validacao').style.display = 'none';
+            _validacaoCtx = null;
+        }
+
+        async function confirmarValidacaoM3() {
+            if (!_validacaoCtx) return;
+            const { evidenceId, modo } = _validacaoCtx;
+            const motivo = document.getElementById('validacao-motivo').value.trim();
+            if (motivo.length < 3) {
+                showToast(modo === 'reprovar' ? 'Informe o motivo da reprovação.' : 'Descreva o complemento necessário.', 'error');
+                return;
+            }
+
+            const sb = await initSupabase();
+            const { data: { user } } = await sb.auth.getUser();
+            const novoStatus = modo === 'reprovar' ? 'reprovada' : 'pendente_complemento';
+
+            const { error } = await sb.from('physical_evidences').update({
+                status_validacao: novoStatus,
+                motivo_reprovacao: motivo,
+                validado_por: user?.id || null,
+                validado_em: new Date().toISOString()
+            }).eq('id', evidenceId);
+
+            if (error) { showToast('Erro: ' + error.message, 'error'); return; }
+
+            notificarEvidenciaM3(evidenceId, novoStatus, user?.id);
+            _aplicarValidacaoLocal(evidenceId, novoStatus, motivo, user?.id);
+            fecharModalValidacao();
+            showToast(modo === 'reprovar' ? 'Evidência reprovada.' : 'Complemento solicitado.');
         }
 
         // ── Render Encerrar ───────────────────────────────────
