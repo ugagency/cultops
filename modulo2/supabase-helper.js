@@ -101,15 +101,25 @@ window.verificarAcessoM2 = verificarAcessoM2;
 /**
  * Renderiza o Sidebar consistente com o M1 mas incluindo links do M2
  */
-function renderSidebar() {
+async function renderSidebar() {
     // Remove sidebar anterior se existir para evitar duplicação em SPAs/navegação manual
     const existingSidebar = document.querySelector('.sidebar');
     if (existingSidebar) existingSidebar.remove();
 
+    let _role = null;
+    try {
+        const sb = await initSupabase();
+        const { data: { session } } = await sb.auth.getSession();
+        _role = session?.user?.app_metadata?.role || session?.user?.user_metadata?.role || null;
+    } catch (_) {}
+
     const sidebar = document.createElement('aside');
     sidebar.className = 'sidebar';
 
-    // Lista de itens de navegação interna do M2
+    // Lista de itens de navegação interna do M2. Equipe, Configurações e
+    // Solicitantes são páginas neutras na raiz do repo (fora de M1/M2/M3),
+    // sem dono de módulo — restritas a admin/gestor nos 3 módulos (mesma
+    // filtragem já usada para esconder itens sensíveis do operador).
     const navItems = [
         { label: 'Dashboard', icon: 'layout-dashboard', path: 'financeiro.html' },
         { label: 'Projetos', icon: 'folder-kanban', path: 'projeto-setup.html' },
@@ -118,11 +128,14 @@ function renderSidebar() {
         { label: 'Contratos', icon: 'file-text', path: 'contratos.html' },
         { label: 'Impostos', icon: 'landmark', path: 'impostos.html' },
         { label: 'Evidências', icon: 'camera', path: 'comprovacao-fisica.html' },
-        { label: 'Solicitantes', icon: 'users', path: 'gestao-solicitantes.html' },
         { label: 'Prestação de Contas', icon: 'file-check-2', path: 'prestacao-contas.html' },
         { label: 'Exportações', icon: 'download', path: 'exportacoes.html' },
-        { label: 'Configurações', icon: 'settings', path: 'configuracoes.html' },
+        { label: 'Equipe', icon: 'user-cog', path: '../equipe.html', restrito: true },
+        { label: 'Configurações', icon: 'settings', path: '../configuracoes.html', restrito: true },
+        { label: 'Solicitantes', icon: 'users', path: '../solicitantes.html', restrito: true },
     ];
+
+    const _filtered = navItems.filter(item => !item.restrito || ['admin', 'gestor'].includes(_role));
 
     const currentFile = window.location.pathname.split('/').pop();
 
@@ -132,7 +145,7 @@ function renderSidebar() {
             <img class="sidebar-logo-icon" src="../PAI-Icone-Azul.png" alt="Prestaí">
         </div>
         <nav class="sidebar-nav">
-            ${navItems.map(item => {
+            ${_filtered.map(item => {
                 const active = currentFile === item.path;
                 return `
                     <a href="${item.path}" class="nav-item ${active ? 'active' : ''}">

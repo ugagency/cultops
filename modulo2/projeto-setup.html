@@ -616,7 +616,7 @@
             } catch (err) {
                 if (err.message.includes("Crendenciais do salic não encontradas") || err.message.includes("credenciais SALIC")) {
                     if (confirm("Você precisa configurar suas credenciais SALIC antes de importar. Deseja ir para as configurações agora?")) {
-                        window.location.href = 'configuracoes.html';
+                        window.location.href = '../configuracoes.html';
                     }
                 } else {
                     alert("Erro: " + err.message);

@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prestaí — Equipe</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="style.css">
+
+    <style>
+        /* Página neutra — sem sidebar de módulo (ver DOC-EVIDENCIAS-M2-M3.md
+           para o mesmo raciocínio de "sem dono" aplicado a outra área). */
+        body { background-color: var(--bg-main); }
+        .neutral-shell {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem 3rem;
+        }
+        .neutral-back {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            cursor: pointer;
+            background: none;
+            border: none;
+            padding: 0;
+        }
+        .neutral-back:hover { color: var(--text-primary); }
+    </style>
+</head>
+<body>
+    <div class="neutral-shell">
+        <button class="neutral-back" onclick="history.back()">
+            <i data-lucide="arrow-left" style="width: 16px;"></i> Voltar
+        </button>
+
+        <header class="content-header">
+            <h1>Equipe</h1>
+            <p class="page-subtitle">Gerencie os perfis de acesso dos usuários da sua organização.</p>
+        </header>
+
+        <div class="card" style="max-width: 960px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 1rem;">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <i data-lucide="users"></i>
+                    <h3 class="h2">Usuários cadastrados</h3>
+                </div>
+                <button class="btn btn-primary" onclick="openCriarAnalistaModal()">
+                    <i data-lucide="user-plus" style="width: 14px;"></i>
+                    Adicionar Usuário
+                </button>
+            </div>
+
+            <div id="equipe-tabela-wrap">
+                <p class="text-sm" style="color: var(--text-muted);">Carregando…</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Alterar Perfil -->
+    <div id="modal-equipe-role" class="modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+        <div class="card" style="width: 100%; max-width: 480px; margin: 1rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+                <h3 class="h2">Alterar Perfil</h3>
+                <button class="btn btn-ghost" onclick="document.getElementById('modal-equipe-role').style.display='none'">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+
+            <p class="text-sm mb-4">Usuário: <strong id="equipe-modal-email">—</strong></p>
+            <input type="hidden" id="equipe-modal-target" />
+
+            <div class="form-group mb-4">
+                <label for="equipe-modal-role">Perfil</label>
+                <select id="equipe-modal-role">
+                    <option value="analista">Analista</option>
+                    <option value="gestor">Gestor</option>
+                    <option value="operador">Operador (campo — Módulo III)</option>
+                    <option value="fornecedor">Fornecedor</option>
+                </select>
+            </div>
+
+            <div style="padding: 0.75rem; background: var(--bg-sidebar); border-radius: var(--radius-sm); margin-bottom: 1.5rem; display: flex; gap: 0.5rem; align-items: flex-start;">
+                <i data-lucide="info" style="width: 16px; flex-shrink: 0; margin-top: 2px;"></i>
+                <p class="text-xs" style="color: var(--text-secondary); line-height: 1.5;">
+                    O usuário precisa fazer logout e login novamente para que o novo perfil tenha efeito no JWT da sessão.
+                </p>
+            </div>
+
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                <button class="btn btn-secondary" onclick="document.getElementById('modal-equipe-role').style.display='none'">Cancelar</button>
+                <button class="btn btn-primary" onclick="handleSetRole()">Confirmar alteração</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Adicionar Usuário -->
+    <div id="modal-criar-analista" class="modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+        <div class="card" style="width: 100%; max-width: 480px; margin: 1rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+                <h3 class="h2">Adicionar Usuário</h3>
+                <button class="btn btn-ghost" onclick="document.getElementById('modal-criar-analista').style.display='none'">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+
+            <form onsubmit="event.preventDefault(); handleCriarAnalista();">
+                <div class="form-group mb-4">
+                    <label for="criar-analista-perfil">Perfil</label>
+                    <select id="criar-analista-perfil">
+                        <option value="analista">Analista — opera os Módulos I e II</option>
+                        <option value="operador">Operador — campo (Módulo III)</option>
+                    </select>
+                </div>
+
+                <div class="form-group mb-4">
+                    <label for="criar-analista-nome">Nome (opcional)</label>
+                    <input type="text" id="criar-analista-nome" placeholder="Maria Silva" />
+                </div>
+
+                <div class="form-group mb-4">
+                    <label for="criar-analista-email">E-mail</label>
+                    <input type="email" id="criar-analista-email" placeholder="usuario@empresa.com" required />
+                </div>
+
+                <div class="form-group mb-4">
+                    <label for="criar-analista-senha">Senha provisória (mín. 6 caracteres)</label>
+                    <input type="text" id="criar-analista-senha" placeholder="••••••" minlength="6" required />
+                </div>
+
+                <div style="padding: 0.75rem; background: var(--bg-sidebar); border-radius: var(--radius-sm); margin-bottom: 1.5rem; display: flex; gap: 0.5rem; align-items: flex-start;">
+                    <i data-lucide="info" style="width: 16px; flex-shrink: 0; margin-top: 2px;"></i>
+                    <p class="text-xs" style="color: var(--text-secondary); line-height: 1.5;">
+                        O usuário será criado já vinculado à sua organização. O <strong>Operador</strong> acessa apenas o Módulo III (execução em campo). Compartilhe a senha provisória de forma segura — o usuário poderá trocá-la depois.
+                    </p>
+                </div>
+
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-criar-analista').style.display='none'">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" id="criar-analista-submit">Criar Usuário</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="config.js"></script>
+    <script>
+        const ROLE_LABELS = { admin: 'Administrador', gestor: 'Gestor', analista: 'Analista', operador: 'Operador', fornecedor: 'Fornecedor' };
+
+        let sbClient = null;
+        async function initSupabase() {
+            if (sbClient) return sbClient;
+            sbClient = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+            return sbClient;
+        }
+
+        function showToast(msg, type = 'success') {
+            const c = document.getElementById('toast-container');
+            const t = document.createElement('div');
+            t.className = `toast toast-${type}`;
+            t.innerHTML = `<div class="toast-content"><p class="toast-message">${msg}</p></div>`;
+            c.appendChild(t);
+            setTimeout(() => {
+                t.classList.add('fade-out');
+                setTimeout(() => t.remove(), 300);
+            }, 3500);
+        }
+
+        let equipe = [];
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            if (window.lucide) window.lucide.createIcons();
+
+            const sb = await initSupabase();
+            const { data: { session } } = await sb.auth.getSession();
+            if (!session) { window.location.href = 'index.html#login'; return; }
+
+            // Página neutra sem sidebar própria: o guard de role acontece aqui,
+            // não apenas escondendo um item de menu (mesmo padrão adotado para
+            // as páginas do M2/M3 — menu escondido não é o mesmo que página
+            // protegida).
+            const role = session.user?.app_metadata?.role || session.user?.user_metadata?.role;
+            if (!['admin', 'gestor'].includes(role)) {
+                window.location.href = 'module-selector.html';
+                return;
+            }
+
+            await fetchEquipe();
+        });
+
+        async function fetchEquipe() {
+            const wrap = document.getElementById('equipe-tabela-wrap');
+            try {
+                const sb = await initSupabase();
+                const { data: { session } } = await sb.auth.getSession();
+                const resp = await fetch('/api/gestor/usuarios', {
+                    headers: { Authorization: `Bearer ${session.access_token}` }
+                });
+                const json = await resp.json().catch(() => ({}));
+                if (!resp.ok) throw new Error(json.error || 'Erro ao listar usuários.');
+                equipe = json.users || [];
+                renderEquipe();
+            } catch (err) {
+                console.error('fetchEquipe:', err);
+                showToast(err.message, 'error');
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error);">Erro ao carregar: ${err.message}</p>`;
+            }
+        }
+
+        function renderEquipe() {
+            const wrap = document.getElementById('equipe-tabela-wrap');
+            if (equipe.length === 0) {
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--text-muted);">Nenhum usuário encontrado.</p>`;
+                return;
+            }
+            wrap.innerHTML = `
+                <table class="data-table" style="width: 100%;">
+                    <thead>
+                        <tr>
+                            <th>E-mail</th>
+                            <th>Perfil atual</th>
+                            <th>Cadastro</th>
+                            <th style="text-align: right;">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${equipe.map(u => `
+                            <tr>
+                                <td>${u.email || '---'}</td>
+                                <td>
+                                    <span class="badge ${u.role === 'gestor' || u.role === 'admin' ? 'status-completed' : 'status-pending'}">
+                                        ${ROLE_LABELS[u.role] || (u.role || '—')}
+                                    </span>
+                                </td>
+                                <td>${u.created_at ? new Date(u.created_at).toLocaleDateString('pt-BR') : '---'}</td>
+                                <td style="text-align: right;">
+                                    <button class="btn btn-secondary" onclick="openEquipeRoleModal('${u.id}', '${u.role || ''}', '${(u.email || '').replace(/'/g, "\\'")}')">
+                                        <i data-lucide="shield" style="width: 14px;"></i>
+                                        Alterar Perfil
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        function openEquipeRoleModal(userId, currentRole, email) {
+            document.getElementById('equipe-modal-target').value = userId;
+            document.getElementById('equipe-modal-role').value = currentRole || 'analista';
+            document.getElementById('equipe-modal-email').textContent = email || '—';
+            document.getElementById('modal-equipe-role').style.display = 'flex';
+        }
+
+        async function handleSetRole() {
+            const targetUserId = document.getElementById('equipe-modal-target').value;
+            const role = document.getElementById('equipe-modal-role').value;
+            if (!targetUserId || !role) return;
+            try {
+                const sb = await initSupabase();
+                const { data: { session } } = await sb.auth.getSession();
+                const resp = await fetch('/api/gestor/set-role', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${session.access_token}`
+                    },
+                    body: JSON.stringify({ targetUserId, role })
+                });
+                const json = await resp.json().catch(() => ({}));
+                if (!resp.ok) throw new Error(json.error || 'Falha ao alterar perfil.');
+                showToast('Perfil atualizado com sucesso.', 'success');
+                document.getElementById('modal-equipe-role').style.display = 'none';
+
+                // Se o admin alterou o próprio role, renova a sessão local
+                const { data: { user } } = await sb.auth.getUser();
+                if (targetUserId === user?.id) {
+                    await sb.auth.refreshSession();
+                }
+                await fetchEquipe();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        function openCriarAnalistaModal() {
+            document.getElementById('criar-analista-perfil').value = 'analista';
+            document.getElementById('criar-analista-nome').value = '';
+            document.getElementById('criar-analista-email').value = '';
+            document.getElementById('criar-analista-senha').value = '';
+            document.getElementById('modal-criar-analista').style.display = 'flex';
+        }
+
+        async function handleCriarAnalista() {
+            const role = document.getElementById('criar-analista-perfil').value;
+            const nome = document.getElementById('criar-analista-nome').value.trim();
+            const email = document.getElementById('criar-analista-email').value.trim();
+            const password = document.getElementById('criar-analista-senha').value;
+            if (!email || !password) return;
+
+            const submitBtn = document.getElementById('criar-analista-submit');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Criando...';
+
+            try {
+                const sb = await initSupabase();
+                const { data: { session } } = await sb.auth.getSession();
+                const resp = await fetch('/api/gestor/criar-analista', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${session.access_token}`
+                    },
+                    body: JSON.stringify({ email, password, nome: nome || null, role })
+                });
+                const json = await resp.json().catch(() => ({}));
+                if (!resp.ok) throw new Error(json.error || 'Falha ao criar usuário.');
+
+                showToast(`${ROLE_LABELS[role] || 'Usuário'} ${email} criado com sucesso.`, 'success');
+                document.getElementById('modal-criar-analista').style.display = 'none';
+                await fetchEquipe();
+            } catch (err) {
+                showToast(err.message, 'error');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Criar Usuário';
+            }
+        }
+    </script>
+</body>
+</html>

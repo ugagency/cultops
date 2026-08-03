@@ -74,7 +74,13 @@ async function renderSidebarM3() {
         { label: 'Patrocinadores',  icon: 'building-2',   path: 'pa.html' },
         { label: 'Eventos',         icon: 'calendar',     path: 'eventos.html' },
         { label: 'Relatórios',      icon: 'file-text',    path: 'relatorios.html' },
-        { label: 'Equipe',          icon: 'user-cog',     path: 'equipe.html' },
+        // Equipe, Configurações e Solicitantes são páginas neutras na raiz
+        // do repo (fora de M1/M2/M3), sem dono de módulo — restritas a
+        // admin/gestor nos 3 módulos (mesma filtragem já usada para esconder
+        // itens sensíveis do operador).
+        { label: 'Equipe',          icon: 'user-cog',     path: '../equipe.html', restrito: true },
+        { label: 'Configurações',   icon: 'settings',     path: '../configuracoes.html', restrito: true },
+        { label: 'Solicitantes',    icon: 'users',        path: '../solicitantes.html', restrito: true },
         // App separado/instalável — abre em nova aba (blank), fora da navegação normal.
         // Portaria não tem item próprio: é sempre por evento, acessada pelo botão
         // "Portaria" de cada card em eventos.html (portaria.html?event_id=X).
@@ -83,8 +89,7 @@ async function renderSidebarM3() {
 
     const _filtered = navItems.filter(item => {
         if (_role === 'operador' && ['os.html', 'pa.html'].includes(item.path)) return false;
-        // Equipe: só admin/gestor criam operadores
-        if (item.path === 'equipe.html' && !['admin', 'gestor'].includes(_role)) return false;
+        if (item.restrito && !['admin', 'gestor'].includes(_role)) return false;
         return true;
     });
 

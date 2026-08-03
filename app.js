@@ -411,22 +411,28 @@ const Sidebar = () => `
             <i data-lucide="bar-chart-3"></i>
             <span>Relatórios</span>
         </a>
-        <a class="nav-item ${state.currentView === 'admin_solicitantes' ? 'active' : ''}" onclick="window.navigate('admin_solicitantes')">
-            <i data-lucide="users"></i>
-            <span>Solicitantes</span>
-        </a>
-        <a class="nav-item ${state.currentView === 'configuracoes' ? 'active' : ''}" onclick="window.navigate('configuracoes')">
-            <i data-lucide="settings"></i>
-            <span>Configurações</span>
-        </a>
         ${userIsGestorOrAbove() ? `
         <a class="nav-item ${['ferramentas', 'ferramentas_juntar_pdf'].includes(state.currentView) ? 'active' : ''}" onclick="window.navigate('ferramentas')">
             <i data-lucide="wrench"></i>
             <span>Ferramentas</span>
         </a>
         ` : ''}
-        ${userCanDelete() ? `
-        <a class="nav-item ${state.currentView === 'equipe' ? 'active' : ''}" onclick="window.navigate('equipe')">
+        ${userIsGestorOrAbove() ? `
+        <!-- Equipe, Configurações e Solicitantes viraram páginas neutras na
+             raiz do repo (fora de M1/M2/M3), acessíveis igualmente pelos 3
+             módulos — ver DOC-EVIDENCIAS-M2-M3.md para o mesmo raciocínio de
+             "sem dono" aplicado a outra área. Restritas a admin/gestor nos
+             3 módulos (mesma filtragem usada para esconder itens sensíveis
+             do operador). -->
+        <a class="nav-item" href="solicitantes.html">
+            <i data-lucide="users"></i>
+            <span>Solicitantes</span>
+        </a>
+        <a class="nav-item" href="configuracoes.html">
+            <i data-lucide="settings"></i>
+            <span>Configurações</span>
+        </a>
+        <a class="nav-item" href="equipe.html">
             <i data-lucide="user-cog"></i>
             <span>Equipe</span>
         </a>

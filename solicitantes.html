@@ -3,27 +3,45 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PrestAI M2 — Gestão de Solicitantes</title>
-    
+    <title>Prestaí — Solicitantes</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-    <link rel="stylesheet" href="../style.css">
-    <link rel="stylesheet" href="m2-shared.css">
-    
+    <link rel="stylesheet" href="style.css">
+
     <style>
-        .gestao-container {
+        /* Página neutra — sem sidebar de módulo. */
+        body { background-color: var(--bg-main); }
+        .neutral-shell {
             max-width: 1100px;
             margin: 0 auto;
+            padding: 2rem 1.5rem 3rem;
+        }
+        .neutral-back {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            cursor: pointer;
+            background: none;
+            border: none;
+            padding: 0;
+        }
+        .neutral-back:hover { color: var(--text-primary); }
+
+        .gestao-container {
             display: flex;
             flex-direction: column;
             gap: 2rem;
-        }
-
-        .dashboard-header {
-            margin-bottom: 2rem;
         }
 
         .glass-card {
@@ -37,7 +55,7 @@
 
         .glass-card:hover {
             box-shadow: var(--shadow-lg);
-            border-color: var(--m2-accent);
+            border-color: var(--color-primary);
         }
 
         .form-row {
@@ -49,9 +67,7 @@
         }
 
         @media (max-width: 640px) {
-            .form-row {
-                grid-template-columns: 1fr;
-            }
+            .form-row { grid-template-columns: 1fr; }
         }
 
         .form-group label {
@@ -75,40 +91,38 @@
 
         .form-control:focus, .form-select:focus {
             outline: none;
-            border-color: var(--m2-accent);
+            border-color: var(--color-primary);
             box-shadow: 0 0 0 4px rgba(21, 71, 255,0.1);
         }
 
-        .data-table {
+        .solic-table {
             width: 100%;
             border-collapse: collapse;
             font-size: 0.9rem;
             margin-top: 1rem;
         }
 
-        .data-table th {
+        .solic-table th {
             text-align: left;
             padding: 1rem;
-            background: #F5F0E8;
+            background: var(--bg-sidebar);
             color: var(--text-secondary);
             font-weight: 700;
             border-bottom: 2px solid var(--border-light);
         }
 
-        .data-table td {
+        .solic-table td {
             padding: 1rem;
             border-bottom: 1px solid var(--border-light);
             color: var(--text-primary);
             vertical-align: middle;
         }
 
-        .data-table tr:hover td {
-            background: #F5F0E8;
-        }
+        .solic-table tr:hover td { background: var(--bg-sidebar); }
 
         .btn-remove {
-            background: #FF5807;
-            color: #FF5807;
+            background: var(--color-alert);
+            color: white;
             border: none;
             padding: 0.5rem;
             border-radius: var(--radius-md);
@@ -118,43 +132,31 @@
             align-items: center;
             justify-content: center;
         }
+        .btn-remove:hover { opacity: 0.85; }
 
-        .btn-remove:hover {
-            background: #FF5807;
-            color: white;
-        }
-
-        .empty-state {
+        .empty-state-inline {
             text-align: center;
             padding: 3rem 1rem;
             color: var(--text-muted);
         }
-
-        .toast-notification {
-            position: fixed; bottom: 2.5rem; right: 2.5rem;
-            padding: 1.25rem 2rem; border-radius: var(--radius-md);
-            color: white; font-weight: 700; font-size: 0.95rem;
-            z-index: 10000; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
-            transform: translateY(150%); transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        }
-        .toast-notification.show { transform: translateY(0); }
-        .toast-notification.success { background: #1547FF; }
-        .toast-notification.error { background: #FF5807; }
     </style>
 </head>
 <body>
-    <main class="main-content">
+    <div class="neutral-shell">
+        <button class="neutral-back" onclick="history.back()">
+            <i data-lucide="arrow-left" style="width: 16px;"></i> Voltar
+        </button>
+
         <div class="gestao-container">
-            
-            <div class="dashboard-header">
+            <div>
                 <h1 style="font-size: 2.5rem; font-weight: 800; color: var(--text-primary); margin-bottom: 0.5rem;">Gestão de Solicitantes</h1>
                 <p style="color: var(--text-secondary); font-size: 1.125rem;">Autorize fornecedores e parceiros a enviar comprovantes e evidências diretamente para seus projetos.</p>
             </div>
 
             <!-- Vincular Novo Solicitante -->
-            <section class="glass-card" style="border-top: 5px solid var(--m2-accent);">
+            <section class="glass-card" style="border-top: 5px solid var(--color-primary);">
                 <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem;">
-                    <i data-lucide="user-plus" style="color: var(--m2-accent); width: 24px; height: 24px;"></i>
+                    <i data-lucide="user-plus" style="color: var(--color-primary); width: 24px; height: 24px;"></i>
                     <h3 style="font-size: 1.25rem; font-weight: 700;">Vincular Solicitante</h3>
                 </div>
 
@@ -172,7 +174,7 @@
                                 <option value="">Carregando solicitantes...</option>
                             </select>
                         </div>
-                        <button type="submit" class="btn-m2 btn-m2-primary" id="btn-vincular" style="height: 52px; min-width: 140px; justify-content: center;">
+                        <button type="submit" class="btn btn-primary" id="btn-vincular" style="height: 52px; min-width: 140px; justify-content: center;">
                             Vincular
                         </button>
                     </div>
@@ -189,7 +191,7 @@
                 </div>
 
                 <div style="overflow-x: auto;">
-                    <table class="data-table">
+                    <table class="solic-table">
                         <thead>
                             <tr>
                                 <th>Solicitante (Razão Social / CNPJ)</th>
@@ -199,36 +201,56 @@
                             </tr>
                         </thead>
                         <tbody id="vinculos-tbody">
-                            <tr><td colspan="4" class="empty-state"><i data-lucide="loader" class="spin"></i> Carregando...</td></tr>
+                            <tr><td colspan="4" class="empty-state-inline"><i data-lucide="loader" class="spin"></i> Carregando...</td></tr>
                         </tbody>
                     </table>
                 </div>
             </section>
-
         </div>
-    </main>
+    </div>
 
-    <div class="toast-notification" id="toast"></div>
+    <div id="toast-container" class="toast-container"></div>
 
-    <script src="../config.js"></script>
-    <script src="supabase-helper.js"></script>
+    <script src="config.js"></script>
     <script>
+        let sbClient = null;
         let currentUser = null;
+
+        async function initSupabase() {
+            if (sbClient) return sbClient;
+            sbClient = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+            return sbClient;
+        }
+
+        function showToast(msg, type = 'success') {
+            const c = document.getElementById('toast-container');
+            const t = document.createElement('div');
+            t.className = `toast toast-${type}`;
+            t.innerHTML = `<div class="toast-content"><p class="toast-message">${msg}</p></div>`;
+            c.appendChild(t);
+            setTimeout(() => {
+                t.classList.add('fade-out');
+                setTimeout(() => t.remove(), 300);
+            }, 3500);
+        }
+
         document.addEventListener('DOMContentLoaded', async () => {
-            if (window.verificarAcessoM2 && !(await window.verificarAcessoM2())) return;
-            if (window.renderSidebar) {
-                // Adicionar o link de Solicitantes na Sidebar dinamicamente se não existir
-                const sidebarExists = document.querySelector('.sidebar');
-                if(!sidebarExists) window.renderSidebar();
+            if (window.lucide) window.lucide.createIcons();
+
+            const sb = await initSupabase();
+            const { data: { session } } = await sb.auth.getSession();
+            if (!session) { window.location.href = 'index.html#login'; return; }
+
+            // Página neutra: guard de role no carregamento (mesmo padrão do
+            // menu escondido != página protegida usado em M2/M3).
+            const role = session.user?.app_metadata?.role || session.user?.user_metadata?.role;
+            if (!['admin', 'gestor'].includes(role)) {
+                window.location.href = 'module-selector.html';
+                return;
             }
 
             try {
-                sbClient = await window.initSupabase();
-                const { data: { user } } = await sbClient.auth.getUser();
-                if (!user) {
-                    window.location.href = '../index.html#login';
-                    return;
-                }
+                const { data: { user } } = await sb.auth.getUser();
                 currentUser = user;
 
                 await carregarProjetos();
@@ -236,18 +258,18 @@
                 await carregarVinculos();
 
                 document.getElementById('vincular-form').addEventListener('submit', handleVincular);
-
             } catch (err) {
-                console.error("Erro na inicialização:", err);
-                showToast("Erro ao carregar os dados.", "error");
+                console.error('Erro na inicialização:', err);
+                showToast('Erro ao carregar os dados.', 'error');
             }
 
             if (window.lucide) window.lucide.createIcons();
         });
 
         async function carregarProjetos() {
+            const sb = await initSupabase();
             const select = document.getElementById('select-projeto');
-            const { data, error } = await sbClient.from('projects')
+            const { data, error } = await sb.from('projects')
                 .select('id, nome, pronac')
                 .eq('user_id', currentUser.id)
                 .order('created_at', { ascending: false });
@@ -257,13 +279,14 @@
                 return;
             }
 
-            select.innerHTML = '<option value="">Selecione um projeto...</option>' + 
+            select.innerHTML = '<option value="">Selecione um projeto...</option>' +
                 data.map(p => `<option value="${p.id}">${p.nome} (PRONAC: ${p.pronac})</option>`).join('');
         }
 
         async function carregarFornecedores() {
+            const sb = await initSupabase();
             const select = document.getElementById('select-fornecedor');
-            const { data, error } = await sbClient.from('fornecedores')
+            const { data, error } = await sb.from('fornecedores')
                 .select('id, razao_social, cnpj')
                 .order('razao_social');
 
@@ -272,29 +295,28 @@
                 return;
             }
 
-            select.innerHTML = '<option value="">Selecione um solicitante...</option>' + 
+            select.innerHTML = '<option value="">Selecione um solicitante...</option>' +
                 data.map(f => `<option value="${f.id}">${f.razao_social} (${f.cnpj})</option>`).join('');
         }
 
         async function carregarVinculos() {
+            const sb = await initSupabase();
             const tbody = document.getElementById('vinculos-tbody');
-            
-            // Buscar apenas vínculos onde o gestor_id é o usuário atual
-            const { data: vinculos, error } = await sbClient.from('projeto_fornecedores')
+
+            const { data: vinculos, error } = await sb.from('projeto_fornecedores')
                 .select('*, fornecedores(razao_social, cnpj), projects(nome)')
                 .eq('gestor_id', currentUser.id)
                 .order('created_at', { ascending: false });
 
             if (error) {
-                tbody.innerHTML = `<tr><td colspan="4" class="empty-state" style="color:var(--error);">Erro ao carregar vínculos.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="4" class="empty-state-inline" style="color:var(--error);">Erro ao carregar vínculos.</td></tr>`;
                 return;
             }
 
             if (!vinculos || vinculos.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="4" class="empty-state">Nenhum solicitante vinculado aos seus projetos ainda.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="4" class="empty-state-inline">Nenhum solicitante vinculado aos seus projetos ainda.</td></tr>`;
                 return;
             }
-
 
             tbody.innerHTML = vinculos.map(v => `
                 <tr>
@@ -317,6 +339,7 @@
 
         async function handleVincular(e) {
             e.preventDefault();
+            const sb = await initSupabase();
             const btn = document.getElementById('btn-vincular');
             const originalText = btn.innerHTML;
             btn.innerHTML = '<i data-lucide="loader" class="spin"></i>';
@@ -326,25 +349,24 @@
                 const projectId = document.getElementById('select-projeto').value;
                 const fornecedorId = document.getElementById('select-fornecedor').value;
 
-                if (!projectId || !fornecedorId) throw new Error("Selecione o projeto e o solicitante.");
+                if (!projectId || !fornecedorId) throw new Error('Selecione o projeto e o solicitante.');
 
-                const { error } = await sbClient.from('projeto_fornecedores').insert({
+                const { error } = await sb.from('projeto_fornecedores').insert({
                     project_id: projectId,
                     fornecedor_id: fornecedorId,
                     gestor_id: currentUser.id
                 });
 
                 if (error) {
-                    if (error.code === '23505') throw new Error("Este solicitante já está vinculado a este projeto.");
+                    if (error.code === '23505') throw new Error('Este solicitante já está vinculado a este projeto.');
                     throw error;
                 }
 
-                showToast("Solicitante vinculado com sucesso!", "success");
+                showToast('Solicitante vinculado com sucesso!', 'success');
                 document.getElementById('vincular-form').reset();
                 await carregarVinculos();
-
             } catch (err) {
-                showToast(err.message, "error");
+                showToast(err.message, 'error');
             } finally {
                 btn.innerHTML = originalText;
                 btn.disabled = false;
@@ -352,25 +374,18 @@
             }
         }
 
-        window.removerVinculo = async function(id) {
-            if (!confirm("Tem certeza que deseja remover o acesso deste solicitante a este projeto?")) return;
-
+        async function removerVinculo(id) {
+            if (!confirm('Tem certeza que deseja remover o acesso deste solicitante a este projeto?')) return;
             try {
-                const { error } = await sbClient.from('projeto_fornecedores').delete().eq('id', id);
+                const sb = await initSupabase();
+                const { error } = await sb.from('projeto_fornecedores').delete().eq('id', id);
                 if (error) throw error;
-                
-                showToast("Vínculo removido com sucesso.", "success");
+
+                showToast('Vínculo removido com sucesso.', 'success');
                 await carregarVinculos();
             } catch (err) {
-                showToast("Erro ao remover: " + err.message, "error");
+                showToast('Erro ao remover: ' + err.message, 'error');
             }
-        };
-
-        function showToast(msg, type) {
-            const t = document.getElementById('toast');
-            t.innerText = msg;
-            t.className = `toast-notification ${type} show`;
-            setTimeout(() => t.classList.remove('show'), 3000);
         }
     </script>
 </body>
