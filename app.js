@@ -242,6 +242,10 @@ const state = {
     all_solicitantes: [],
     vinculos_solicitantes: [],
     uploadLoteQueue: [],
+    // Extrato opcional vinculado ao lote atual: { id, nome, projectId }.
+    // Guarda o projectId para não carimbar documentos de outro projeto —
+    // a fila de lote é por usuário, não por projeto (ver fetchUploadLoteQueue).
+    loteExtratoVinculado: null,
     settings: {
         salic_user: '',
         salic_pass: ''
@@ -1259,6 +1263,38 @@ ${Sidebar()}
                 </div>
 
                 ${planilhaOrcamentariaBtn() ? `<div class="mb-4">${planilhaOrcamentariaBtn()}</div>` : ''}
+
+                ${projetoSelecionado ? `
+                <div class="form-group mb-4" id="lote-extrato-bloco">
+                    <label>Extrato bancário do período (opcional)</label>
+                    ${state.loteExtratoVinculado ? `
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.85rem 1rem; background: var(--bg-sidebar); border: 1px solid var(--border-light); border-radius: var(--radius-md);">
+                            <div style="display: flex; align-items: center; gap: 0.6rem; min-width: 0;">
+                                <i data-lucide="check-circle" style="width: 18px; color: var(--success); flex-shrink: 0;"></i>
+                                <span class="text-sm" style="font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                    Extrato vinculado: ${state.loteExtratoVinculado.nome}
+                                </span>
+                            </div>
+                            <button class="btn btn-secondary" style="padding: 0.35rem 0.75rem; font-size: 12px; flex-shrink: 0;" onclick="window.handleRemoverExtratoLote()">
+                                Trocar
+                            </button>
+                        </div>
+                        <p class="text-xs" style="color: var(--text-muted); margin-top: 0.5rem;">
+                            As notas processadas abaixo nascerão vinculadas a este extrato.
+                        </p>
+                    ` : `
+                        <div class="upload-area" style="padding: 1.25rem;" onclick="document.getElementById('lote-extrato-input').click()">
+                            <input type="file" id="lote-extrato-input" accept=".ofx,.csv,.pdf" style="display: none;" onchange="window.handleUploadExtratoParaLote(this.files[0])">
+                            <i data-lucide="landmark" style="width: 24px; color: var(--primary); margin-bottom: 0.5rem;"></i>
+                            <p class="text-sm" style="font-weight: 600;">Clique para subir o extrato deste lote</p>
+                            <p class="text-xs" style="color: var(--text-muted); margin-top: 0.35rem;">
+                                As notas enviadas abaixo ficarão vinculadas a ele (OFX, CSV ou PDF).
+                                Deixe em branco para subir notas sem extrato.
+                            </p>
+                        </div>
+                    `}
+                </div>
+                ` : ''}
 
                 <div class="upload-area" onclick="if(document.getElementById('lote-project-selector').value) document.getElementById('lote-file-input').click(); else alert('Selecione um projeto primeiro!');">
                     <input type="file" id="lote-file-input" multiple accept=".pdf" style="display: none;" onchange="window.handleLoteFilesSelected(this.files)">
@@ -5153,9 +5189,82 @@ window.fetchUploadLoteQueue = fetchUploadLoteQueue;
 
 window.handleLoteProjectChange = async function (projectId) {
     state.filters.project = projectId;
+    // Um extrato pertence a UM projeto — trocar de projeto invalida o vínculo.
+    state.loteExtratoVinculado = null;
     await fetchRubricasDisponiveis(projectId);
     render();
 };
+
+// Extrato do lote: sobe o arquivo e cria a linha em `extratos` já marcada
+// como 'aguardando_lote' (não é parseada agora — serve para carimbar as notas
+// do lote com extrato_origem_id, delimitando o universo de conciliação).
+window.handleUploadExtratoParaLote = async function (file) {
+    if (!file) return;
+    const projectId = document.getElementById('lote-project-selector')?.value;
+    if (!projectId) return alert('Selecione um projeto primeiro.');
+
+    const formato = file.name.split('.').pop().toLowerCase();
+    if (!['ofx', 'csv', 'pdf'].includes(formato)) {
+        return alert('Extrato deve ser OFX, CSV ou PDF.');
+    }
+
+    state.loading = true;
+    render();
+
+    try {
+        const fileUuid = (crypto && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const safeName = file.name.normalize('NFD')
+            .replace(/[̀-ͯ]/g, '')
+            .replace(/[^a-zA-Z0-9._-]/g, '_');
+        const filePath = `${projectId}/${fileUuid}/${safeName}`;
+
+        const { error: upErr } = await supabaseClient.storage
+            .from('documentos').upload(filePath, file);
+        if (upErr) throw upErr;
+
+        // Colunas conferidas no banco: extratos usa user_id (NOT NULL),
+        // não `enviado_por`. organization_id é opcional.
+        const { data: extrato, error: insErr } = await supabaseClient
+            .from('extratos')
+            .insert({
+                project_id: projectId,
+                user_id: state.user.id,
+                organization_id: state.user?.app_metadata?.org_id || null,
+                file_path: filePath,
+                formato: formato,
+                status: 'aguardando_lote'
+            })
+            .select('id')
+            .single();
+        if (insErr) throw insErr;
+
+        state.loteExtratoVinculado = { id: extrato.id, nome: file.name, projectId };
+        showToast('Extrato vinculado ao lote.', 'success');
+    } catch (e) {
+        showToast('Erro ao subir extrato: ' + e.message, 'error');
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
+
+window.handleRemoverExtratoLote = function () {
+    // Só desfaz o vínculo na tela; NÃO apaga o extrato já criado (pode ser
+    // reaproveitado). Trocar cria um extrato novo no próximo upload.
+    state.loteExtratoVinculado = null;
+    render();
+};
+
+// Só carimba o extrato em documentos do MESMO projeto do extrato: a fila de
+// lote é filtrada por usuário e status, não por projeto (fetchUploadLoteQueue),
+// então pode conter arquivos de outro projeto.
+function extratoOrigemPara(doc) {
+    const vinc = state.loteExtratoVinculado;
+    if (!vinc) return null;
+    return doc.project_id === vinc.projectId ? vinc.id : null;
+}
 
 window.handleLoteFilesSelected = async function (fileList) {
     const projectId = document.getElementById('lote-project-selector').value;
@@ -5215,7 +5324,12 @@ window.handleProcessarLoteItem = async function (documentId) {
     try {
         const { error } = await supabaseClient
             .from('documents')
-            .update({ rubrica: rubricaTexto, rubrica_id_fk: rubricaIdFk, status: 'processing_ocr' })
+            .update({
+                rubrica: rubricaTexto,
+                rubrica_id_fk: rubricaIdFk,
+                status: 'processing_ocr',
+                extrato_origem_id: extratoOrigemPara(doc)
+            })
             .eq('id', documentId);
         if (error) throw error;
 
@@ -5265,7 +5379,12 @@ window.handleProcessarTodosLote = async function () {
         itensComRubrica.map(async ({ doc, rubricaTexto, rubricaIdFk }) => {
             const { error } = await supabaseClient
                 .from('documents')
-                .update({ rubrica: rubricaTexto, rubrica_id_fk: rubricaIdFk, status: 'processing_ocr' })
+                .update({
+                    rubrica: rubricaTexto,
+                    rubrica_id_fk: rubricaIdFk,
+                    status: 'processing_ocr',
+                    extrato_origem_id: extratoOrigemPara(doc)
+                })
                 .eq('id', doc.id);
             if (error) throw error;
             dispararOcr(doc.id, doc.file_path);
