@@ -332,7 +332,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script src="../config.js"></script>
-    <script src="supabase-helper-m3.js?v=4"></script>
+    <script src="supabase-helper-m3.js?v=5"></script>
     <script src="vendor/docx.umd.js"></script>
     <script src="relatorio-docx.js"></script>
     <script>
@@ -393,9 +393,26 @@
 
             const btn = document.getElementById('m3-btn-importar');
             if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
-            showToast('Buscando projeto no SALIC…');
 
             try {
+                // Rede de segurança 1: não importar PRONAC que já existe
+                // (o webhook do n8n não bloqueia repetidos — já gerou duplicata real).
+                // limit(1) porque o banco pode ter duplicatas legadas do mesmo PRONAC.
+                const { data: existente } = await sb
+                    .from('projects')
+                    .select('id, nome')
+                    .eq('pronac', pronac)
+                    .limit(1)
+                    .maybeSingle();
+
+                if (existente) {
+                    showToast('O projeto ' + pronac + ' já está cadastrado (' + (existente.nome || 'sem nome') + ').', 'error');
+                    if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+                    return;
+                }
+
+                showToast('Buscando projeto no SALIC…');
+
                 const response = await fetch(CONFIG.N8N_WEBHOOK_SALIC_PROJECT_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -416,7 +433,26 @@
                     throw new Error(data.message || data.error || 'Projeto não encontrado no SALIC. Verifique o número do PRONAC.');
                 }
 
-                showToast(data.message || 'Projeto importado com sucesso!');
+                // Rede de segurança 2: confirmar que o projeto ficou VISÍVEL
+                // para este usuário. A RLS de projects filtra por organization_id;
+                // se o n8n inserir com organization_id NULL, o projeto existe mas
+                // ninguém vê — nunca mostrar sucesso cego nesse caso.
+                await new Promise(r => setTimeout(r, 1500));
+
+                const { data: confirmacao } = await sb
+                    .from('projects')
+                    .select('id, organization_id')
+                    .eq('pronac', pronac)
+                    .limit(1)
+                    .maybeSingle();
+
+                if (!confirmacao) {
+                    showToast('O projeto foi importado, mas não está acessível para a sua organização. Entre em contato com o suporte.', 'error');
+                    if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+                    return; // sem reload — o usuário precisa ver o erro
+                }
+
+                showToast('Projeto importado com sucesso!');
                 // Recarrega a tela — popularSeletorProjeto() roda no load e
                 // passa a listar o projeto recém-importado.
                 setTimeout(() => location.reload(), 800);
