@@ -2350,6 +2350,9 @@ window.handleForcarAvanco = async function (docId, currentStatus) {
     );
     if (!confirmed) return;
 
+    // Captura antes do UPDATE — fetchDocumentDetails() reescreve state.currentDocument.
+    const docAntes = state.currentDocument;
+
     state.loading = true;
     render();
 
@@ -2378,6 +2381,14 @@ window.handleForcarAvanco = async function (docId, currentStatus) {
                 })
             }).then(r => console.log("n8n Validation Triggered (forçar avanço):", r.status))
                 .catch(e => console.error("Erro ao notificar n8n:", e.message));
+        }
+
+        // Avanço manual (bloqueado_conformidade -> aguardando_comprovante) também
+        // deve reaproveitar o extrato do lote, igual à varredura do Dashboard —
+        // sem isso a nota fica "presa" pedindo upload de extrato de novo.
+        if (nextStatus === 'aguardando_comprovante' && docAntes?.id === docId) {
+            dispararConciliacaoAutoLote({ ...docAntes, status: nextStatus })
+                .then(ok => { if (ok) window.showToast('Nota também enviada para conciliação automática com o extrato do lote.', 'success'); });
         }
 
         window.showToast('Documento avançado manualmente com sucesso.', 'warning');
@@ -3742,7 +3753,7 @@ window.salvarCamposManuais = async function (documentId) {
 
     const { data: doc } = await supabaseClient
         .from('documents')
-        .select('status, rubrica, rubrica_id_fk, cnpj_emissor, valor, data_emissao')
+        .select('status, rubrica, rubrica_id_fk, cnpj_emissor, valor, data_emissao, project_id, extrato_origem_id')
         .eq('id', documentId)
         .single();
 
@@ -3788,6 +3799,18 @@ window.salvarCamposManuais = async function (documentId) {
                 console.error("Erro ao notificar n8n:", e.message);
                 window.showToast('Dados salvos, mas houve falha ao notificar o sistema de validação. Se o documento não avançar em alguns minutos, contate o suporte.', 'warning');
             });
+    }
+
+    // Completar os campos manualmente (aguardando_rubrica -> aguardando_
+    // conciliacao_bancaria) também deve reaproveitar o extrato do lote, igual
+    // à varredura do Dashboard — sem isso a nota fica pedindo upload de
+    // extrato de novo mesmo já tendo um vinculado desde o upload em lote.
+    if (updateFields.status === 'aguardando_conciliacao_bancaria' && doc?.extrato_origem_id) {
+        dispararConciliacaoAutoLote({
+            id: documentId,
+            extrato_origem_id: doc.extrato_origem_id,
+            project_id: doc.project_id
+        }).then(ok => { if (ok) window.showToast('Nota também enviada para conciliação automática com o extrato do lote.', 'success'); });
     }
 
     showToast('Campos salvos com sucesso', 'success');
@@ -4101,6 +4124,55 @@ const _conciliacaoAutoTentada = new Set();
 // prestai-conciliation, que já concilia corretamente. O resultado chega pelo
 // Realtime já assinado em setupRealtime(), igual ao fluxo manual — por isso
 // esta função não confirma sucesso, só dispara e segue.
+//
+// Chamada tanto pela varredura do Dashboard (tentarConciliacaoAutoLote, mais
+// abaixo) quanto pelos avanços MANUAIS feitos direto na tela de detalhes
+// (handleForcarAvanco, salvarCamposManuais) — sem isso, uma nota que só chega
+// a 'aguardando_comprovante'/'aguardando_conciliacao_bancaria' por avanço
+// manual nunca passa por fetchDocuments() enquanto o usuário fica na tela de
+// detalhes, e o extrato do lote nunca é usado (o bug que motivou isto).
+async function dispararConciliacaoAutoLote(doc) {
+    if (!doc?.extrato_origem_id || !CONFIG.N8N_WEBHOOK_RECONCILIATION_URL) return false;
+    if (_conciliacaoAutoTentada.has(doc.id)) return false;
+    _conciliacaoAutoTentada.add(doc.id);
+
+    try {
+        const { data: extrato, error: extErr } = await supabaseClient
+            .from('extratos')
+            .select('file_path')
+            .eq('id', doc.extrato_origem_id)
+            .maybeSingle();
+        if (extErr || !extrato?.file_path) {
+            console.warn('[conciliacao-auto-lote] extrato de origem sem file_path:', doc.extrato_origem_id, extErr?.message);
+            return false;
+        }
+
+        const resp = await fetch(CONFIG.N8N_WEBHOOK_RECONCILIATION_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            mode: 'cors',
+            body: JSON.stringify({
+                extrato_id: doc.extrato_origem_id,
+                document_id: doc.extrato_origem_id, // Backward compatibility, igual ao fluxo manual
+                nf_id: doc.id,
+                comprovante_id: null,
+                file_path: extrato.file_path,
+                bucket: 'documentos',
+                project_id: doc.project_id
+            })
+        });
+        if (!resp.ok) {
+            console.warn('[conciliacao-auto-lote] webhook retornou', resp.status, 'para', doc.id);
+            return false;
+        }
+        return true;
+    } catch (err) {
+        // Uma nota falhando não trava as demais.
+        console.warn('[conciliacao-auto-lote]', doc.id, err.message);
+        return false;
+    }
+}
+
 async function tentarConciliacaoAutoLote() {
     // Cobre também aguardando_conciliacao_bancaria: nota do lote que já ganhou
     // comprovante (ou avançou por outro caminho) concilia contra o extrato de
@@ -4111,52 +4183,10 @@ async function tentarConciliacaoAutoLote() {
         !_conciliacaoAutoTentada.has(d.id)
     );
     if (!candidatas.length) return;
-    if (!CONFIG.N8N_WEBHOOK_RECONCILIATION_URL) return;
 
-    candidatas.forEach(d => _conciliacaoAutoTentada.add(d.id));
-
-    // Várias notas do mesmo lote compartilham o mesmo extrato de origem —
-    // busca o file_path uma vez por extrato, não uma vez por nota.
-    const extratoCache = {};
     let disparadas = 0;
-
     for (const doc of candidatas) {
-        try {
-            if (!(doc.extrato_origem_id in extratoCache)) {
-                const { data: extrato, error: extErr } = await supabaseClient
-                    .from('extratos')
-                    .select('file_path')
-                    .eq('id', doc.extrato_origem_id)
-                    .maybeSingle();
-                extratoCache[doc.extrato_origem_id] = (extErr || !extrato) ? null : extrato.file_path;
-                if (extErr) console.warn('[conciliacao-auto-lote] erro ao buscar extrato:', extErr.message);
-            }
-            const filePath = extratoCache[doc.extrato_origem_id];
-            if (!filePath) continue;
-
-            const resp = await fetch(CONFIG.N8N_WEBHOOK_RECONCILIATION_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                mode: 'cors',
-                body: JSON.stringify({
-                    extrato_id: doc.extrato_origem_id,
-                    document_id: doc.extrato_origem_id, // Backward compatibility, igual ao fluxo manual
-                    nf_id: doc.id,
-                    comprovante_id: null,
-                    file_path: filePath,
-                    bucket: 'documentos',
-                    project_id: doc.project_id
-                })
-            });
-            if (resp.ok) {
-                disparadas++;
-            } else {
-                console.warn('[conciliacao-auto-lote] webhook retornou', resp.status, 'para', doc.id);
-            }
-        } catch (err) {
-            // Uma nota falhando não trava as demais.
-            console.warn('[conciliacao-auto-lote]', doc.id, err.message);
-        }
+        if (await dispararConciliacaoAutoLote(doc)) disparadas++;
     }
 
     if (disparadas > 0) {
