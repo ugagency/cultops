@@ -4095,9 +4095,12 @@ async function fetchDocuments() {
 const _conciliacaoAutoTentada = new Set();
 
 async function tentarConciliacaoAutoLote() {
+    // Cobre também aguardando_conciliacao_bancaria: nota do lote que já ganhou
+    // comprovante (ou avançou por outro caminho) concilia contra o extrato de
+    // origem sem exigir novo upload de extrato nos detalhes da nota.
     const candidatas = (state.documents || []).filter(d =>
         d.extrato_origem_id &&
-        d.status === 'aguardando_comprovante' &&
+        ['aguardando_comprovante', 'aguardando_conciliacao_bancaria'].includes(d.status) &&
         !_conciliacaoAutoTentada.has(d.id)
     );
     if (!candidatas.length) return;
@@ -5261,9 +5264,12 @@ window.handleLoteProjectChange = async function (projectId) {
     render();
 };
 
-// Extrato do lote: sobe o arquivo e cria a linha em `extratos` já marcada
-// como 'aguardando_lote' (não é parseada agora — serve para carimbar as notas
-// do lote com extrato_origem_id, delimitando o universo de conciliação).
+// Extrato do lote: sobe o arquivo, cria a linha em `extratos` e dispara o
+// PARSE imediato via workflow prestai-conciliation-lote. Sem esse parse os
+// lançamentos nunca existiriam em extratos_lancamentos e a conciliação
+// automática das notas do lote (/api/conciliacao/auto-lote) não teria contra
+// o que casar — obrigando o usuário a subir o extrato de novo dentro de cada
+// nota, que é exatamente o que este fluxo elimina.
 window.handleUploadExtratoParaLote = async function (file) {
     if (!file) return;
     const projectId = document.getElementById('lote-project-selector')?.value;
@@ -5300,14 +5306,40 @@ window.handleUploadExtratoParaLote = async function (file) {
                 organization_id: state.user?.app_metadata?.org_id || null,
                 file_path: filePath,
                 formato: formato,
-                status: 'aguardando_lote'
+                status: 'pendente' // o workflow de parse muda para 'processado' ou 'erro'
             })
             .select('id')
             .single();
         if (insErr) throw insErr;
 
         state.loteExtratoVinculado = { id: extrato.id, nome: file.name, projectId };
-        showToast('Extrato vinculado ao lote.', 'success');
+
+        // Parse imediato: popula extratos_lancamentos (lançamentos ficam
+        // 'pendente' até cada nota do lote terminar a auditoria e conciliar).
+        // Falha do webhook NÃO desfaz o vínculo — as notas ainda nascem
+        // carimbadas e a conciliação pode acontecer depois.
+        if (CONFIG.N8N_WEBHOOK_RECONCILIATION_LOTE_URL) {
+            try {
+                const resp = await fetch(CONFIG.N8N_WEBHOOK_RECONCILIATION_LOTE_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    mode: 'cors',
+                    body: JSON.stringify({
+                        extrato_id: extrato.id,
+                        project_id: projectId,
+                        file_path: filePath,
+                        bucket: 'documentos'
+                    })
+                });
+                if (!resp.ok) throw new Error(`n8n retornou ${resp.status}`);
+                showToast('Extrato vinculado ao lote. Lançamentos sendo processados...', 'success');
+            } catch (whErr) {
+                console.error('[extrato-lote] parse não disparado:', whErr.message);
+                showToast('Extrato vinculado, mas o processamento dos lançamentos falhou. A conciliação automática pode não funcionar para este lote — contate o suporte.', 'warning');
+            }
+        } else {
+            showToast('Extrato vinculado ao lote.', 'success');
+        }
     } catch (e) {
         showToast('Erro ao subir extrato: ' + e.message, 'error');
     } finally {
