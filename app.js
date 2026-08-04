@@ -1891,6 +1891,35 @@ ${Sidebar()}
     camposPendentes.algum = doc.status === 'revisao_manual'
         && Object.values(camposPendentes).some(Boolean);
 
+    // Extrato já vinculado via upload em lote (extrato_origem_id): reconhece no
+    // front em vez de pedir upload manual de novo — a conciliação é automática.
+    const extratoDoLote = !!doc.extrato_origem_id;
+    const extratoStatusPendente = doc.status === 'aguardando_conciliacao_bancaria' || doc.status === 'aguardando_comprovante';
+    let extratoBoxHtml;
+    if (state.isUploadingExtrato) {
+        extratoBoxHtml = `<div style="padding: 0.5rem; text-align: center;">
+                        <div style="width: 100%; height: 6px; background: var(--bg-sidebar); border-radius: 3px; overflow: hidden; margin-bottom: 0.5rem;">
+                            <div style="width: 60%; height: 100%; background: var(--primary); animation: loading 2s infinite ease-in-out;"></div>
+                        </div>
+                        <p class="text-xs" style="color: var(--primary); font-weight: 600;">Enviando extrato...</p>
+                     </div>`;
+    } else if (state.uploadConcluidoExtrato) {
+        extratoBoxHtml = `<p class="text-xs mt-2" style="color: var(--success); font-weight: bold; text-align: center;">✓ Upload do extrato já foi realizado.</p>`;
+    } else if (extratoDoLote && !state.mostrarUploadManualExtrato) {
+        extratoBoxHtml = `<div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                                    <p class="text-xs" style="color: var(--success); font-weight: bold;">✓ Extrato vinculado no upload em lote.</p>
+                                    <p class="text-xs" style="color: var(--text-muted); font-style: italic;">A conciliação com este extrato é automática — não é necessário enviar de novo.</p>
+                                    <button class="btn btn-secondary" style="width: 100%; font-size: 10px; padding: 0.4rem; margin-top: 0.25rem;" onclick="window.toggleUploadManualExtrato()">Enviar um extrato diferente manualmente</button>
+                                 </div>`;
+    } else {
+        extratoBoxHtml = `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem;" onclick="document.getElementById('vincular-extrato-input').click()">
+                                        <i data-lucide="file-up" style="width: 14px;"></i>
+                                        Subir Extrato (OFX/CSV/PDF)
+                                     </button>
+                                     <input type="file" id="vincular-extrato-input" style="display: none;" onchange="window.handleUploadExtrato(this.files[0], '${doc.project_id}', '${doc.id}', '${state.currentComprovante?.id || ''}')" accept=".ofx,.csv,.pdf">
+                                     ${extratoDoLote ? `<p class="text-xs" style="color: var(--text-muted); font-style: italic; margin-top: 0.5rem; text-align: center; cursor: pointer;" onclick="window.toggleUploadManualExtrato()">Cancelar e usar o extrato do lote</p>` : ''}`;
+    }
+
     return `
 ${Sidebar()}
     <main class="main-content view-content">
@@ -2207,10 +2236,10 @@ ${Sidebar()}
                         </div>
 
                         <!-- Box do Extrato -->
-                        <div style="padding: 1rem; border: 1px dashed ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'var(--error)' : 'var(--border-light)'}; border-radius: var(--radius-sm); background: ${['aguardando_d3', 'liberado_rpa_airtop', 'enviado_salic', 'concluido'].includes(doc.status) ? 'rgba(37, 99, 235, 0.05)' : (doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'rgba(239, 68, 68, 0.05)' : 'transparent'};">
+                        <div style="padding: 1rem; border: 1px dashed ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'var(--error)' : 'var(--border-light)'}; border-radius: var(--radius-sm); background: ${['aguardando_d3', 'liberado_rpa_airtop', 'enviado_salic', 'concluido'].includes(doc.status) ? 'rgba(37, 99, 235, 0.05)' : (doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'rgba(239, 68, 68, 0.05)' : (doc.extrato_origem_id && ['aguardando_comprovante', 'aguardando_conciliacao_bancaria'].includes(doc.status)) ? 'rgba(16, 185, 129, 0.05)' : 'transparent'};">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                                 <span class="text-xs" style="font-weight: 600; text-transform: uppercase; color: ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'var(--error)' : 'inherit'};">2. Extrato Bancário</span>
-                                ${['aguardando_d3', 'enviado_salic', 'concluido'].includes(doc.status) ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--primary);"></i>' : (doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? '<i data-lucide="x-circle" style="width: 16px; color: var(--error);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>'}
+                                ${['aguardando_d3', 'enviado_salic', 'concluido'].includes(doc.status) ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--primary);"></i>' : (doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? '<i data-lucide="x-circle" style="width: 16px; color: var(--error);"></i>' : (doc.extrato_origem_id && ['aguardando_comprovante', 'aguardando_conciliacao_bancaria'].includes(doc.status)) ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>'}
                             </div>
                             ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? `
                             <div style="display: flex; flex-direction: column; gap: 0.5rem;">
@@ -2239,21 +2268,8 @@ ${Sidebar()}
             ((['aguardando_d3', 'liberado_rpa_airtop', 'enviado_salic', 'concluido'].includes(doc.status)) ?
                 `<p class="text-xs" style="color: var(--text-secondary);">Conciliado e validado em D-3</p>
              <p class="text-xs mt-2" style="color: var(--success); font-weight: bold;">✓ Upload do extrato já foi realizado.</p>` :
-                (doc.status === 'aguardando_conciliacao_bancaria' || doc.status === 'aguardando_comprovante' ?
-                    (state.isUploadingExtrato ?
-                        `<div style="padding: 0.5rem; text-align: center;">
-                        <div style="width: 100%; height: 6px; background: var(--bg-sidebar); border-radius: 3px; overflow: hidden; margin-bottom: 0.5rem;">
-                            <div style="width: 60%; height: 100%; background: var(--primary); animation: loading 2s infinite ease-in-out;"></div>
-                        </div>
-                        <p class="text-xs" style="color: var(--primary); font-weight: 600;">Enviando extrato...</p>
-                     </div>` :
-                        (state.uploadConcluidoExtrato ?
-                            `<p class="text-xs mt-2" style="color: var(--success); font-weight: bold; text-align: center;">✓ Upload do extrato já foi realizado.</p>` :
-                            `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem;" onclick="document.getElementById('vincular-extrato-input').click()">
-                                        <i data-lucide="file-up" style="width: 14px;"></i>
-                                        Subir Extrato (OFX/CSV/PDF)
-                                     </button>
-                                     <input type="file" id="vincular-extrato-input" style="display: none;" onchange="window.handleUploadExtrato(this.files[0], '${doc.project_id}', '${doc.id}', '${state.currentComprovante?.id || ''}')" accept=".ofx,.csv,.pdf">`)) :
+                (extratoStatusPendente ?
+                    extratoBoxHtml :
                     `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando liberação...</p>`))
         }
                         </div>
@@ -3898,6 +3914,7 @@ async function fetchDocumentDetails(id, silent = false) {
     state.isUploadingExtrato = false;
     state.isUploadingComprovante = false;
     state.isSalicRunning = false;
+    state.mostrarUploadManualExtrato = false;
 
     try {
         // Tenta buscar com join completo
@@ -6399,6 +6416,11 @@ function setupRealtime() {
 
 
 // --- Sprint 4: Re-structured Banking Logic (Manual Upload) ---
+
+window.toggleUploadManualExtrato = function () {
+    state.mostrarUploadManualExtrato = !state.mostrarUploadManualExtrato;
+    render();
+};
 
 window.handleUploadExtrato = async function (file, projectId, documentId, comprovanteId, isReplace = false) {
     if (!file || !projectId || !documentId) return alert("Houve um erro ao processar o upload do extrato.");
