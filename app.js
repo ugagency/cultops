@@ -1018,13 +1018,22 @@ ${Sidebar()}
                 <i data-lucide="trash-2" style="width: 16px;"></i>
                 Excluir Selecionados (<span id="count-excluir-lote-dashboard">0</span>)
             </button>` : ''}
+            ${state.filters.project ? `
+            <button class="btn btn-secondary" title="Suba um extrato do período para conciliar automaticamente contra todas as notas pendentes deste projeto"
+                onclick="document.getElementById('extrato-lote-input').click()">
+                <i data-lucide="landmark" style="width: 16px;"></i>
+                Conciliar extrato do período
+            </button>
+            <input type="file" id="extrato-lote-input" style="display: none;" accept=".ofx,.csv,.pdf"
+                onchange="window.handleUploadExtratoLote(this.files[0], state.filters.project)">
+            ` : ''}
             <button class="btn btn-primary" onclick="window.navigate('upload')">
                 <i data-lucide="upload-cloud"></i>
                 Enviar nota
             </button>
         </div>
     </div>
-    
+
     <div class="data-table-container">
         ${state.documents.length === 0 ? `
             <div class="empty-state">
@@ -6417,6 +6426,78 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
     } finally {
         state.loading = false;
         state.isUploadingExtrato = false;
+        render();
+    }
+};
+
+// Conciliação em LOTE: um extrato do período para o projeto inteiro, casado
+// contra TODAS as NFs aguardando conciliação pelo workflow
+// prestai-conciliation-lote (workflow separado; o fluxo 1-para-1 acima
+// continua intacto). Sem nf_id/comprovante_id no payload — é a diferença.
+window.handleUploadExtratoLote = async function (file, projectId) {
+    if (!file) return;
+    if (!projectId) return alert("Selecione um projeto antes de subir o extrato do período.");
+
+    const fileExt = file.name.split('.').pop().toLowerCase();
+    if (!['ofx', 'csv', 'pdf'].includes(fileExt)) {
+        return alert("Formato inválido! Por favor, use OFX, CSV ou PDF.");
+    }
+    if (!CONFIG.N8N_WEBHOOK_RECONCILIATION_LOTE_URL) {
+        return alert("URL do webhook de conciliação em lote não configurada.");
+    }
+
+    state.loading = true;
+    render();
+
+    try {
+        const fileName = `extrato_lote_${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+        const filePath = `${state.user.id}/${fileName}`;
+
+        // 1. Upload para o Storage (mesmo bucket do fluxo 1-para-1)
+        const { error: uploadError } = await supabaseClient.storage
+            .from('documentos')
+            .upload(filePath, file);
+        if (uploadError) throw uploadError;
+
+        // 2. Registro em extratos (mesmos campos do fluxo atual)
+        const { data: extratoData, error: dbError } = await supabaseClient
+            .from('extratos')
+            .insert({
+                project_id: projectId,
+                user_id: state.user.id,
+                file_path: filePath,
+                formato: fileExt,
+                status: 'pendente' // n8n mudará para 'processado' ou 'erro'
+            })
+            .select()
+            .single();
+        if (dbError) throw dbError;
+
+        // 3. Webhook do lote — sem nf_id/comprovante_id
+        const response = await fetch(CONFIG.N8N_WEBHOOK_RECONCILIATION_LOTE_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            mode: 'cors',
+            body: JSON.stringify({
+                extrato_id: extratoData.id,
+                project_id: projectId,
+                file_path: filePath,
+                bucket: 'documentos'
+            })
+        });
+        if (!response.ok) {
+            throw new Error(`O servidor n8n retornou erro: ${response.status} ${response.statusText}`);
+        }
+
+        showToast("Extrato enviado! Conciliando contra todas as notas pendentes do projeto...", 'success');
+
+        // Não há nota única para detalhar — recarrega a lista para refletir
+        // os status novos quando o workflow terminar.
+        setTimeout(() => { fetchDocuments().then(render); }, 3000);
+    } catch (error) {
+        showToast("Erro no extrato em lote: " + error.message, 'error');
+    } finally {
+        state.loading = false;
         render();
     }
 };
