@@ -1018,15 +1018,6 @@ ${Sidebar()}
                 <i data-lucide="trash-2" style="width: 16px;"></i>
                 Excluir Selecionados (<span id="count-excluir-lote-dashboard">0</span>)
             </button>` : ''}
-            ${state.filters.project ? `
-            <button class="btn btn-secondary" title="Suba um extrato do período para conciliar automaticamente contra todas as notas pendentes deste projeto"
-                onclick="document.getElementById('extrato-lote-input').click()">
-                <i data-lucide="landmark" style="width: 16px;"></i>
-                Conciliar extrato do período
-            </button>
-            <input type="file" id="extrato-lote-input" style="display: none;" accept=".ofx,.csv,.pdf"
-                onchange="window.handleUploadExtratoLote(this.files[0], state.filters.project)">
-            ` : ''}
             <button class="btn btn-primary" onclick="window.navigate('upload')">
                 <i data-lucide="upload-cloud"></i>
                 Enviar nota
