@@ -520,6 +520,24 @@
             return;
         }
 
+        // Com 2+ atividades no evento, o check-in pergunta a atividade ANTES
+        // da busca. Evento em cache antigo (sem a chave) degrada para o fluxo
+        // sem seletor até ser recarregado do servidor. Atividade nova NÃO se
+        // cria aqui — decisão de produto: só o gestor, na plataforma.
+        const atividades = eventoAtual.distribution_atividades || [];
+        const seletorAtividades = atividades.length >= 2 ? `
+                <div style="background:white;border:1px solid var(--border-light);border-radius:12px;padding:0.85rem;margin-bottom:0.75rem;">
+                    <div style="font-size:0.8rem;font-weight:700;color:var(--text-secondary);margin-bottom:0.4rem;">Qual atividade?</div>
+                    <select id="pwa-atividade-select" class="search-pwa" style="width:100%;margin-bottom:0.4rem;"
+                            onchange="buscarConvidados('${esc(id)}', document.getElementById('busca-input')?.value || '')">
+                        <option value="">Selecione a atividade…</option>
+                        ${atividades.map(a => `<option value="${esc(a.id)}">${esc(a.nome)}</option>`).join('')}
+                    </select>
+                    <div style="font-size:0.72rem;color:var(--text-muted);">
+                        Não achou a atividade? Peça ao gestor para cadastrá-la na plataforma.
+                    </div>
+                </div>` : '';
+
         screen.innerHTML = `
             <div class="pwa-header">
                 <button class="pwa-back" onclick="location.hash='#evento/${esc(id)}'">
@@ -533,6 +551,7 @@
                 </div>
             </div>
             <div class="pwa-content">
+                ${seletorAtividades}
                 <input type="search" class="search-pwa" id="busca-input"
                        placeholder="Nome completo ou CPF"
                        autocomplete="off" autocorrect="off" spellcheck="false"
@@ -546,10 +565,33 @@
         }, 100);
     }
 
+    // Atividade escolhida no seletor do check-in. null = evento sem seletor
+    // (0/1 atividade ou cache antigo); '' = seletor visível mas não escolhido.
+    function atividadePwa() {
+        const sel = document.getElementById('pwa-atividade-select');
+        if (!sel) return null;
+        return sel.value || '';
+    }
+    function atividadePwaNome() {
+        const sel = document.getElementById('pwa-atividade-select');
+        if (!sel || !sel.value) return null;
+        return sel.options[sel.selectedIndex]?.text || null;
+    }
+
     function buscarConvidados(eventId, termo) {
-        const convidados = eventoAtual?.distribution_guests || [];
+        let convidados = eventoAtual?.distribution_guests || [];
         const resultados = document.getElementById('resultados');
         if (!resultados) return;
+
+        // Seletor visível e nada escolhido: exige a atividade antes da busca.
+        const atv = atividadePwa();
+        if (atv === '') {
+            resultados.innerHTML = `<div style="text-align:center;padding:2rem 0;color:var(--text-muted);font-size:0.85rem;">
+                Escolha a atividade acima antes de buscar</div>`;
+            return;
+        }
+        // Universo da busca = só os convidados da atividade escolhida.
+        if (atv) convidados = convidados.filter(g => g.atividade_id === atv);
 
         if (!termo.trim()) {
             resultados.innerHTML = `<div style="text-align:center;padding:2rem 0;color:var(--text-muted);font-size:0.85rem;">
@@ -645,6 +687,10 @@
                 nome_completo: nome,
                 org_nome:      orgNome,
                 tipo,
+                // Vai no payload do sync; o servidor valida contra o evento e
+                // só preenche se o convidado ainda não tiver atividade.
+                atividade_id:   atividadePwa() || null,
+                atividade_nome: atividadePwaNome(),
                 timestamp:     ts,
                 sync_status:   'pendente',
             });
@@ -654,6 +700,11 @@
             const gLocal = (eventoAtual?.distribution_guests || []).find(g => g.id === guestId);
             if (gLocal) {
                 gLocal.checkin_em = ts;
+                // Espelha a regra do servidor: preenche a atividade só se o
+                // convidado ainda não tiver uma — mantém a busca filtrada
+                // encontrando quem acabou de entrar.
+                const atv = atividadePwa();
+                if (atv && !gLocal.atividade_id) gLocal.atividade_id = atv;
                 try { await IDB.salvarEventoOffline(eventoAtual); } catch (_) {}
             }
 
@@ -694,6 +745,9 @@
                 lgpd_consent:       lgpd,
                 org_nome:           'Ingresso vendido',
                 tipo:               'publico_geral',
+                // Walk-in nasce já vinculado à atividade escolhida no seletor.
+                atividade_id:       atividadePwa() || null,
+                atividade_nome:     atividadePwaNome(),
                 timestamp:          new Date().toISOString(),
                 sync_status:        'pendente',
             });

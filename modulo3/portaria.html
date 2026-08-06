@@ -84,6 +84,15 @@
                 <div style="font-weight:700;font-size:1rem;color:var(--text-primary);margin-bottom:1rem;">
                     Buscar Convidado
                 </div>
+                <!-- Só aparece quando o evento tem 2+ atividades cadastradas -->
+                <div id="atividade-wrap" style="display:none;margin-bottom:1rem;">
+                    <label style="display:block;font-size:0.8rem;font-weight:700;color:var(--text-secondary);margin-bottom:0.35rem;">Qual atividade?</label>
+                    <select id="atividade-select" class="search-input" style="width:100%;" onchange="onAtividadeChange()">
+                    </select>
+                    <div style="font-size:0.78rem;color:var(--text-muted);margin-top:0.35rem;">
+                        Não achou a atividade? Peça ao gestor para cadastrá-la na plataforma — ela não pode ser criada aqui.
+                    </div>
+                </div>
                 <div style="display:flex;gap:0.75rem;">
                     <input class="search-input" id="busca-input" style="flex:1;"
                            placeholder="Nome completo ou CPF (ex: 000.000.000-00)"
@@ -158,6 +167,21 @@
 
             try {
                 evento = await getEventoDetalhe(eventId);
+                if (!evento) {
+                    // Não existe ou foi excluído (soft delete).
+                    location.href = 'eventos.html';
+                    return;
+                }
+
+                // Com 2+ atividades, a busca pergunta a atividade antes e
+                // filtra só os convidados dela; com 0/1, nada muda.
+                const atividades = evento.distribution_atividades || [];
+                if (atividades.length >= 2) {
+                    const sel = document.getElementById('atividade-select');
+                    sel.innerHTML = '<option value="">Selecione a atividade…</option>' +
+                        atividades.map(a => `<option value="${esc(a.id)}">${esc(a.nome)}</option>`).join('');
+                    document.getElementById('atividade-wrap').style.display = '';
+                }
 
                 document.getElementById('btn-voltar').href = `evento-detalhe.html?id=${eventId}`;
                 document.getElementById('ev-titulo').textContent = evento.titulo;
@@ -185,9 +209,26 @@
         });
 
         // ── Busca ──────────────────────────────────────────────
+        function temMultiplasAtividades() {
+            return (evento?.distribution_atividades || []).length >= 2;
+        }
+        function onAtividadeChange() {
+            // Troca de atividade invalida o resultado anterior na tela.
+            document.getElementById('result-area').innerHTML = '';
+        }
+
         async function buscar() {
             const termo = document.getElementById('busca-input').value.trim();
             if (!termo) return;
+
+            let atividadeId = null;
+            if (temMultiplasAtividades()) {
+                atividadeId = document.getElementById('atividade-select').value;
+                if (!atividadeId) {
+                    showToast('Escolha a atividade antes de buscar.', 'error');
+                    return;
+                }
+            }
 
             const btn = document.getElementById('btn-buscar');
             btn.disabled = true;
@@ -195,7 +236,11 @@
             reIcons();
 
             try {
-                const resultados = await buscarConvidadoPortaria(eventId, termo);
+                let resultados = await buscarConvidadoPortaria(eventId, termo);
+                // Universo da busca = só os convidados da atividade escolhida.
+                if (atividadeId) {
+                    resultados = resultados.filter(g => g.atividade_id === atividadeId);
+                }
                 renderResultados(resultados);
             } catch (err) {
                 showToast('Erro na busca: ' + (err.message || ''), 'error');
@@ -250,8 +295,9 @@
                                 <div style="font-weight:700;font-size:1.05rem;color:var(--text-primary);">
                                     ${esc(g.nome_completo)}
                                 </div>
-                                <div style="color:var(--text-muted);font-size:0.875rem;margin-top:0.25rem;display:flex;align-items:center;gap:0.4rem;">
+                                <div style="color:var(--text-muted);font-size:0.875rem;margin-top:0.25rem;display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">
                                     <span class="badge badge-gray" style="font-size:0.72rem;">${esc(tipo)}</span>
+                                    ${temMultiplasAtividades() ? `<span class="badge" style="font-size:0.72rem;background:#E0F2FE;color:#0369A1;">${esc(g.distribution_atividades?.nome || 'Sem atividade')}</span>` : ''}
                                     ${esc(nomeOrg)}
                                 </div>
                             </div>

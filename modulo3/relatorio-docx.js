@@ -383,6 +383,7 @@
         const proximoMes = mes === '12' ? `${Number(ano) + 1}-01-01` : `${ano}-${String(Number(mes) + 1).padStart(2, '0')}-01`;
         const { data: eventos, error: evErr } = await sb.from('distribution_events')
             .select('*').eq('project_id', projectId)
+            .is('excluido_em', null)
             .gte('data_evento', mesReferencia).lt('data_evento', proximoMes)
             .order('data_evento', { ascending: true });
         if (evErr) throw evErr;
@@ -447,6 +448,84 @@
         return { path: filePath };
     }
 
-    window.gerarDocEventoClient  = gerarDocEventoClient;
-    window.gerarDocPeriodoClient = gerarDocPeriodoClient;
+    // ── Lista de presença (documento OPERACIONAL, download local) ──────────
+    // Diferente dos relatórios acima, não sobe para o bucket 'reports' nem
+    // grava status no banco: é uma lista reimprimível de quem fez check-in,
+    // por atividade quando o evento tem 2+ cadastradas.
+    function tabelaPresenca(guests) {
+        const header = new TableRow({
+            children: [
+                cell(par('Nome', { bold: true }), { fill: COR_GRAY }),
+                cell(par('CPF', { bold: true }), { fill: COR_GRAY }),
+                cell(par('Origem', { bold: true }), { fill: COR_GRAY }),
+                cell(par('Check-in', { bold: true }), { fill: COR_GRAY }),
+            ],
+        });
+        const rows = guests.map(g => {
+            const cpf = g.cpf && g.lgpd_consent
+                ? `${g.cpf.slice(0,3)}.${g.cpf.slice(3,6)}.${g.cpf.slice(6,9)}-${g.cpf.slice(9)}`
+                : '—';
+            const origem = g.tipo_entrada === 'os' ? (g.distribution_os?.nome || 'OS')
+                : g.tipo_entrada === 'pa' ? (g.distribution_pa?.nome || 'PA')
+                : 'Público Geral';
+            const hora = g.checkin_em
+                ? new Date(g.checkin_em).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })
+                : '—';
+            return new TableRow({
+                children: [
+                    cell(par(g.nome_completo || '—')),
+                    cell(par(cpf)),
+                    cell(par(origem)),
+                    cell(par(hora)),
+                ],
+            });
+        });
+        return tabelaFull([header, ...rows]);
+    }
+
+    async function gerarListaPresencaClient(evento, guests, atividades) {
+        const presentes = (guests || []).filter(g => g.checkin_em)
+            .sort((a, b) => (a.checkin_em || '') < (b.checkin_em || '') ? -1 : 1);
+        if (!presentes.length) throw new Error('Nenhum check-in registrado.');
+
+        const children = [
+            par('LISTA DE PRESENÇA', { bold: true, size: 30, align: AlignmentType.CENTER, after: 60 }),
+            par(evento.titulo || '—', { bold: true, size: 24, align: AlignmentType.CENTER, after: 40 }),
+            par(`${fmtDataBR(evento.data_evento)} — ${evento.nome_local || ''}, ${evento.cidade || ''}/${evento.estado || ''}`,
+                { align: AlignmentType.CENTER, after: 240 }),
+        ];
+
+        const lista = [...(atividades || [])].sort((a, b) =>
+            (a.data_hora || '9999') < (b.data_hora || '9999') ? -1 : 1);
+
+        if (lista.length >= 2) {
+            // Uma seção por atividade + "Sem atividade" + total geral.
+            lista.forEach(a => {
+                const doGrupo = presentes.filter(g => g.atividade_id === a.id);
+                children.push(tituloSecao(`${a.nome} — ${doGrupo.length} presente${doGrupo.length !== 1 ? 's' : ''}`));
+                children.push(doGrupo.length ? tabelaPresenca(doGrupo) : par('Nenhum check-in nesta atividade.'));
+                children.push(spacer());
+            });
+            const semAtividade = presentes.filter(g => !g.atividade_id);
+            if (semAtividade.length) {
+                children.push(tituloSecao(`Sem atividade definida — ${semAtividade.length}`));
+                children.push(tabelaPresenca(semAtividade));
+                children.push(spacer());
+            }
+            children.push(par(`Total geral de presentes: ${presentes.length}`, { bold: true, before: 240 }));
+        } else {
+            children.push(tituloSecao(`Presentes — ${presentes.length}`));
+            children.push(tabelaPresenca(presentes));
+        }
+
+        const doc = new Document({
+            sections: [{ headers: { default: pageHeader() }, children }],
+        });
+        const blob = await Packer.toBlob(doc);
+        baixar(blob, `lista-presenca-${(evento.titulo || 'evento').replace(/[^\p{L}\p{N}]+/gu, '-').toLowerCase()}.docx`);
+    }
+
+    window.gerarDocEventoClient      = gerarDocEventoClient;
+    window.gerarDocPeriodoClient     = gerarDocPeriodoClient;
+    window.gerarListaPresencaClient  = gerarListaPresencaClient;
 })();

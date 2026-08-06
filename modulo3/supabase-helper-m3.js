@@ -368,6 +368,7 @@ async function getEventosByProject(projectId) {
         .from('distribution_events')
         .select('*')
         .eq('project_id', projectId)
+        .is('excluido_em', null)
         .order('data_evento', { ascending: true });
     if (error) throw error;
     return data || [];
@@ -403,12 +404,98 @@ async function getEventoDetalhe(id) {
         .select(`
             *,
             distribution_event_os ( *, distribution_os (*) ),
-            distribution_event_pa ( *, distribution_pa (*) )
+            distribution_event_pa ( *, distribution_pa (*) ),
+            distribution_atividades ( * )
         `)
         .eq('id', id)
-        .single();
+        .is('excluido_em', null)
+        .maybeSingle();
     if (error) throw error;
+    // null = não existe OU foi excluído (soft delete) — caller redireciona.
     return data;
+}
+
+// ── Atividades (sessões dentro de um evento) ─────────────────
+// Criação/edição SÓ por admin/gestor — a RLS de distribution_atividades
+// bloqueia operador de verdade; a UI apenas espelha isso.
+
+async function getAtividadesByEvento(eventId) {
+    const sb = await initSupabase();
+    const { data, error } = await sb
+        .from('distribution_atividades')
+        .select('*')
+        .eq('event_id', eventId)
+        .order('data_hora', { ascending: true, nullsFirst: false })
+        .order('nome', { ascending: true });
+    if (error) throw error;
+    return data || [];
+}
+
+async function createAtividade(eventId, nome, dataHora) {
+    const sb  = await initSupabase();
+    const org = await getCurrentOrgIdM3();
+    const { data: { user } } = await sb.auth.getUser();
+    const { data, error } = await sb
+        .from('distribution_atividades')
+        .insert({
+            event_id: eventId,
+            organization_id: org,
+            nome,
+            data_hora: dataHora || null,
+            criado_por: user?.id || null
+        })
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
+async function deleteAtividade(id) {
+    // Convidados vinculados NÃO são apagados: atividade_id é ON DELETE SET
+    // NULL — eles voltam ao estado "sem atividade".
+    const sb = await initSupabase();
+    const { error } = await sb
+        .from('distribution_atividades')
+        .delete()
+        .eq('id', id);
+    if (error) throw error;
+}
+
+// ── Exclusão (soft) de evento ────────────────────────────────
+
+async function getContagensExclusaoEvento(eventId) {
+    const sb = await initSupabase();
+    const [convidados, presentes, atividades] = await Promise.all([
+        sb.from('distribution_guests')
+            .select('id', { count: 'exact', head: true })
+            .eq('event_id', eventId),
+        sb.from('distribution_guests')
+            .select('id', { count: 'exact', head: true })
+            .eq('event_id', eventId)
+            .not('checkin_em', 'is', null),
+        sb.from('distribution_atividades')
+            .select('id', { count: 'exact', head: true })
+            .eq('event_id', eventId),
+    ]);
+    return {
+        convidados: convidados.count || 0,
+        presentes:  presentes.count  || 0,
+        atividades: atividades.count || 0,
+    };
+}
+
+async function excluirEvento(eventId) {
+    // Sempre via endpoint server-side (soft delete + requireRole gestor/admin).
+    // A RLS de distribution_events é só por org — um update direto do client
+    // não teria como barrar operador.
+    const sb = await initSupabase();
+    const { data: { session } } = await sb.auth.getSession();
+    const resp = await fetch(`/api/m3/eventos/${eventId}/excluir`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}` }
+    });
+    const json = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(json.error || 'Falha ao excluir evento.');
+    return json;
 }
 
 // ── OS links ──────────────────────────────────────────────────
@@ -487,7 +574,7 @@ async function getConvidadosByEvento(eventId) {
     const sb = await initSupabase();
     const { data, error } = await sb
         .from('distribution_guests')
-        .select('*, distribution_os(*), distribution_pa(*)')
+        .select('*, distribution_os(*), distribution_pa(*), distribution_atividades(nome)')
         .eq('event_id', eventId)
         .order('nome_completo');
     if (error) throw error;
@@ -503,6 +590,10 @@ async function addConvidado(dados) {
         cpf:             dados.cpf ? dados.cpf.replace(/\D/g, '') || null : null,
         lgpd_consent_at: dados.lgpd_consent ? new Date().toISOString() : null,
         organization_id: org,
+        // A CHECK distribution_guests_tipo_consistente exige coerência entre
+        // tipo_entrada e os_id/pa_id; sem isto o DEFAULT 'publico_geral'
+        // violava a constraint (23514) em qualquer insert com OS/PA vinculado.
+        tipo_entrada: dados.os_id ? 'os' : dados.pa_id ? 'pa' : 'publico_geral',
     };
     const { data, error } = await sb
         .from('distribution_guests')
@@ -525,7 +616,7 @@ async function buscarConvidadoPortaria(eventId, termo) {
 
     const { data, error } = await sb
         .from('distribution_guests')
-        .select('*, distribution_os(*), distribution_pa(*)')
+        .select('*, distribution_os(*), distribution_pa(*), distribution_atividades(nome)')
         .eq('event_id', eventId);
     if (error) throw error;
 
@@ -635,22 +726,28 @@ async function getKpisM3(projectId) {
         { data: eventosAtivosDataPa },
     ] = await Promise.all([
         sb.from('distribution_events').select('id', { count: 'exact', head: true })
-            .eq('project_id', projectId).eq('status', 'ativo'),
+            .eq('project_id', projectId).eq('status', 'ativo')
+            .is('excluido_em', null),
         sb.from('distribution_os').select('id', { count: 'exact', head: true })
             .eq('organization_id', org),
         sb.from('distribution_pa').select('id', { count: 'exact', head: true })
             .eq('organization_id', org),
+        // Nos joins !inner o filtro no embed remove a linha pai — é assim que
+        // eventos soft-deletados saem de todos os KPIs abaixo.
         sb.from('distribution_event_os')
             .select('status, distribution_events!inner(project_id)')
             .eq('distribution_events.project_id', projectId)
+            .is('distribution_events.excluido_em', null)
             .eq('status', 'confirmado'),
         sb.from('distribution_event_pa')
             .select('status, distribution_events!inner(project_id)')
             .eq('distribution_events.project_id', projectId)
+            .is('distribution_events.excluido_em', null)
             .eq('status', 'confirmado'),
         sb.from('distribution_event_os')
             .select('ingressos_alocados, distribution_events!inner(project_id, status, ingressos_os)')
             .eq('distribution_events.project_id', projectId)
+            .is('distribution_events.excluido_em', null)
             .eq('distribution_events.status', 'ativo'),
         sb.from('physical_evidences')
             .select('id', { count: 'exact', head: true })
@@ -660,6 +757,7 @@ async function getKpisM3(projectId) {
         sb.from('distribution_event_pa')
             .select('ingressos_alocados, distribution_events!inner(project_id, status, ingressos_pa)')
             .eq('distribution_events.project_id', projectId)
+            .is('distribution_events.excluido_em', null)
             .eq('distribution_events.status', 'ativo'),
     ]);
 
@@ -669,6 +767,7 @@ async function getKpisM3(projectId) {
         .from('distribution_guests')
         .select('id, distribution_events!inner(project_id)', { count: 'exact', head: true })
         .eq('distribution_events.project_id', projectId)
+        .is('distribution_events.excluido_em', null)
         .eq('tipo_entrada', 'publico_geral')
         .not('checkin_em', 'is', null);
 
@@ -736,3 +835,8 @@ window.getAttendanceByEvento   = getAttendanceByEvento;
 window.createAttendance        = createAttendance;
 window.encerrarEvento          = encerrarEvento;
 window.getKpisM3               = getKpisM3;
+window.getAtividadesByEvento   = getAtividadesByEvento;
+window.createAtividade         = createAtividade;
+window.deleteAtividade         = deleteAtividade;
+window.getContagensExclusaoEvento = getContagensExclusaoEvento;
+window.excluirEvento           = excluirEvento;

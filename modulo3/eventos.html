@@ -135,6 +135,22 @@
         <div id="cards-area"></div>
     </main>
 
+    <!-- ── Modal: excluir evento (soft delete) com aviso de risco ── -->
+    <div id="excluir-ev-backdrop" class="modal-backdrop" style="display:none;z-index:3000;">
+        <div class="confirm-card">
+            <i data-lucide="alert-triangle" style="width:40px;height:40px;color:#FF5807;margin:0 auto 1rem;display:block;"></i>
+            <h3>Excluir evento "<span id="excluir-ev-titulo"></span>"?</h3>
+            <div id="excluir-ev-contagens" style="text-align:left;margin:0 auto 0.75rem;max-width:320px;"></div>
+            <p><strong>O evento sairá de todas as listagens e relatórios</strong>, mas os dados não serão apagados — podem ser restaurados pelo suporte, se necessário. Evidências físicas vinculadas ficam órfãs do evento (não são excluídas).</p>
+            <div style="display:flex;gap:0.75rem;justify-content:center;">
+                <button class="btn-secondary" onclick="fecharModalExclusao()">Cancelar</button>
+                <button class="btn-danger" id="excluir-ev-btn" onclick="confirmarExclusaoEvento()">
+                    <i data-lucide="trash-2" style="width:15px;"></i> Sim, excluir evento
+                </button>
+            </div>
+        </div>
+    </div>
+
     <div id="toast-container" class="toast-container"></div>
 
     <script src="../config.js"></script>
@@ -438,9 +454,67 @@
                         <button class="btn-secondary" style="padding:0.4rem 0.85rem;font-size:0.8rem;" onclick="window.location.href='portaria.html?event_id=${esc(ev.id)}'">
                             <i data-lucide="door-open" style="width:13px;"></i> Portaria
                         </button>
+                        ${_role !== 'operador' ? `
+                        <button class="btn-secondary" title="Excluir evento" style="padding:0.4rem 0.6rem;font-size:0.8rem;margin-left:auto;"
+                            onclick="abrirModalExclusao('${esc(ev.id)}', '${esc(ev.titulo).replace(/'/g, "\\'")}')">
+                            <i data-lucide="trash-2" style="width:13px;color:#FF5807;"></i>
+                        </button>` : ''}
                     </div>
                 </div>
             `;
+        }
+
+        // ── Exclusão (soft) com aviso de risco ────────────────
+        // Bloqueio real de operador é o endpoint server-side (requireRole);
+        // aqui o botão só não é renderizado.
+        let _exclusaoEventoId = null;
+
+        async function abrirModalExclusao(eventoId, titulo) {
+            _exclusaoEventoId = eventoId;
+            document.getElementById('excluir-ev-titulo').textContent = titulo;
+            const wrap = document.getElementById('excluir-ev-contagens');
+            wrap.innerHTML = '<p style="text-align:center;color:#888;">Carregando…</p>';
+            document.getElementById('excluir-ev-backdrop').style.display = 'flex';
+            reIcons();
+            try {
+                const c = await getContagensExclusaoEvento(eventoId);
+                wrap.innerHTML = `
+                    <p style="margin-bottom:0.35rem;">Este evento tem:</p>
+                    <ul style="margin:0 0 0.5rem 1.2rem;">
+                        <li>${c.convidados} convidado(s) cadastrado(s)</li>
+                        <li>${c.presentes} check-in(s) já registrado(s)</li>
+                        <li>${c.atividades} atividade(s)</li>
+                    </ul>`;
+            } catch (err) {
+                wrap.innerHTML = '';
+                console.error(err);
+            }
+        }
+
+        function fecharModalExclusao() {
+            _exclusaoEventoId = null;
+            document.getElementById('excluir-ev-backdrop').style.display = 'none';
+        }
+
+        async function confirmarExclusaoEvento() {
+            if (!_exclusaoEventoId) return;
+            const btn = document.getElementById('excluir-ev-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px;"></i> Excluindo…';
+            reIcons();
+            try {
+                await excluirEvento(_exclusaoEventoId);
+                showToast('Evento excluído.');
+                fecharModalExclusao();
+                await loadCards();
+            } catch (err) {
+                console.error(err);
+                showToast('Erro ao excluir: ' + (err.message || ''), 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i data-lucide="trash-2" style="width:15px;"></i> Sim, excluir evento';
+                reIcons();
+            }
         }
     </script>
 </body>

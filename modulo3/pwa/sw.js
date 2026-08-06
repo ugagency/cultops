@@ -1,4 +1,4 @@
-const CACHE_NAME = 'prestai-campo-v6';
+const CACHE_NAME = 'prestai-campo-v7'; // v7: seletor de atividade no check-in
 const ASSETS = [
     '/modulo3/pwa/index.html',
     '/modulo3/pwa/idb.js',

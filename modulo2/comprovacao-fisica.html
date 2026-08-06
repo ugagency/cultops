@@ -652,6 +652,7 @@
                 .from('distribution_events')
                 .select('id, titulo, data_evento')
                 .eq('project_id', currentProjectId)
+                .is('excluido_em', null)
                 .order('data_evento', { ascending: false });
 
             if (error) { console.error('[loadEventosM3]', error); renderEventoField(); return; }

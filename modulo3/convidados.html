@@ -163,6 +163,12 @@
                     <label>Telefone <span style="color:#94a3b8;font-size:0.78rem;font-weight:400;">(opcional)</span></label>
                     <input type="tel" id="g-tel" placeholder="(00) 00000-0000">
                 </div>
+                <!-- Só aparece quando o evento tem 2+ atividades cadastradas -->
+                <div class="form-group span-2" id="g-atividade-wrap" style="display:none;">
+                    <label>Atividade *</label>
+                    <select id="g-atividade"></select>
+                    <span class="hint">Este evento tem múltiplas atividades — escolha em qual o convidado entra.</span>
+                </div>
             </div>
 
             <div class="modal-footer">
@@ -195,6 +201,13 @@
                 <label>Arquivo Excel / CSV *</label>
                 <input type="file" id="import-file" accept=".xlsx,.xls,.csv"
                        class="form-input" onchange="onImportFileChange(this)">
+            </div>
+
+            <!-- Só aparece quando o evento tem 2+ atividades cadastradas -->
+            <div class="form-group" id="import-atividade-wrap" style="display:none;margin-bottom:1rem;">
+                <label>Atividade *</label>
+                <select id="import-atividade"></select>
+                <span class="hint">Todos os convidados desta lista serão vinculados à atividade escolhida.</span>
             </div>
 
             <!-- Preview -->
@@ -323,6 +336,11 @@
                     getEventoDetalhe(eventId),
                     getConvidadosByEvento(eventId)
                 ]);
+                if (!evento) {
+                    // Não existe ou foi excluído (soft delete).
+                    location.href = 'eventos.html';
+                    return;
+                }
 
                 if (evento.project_id) {
                     const { data } = await sb.from('projects')
@@ -490,11 +508,38 @@
                             CPF: ${maskCpf(g.cpf)}${g.telefone ? ' · ' + esc(g.telefone) : ''}
                         </div>
                     </div>
+                    ${exigeAtividade() ? `<span style="font-size:0.7rem;background:#E0F2FE;color:#0369A1;padding:0.15rem 0.4rem;border-radius:4px;font-weight:600;white-space:nowrap;">${esc(g.distribution_atividades?.nome || 'Sem atividade')}</span>` : ''}
                     ${!g.lgpd_consent ? '<span style="font-size:0.7rem;background:#FEF9C3;color:#854D0E;padding:0.15rem 0.4rem;border-radius:4px;font-weight:600;white-space:nowrap;">Sem LGPD</span>' : ''}
                     <button class="btn-remove-guest" onclick="removerConvidado('${esc(g.id)}')" title="Remover convidado">
                         <i data-lucide="x" style="width:14px;"></i>
                     </button>
                 </div>`;
+        }
+
+        // ── Atividades ────────────────────────────────────────
+        // Regra do produto: com 0 ou 1 atividade nada muda (atividade_id fica
+        // null — "atividade única implícita"); com 2+ o vínculo é obrigatório.
+        function atividadesDoEvento() {
+            return evento?.distribution_atividades || [];
+        }
+        function exigeAtividade() {
+            return atividadesDoEvento().length >= 2;
+        }
+        function preencherSelectAtividades(selectId, wrapId) {
+            const wrap = document.getElementById(wrapId);
+            if (!exigeAtividade()) { wrap.style.display = 'none'; return; }
+            const sel = document.getElementById(selectId);
+            sel.innerHTML = '<option value="">Selecione a atividade…</option>' +
+                atividadesDoEvento().map(a =>
+                    `<option value="${esc(a.id)}">${esc(a.nome)}</option>`
+                ).join('');
+            wrap.style.display = '';
+        }
+        function atividadeSelecionada(selectId) {
+            // null quando o seletor está oculto (0/1 atividade); string vazia
+            // quando visível e não escolhida (caller valida).
+            if (!exigeAtividade()) return null;
+            return document.getElementById(selectId).value || '';
         }
 
         // ── Modal ─────────────────────────────────────────────
@@ -507,6 +552,7 @@
             cpfEl.value = ''; cpfEl.disabled = true;
             document.getElementById('g-rg').value  = '';
             document.getElementById('g-tel').value = '';
+            preencherSelectAtividades('g-atividade', 'g-atividade-wrap');
             document.getElementById('modal-backdrop').style.display = 'flex';
             reIcons();
         }
@@ -524,6 +570,12 @@
             const nome = document.getElementById('g-nome').value.trim();
             if (!nome) { showToast('Nome completo é obrigatório.', 'error'); return; }
 
+            const atividadeId = atividadeSelecionada('g-atividade');
+            if (atividadeId === '') {
+                showToast('Este evento tem múltiplas atividades — escolha uma.', 'error');
+                return;
+            }
+
             const lgpd   = document.getElementById('lgpd-check').checked;
             const cpfRaw = document.getElementById('g-cpf').value.replace(/\D/g, '');
             const cpf    = lgpd && cpfRaw ? cpfRaw : null;
@@ -540,6 +592,7 @@
                     event_id:        eventId,
                     os_id:           modalOsId || null,
                     pa_id:           modalPaId || null,
+                    atividade_id:    atividadeId,
                     nome_completo:   nome,
                     cpf,
                     rg,
@@ -710,6 +763,7 @@
             document.getElementById('import-lgpd-wrap').style.display = 'none';
             document.getElementById('import-lgpd-check').checked = false;
             document.getElementById('import-submit-btn').disabled = true;
+            preencherSelectAtividades('import-atividade', 'import-atividade-wrap');
             document.getElementById('modal-import-backdrop').style.display = 'flex';
             reIcons();
         }
@@ -807,6 +861,12 @@
                 showToast('Confirme o consentimento LGPD para continuar.', 'error'); return;
             }
 
+            const atividadeId = atividadeSelecionada('import-atividade');
+            if (atividadeId === '') {
+                showToast('Este evento tem múltiplas atividades — escolha uma para a lista.', 'error');
+                return;
+            }
+
             const btn = document.getElementById('import-submit-btn');
             btn.disabled = true;
             btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px;"></i> Importando…';
@@ -819,6 +879,11 @@
                     event_id:        eventId,
                     os_id:           importOsId || null,
                     pa_id:           importPaId || null,
+                    atividade_id:    atividadeId,
+                    // A CHECK tipo_consistente exige coerência com os_id/pa_id;
+                    // sem isto o DEFAULT 'publico_geral' violava a constraint
+                    // (23514) em qualquer importação vinculada a OS/PA.
+                    tipo_entrada:    importOsId ? 'os' : importPaId ? 'pa' : 'publico_geral',
                     nome_completo:   r.nome_completo,
                     cpf:             (hasCpfs && lgpdCheck && r.cpf) ? r.cpf : null,
                     rg:              r.rg,

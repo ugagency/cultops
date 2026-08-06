@@ -1716,6 +1716,7 @@ app.put('/api/m3/eventos/:id/encerrar', requireAuth, async (req, res) => {
             .from('distribution_events')
             .select('*, distribution_attendance(*)')
             .eq('id', id)
+            .is('excluido_em', null)
             .single();
 
         if (error || !evento)
@@ -1750,6 +1751,59 @@ app.put('/api/m3/eventos/:id/encerrar', requireAuth, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// POST /api/m3/eventos/:id/excluir
+// SOFT delete de evento. Nunca DELETE real: distribution_guests/event_os/
+// event_pa/attendance são todos ON DELETE CASCADE — apagaria convidados e
+// check-ins junto, silenciosamente. Endpoint server-side porque a RLS de
+// distribution_events é só por organização (sem role): um soft delete feito
+// pelo client não teria como barrar operador de verdade.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/api/m3/eventos/:id/excluir',
+    requireAuth, requireRole('gestor', 'admin'),
+    async (req, res) => {
+        try {
+            const orgId = req.user.app_metadata?.org_id;
+            if (!orgId) return res.status(403).json({ error: 'Usuário sem organização vinculada.' });
+
+            const { data: evento, error: getErr } = await supabase
+                .from('distribution_events')
+                .select('id, titulo, organization_id, excluido_em')
+                .eq('id', req.params.id)
+                .maybeSingle();
+            if (getErr) throw getErr;
+
+            // 404 também para evento de outra org — não vaza existência.
+            if (!evento || evento.organization_id !== orgId) {
+                return res.status(404).json({ error: 'Evento não encontrado' });
+            }
+            if (evento.excluido_em) return res.json({ sucesso: true }); // idempotente
+
+            const agora = new Date().toISOString();
+            const { error: updErr } = await supabase
+                .from('distribution_events')
+                .update({ excluido_em: agora, excluido_por: req.user.id })
+                .eq('id', evento.id);
+            if (updErr) throw updErr;
+
+            await supabase.from('audit_log').insert({
+                tabela: 'distribution_events',
+                registro_id: evento.id,
+                campo: 'excluido_em',
+                valor_anterior: null,
+                valor_novo: agora,
+                alterado_por: req.user.id,
+                origem: 'm3_web'
+            });
+
+            return res.json({ sucesso: true });
+        } catch (e) {
+            console.error('[M3] excluir evento:', e);
+            return res.status(500).json({ error: e.message });
+        }
+    }
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/m3/pwa/eventos?q=termo
 // Lista eventos da organizacao do usuario para busca por nome no PWA de campo
 // (o operador nao tem como saber o UUID do evento, so pesquisar pelo titulo).
@@ -1764,6 +1818,7 @@ app.get('/api/m3/pwa/eventos', requireAuth, async (req, res) => {
             .from('distribution_events')
             .select('id, titulo, data_evento, nome_local, cidade, estado, status')
             .eq('organization_id', orgId)
+            .is('excluido_em', null)
             .order('data_evento', { ascending: false })
             .limit(30);
 
@@ -1791,10 +1846,12 @@ app.get('/api/m3/pwa/evento/:id', requireAuth, async (req, res) => {
                 *,
                 distribution_event_os(*, distribution_os(*)),
                 distribution_event_pa(*, distribution_pa(*)),
-                distribution_guests(*)
+                distribution_guests(*),
+                distribution_atividades(*)
             `)
             .eq('id', id)
-            .single();
+            .is('excluido_em', null)
+            .maybeSingle();
 
         if (error || !evento)
             return res.status(404).json({ error: 'Evento não encontrado' });
@@ -1820,8 +1877,28 @@ app.post('/api/m3/pwa/sync', requireAuth, async (req, res) => {
         const resultados = [];
         const erros = [];
 
+        // Valida que a atividade do payload pertence ao evento. Inválida ou
+        // ausente -> null, NUNCA rejeita: check-in feito offline não pode ser
+        // perdido por causa de um metadado — a presença é o dado que importa.
+        async function atividadeValidaOuNull(atividadeId, eventId) {
+            if (!atividadeId || !eventId) return null;
+            const { data } = await supabase
+                .from('distribution_atividades')
+                .select('id')
+                .eq('id', atividadeId)
+                .eq('event_id', eventId)
+                .maybeSingle();
+            if (!data) {
+                console.warn('[PWA-SYNC] atividade_id inválida para o evento, gravando sem atividade:',
+                    atividadeId, eventId);
+            }
+            return data ? atividadeId : null;
+        }
+
         for (const checkin of checkins) {
             try {
+                const atividadeId = await atividadeValidaOuNull(checkin.atividade_id, checkin.event_id);
+
                 if (checkin.guest_id) {
                     // Convidado JÁ CADASTRADO (OS/PA pré-registrado) — só marca
                     // o check-in. Se checkin_em já estiver preenchido, NÃO
@@ -1829,7 +1906,7 @@ app.post('/api/m3/pwa/sync', requireAuth, async (req, res) => {
                     // registra a tentativa no audit_log abaixo.
                     const { data: guest } = await supabase
                         .from('distribution_guests')
-                        .select('checkin_em')
+                        .select('checkin_em, atividade_id')
                         .eq('id', checkin.guest_id)
                         .maybeSingle();
 
@@ -1837,7 +1914,12 @@ app.post('/api/m3/pwa/sync', requireAuth, async (req, res) => {
                         await supabase.from('distribution_guests')
                             .update({
                                 checkin_em: checkin.timestamp,
-                                checkin_por: req.user?.id || null
+                                checkin_por: req.user?.id || null,
+                                // Preenche a atividade só se o convidado ainda não
+                                // tiver uma — mesma filosofia do checkin_em: o que
+                                // foi definido no cadastro não é sobrescrito.
+                                ...(atividadeId && !guest.atividade_id
+                                    ? { atividade_id: atividadeId } : {})
                             })
                             .eq('id', checkin.guest_id);
                     }
@@ -1868,6 +1950,7 @@ app.post('/api/m3/pwa/sync', requireAuth, async (req, res) => {
                                 tipo_entrada: 'publico_geral',
                                 os_id: null,
                                 pa_id: null,
+                                atividade_id: atividadeId,
                                 checkin_em: checkin.timestamp,
                                 checkin_por: req.user?.id || null
                             })
@@ -1887,6 +1970,7 @@ app.post('/api/m3/pwa/sync', requireAuth, async (req, res) => {
                         nome_completo: checkin.nome_completo,
                         org_nome:      checkin.org_nome,
                         tipo:          checkin.tipo,
+                        atividade_id:  atividadeId,
                         timestamp:     checkin.timestamp,
                     }),
                     alterado_por: req.user?.id || null,
@@ -2243,6 +2327,7 @@ app.post('/api/m3/relatorio/evento/:eventId', requireAuth, async (req, res) => {
             .from('distribution_events')
             .select('*')
             .eq('id', eventId)
+            .is('excluido_em', null)
             .single();
         if (error || !evento) return res.status(404).json({ error: 'Evento não encontrado.' });
 
@@ -2334,6 +2419,7 @@ app.post('/api/m3/relatorio/periodo', requireAuth, async (req, res) => {
             .from('distribution_events')
             .select('*')
             .eq('project_id', project_id)
+            .is('excluido_em', null)
             .gte('data_evento', mes_referencia)
             .lt('data_evento', proximoMes)
             .order('data_evento', { ascending: true });

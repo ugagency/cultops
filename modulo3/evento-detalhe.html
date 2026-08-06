@@ -301,6 +301,15 @@
                     Patrocinadores
                     <span class="tab-count" id="count-pa">0</span>
                 </button>
+                <button class="tab-btn" id="tab-atividades-btn" onclick="switchTab('atividades')">
+                    <i data-lucide="ticket" style="width:16px;"></i>
+                    Atividades
+                    <span class="tab-count" id="count-atividades">0</span>
+                </button>
+                <button class="tab-btn" id="tab-checkins-btn" onclick="switchTab('checkins')">
+                    <i data-lucide="user-check" style="width:16px;"></i>
+                    Check-ins
+                </button>
                 <button class="tab-btn" id="tab-relatorio-btn" onclick="switchTab('relatorio')">
                     <i data-lucide="file-text" style="width:16px;"></i>
                     Relatório do Evento
@@ -327,6 +336,34 @@
                     </button>
                 </div>
                 <div id="pa-lista" class="vinculo-grid"></div>
+            </div>
+
+            <!-- Tab Atividades -->
+            <div id="tab-atividades" style="display:none;">
+                <div class="saldo-bar" style="margin-bottom:1rem;">
+                    <i data-lucide="info" style="width:16px;flex-shrink:0;"></i>
+                    Atividades são as sessões/apresentações dentro do evento (ex: "Show do Mágico", "Show do Cantor").
+                    Com 2 ou mais cadastradas, o check-in em campo passa a perguntar a atividade antes da busca.
+                </div>
+                <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
+                    <button class="btn-primary" id="btn-add-atividade" onclick="openAddAtividade()">
+                        <i data-lucide="plus" style="width:16px;"></i> Nova Atividade
+                    </button>
+                </div>
+                <div id="atividades-lista" class="vinculo-grid"></div>
+            </div>
+
+            <!-- Tab Check-ins -->
+            <div id="tab-checkins" style="display:none;">
+                <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-bottom:1rem;">
+                    <button class="btn-secondary" onclick="gerarListaPresenca()">
+                        <i data-lucide="file-down" style="width:16px;"></i> Lista de presença (.docx)
+                    </button>
+                    <button class="btn-primary" onclick="renderCheckins(true)">
+                        <i data-lucide="refresh-cw" style="width:16px;"></i> Atualizar
+                    </button>
+                </div>
+                <div id="checkins-wrap"></div>
             </div>
 
             <!-- Tab Relatório -->
@@ -506,6 +543,35 @@
         </div>
     </div>
 
+    <!-- ── Modal Nova Atividade ──────────────────────────────── -->
+    <div id="add-atividade-backdrop" class="modal-backdrop" style="display:none;">
+        <div class="modal-card" style="max-width:480px;">
+            <div class="modal-header">
+                <h2>Nova Atividade</h2>
+                <button class="btn-icon" onclick="closeAddAtividade()">
+                    <i data-lucide="x" style="width:22px;"></i>
+                </button>
+            </div>
+            <div class="form-group" style="margin-bottom:1rem;">
+                <label>Nome da atividade *</label>
+                <input type="text" id="add-atividade-nome" placeholder='Ex: Show do Mágico'>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+                <label>Data e hora (opcional)</label>
+                <input type="datetime-local" id="add-atividade-datahora">
+                <span class="hint">Deixe em branco se a atividade não tiver horário próprio.</span>
+            </div>
+            <div class="modal-footer">
+                <div class="actions-right">
+                    <button class="btn-secondary" onclick="closeAddAtividade()">Cancelar</button>
+                    <button class="btn-primary" id="add-atividade-submit-btn" onclick="submitAddAtividade()">
+                        <i data-lucide="plus" style="width:15px;"></i> Criar Atividade
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="toast-container" class="toast-container"></div>
 
     <script src="../config.js"></script>
@@ -589,20 +655,21 @@
             _role = session.user?.app_metadata?.role || session.user?.user_metadata?.role || null;
 
             if (_role === 'operador') {
-                const btnAddOs = document.getElementById('btn-add-os');
-                const btnAddPa = document.getElementById('btn-add-pa');
-                if (btnAddOs) {
-                    btnAddOs.disabled = true;
-                    btnAddOs.style.opacity = '0.5';
-                    btnAddOs.style.cursor = 'not-allowed';
-                    btnAddOs.title = 'Apenas gestor/admin podem vincular OS';
-                }
-                if (btnAddPa) {
-                    btnAddPa.disabled = true;
-                    btnAddPa.style.opacity = '0.5';
-                    btnAddPa.style.cursor = 'not-allowed';
-                    btnAddPa.title = 'Apenas gestor/admin podem vincular PA';
-                }
+                // Cosmético — o bloqueio real de OS/PA é a UI + endpoint, e o de
+                // atividades é a RLS de distribution_atividades (INSERT/UPDATE/
+                // DELETE exigem admin/gestor no banco).
+                [
+                    ['btn-add-os',        'Apenas gestor/admin podem vincular OS'],
+                    ['btn-add-pa',        'Apenas gestor/admin podem vincular PA'],
+                    ['btn-add-atividade', 'Apenas gestor/admin podem criar atividades'],
+                ].forEach(([id, title]) => {
+                    const btn = document.getElementById(id);
+                    if (!btn) return;
+                    btn.disabled = true;
+                    btn.style.opacity = '0.5';
+                    btn.style.cursor = 'not-allowed';
+                    btn.title = title;
+                });
             }
 
             await loadEvento();
@@ -614,9 +681,15 @@
 
             try {
                 evento = await getEventoDetalhe(eventId);
+                if (!evento) {
+                    // Não existe ou foi excluído (soft delete).
+                    window.location.href = 'eventos.html';
+                    return;
+                }
                 renderHeader();
                 renderOs();
                 renderPa();
+                renderAtividades();
                 await renderRelatorio();
                 document.getElementById('page-body').style.display = '';
                 document.getElementById('page-loading').style.display = 'none';
@@ -695,13 +768,15 @@
         }
 
         // ── Tabs ──────────────────────────────────────────────
+        const TABS = ['os', 'pa', 'atividades', 'checkins', 'relatorio'];
         function switchTab(tab) {
-            document.getElementById('tab-os').style.display        = tab === 'os' ? '' : 'none';
-            document.getElementById('tab-pa').style.display        = tab === 'pa' ? '' : 'none';
-            document.getElementById('tab-relatorio').style.display = tab === 'relatorio' ? '' : 'none';
-            document.getElementById('tab-os-btn').className        = 'tab-btn' + (tab === 'os' ? ' active' : '');
-            document.getElementById('tab-pa-btn').className        = 'tab-btn' + (tab === 'pa' ? ' active' : '');
-            document.getElementById('tab-relatorio-btn').className = 'tab-btn' + (tab === 'relatorio' ? ' active' : '');
+            TABS.forEach(t => {
+                document.getElementById(`tab-${t}`).style.display  = t === tab ? '' : 'none';
+                document.getElementById(`tab-${t}-btn`).className = 'tab-btn' + (t === tab ? ' active' : '');
+            });
+            // Check-ins carrega sob demanda: os convidados não vêm no
+            // getEventoDetalhe e só são buscados quando a aba abre.
+            if (tab === 'checkins') renderCheckins();
             reIcons();
         }
 
@@ -874,10 +949,223 @@
 
         async function reloadEvento() {
             evento = await getEventoDetalhe(eventId);
+            if (!evento) { window.location.href = 'eventos.html'; return; }
             renderHeader();
             renderOs();
             renderPa();
+            renderAtividades();
             reIcons();
+        }
+
+        // ── Atividades tab ────────────────────────────────────
+        // _guests: cache de convidados do evento, compartilhado entre as abas
+        // Atividades (contador por atividade) e Check-ins. getEventoDetalhe não
+        // embute convidados — são buscados sob demanda e reaproveitados.
+        let _guests = null;
+
+        async function fetchGuests(force = false) {
+            if (_guests === null || force) {
+                _guests = await getConvidadosByEvento(eventId);
+            }
+            return _guests;
+        }
+
+        function fmtDataHora(dh) {
+            if (!dh) return '';
+            try {
+                return new Date(dh).toLocaleString('pt-BR', {
+                    day: '2-digit', month: '2-digit', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit'
+                });
+            } catch { return dh; }
+        }
+
+        function renderAtividades() {
+            const list = evento.distribution_atividades || [];
+            document.getElementById('count-atividades').textContent = list.length;
+
+            const wrap = document.getElementById('atividades-lista');
+            if (!list.length) {
+                wrap.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">
+                    <i data-lucide="ticket" style="width:32px;"></i>
+                    <div style="margin-top:0.5rem;">Nenhuma atividade cadastrada. O evento funciona como atividade única.<br>Clique em <strong>Nova Atividade</strong> para dividir em sessões.</div>
+                </div>`;
+                reIcons();
+                return;
+            }
+
+            const ordenadas = [...list].sort((a, b) =>
+                (a.data_hora || '9999') < (b.data_hora || '9999') ? -1 : 1);
+
+            wrap.innerHTML = ordenadas.map(a => `
+                <div class="vinculo-card">
+                    <div class="vinculo-card-top">
+                        <div style="flex:1;min-width:0;">
+                            <div class="vinculo-nome">${esc(a.nome)}</div>
+                            ${a.data_hora ? `<div class="vinculo-local"><i data-lucide="clock" style="width:12px;vertical-align:middle;"></i> ${esc(fmtDataHora(a.data_hora))}</div>` : ''}
+                        </div>
+                        ${_role !== 'operador' ? `
+                        <button class="btn-remove" onclick="removeAtividade('${esc(a.id)}', '${esc(a.nome).replace(/'/g, "\\'")}')" title="Excluir atividade">
+                            <i data-lucide="x" style="width:14px;"></i>
+                        </button>` : ''}
+                    </div>
+                    <div class="vinculo-footer">
+                        <span class="ingressos-pill" id="ativ-count-${esc(a.id)}">
+                            <i data-lucide="users" style="width:11px;vertical-align:middle;"></i> …
+                        </span>
+                    </div>
+                </div>
+            `).join('');
+            reIcons();
+
+            // Contadores de convidados por atividade, preenchidos async.
+            fetchGuests().then(guests => {
+                ordenadas.forEach(a => {
+                    const el = document.getElementById(`ativ-count-${a.id}`);
+                    if (!el) return;
+                    const n = guests.filter(g => g.atividade_id === a.id).length;
+                    el.innerHTML = `<i data-lucide="users" style="width:11px;vertical-align:middle;"></i> ${n} convidado${n !== 1 ? 's' : ''}`;
+                });
+                reIcons();
+            }).catch(err => console.error('contadores de atividade:', err));
+        }
+
+        function openAddAtividade() {
+            document.getElementById('add-atividade-nome').value = '';
+            document.getElementById('add-atividade-datahora').value = '';
+            document.getElementById('add-atividade-backdrop').style.display = 'flex';
+            reIcons();
+        }
+        function closeAddAtividade() {
+            document.getElementById('add-atividade-backdrop').style.display = 'none';
+        }
+
+        async function submitAddAtividade() {
+            const nome = document.getElementById('add-atividade-nome').value.trim();
+            if (!nome) { showToast('Informe o nome da atividade.', 'error'); return; }
+            const dhRaw = document.getElementById('add-atividade-datahora').value;
+            const dataHora = dhRaw ? new Date(dhRaw).toISOString() : null;
+
+            const btn = document.getElementById('add-atividade-submit-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px;"></i> Criando…';
+            reIcons();
+            try {
+                await createAtividade(eventId, nome, dataHora);
+                showToast('Atividade criada!');
+                closeAddAtividade();
+                await reloadEvento();
+            } catch (err) {
+                console.error(err);
+                showToast('Erro ao criar atividade: ' + (err.message || ''), 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i data-lucide="plus" style="width:15px;"></i> Criar Atividade';
+                reIcons();
+            }
+        }
+
+        async function removeAtividade(id, nome) {
+            if (!confirm(`Excluir a atividade "${nome}"?\n\nOs convidados vinculados NÃO são apagados — apenas voltam ao estado "sem atividade".`)) return;
+            try {
+                await deleteAtividade(id);
+                showToast('Atividade excluída.');
+                _guests = null; // atividade_id dos convidados mudou (SET NULL)
+                await reloadEvento();
+            } catch (err) {
+                showToast('Erro: ' + (err.message || ''), 'error');
+            }
+        }
+
+        // ── Check-ins tab ─────────────────────────────────────
+        function renderCheckinCard(titulo, guests) {
+            const presentes = guests.filter(g => g.checkin_em);
+            const pct = guests.length ? Math.round(presentes.length / guests.length * 100) : 0;
+
+            const linhas = presentes
+                .sort((a, b) => (a.checkin_em || '') < (b.checkin_em || '') ? -1 : 1)
+                .map(g => {
+                    const origem = g.tipo_entrada === 'os' ? (g.distribution_os?.nome || 'OS')
+                        : g.tipo_entrada === 'pa' ? (g.distribution_pa?.nome || 'PA')
+                        : 'Público Geral';
+                    const hora = g.checkin_em
+                        ? new Date(g.checkin_em).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })
+                        : '—';
+                    return `<tr>
+                        <td>${esc(g.nome_completo)}</td>
+                        <td style="white-space:nowrap;">${esc(origem)}</td>
+                        <td style="white-space:nowrap;">${hora}</td>
+                    </tr>`;
+                }).join('');
+
+            return `
+                <div class="glass-card" style="margin-bottom:1.25rem;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">
+                        <h3 style="margin:0;">${esc(titulo)}</h3>
+                        <span class="ingressos-pill">
+                            <i data-lucide="user-check" style="width:12px;vertical-align:middle;"></i>
+                            ${presentes.length} de ${guests.length} presentes (${pct}%)
+                        </span>
+                    </div>
+                    ${presentes.length ? `
+                    <div style="overflow-x:auto;">
+                        <table class="data-table" style="width:100%;font-size:0.85rem;">
+                            <thead><tr><th>Nome</th><th>Origem</th><th>Check-in</th></tr></thead>
+                            <tbody>${linhas}</tbody>
+                        </table>
+                    </div>` : `<div style="color:#94a3b8;font-size:0.85rem;">Nenhum check-in registrado ainda.</div>`}
+                </div>
+            `;
+        }
+
+        async function renderCheckins(force = false) {
+            const wrap = document.getElementById('checkins-wrap');
+            wrap.innerHTML = `<div class="empty-state"><i data-lucide="loader" class="spin" style="width:28px;"></i><div style="margin-top:0.5rem;">Carregando check-ins…</div></div>`;
+            reIcons();
+
+            try {
+                const guests = await fetchGuests(force);
+                const atividades = [...(evento.distribution_atividades || [])].sort((a, b) =>
+                    (a.data_hora || '9999') < (b.data_hora || '9999') ? -1 : 1);
+
+                let html = '';
+
+                // Visão geral primeiro: soma de todas as atividades.
+                html += renderCheckinCard('Visão Geral do Evento', guests);
+
+                // Corte por atividade só faz sentido com 2+ cadastradas.
+                if (atividades.length >= 2) {
+                    atividades.forEach(a => {
+                        html += renderCheckinCard(a.nome, guests.filter(g => g.atividade_id === a.id));
+                    });
+                    const semAtividade = guests.filter(g => !g.atividade_id);
+                    if (semAtividade.length) {
+                        html += renderCheckinCard('Sem atividade definida', semAtividade);
+                    }
+                }
+
+                wrap.innerHTML = html;
+                reIcons();
+            } catch (err) {
+                console.error(err);
+                wrap.innerHTML = `<div class="empty-state" style="color:#FF5807;"><i data-lucide="alert-circle" style="width:28px;"></i><div style="margin-top:0.5rem;">Erro ao carregar: ${esc(err.message)}</div></div>`;
+                reIcons();
+            }
+        }
+
+        async function gerarListaPresenca() {
+            try {
+                const guests = await fetchGuests();
+                if (!guests.some(g => g.checkin_em)) {
+                    showToast('Nenhum check-in registrado ainda — nada para listar.', 'error');
+                    return;
+                }
+                await gerarListaPresencaClient(evento, guests, evento.distribution_atividades || []);
+                showToast('Lista de presença gerada.');
+            } catch (err) {
+                console.error(err);
+                showToast('Erro ao gerar lista: ' + (err.message || ''), 'error');
+            }
         }
 
         // ── Add OS modal ──────────────────────────────────────

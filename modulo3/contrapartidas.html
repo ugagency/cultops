@@ -672,6 +672,7 @@
                     sb.from('distribution_events')
                         .select('id, titulo, data_evento, relatorio_status')
                         .eq('project_id', rpProjectId)
+                        .is('excluido_em', null)
                         .gte('data_evento', inicio)
                         .lt('data_evento', proximoMes)
                         .order('data_evento', { ascending: true }),
