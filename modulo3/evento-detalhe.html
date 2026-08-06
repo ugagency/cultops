@@ -384,9 +384,15 @@
                     <div class="form-group" style="margin-bottom:1.25rem;">
                         <label>Quantitativo de atividades</label>
                         <div id="rel-atividades-list" class="rel-dynamic-list"></div>
-                        <button type="button" class="btn-secondary" style="align-self:flex-start;margin-top:0.6rem;" onclick="addAtividadeLine()">
-                            <i data-lucide="plus" style="width:14px;"></i> Adicionar atividade
-                        </button>
+                        <div style="display:flex;gap:0.6rem;flex-wrap:wrap;margin-top:0.6rem;">
+                            <button type="button" class="btn-secondary" onclick="addAtividadeLine()">
+                                <i data-lucide="plus" style="width:14px;"></i> Adicionar atividade
+                            </button>
+                            <button type="button" class="btn-secondary" id="rel-preencher-atividades-btn" onclick="preencherAtividadesComDadosReais()">
+                                <i data-lucide="refresh-cw" style="width:14px;"></i> Preencher com dados reais
+                            </button>
+                        </div>
+                        <span class="hint">Puxa nome, data/hora e presença real das atividades cadastradas na aba "Atividades" — substitui as linhas atuais.</span>
                     </div>
 
                     <div class="form-group" style="margin-bottom:1.25rem;">

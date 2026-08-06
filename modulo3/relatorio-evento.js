@@ -84,6 +84,71 @@ function updateGerarBtnState() {
     btn.disabled = !(st === 'preenchido' || st === 'gerado');
 }
 
+// ── Quantitativo de atividades ────────────────────────────────
+// "Quantitativo de atividades" é texto livre há muito tempo (é o que o
+// modelo .docx da Animus espera: uma linha por atividade). Desde que
+// distribution_atividades existe como entidade real, com check-in de
+// verdade por atividade, esta função busca os dados REAIS (nome, data/hora,
+// presentes vs. cadastrados) e gera as linhas prontas — continuam sendo
+// texto livre editável depois, só a origem do preenchimento muda.
+//
+// Não força a relação: se o evento não tem nenhuma distribution_atividades
+// cadastrada (ainda é o caso normal para a maioria dos eventos, que usam
+// atividade única implícita), a lista de texto livre continua 100% manual,
+// exatamente como sempre foi.
+async function preencherAtividadesComDadosReais() {
+    const btn = document.getElementById('rel-preencher-atividades-btn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:14px;"></i> Buscando…'; reIcons(); }
+
+    try {
+        const atividades = await getAtividadesByEvento(eventId);
+        if (!atividades.length) {
+            showToast('Nenhuma atividade cadastrada para este evento — cadastre na aba "Atividades" antes de preencher automaticamente.', 'error');
+            return;
+        }
+
+        if (atividadesLines.some(l => l.trim()) &&
+            !confirm('Isso substitui as linhas atuais pelos dados reais das atividades cadastradas. Continuar?')) {
+            return;
+        }
+
+        const guests = await getConvidadosByEvento(eventId);
+        const ordenadas = [...atividades].sort((a, b) =>
+            (a.data_hora || '9999') < (b.data_hora || '9999') ? -1 : 1);
+
+        const linhas = ordenadas.map(a => {
+            const doGrupo   = guests.filter(g => g.atividade_id === a.id);
+            const presentes = doGrupo.filter(g => g.checkin_em).length;
+            const quando    = a.data_hora ? ' (' + fmtDataHoraAtividade(a.data_hora) + ')' : '';
+            return `${a.nome}${quando} — ${presentes} presente(s) de ${doGrupo.length} convidado(s)`;
+        });
+
+        const semAtividade = guests.filter(g => !g.atividade_id);
+        if (semAtividade.length) {
+            const presentes = semAtividade.filter(g => g.checkin_em).length;
+            linhas.push(`Sem atividade definida — ${presentes} presente(s) de ${semAtividade.length} convidado(s)`);
+        }
+
+        atividadesLines = linhas;
+        renderAtividadesList();
+        showToast('Quantitativo preenchido com os dados reais das atividades.');
+    } catch (err) {
+        console.error(err);
+        showToast('Erro ao buscar dados das atividades: ' + (err.message || ''), 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="refresh-cw" style="width:14px;"></i> Preencher com dados reais'; reIcons(); }
+    }
+}
+
+function fmtDataHoraAtividade(dh) {
+    if (!dh) return '';
+    try {
+        return new Date(dh).toLocaleString('pt-BR', {
+            day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+        });
+    } catch { return dh; }
+}
+
 // ── Quantitativo de atividades (lista dinâmica de linhas de texto) ──
 function renderAtividadesList() {
     const wrap = document.getElementById('rel-atividades-list');
