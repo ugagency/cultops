@@ -237,6 +237,9 @@ const state = {
     catalogo_rubricas: [],
     currentDocument: null,
     loading: false,
+    // Troca de senha obrigatória do primeiro acesso: distingue este fluxo do
+    // de recuperação por e-mail, que compartilha a mesma UpdatePasswordView.
+    forcarTrocaSenha: false,
     rubricas: [],
     filters: createFilters(),
     all_solicitantes: [],
@@ -647,10 +650,14 @@ const UpdatePasswordView = () => `
     <div class="card login-card">
         <div style="text-align: center; margin-bottom: 2rem;">
             <img src="PAI-Logo-Azul.png" alt="Prestaí" style="height:48px;width:auto;margin-bottom:0.75rem;">
-            <h3 class="h2">Nova Senha</h3>
-            <p style="color: var(--text-muted); font-size: 0.875rem; margin-top: 0.5rem;">Defina sua nova senha de acesso</p>
+            <h3 class="h2">${state.forcarTrocaSenha ? 'Defina sua senha' : 'Nova Senha'}</h3>
+            <p style="color: var(--text-muted); font-size: 0.875rem; margin-top: 0.5rem;">
+                ${state.forcarTrocaSenha
+        ? 'Sua conta foi criada com uma senha provisória. Escolha uma senha pessoal para continuar.'
+        : 'Defina sua nova senha de acesso'}
+            </p>
         </div>
-        
+
         <form onsubmit="event.preventDefault(); window.handleUpdatePassword();">
             <div class="form-group">
                 <label for="new-password">Nova Senha</label>
@@ -663,7 +670,7 @@ const UpdatePasswordView = () => `
             </div>
             
             <button class="btn btn-primary" id="update-btn" style="width: 100%;" ${state.loading ? 'disabled' : ''}>
-                ${state.loading ? 'Atualizando...' : 'Redefinir Senha'}
+                ${state.loading ? 'Atualizando...' : (state.forcarTrocaSenha ? 'Definir senha e entrar' : 'Redefinir Senha')}
             </button>
         </form>
     </div>
@@ -2829,6 +2836,14 @@ window.handleLogin = async function () {
         state.userStatus = getUserRole() || 'gestor';
         await syncOrgMetadata();
 
+        // Conta criada por terceiro (admin/suporte) nunca definiu a própria
+        // senha: tranca no formulário de nova senha antes de qualquer tela.
+        if (state.user?.app_metadata?.must_change_password === true) {
+            state.forcarTrocaSenha = true;
+            state.currentView = 'update_password';
+            return;
+        }
+
         // Todos os perfis (inclusive operador) passam pelo seletor de módulos,
         // que decide o destino: operador é redirecionado ao M3 automaticamente.
         window.location.href = 'module-selector.html';
@@ -2982,6 +2997,25 @@ window.handleUpdatePassword = async function () {
     try {
         const { error } = await supabaseClient.auth.updateUser({ password });
         if (error) throw error;
+
+        // Primeiro acesso: a sessão já está válida, então em vez de mandar
+        // logar de novo derruba a flag e segue direto para o seletor.
+        if (state.forcarTrocaSenha) {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            const resp = await fetch('/api/auth/senha-trocada', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${session.access_token}` }
+            });
+            if (!resp.ok) {
+                throw new Error('Senha alterada, mas a liberação do acesso falhou. Faça login novamente.');
+            }
+            // O app_metadata novo só entra no JWT quando a sessão é renovada;
+            // sem isso os guards do seletor/M2/M3 ainda leriam a flag antiga.
+            await supabaseClient.auth.refreshSession();
+            state.forcarTrocaSenha = false;
+            window.location.href = 'module-selector.html';
+            return;
+        }
 
         showToast("Senha redefinida com sucesso! Faça login agora.", 'success');
         setTimeout(() => window.navigate('login'), 3000);
@@ -6593,6 +6627,16 @@ async function init() {
             state.user = session.user;
             const role = getUserRole();
             state.userStatus = role || 'gestor';
+
+            // Antes de qualquer roteamento por role: os guards do seletor, do M2
+            // e do M3 mandam para cá quem ainda deve a troca de senha, então
+            // esta checagem precisa vir antes de qualquer redirect de volta.
+            if (session.user?.app_metadata?.must_change_password === true) {
+                state.forcarTrocaSenha = true;
+                state.currentView = 'update_password';
+                render();
+                return;
+            }
 
             // Carregar dados iniciais baseados na role, ignorando isSolicitanteMode da URL se logado
             if (role === 'fornecedor') {

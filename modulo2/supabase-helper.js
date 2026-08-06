@@ -80,6 +80,13 @@ async function verificarAcessoM2() {
         return false;
     }
 
+    // Troca de senha obrigatória do primeiro acesso — o M1 tranca na tela de
+    // nova senha; sem este guard o M2 seria acessível por link direto.
+    if (session.user?.app_metadata?.must_change_password === true) {
+        window.location.href = '../index.html';
+        return false;
+    }
+
     const role = session.user?.app_metadata?.role || session.user?.user_metadata?.role;
     const rolesPermitidasM2 = ['admin', 'gestor', 'analista'];
 

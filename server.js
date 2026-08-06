@@ -453,7 +453,7 @@ app.post('/api/gestor/criar-analista',
                 password,
                 email_confirm: true,
                 user_metadata: { role, nome: nome || null, org_id: orgId },
-                app_metadata:  { role, org_id: orgId }
+                app_metadata:  { role, org_id: orgId, must_change_password: true }
             });
             if (createErr) throw createErr;
 
@@ -513,6 +513,29 @@ app.post('/api/auth/sync-org-metadata',
             res.json({ ok: true, org_id: orgUser.organization_id });
         } catch (err) {
             console.error('[SYNC-ORG]', err);
+            res.status(500).json({ error: err.message });
+        }
+    }
+);
+
+// --- Libera a conta após a troca de senha obrigatória do primeiro acesso ---
+// A senha em si é trocada pelo client (auth.updateUser); aqui só se derruba a
+// flag, que vive em app_metadata e por isso é gravável apenas com service role.
+// Sem endpoint próprio o usuário trocaria a senha e continuaria preso na tela.
+app.post('/api/auth/senha-trocada',
+    requireAuth,
+    async (req, res) => {
+        try {
+            const { error } = await supabase.auth.admin.updateUserById(req.user.id, {
+                app_metadata: {
+                    ...(req.user.app_metadata || {}),
+                    must_change_password: false
+                }
+            });
+            if (error) throw error;
+            res.json({ ok: true });
+        } catch (err) {
+            console.error('[SENHA-TROCADA]', err);
             res.status(500).json({ error: err.message });
         }
     }
@@ -2207,7 +2230,7 @@ app.post('/api/admin/usuarios/operador', requireAuth, async (req, res) => {
         const { data: newUser, error } = await supabase.auth.admin.createUser({
             email,
             email_confirm: true,
-            app_metadata:  { role: 'operador', org_id: orgId },
+            app_metadata:  { role: 'operador', org_id: orgId, must_change_password: true },
             user_metadata: { full_name: nome, role: 'operador', org_id: orgId },
         });
         if (error) throw error;
@@ -2298,7 +2321,7 @@ app.post('/api/plataforma/organizacoes', requireAuth, requirePlatformAdmin, asyn
             password: admin_senha,
             email_confirm: true,
             user_metadata: { role: 'admin', nome: admin_nome || null, org_id: orgId },
-            app_metadata:  { role: 'admin', org_id: orgId }
+            app_metadata:  { role: 'admin', org_id: orgId, must_change_password: true }
         });
         if (createErr) throw createErr;
 

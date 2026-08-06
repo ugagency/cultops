@@ -379,6 +379,13 @@
                     return;
                 }
 
+                // Troca de senha obrigatória do primeiro acesso: o M1 tranca na
+                // tela de nova senha assim que a sessão é lida no init().
+                if (session.data.session.user?.app_metadata?.must_change_password === true) {
+                    window.location.href = 'index.html';
+                    return;
+                }
+
                 // Redirect imediato para operadores — não mostrar o selector
                 const _role = session.data.session.user?.app_metadata?.role
                            || session.data.session.user?.user_metadata?.role;
