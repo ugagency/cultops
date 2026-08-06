@@ -672,6 +672,16 @@ const UpdatePasswordView = () => `
             <button class="btn btn-primary" id="update-btn" style="width: 100%;" ${state.loading ? 'disabled' : ''}>
                 ${state.loading ? 'Atualizando...' : (state.forcarTrocaSenha ? 'Definir senha e entrar' : 'Redefinir Senha')}
             </button>
+
+            ${state.forcarTrocaSenha ? `
+            <!-- Saída para quem entrou na conta errada: sem isto a troca
+                 obrigatória é um beco sem saída. type="button" para não
+                 submeter o form. No fluxo de recuperação por e-mail não
+                 aparece — lá a pessoa já escolheu trocar a senha. -->
+            <button type="button" class="btn btn-secondary" style="width: 100%; margin-top: 0.75rem;"
+                onclick="window.handleLogout()">
+                Sair
+            </button>` : ''}
         </form>
     </div>
 </div>
@@ -2952,6 +2962,10 @@ window.handleLogout = async function () {
     await supabaseClient.auth.signOut();
     state.user = null;
     state.userStatus = null;
+    // Sem isto a flag sobrevive ao logout: quem sai da troca obrigatória e
+    // depois pede "esqueci minha senha" na mesma aba veria a tela com o texto
+    // de primeiro acesso e o botão Sair, que ali não fazem sentido.
+    state.forcarTrocaSenha = false;
     window.navigate(wasFornecedor ? 'solicitante_login' : 'login');
 };
 

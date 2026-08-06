@@ -332,7 +332,65 @@ app.post('/api/salic/inserir', async (req, res) => {
 
 // --- Endpoints de gestão de usuários (S1-B) ---
 
-const ROLES_VALIDOS = ['analista', 'gestor', 'fornecedor', 'operador'];
+const ROLES_VALIDOS = ['admin', 'analista', 'gestor', 'fornecedor', 'operador'];
+
+// Quem pode ATRIBUIR cada perfil a uma conta que já existe. Propositalmente
+// separado de ROLES_CRIAVEIS_POR (perto de /criar-analista): criar uma conta
+// implica definir a senha dela, então deixar um gestor criar admin seria
+// escalar o próprio privilégio — bastaria logar na conta nova. Atribuir perfil
+// a conta existente não entrega senha nenhuma, então o gestor pode mexer nos
+// perfis operacionais. Unificar as duas matrizes também sumiria com
+// 'fornecedor', que existe aqui e não faz sentido na criação de equipe.
+const ROLES_ATRIBUIVEIS_POR = {
+    admin:  ['admin', 'gestor', 'analista', 'operador', 'fornecedor'],
+    gestor: ['analista', 'operador', 'fornecedor']
+};
+
+// Guardas comuns a mexer em OUTRO usuário da equipe (alterar perfil, revogar,
+// excluir). Devolve { status, error } quando barra, ou { ok: true, ... }.
+async function guardasAlvo(req, targetUserId, { exigirNaoUltimoAdmin } = {}) {
+    if (req.user.id === targetUserId) {
+        return { status: 400, error: 'Não é possível fazer isso na sua própria conta.' };
+    }
+
+    const orgId = req.user.app_metadata?.org_id;
+    if (!orgId) {
+        return { status: 400, error: 'org_id ausente. Faça logout e login novamente.' };
+    }
+
+    // Filtra por org junto com user_id: sem isso, quem pertence a duas orgs
+    // faz o maybeSingle() estourar PGRST116 em vez de responder direito.
+    const { data: vinculo, error: vincErr } = await supabase
+        .from('organization_users')
+        .select('organization_id, role')
+        .eq('user_id', targetUserId)
+        .eq('organization_id', orgId)
+        .maybeSingle();
+    if (vincErr) throw vincErr;
+    if (!vinculo) {
+        return { status: 403, error: 'Usuário não pertence à sua organização.' };
+    }
+
+    const { data: alvo, error: alvoErr } = await supabase.auth.admin.getUserById(targetUserId);
+    if (alvoErr || !alvo?.user) {
+        return { status: 404, error: 'Usuário alvo não encontrado.' };
+    }
+    const roleAlvo = alvo.user.app_metadata?.role || alvo.user.user_metadata?.role || null;
+
+    if (exigirNaoUltimoAdmin && roleAlvo === 'admin') {
+        const { data: qtd, error: contErr } = await supabase
+            .rpc('contar_admins_org', { p_org_id: orgId });
+        if (contErr) throw contErr;
+        if ((qtd ?? 0) <= 1) {
+            return {
+                status: 400,
+                error: 'Este é o último administrador da organização. Promova outro admin antes.'
+            };
+        }
+    }
+
+    return { ok: true, orgId, roleAlvo, alvo: alvo.user };
+}
 
 app.get('/api/gestor/usuarios',
     requireAuth, requireRole('gestor', 'admin'),
@@ -379,33 +437,37 @@ app.post('/api/gestor/set-role',
             return res.status(400).json({ error: 'Role inválido.' });
         }
 
-        const callerOrgId = req.user.app_metadata?.org_id;
-        if (!callerOrgId) {
-            return res.status(400).json({ error: 'org_id ausente. Faça logout e login novamente.' });
+        const permitidos = ROLES_ATRIBUIVEIS_POR[req.userRole] || [];
+        if (!permitidos.includes(role)) {
+            return res.status(403).json({
+                error: `Seu perfil não pode atribuir "${role}". Permitidos: ${permitidos.join(', ')}.`
+            });
         }
 
         try {
-            const { data: targetOrgUser, error: orgErr } = await supabase
-                .from('organization_users')
-                .select('organization_id')
-                .eq('user_id', targetUserId)
-                .maybeSingle();
-            if (orgErr) throw orgErr;
+            // Promover para admin não tira admin de ninguém; só o rebaixamento
+            // pode deixar a organização sem nenhum administrador.
+            const guarda = await guardasAlvo(req, targetUserId, {
+                exigirNaoUltimoAdmin: role !== 'admin'
+            });
+            if (!guarda.ok) return res.status(guarda.status).json({ error: guarda.error });
 
-            if (!targetOrgUser || targetOrgUser.organization_id !== callerOrgId) {
-                return res.status(403).json({ error: 'Usuário não pertence à sua organização.' });
-            }
-
-            const { data: before, error: getErr } = await supabase.auth.admin.getUserById(targetUserId);
-            if (getErr || !before?.user) return res.status(404).json({ error: 'Usuário alvo não encontrado.' });
-
-            const roleAnterior = before.user.app_metadata?.role || before.user.user_metadata?.role || null;
+            const { orgId: callerOrgId, roleAlvo: roleAnterior, alvo } = guarda;
 
             const { error: updErr } = await supabase.auth.admin.updateUserById(targetUserId, {
-                app_metadata:  { ...(before.user.app_metadata  || {}), role, org_id: callerOrgId },
-                user_metadata: { ...(before.user.user_metadata || {}), role, org_id: callerOrgId }
+                app_metadata:  { ...(alvo.app_metadata  || {}), role, org_id: callerOrgId },
+                user_metadata: { ...(alvo.user_metadata || {}), role, org_id: callerOrgId }
             });
             if (updErr) throw updErr;
+
+            // Historicamente só o auth era atualizado, o que fez app_metadata.role
+            // e organization_users.role divergirem em produção. Mantém os dois em dia.
+            const { error: syncErr } = await supabase
+                .from('organization_users')
+                .update({ role })
+                .eq('user_id', targetUserId)
+                .eq('organization_id', callerOrgId);
+            if (syncErr) throw syncErr;
 
             await supabase.from('audit_log').insert({
                 tabela: 'auth.users',
@@ -420,6 +482,130 @@ app.post('/api/gestor/set-role',
             res.json({ ok: true });
         } catch (err) {
             console.error('[GESTOR] set-role:', err);
+            res.status(500).json({ error: err.message });
+        }
+    }
+);
+
+// DELETE /api/gestor/usuarios/:userId
+// Exclusão de verdade, permitida SÓ para conta sem nenhum dado vinculado — o
+// caso "conta criada errada". Com dados, apagar seria destrutivo: documents,
+// projects e extratos saem por CASCATA, e contracts/physical_evidences e cia
+// são RESTRICT e fariam o delete falhar com erro cru de FK. Nesse caso o
+// endpoint recusa com 409 e a UI oferece revogar o acesso, que preserva tudo.
+app.delete('/api/gestor/usuarios/:userId',
+    requireAuth, requireRole('admin'),
+    async (req, res) => {
+        const { userId } = req.params;
+        if (!userId) return res.status(400).json({ error: 'userId é obrigatório.' });
+
+        try {
+            const guarda = await guardasAlvo(req, userId, { exigirNaoUltimoAdmin: true });
+            if (!guarda.ok) return res.status(guarda.status).json({ error: guarda.error });
+
+            const { data: vinculos, error: vincErr } = await supabase
+                .rpc('usuario_vinculos', { p_user_id: userId });
+            if (vincErr) throw vincErr;
+
+            if (vinculos && Object.keys(vinculos).length > 0) {
+                return res.status(409).json({
+                    error: 'Este usuário tem dados vinculados e não pode ser excluído sem perdê-los.',
+                    vinculos
+                });
+            }
+
+            // Só o deleteUser: organization_users.user_id é ON DELETE CASCADE,
+            // então a linha de vínculo sai junto — apagá-la antes seria
+            // redundante e criaria necessidade de rollback à toa.
+            const { error: delErr } = await supabase.auth.admin.deleteUser(userId);
+            if (delErr) {
+                // Corrida: algo passou a apontar para o usuário entre a
+                // checagem acima e o delete.
+                if (/23503|foreign key/i.test(delErr.message || '')) {
+                    return res.status(409).json({
+                        error: 'O usuário passou a ter dados vinculados. Use "revogar acesso".'
+                    });
+                }
+                throw delErr;
+            }
+
+            await supabase.from('audit_log').insert({
+                tabela: 'auth.users',
+                registro_id: userId,
+                campo: 'exclusao',
+                valor_anterior: guarda.roleAlvo,
+                valor_novo: null,
+                alterado_por: req.user.id,
+                origem: 'gestor_ui'
+            });
+
+            res.json({ sucesso: true });
+        } catch (err) {
+            console.error('[GESTOR] excluir usuario:', err);
+            res.status(500).json({ error: err.message });
+        }
+    }
+);
+
+// POST /api/gestor/usuarios/:userId/revogar
+// Alternativa não destrutiva à exclusão: a pessoa deixa de acessar, mas tudo
+// que ela lançou continua no lugar e atribuído a ela.
+app.post('/api/gestor/usuarios/:userId/revogar',
+    requireAuth, requireRole('admin'),
+    async (req, res) => {
+        const { userId } = req.params;
+        if (!userId) return res.status(400).json({ error: 'userId é obrigatório.' });
+
+        try {
+            const guarda = await guardasAlvo(req, userId, { exigirNaoUltimoAdmin: true });
+            if (!guarda.ok) return res.status(guarda.status).json({ error: guarda.error });
+
+            const { orgId, alvo } = guarda;
+
+            // Metadata PRIMEIRO, vínculo depois: current_user_org_id() lê o
+            // org_id do JWT, então apagar a linha antes e falhar aqui deixaria
+            // a pessoa ainda enxergando dados da org via RLS.
+            // role/org_id vão como null explícito — updateUserById faz merge,
+            // omitir a chave não apagaria nada.
+            // ban_duration porque limpar o metadata não invalida o access token
+            // já emitido: sem o ban, a sessão aberta continuaria valendo até
+            // expirar (~1h). Reverter é ban_duration: 'none'.
+            const { error: updErr } = await supabase.auth.admin.updateUserById(userId, {
+                app_metadata:  { ...(alvo.app_metadata  || {}), role: null, org_id: null },
+                user_metadata: { ...(alvo.user_metadata || {}), role: null, org_id: null },
+                ban_duration: '876000h'
+            });
+            if (updErr) throw updErr;
+
+            const { error: delErr } = await supabase
+                .from('organization_users')
+                .delete()
+                .eq('user_id', userId)
+                .eq('organization_id', orgId);
+            if (delErr) {
+                // Devolve o metadata ao estado anterior para não deixar a conta
+                // num limbo (sem perfil, mas ainda vinculada à organização).
+                await supabase.auth.admin.updateUserById(userId, {
+                    app_metadata:  alvo.app_metadata  || {},
+                    user_metadata: alvo.user_metadata || {},
+                    ban_duration: 'none'
+                }).catch(() => {});
+                throw delErr;
+            }
+
+            await supabase.from('audit_log').insert({
+                tabela: 'auth.users',
+                registro_id: userId,
+                campo: 'acesso_revogado',
+                valor_anterior: guarda.roleAlvo,
+                valor_novo: null,
+                alterado_por: req.user.id,
+                origem: 'gestor_ui'
+            });
+
+            res.json({ sucesso: true });
+        } catch (err) {
+            console.error('[GESTOR] revogar acesso:', err);
             res.status(500).json({ error: err.message });
         }
     }

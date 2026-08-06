@@ -185,6 +185,24 @@
 
         let equipe = [];
         let meuRole = null;
+        let meuUserId = null;
+
+        // Espelha ROLES_ATRIBUIVEIS_POR do servidor. Separado de PERFIS_CRIAVEIS
+        // de propósito — ver o comentário das duas matrizes no server.js.
+        const PERFIS_ATRIBUIVEIS = {
+            admin: [
+                ['admin',      'Administrador'],
+                ['gestor',     'Gestor'],
+                ['analista',   'Analista'],
+                ['operador',   'Operador (campo — Módulo III)'],
+                ['fornecedor', 'Fornecedor']
+            ],
+            gestor: [
+                ['analista',   'Analista'],
+                ['operador',   'Operador (campo — Módulo III)'],
+                ['fornecedor', 'Fornecedor']
+            ]
+        };
 
         // Espelha ROLES_CRIAVEIS_POR do servidor — aqui é só para não oferecer
         // uma opção que o backend vai recusar; a barreira real é lá.
@@ -218,6 +236,7 @@
                 return;
             }
             meuRole = role;
+            meuUserId = session.user?.id || null;
 
             await fetchEquipe();
         });
@@ -258,7 +277,17 @@
                         </tr>
                     </thead>
                     <tbody>
-                        ${equipe.map(u => `
+                        ${equipe.map(u => {
+        const emailEsc = (u.email || '').replace(/'/g, "\\'");
+        const souEu = u.id === meuUserId;
+        // Só oferece "Alterar Perfil" se o perfil ATUAL do alvo estiver entre
+        // os que eu posso atribuir. Sem isso, um gestor abrindo o modal de um
+        // admin veria o select cair na primeira opção (o valor 'admin' não
+        // existe na lista dele) e confirmar rebaixaria a pessoa sem querer.
+        const podeAlterar = !souEu &&
+            (PERFIS_ATRIBUIVEIS[meuRole] || []).some(([valor]) => valor === (u.role || ''));
+        const podeExcluir = meuRole === 'admin' && !souEu;
+        return `
                             <tr>
                                 <td>${u.email || '---'}</td>
                                 <td>
@@ -267,14 +296,22 @@
                                     </span>
                                 </td>
                                 <td>${u.created_at ? new Date(u.created_at).toLocaleDateString('pt-BR') : '---'}</td>
-                                <td style="text-align: right;">
-                                    <button class="btn btn-secondary" onclick="openEquipeRoleModal('${u.id}', '${u.role || ''}', '${(u.email || '').replace(/'/g, "\\'")}')">
+                                <td style="text-align: right; white-space: nowrap;">
+                                    ${podeAlterar ? `
+                                    <button class="btn btn-secondary" onclick="openEquipeRoleModal('${u.id}', '${u.role || ''}', '${emailEsc}')">
                                         <i data-lucide="shield" style="width: 14px;"></i>
                                         Alterar Perfil
-                                    </button>
+                                    </button>` : ''}
+                                    ${podeExcluir ? `
+                                    <button class="btn btn-secondary" title="Excluir usuário" style="padding: 0.5rem;"
+                                        onclick="handleExcluirUsuario('${u.id}', '${emailEsc}')">
+                                        <i data-lucide="trash-2" style="width: 14px; color: var(--error);"></i>
+                                    </button>` : ''}
+                                    ${!podeAlterar && !podeExcluir ? '<span class="text-xs" style="color: var(--text-muted);">—</span>' : ''}
                                 </td>
                             </tr>
-                        `).join('')}
+                        `;
+    }).join('')}
                     </tbody>
                 </table>
             `;
@@ -282,8 +319,12 @@
         }
 
         function openEquipeRoleModal(userId, currentRole, email) {
+            const sel = document.getElementById('equipe-modal-role');
+            sel.innerHTML = (PERFIS_ATRIBUIVEIS[meuRole] || [])
+                .map(([valor, rotulo]) => `<option value="${valor}">${rotulo}</option>`)
+                .join('');
             document.getElementById('equipe-modal-target').value = userId;
-            document.getElementById('equipe-modal-role').value = currentRole || 'analista';
+            sel.value = currentRole || 'analista';
             document.getElementById('equipe-modal-email').textContent = email || '—';
             document.getElementById('modal-equipe-role').style.display = 'flex';
         }
@@ -316,6 +357,80 @@
                 await fetchEquipe();
             } catch (err) {
                 showToast(err.message, 'error');
+            }
+        }
+
+        // Rótulos das colunas técnicas devolvidas por usuario_vinculos, para a
+        // mensagem não ficar em "nome de tabela.coluna".
+        const VINCULO_LABELS = {
+            'documents.user_id': 'notas fiscais',
+            'projects.user_id': 'projetos',
+            'extratos.user_id': 'extratos bancários',
+            'contracts.criado_por': 'contratos criados',
+            'contracts.excluido_por': 'contratos excluídos',
+            'contract_aditivos.criado_por': 'aditivos de contrato',
+            'physical_evidences.enviado_por': 'evidências enviadas',
+            'physical_evidences.validado_por': 'evidências validadas',
+            'projeto_fornecedores.gestor_id': 'vínculos com fornecedores',
+            'exportacoes_log.gerado_por': 'exportações geradas',
+            'rubricas_uploads.user_id': 'uploads de rubricas',
+            'external_credentials.user_id': 'credenciais externas',
+            'distribution_events.created_by': 'eventos criados',
+            'relatorio_prestacao_contas.gerado_por': 'relatórios gerados'
+        };
+
+        async function handleExcluirUsuario(userId, email) {
+            if (!confirm(`Confirma a exclusão do acesso de ${email}? Essa ação não pode ser desfeita.`)) return;
+
+            try {
+                const sb = await initSupabase();
+                const { data: { session } } = await sb.auth.getSession();
+                const resp = await fetch('/api/gestor/usuarios/' + userId, {
+                    method: 'DELETE',
+                    headers: { Authorization: `Bearer ${session.access_token}` }
+                });
+                const json = await resp.json().catch(() => ({}));
+
+                // 409 = a conta tem dados. Excluir apagaria notas/projetos por
+                // cascata, então o servidor recusa e oferecemos revogar acesso.
+                if (resp.status === 409 && json.vinculos) {
+                    const lista = Object.entries(json.vinculos)
+                        .map(([chave, qtd]) => `• ${qtd}${qtd > 500 ? '+' : ''} ${VINCULO_LABELS[chave] || chave}`)
+                        .join('\n');
+                    const revogar = confirm(
+                        `${email} não pode ser excluído porque tem dados vinculados:\n\n${lista}\n\n` +
+                        `Excluir apagaria esses registros da prestação de contas.\n\n` +
+                        `Deseja REVOGAR O ACESSO? A pessoa deixa de entrar no sistema, ` +
+                        `mas tudo que ela lançou continua no lugar.`
+                    );
+                    if (revogar) await revogarAcessoUsuario(userId, email);
+                    return;
+                }
+
+                if (!resp.ok) throw new Error(json.error || 'Erro desconhecido');
+
+                showToast('Usuário excluído.', 'success');
+                await fetchEquipe();
+            } catch (err) {
+                showToast('Erro ao excluir: ' + err.message, 'error');
+            }
+        }
+
+        async function revogarAcessoUsuario(userId, email) {
+            try {
+                const sb = await initSupabase();
+                const { data: { session } } = await sb.auth.getSession();
+                const resp = await fetch(`/api/gestor/usuarios/${userId}/revogar`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${session.access_token}` }
+                });
+                const json = await resp.json().catch(() => ({}));
+                if (!resp.ok) throw new Error(json.error || 'Erro desconhecido');
+
+                showToast(`Acesso de ${email} revogado. Os dados foram preservados.`, 'success');
+                await fetchEquipe();
+            } catch (err) {
+                showToast('Erro ao revogar acesso: ' + err.message, 'error');
             }
         }
 
