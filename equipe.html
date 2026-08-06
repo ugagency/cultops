@@ -119,6 +119,9 @@
             <form onsubmit="event.preventDefault(); handleCriarAnalista();">
                 <div class="form-group mb-4">
                     <label for="criar-analista-perfil">Perfil</label>
+                    <!-- Admin e Gestor só entram aqui para quem é admin; ver
+                         openCriarAnalistaModal() e a regra equivalente no
+                         servidor, que é quem de fato barra. -->
                     <select id="criar-analista-perfil">
                         <option value="analista">Analista — opera os Módulos I e II</option>
                         <option value="operador">Operador — campo (Módulo III)</option>
@@ -143,7 +146,7 @@
                 <div style="padding: 0.75rem; background: var(--bg-sidebar); border-radius: var(--radius-sm); margin-bottom: 1.5rem; display: flex; gap: 0.5rem; align-items: flex-start;">
                     <i data-lucide="info" style="width: 16px; flex-shrink: 0; margin-top: 2px;"></i>
                     <p class="text-xs" style="color: var(--text-secondary); line-height: 1.5;">
-                        O usuário será criado já vinculado à sua organização. O <strong>Operador</strong> acessa apenas o Módulo III (execução em campo). Compartilhe a senha provisória de forma segura — o usuário poderá trocá-la depois.
+                        O usuário será criado já vinculado à sua organização. O <strong>Operador</strong> acessa apenas o Módulo III (execução em campo). Compartilhe a senha provisória de forma segura — ela é de uso único: o usuário terá que definir a senha dele no primeiro acesso.
                     </p>
                 </div>
 
@@ -181,6 +184,22 @@
         }
 
         let equipe = [];
+        let meuRole = null;
+
+        // Espelha ROLES_CRIAVEIS_POR do servidor — aqui é só para não oferecer
+        // uma opção que o backend vai recusar; a barreira real é lá.
+        const PERFIS_CRIAVEIS = {
+            admin: [
+                ['admin',    'Administrador — acesso total da organização'],
+                ['gestor',   'Gestor — gerencia equipe e projetos'],
+                ['analista', 'Analista — opera os Módulos I e II'],
+                ['operador', 'Operador — campo (Módulo III)']
+            ],
+            gestor: [
+                ['analista', 'Analista — opera os Módulos I e II'],
+                ['operador', 'Operador — campo (Módulo III)']
+            ]
+        };
 
         document.addEventListener('DOMContentLoaded', async () => {
             if (window.lucide) window.lucide.createIcons();
@@ -198,6 +217,7 @@
                 window.location.href = 'module-selector.html';
                 return;
             }
+            meuRole = role;
 
             await fetchEquipe();
         });
@@ -300,7 +320,12 @@
         }
 
         function openCriarAnalistaModal() {
-            document.getElementById('criar-analista-perfil').value = 'analista';
+            const sel = document.getElementById('criar-analista-perfil');
+            const opcoes = PERFIS_CRIAVEIS[meuRole] || PERFIS_CRIAVEIS.gestor;
+            sel.innerHTML = opcoes
+                .map(([valor, rotulo]) => `<option value="${valor}">${rotulo}</option>`)
+                .join('');
+            sel.value = 'analista';
             document.getElementById('criar-analista-nome').value = '';
             document.getElementById('criar-analista-email').value = '';
             document.getElementById('criar-analista-senha').value = '';

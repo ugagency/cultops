@@ -426,14 +426,25 @@ app.post('/api/gestor/set-role',
 );
 
 // POST /api/gestor/criar-analista (S1-C)
-// Cria um usuário operacional (analista ou operador), já vinculado à org de quem chama.
+// Cria um usuário da equipe, já vinculado à org de quem chama.
+// Quem cria define a senha provisória e portanto a conhece: deixar um gestor
+// criar admin/gestor seria escalar o próprio privilégio (bastaria logar na
+// conta recém-criada). Por isso perfis de nível admin/gestor só podem ser
+// criados por admin — gestor segue limitado a analista e operador.
+const ROLES_CRIAVEIS_POR = {
+    admin:  ['admin', 'gestor', 'analista', 'operador'],
+    gestor: ['analista', 'operador']
+};
 app.post('/api/gestor/criar-analista',
     requireAuth, requireRole('gestor', 'admin'),
     async (req, res) => {
         const { email, password, nome } = req.body || {};
         const role = req.body?.role || 'analista';
-        if (!['analista', 'operador'].includes(role)) {
-            return res.status(400).json({ error: 'Role inválido. Use analista ou operador.' });
+        const permitidos = ROLES_CRIAVEIS_POR[req.userRole] || [];
+        if (!permitidos.includes(role)) {
+            return res.status(403).json({
+                error: `Seu perfil não pode criar usuários "${role}". Permitidos: ${permitidos.join(', ')}.`
+            });
         }
         if (!email || !password) {
             return res.status(400).json({ error: 'email e password são obrigatórios.' });
