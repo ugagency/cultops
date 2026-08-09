@@ -282,6 +282,13 @@
         </header>
 
         <div class="glass-card mb-4" id="contratos-filtros">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.8rem; padding-bottom:0.8rem; border-bottom:1px solid var(--border-light);">
+                <span style="font-size:0.85rem; color:var(--text-secondary);">
+                    Total contratado no projeto
+                    <span style="font-size:0.72rem; color:var(--text-muted);">(valor contratual, pais + anexos — não é execução financeira)</span>
+                </span>
+                <strong id="contratos-total-geral" style="font-size:1.1rem; color:var(--m2-accent);">—</strong>
+            </div>
             <div style="display:flex; gap:0.8rem; flex-wrap:wrap; align-items:center;">
 
                 <input type="text" id="filter-contrato-busca"
@@ -371,9 +378,9 @@
                     </label>
                 </div>
 
-                <label>
-                    Fornecedor <span style="color:#FF5807;">*</span>
-                    <select id="c-fornecedor" required>
+                <label id="c-fornecedor-wrap">
+                    Fornecedor <span style="color: var(--text-muted); font-weight: 400; font-size: 0.75rem; text-transform: none; letter-spacing: normal;">— opcional</span>
+                    <select id="c-fornecedor">
                         <option value="">Carregando…</option>
                     </select>
                     <div id="fornecedor-ocr-banner" style="display:none; margin-top:0.5rem; padding:0.65rem 0.9rem; background:#FFF3CD; border:1px solid #FBBF24; border-radius:8px; font-size:0.82rem; align-items:center; gap:0.75rem; flex-wrap:wrap;">
@@ -381,6 +388,11 @@
                         <button type="button" onclick="criarFornecedorOcr()" style="white-space:nowrap; padding:0.3rem 0.75rem; background:var(--primary); color:white; border:none; border-radius:6px; cursor:pointer; font-size:0.82rem; font-weight:600;">+ Criar e vincular</button>
                     </div>
                 </label>
+                <!-- Contrato filho: fornecedor é sempre herdado do pai, campo
+                     vira informativo (ver atualizarFornecedorAnexo()). -->
+                <div id="c-fornecedor-herdado" style="display:none; padding:0.6rem 0.85rem; background:var(--bg-sidebar, #f8fafc); border:1px solid var(--border-light); border-radius:8px; font-size:0.85rem; color:var(--text-secondary);">
+                    Fornecedor (herdado do contrato pai): <strong id="c-fornecedor-herdado-nome">—</strong>
+                </div>
 
                 <label>
                     Rubrica <span style="color:#FF5807;">*</span>
@@ -477,6 +489,11 @@
                     <input type="number" step="0.01" min="0" id="a-novo-valor">
                 </label>
 
+                <label>
+                    Documento do aditivo (PDF) <span style="color: var(--text-muted); font-weight: 400; font-size: 0.75rem; text-transform: none; letter-spacing: normal;">— opcional</span>
+                    <input type="file" id="a-arquivo" accept="application/pdf">
+                </label>
+
                 <div class="modal-actions">
                     <button type="button" class="btn-modal btn-modal-cancel" onclick="closeAditivoModal()">Cancelar</button>
                     <button type="submit" class="btn-modal btn-modal-primary" id="btn-salvar-aditivo">
@@ -494,6 +511,7 @@
         let currentProjectId = ProjectManager.getSelected();
         let contractsCache = [];
         let parcelasVencidasSet = new Set();
+        let somaAnexosPorPai = {};
         let expandedContractId = null;
         let anexosCache = {};
         let expandedAnexoId = null;
@@ -541,7 +559,7 @@
             if (!currentProjectId) return;
             const hoje = new Date().toISOString().split('T')[0];
 
-            const [contratosRes, vencidasRes] = await Promise.all([
+            const [contratosRes, vencidasRes, anexosValorRes] = await Promise.all([
                 sb.from('contracts')
                     .select('*, fornecedores(razao_social, cnpj), rubricas(nome, rubrica_id)')
                     .eq('project_id', currentProjectId)
@@ -552,7 +570,14 @@
                     .select('contract_id')
                     .eq('project_id', currentProjectId)
                     .eq('status', 'pendente')
-                    .lt('data_vencimento', hoje)
+                    .lt('data_vencimento', hoje),
+                // Valor CONTRATADO dos anexos (não execução financeira real) —
+                // somado ao valor do pai na renderização da linha e no KPI geral.
+                sb.from('contracts')
+                    .select('contrato_pai_id, valor_total')
+                    .eq('project_id', currentProjectId)
+                    .not('contrato_pai_id', 'is', null)
+                    .is('excluido_em', null)
             ]);
 
             if (contratosRes.error) {
@@ -563,8 +588,27 @@
 
             contractsCache = contratosRes.data || [];
             parcelasVencidasSet = new Set((vencidasRes.data || []).map(p => p.contract_id));
+
+            somaAnexosPorPai = {};
+            (anexosValorRes.data || []).forEach(a => {
+                somaAnexosPorPai[a.contrato_pai_id] =
+                    (somaAnexosPorPai[a.contrato_pai_id] || 0) + Number(a.valor_total || 0);
+            });
+            renderTotalContratadoGeral();
+
             popularFiltrosContratos();
             aplicarFiltrosContratos();
+        }
+
+        // Total contratado do projeto = valor de TODOS os contratos não
+        // excluídos, pais e anexos — não é execução financeira real (NFs
+        // pagas), é o valor contratual. contractsCache só tem os pais
+        // (is('contrato_pai_id', null)), então soma-se somaAnexosPorPai.
+        function renderTotalContratadoGeral() {
+            const somaAnexosTotal = Object.values(somaAnexosPorPai).reduce((s, v) => s + v, 0);
+            const somaPais = contractsCache.reduce((s, c) => s + Number(c.valor_total || 0), 0);
+            const el = document.getElementById('contratos-total-geral');
+            if (el) el.textContent = formatCurrency(somaPais + somaAnexosTotal);
         }
 
         // ─────────────────────────────────────────────────────────────
@@ -661,6 +705,14 @@
                 const isExpanded = expandedContractId === c.id;
                 const hasVencidas = parcelasVencidasSet.has(c.id);
                 const curStatus = c.status || 'ativo';
+                const somaAnexos = somaAnexosPorPai[c.id] || 0;
+                const valorCel = somaAnexos > 0
+                    ? `${formatCurrency(c.valor_total)}
+                       <div style="font-size:0.76rem; font-weight:500; color:var(--text-secondary); margin-top:0.15rem; line-height:1.4;">
+                           + ${formatCurrency(somaAnexos)} em anexos<br>
+                           <strong style="color:var(--m2-accent);">Total: ${formatCurrency(Number(c.valor_total || 0) + somaAnexos)}</strong>
+                       </div>`
+                    : formatCurrency(c.valor_total);
                 const actionBtns = curStatus === 'ativo'
                     ? `<button class="btn-status-action suspender" onclick="changeContratoStatus('${c.id}','suspenso',event)">Suspender</button><button class="btn-status-action encerrar" onclick="changeContratoStatus('${c.id}','encerrado',event)">Encerrar</button>`
                     : curStatus === 'suspenso'
@@ -673,7 +725,7 @@
                         <td>${escapeHtml(c.fornecedores ? c.fornecedores.razao_social : 'Não informado')}</td>
                         <td style="max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(c.objeto)}">${escapeHtml(c.objeto)}</td>
                         <td style="white-space: nowrap;">${formatDate(c.data_inicio)} → ${formatDate(c.data_fim)}</td>
-                        <td style="font-weight: 700; color: var(--m2-accent); white-space: nowrap;">${formatCurrency(c.valor_total)}</td>
+                        <td style="font-weight: 700; color: var(--m2-accent); white-space: nowrap;">${valorCel}</td>
                         <td onclick="event.stopPropagation()">
                             <span class="badge-m2 badge-${curStatus}">${curStatus}</span>
                             ${hasVencidas ? `<div style="margin-top:4px;"><span class="alert-pill alert-vencida">Parcela vencida</span></div>` : ''}
@@ -780,6 +832,7 @@
             if (arquivoAtualEl) arquivoAtualEl.style.display = 'none';
             await loadFornecedoresSelect();
             await loadRubricasSelect();
+            atualizarFornecedorAnexo(parentContractId);
             document.getElementById('modal-contrato').hidden = false;
             if (window.lucide) window.lucide.createIcons();
         }
@@ -822,6 +875,7 @@
             document.getElementById('c-fim').value = contrato.data_fim || '';
             document.getElementById('c-fornecedor').value = contrato.fornecedor_id || '';
             document.getElementById('c-rubrica').value = contrato.rubrica_id || '';
+            atualizarFornecedorAnexo(contrato.contrato_pai_id || null);
 
             // Arquivo é opcional na edição — se nenhum novo for selecionado,
             // mantém o arquivo_path já existente.
@@ -842,6 +896,26 @@
 
         function closeContratoModal() {
             document.getElementById('modal-contrato').hidden = true;
+        }
+
+        // Contrato filho (anexo) sempre herda o fornecedor do pai — não faz
+        // sentido perguntar de novo. Esconde o select e mostra um informativo
+        // com o nome; contrato raiz mantém o select normal (agora opcional).
+        function atualizarFornecedorAnexo(parentContractId) {
+            const wrapSelect  = document.getElementById('c-fornecedor-wrap');
+            const wrapHerdado = document.getElementById('c-fornecedor-herdado');
+            const nomeEl      = document.getElementById('c-fornecedor-herdado-nome');
+
+            if (!parentContractId) {
+                wrapSelect.style.display = '';
+                wrapHerdado.style.display = 'none';
+                return;
+            }
+
+            const pai = contractsCache.find(c => c.id === parentContractId);
+            wrapSelect.style.display = 'none';
+            wrapHerdado.style.display = '';
+            nomeEl.textContent = pai?.fornecedores?.razao_social || 'Não informado (contrato pai sem fornecedor)';
         }
 
         // ── OCR de Contratos ──────────────────────────────────────────────────
@@ -1075,12 +1149,14 @@
             const valorTotal = parseFloat(document.getElementById('c-valor').value);
             const inicio = document.getElementById('c-inicio').value;
             const fim = document.getElementById('c-fim').value;
-            const fornecedorId = document.getElementById('c-fornecedor').value || null;
+            let fornecedorId = document.getElementById('c-fornecedor').value || null;
             const rubricaId = document.getElementById('c-rubrica').value || null;
             const arquivo = document.getElementById('c-arquivo').files[0] || null;
             const contratoPaiId = document.getElementById('c-contrato-pai-id').value || null;
 
-            if (!numero || !objeto || !Number.isFinite(valorTotal) || valorTotal < 0 || !inicio || !fim || !fornecedorId || !rubricaId) {
+            // Fornecedor não é mais obrigatório (nem no contrato raiz, nem no
+            // anexo — que nunca pede seleção, sempre herda do pai abaixo).
+            if (!numero || !objeto || !Number.isFinite(valorTotal) || valorTotal < 0 || !inicio || !fim || !rubricaId) {
                 showToast('Preencha todos os campos obrigatórios.', 'error');
                 return;
             }
@@ -1104,7 +1180,7 @@
             if (contratoPaiId) {
                 const { data: parentCheck, error: parentErr } = await sb
                     .from('contracts')
-                    .select('contrato_pai_id')
+                    .select('contrato_pai_id, fornecedor_id')
                     .eq('id', contratoPaiId)
                     .maybeSingle();
                 if (parentErr) {
@@ -1115,6 +1191,9 @@
                     showToast('Não é possível criar um anexo de outro anexo (limite de 1 nível de hierarquia).', 'error');
                     return;
                 }
+                // Anexo sempre herda o fornecedor do pai — o campo nem aparece
+                // na tela para ele (ver atualizarFornecedorAnexo()).
+                fornecedorId = parentCheck ? (parentCheck.fornecedor_id || null) : null;
             }
 
             const btn = document.getElementById('btn-salvar-contrato');
@@ -1522,6 +1601,12 @@
                     <td>${escapeHtml(a.descricao || '—')}</td>
                     <td>${a.nova_data_fim ? formatDate(a.nova_data_fim) : '—'}</td>
                     <td class="num">${a.novo_valor != null ? formatCurrency(a.novo_valor) : '—'}</td>
+                    <td>${a.arquivo_path ? `
+                        <button class="btn-icon" title="Ver documento do aditivo"
+                            onclick="openContractFile('${a.arquivo_path.replace(/'/g, "\\'")}')">
+                            <i data-lucide="file-text" style="width:16px;"></i>
+                        </button>
+                    ` : '—'}</td>
                 </tr>
             `).join('');
 
@@ -1534,6 +1619,7 @@
                             <th>Descrição</th>
                             <th>Nova data fim</th>
                             <th class="num">Novo valor</th>
+                            <th>Documento</th>
                         </tr>
                     </thead>
                     <tbody>${rows}</tbody>
@@ -1721,6 +1807,7 @@
             const dataAditivo = document.getElementById('a-data').value;
             const novaDataFimRaw = document.getElementById('a-nova-data-fim').value;
             const novoValorRaw = document.getElementById('a-novo-valor').value;
+            const arquivo = document.getElementById('a-arquivo').files[0] || null;
 
             if (!tipo || !descricao || !dataAditivo) {
                 showToast('Preencha tipo, descrição e data do aditivo.', 'error');
@@ -1732,6 +1819,10 @@
             }
             if (tipo === 'valor' && (!novoValorRaw || parseFloat(novoValorRaw) <= 0)) {
                 showToast('Para alteração de valor, informe um novo valor maior que zero.', 'error');
+                return;
+            }
+            if (arquivo && arquivo.type !== 'application/pdf') {
+                showToast('O documento do aditivo deve ser PDF.', 'error');
                 return;
             }
 
@@ -1747,6 +1838,28 @@
                 const novaDataFim = novaDataFimRaw || null;
                 const novoValor = novoValorRaw ? parseFloat(novoValorRaw) : null;
 
+                // Upload ANTES do insert — mesmo bucket/padrão de path do
+                // arquivo do contrato (bucket 'contracts'). Opcional: aditivo
+                // sem documento segue registrando normalmente.
+                let arquivoPath = null;
+                if (arquivo) {
+                    btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:16px;"></i> Enviando arquivo…';
+                    if (window.lucide) window.lucide.createIcons();
+                    const newUuid = (crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                    const safeName = arquivo.name.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9._-]/g, '_').replace(/_+/g, '_');
+                    arquivoPath = `${currentProjectId}/${newUuid}/${safeName}`;
+                    const { error: upErr } = await sb.storage
+                        .from('contracts')
+                        .upload(arquivoPath, arquivo, { cacheControl: '3600', upsert: false, contentType: 'application/pdf' });
+                    if (upErr) {
+                        console.error('[upload aditivo]', upErr);
+                        showToast('Falha no upload do documento: ' + upErr.message, 'error');
+                        return;
+                    }
+                    btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:16px;"></i> Registrando…';
+                    if (window.lucide) window.lucide.createIcons();
+                }
+
                 const { error: insErr } = await sb.from('contract_aditivos').insert({
                     contract_id: contractId,
                     project_id: currentProjectId,
@@ -1755,9 +1868,13 @@
                     data_aditivo: dataAditivo,
                     nova_data_fim: novaDataFim,
                     novo_valor: novoValor,
+                    arquivo_path: arquivoPath,
                     criado_por: user ? user.id : null
                 });
-                if (insErr) throw insErr;
+                if (insErr) {
+                    if (arquivoPath) sb.storage.from('contracts').remove([arquivoPath]).catch(() => {});
+                    throw insErr;
+                }
 
                 // Atualiza o contrato conforme o tipo
                 const contractUpdate = {};

@@ -113,7 +113,8 @@
             cursor: pointer;
         }
         
-        .upload-zone:hover {
+        .upload-zone:hover,
+        .upload-zone.dragover {
             border-color: var(--m2-accent);
             background: rgba(21, 71, 255, 0.05);
         }
@@ -437,7 +438,7 @@
                 <input type="date" id="ev-data-captura"
                     style="width: 100%; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white; box-sizing: border-box;">
             </div>
-            <div class="upload-zone" onclick="document.getElementById('file-input').click()">
+            <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
                 <i data-lucide="image-plus" style="width: 48px; height: 48px; color: var(--m2-accent); margin-bottom: 1rem;"></i>
                 <h3 class="h3">Clique ou arraste evidências para upload</h3>
                 <p class="text-sm color-muted">PDF, JPG, PNG ou MP4 (Máx 50MB)</p>
@@ -540,6 +541,8 @@
             const inputDataCaptura = document.getElementById('ev-data-captura');
             inputDataCaptura.max = hojeLocalISO();
             inputDataCaptura.value = hojeLocalISO();
+
+            setupDragAndDrop();
 
             if (currentProjectId) {
                 document.getElementById('project-select').value = currentProjectId;
@@ -1090,6 +1093,24 @@
         }
 
         // ============ FILE UPLOAD ============
+
+        // Arrastar e soltar na .upload-zone — reaproveita handleFileUpload(),
+        // a mesma função que o clique + <input type=file multiple> já chamam,
+        // para não duplicar a lógica de upload/validação.
+        function setupDragAndDrop() {
+            const zone = document.getElementById('upload-zone');
+            if (!zone) return;
+            ['dragenter', 'dragover'].forEach(ev =>
+                zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.add('dragover'); })
+            );
+            ['dragleave', 'drop'].forEach(ev =>
+                zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.remove('dragover'); })
+            );
+            zone.addEventListener('drop', e => {
+                const files = e.dataTransfer?.files;
+                if (files && files.length) handleFileUpload(files);
+            });
+        }
 
         async function handleFileUpload(files) {
             if (!currentProjectId) {
