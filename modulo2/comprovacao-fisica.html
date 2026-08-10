@@ -119,6 +119,52 @@
             background: rgba(21, 71, 255, 0.05);
         }
 
+        /* Barra de controle: chips de status + botão "Limpar filtros"
+           (mesmo padrão visual de .btn-inline em contratos.html — não existia
+           compartilhado, replicado aqui). */
+        .btn-inline {
+            padding: 0.35rem 0.7rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid var(--border-light);
+            background: white;
+            display: inline-flex; align-items: center; gap: 0.3rem;
+        }
+        .btn-inline:hover { border-color: var(--m2-accent); color: var(--m2-accent); }
+
+        .status-chip {
+            padding: 0.4rem 0.9rem;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid var(--border-light);
+            background: white;
+            color: var(--text-secondary);
+            transition: all 0.15s;
+        }
+        .status-chip:hover { border-color: var(--m2-accent); color: var(--m2-accent); }
+        .status-chip.chip-active {
+            background: var(--color-primary, var(--m2-accent));
+            border-color: var(--color-primary, var(--m2-accent));
+            color: white;
+        }
+
+        /* Linha da lista de evidências (substitui o grid de cards grandes) */
+        .evidence-thumb {
+            width: 52px; height: 52px;
+            border-radius: var(--radius-sm);
+            background: #E3E8FF;
+            display: flex; align-items: center; justify-content: center;
+            overflow: hidden;
+            flex-shrink: 0;
+            color: var(--text-muted);
+        }
+        .evidence-thumb img { width: 100%; height: 100%; object-fit: cover; }
+        .evidence-row { cursor: pointer; }
+
         /* Status badges */
         .status-badge {
             padding: 0.25rem 0.75rem;
@@ -446,8 +492,53 @@
             </div>
         </div>
 
-        <div id="evidence-list" class="evidence-grid">
-            <!-- Evidence cards will be injected here -->
+        <div class="glass-card mb-4" id="evidence-controls">
+            <div id="status-chips" style="display:flex; gap:0.6rem; flex-wrap:wrap; margin-bottom:1rem;"></div>
+
+            <div style="display:flex; gap:0.8rem; flex-wrap:wrap; align-items:center; margin-bottom:0.8rem;">
+                <select id="filter-evento" onchange="aplicarFiltrosEOrdenacao()"
+                    style="flex:1; min-width:180px; padding:0.5rem 0.8rem; border:1px solid var(--border-light); border-radius:var(--radius-md); background:white;">
+                    <option value="">Todos os eventos</option>
+                    <option value="__sem_evento__">Sem evento (soltas)</option>
+                </select>
+
+                <select id="filter-produto" onchange="aplicarFiltrosEOrdenacao()"
+                    style="flex:1; min-width:160px; padding:0.5rem 0.8rem; border:1px solid var(--border-light); border-radius:var(--radius-md); background:white;">
+                    <option value="">Todos os produtos</option>
+                </select>
+
+                <select id="filter-ano" onchange="aplicarFiltrosEOrdenacao()"
+                    style="min-width:110px; padding:0.5rem 0.8rem; border:1px solid var(--border-light); border-radius:var(--radius-md); background:white;">
+                    <option value="">Todos os anos</option>
+                </select>
+
+                <select id="filter-tipo" onchange="aplicarFiltrosEOrdenacao()"
+                    style="min-width:160px; padding:0.5rem 0.8rem; border:1px solid var(--border-light); border-radius:var(--radius-md); background:white;">
+                    <option value="">Todos os tipos</option>
+                    <option value="foto_evento">Foto do evento</option>
+                    <option value="relatorio_objeto">Relatório do objeto</option>
+                    <option value="peca_marketing">Peça de marketing</option>
+                    <option value="outros">Outros</option>
+                </select>
+
+                <select id="sort-evidencias" onchange="aplicarFiltrosEOrdenacao()"
+                    style="min-width:170px; padding:0.5rem 0.8rem; border:1px solid var(--border-light); border-radius:var(--radius-md); background:white;">
+                    <option value="recente">Mais recente primeiro</option>
+                    <option value="antigo">Mais antigo primeiro</option>
+                    <option value="captura_recente">Data de captura (mais recente)</option>
+                    <option value="captura_antiga">Data de captura (mais antiga)</option>
+                </select>
+
+                <button class="btn-inline" onclick="limparFiltrosEvidencias()">
+                    <i data-lucide="x" style="width:14px;"></i> Limpar filtros
+                </button>
+            </div>
+
+            <div id="filter-result-count" style="font-size:0.85rem; color:var(--text-secondary);"></div>
+        </div>
+
+        <div id="evidence-list">
+            <!-- Evidence rows will be injected here -->
         </div>
     </main>
 
@@ -517,6 +608,7 @@
         let currentProjectId = ProjectManager.getSelected();
         let allProjects = [];
         let allEvidences = [];
+        let statusChipAtivo = null;
         let allProdutos = [];
         let allEventosM3 = [];
         let signedUrls = {};
@@ -727,11 +819,151 @@
             }
 
             allEvidences = data || [];
-            
+
             // Generate signed URLs for all file paths
             await generateSignedUrls(sb, allEvidences);
 
-            renderEvidences(allEvidences);
+            renderStatusChips();
+            popularFiltrosEvidencias();
+            aplicarFiltrosEOrdenacao();
+        }
+
+        // ============ BARRA DE CONTROLE (chips + filtros + ordenação) ============
+        // Tudo client-side sobre allEvidences (já carregado por completo) —
+        // nenhuma query nova ao Supabase entra aqui.
+
+        function renderStatusChips() {
+            const statuses = ['pendente', 'aprovada', 'reprovada',
+                'pendente_complemento', 'enviada_salic', 'erro_rpa'];
+            const labels = {
+                pendente: 'Pendente', aprovada: 'Aprovada',
+                reprovada: 'Reprovada',
+                pendente_complemento: 'Complemento solicitado',
+                enviada_salic: 'Enviada ao SALIC',
+                erro_rpa: 'Erro no envio RPA'
+            };
+            const container = document.getElementById('status-chips');
+            container.innerHTML = statuses.map(s => {
+                const count = allEvidences.filter(
+                    e => (e.status_validacao || 'pendente') === s
+                ).length;
+                if (count === 0) return '';
+                const active = statusChipAtivo === s ? 'chip-active' : '';
+                return `<button class="status-chip ${active}"
+                    onclick="toggleStatusChip('${s}')">
+                    ${labels[s]}: <strong>${count}</strong>
+                </button>`;
+            }).join('');
+        }
+
+        function toggleStatusChip(status) {
+            statusChipAtivo = (statusChipAtivo === status) ? null : status;
+            renderStatusChips();
+            aplicarFiltrosEOrdenacao();
+        }
+
+        // Reconstrói as options do zero a cada chamada (loadEvidences() roda de
+        // novo a cada evento de Realtime), mas preserva a seleção atual —
+        // mesmo padrão de popularFiltrosContratos() em contratos.html. Sem
+        // isso, um appendChild ingênuo duplicaria as options a cada mudança
+        // em tempo real na tabela.
+        function popularFiltrosEvidencias() {
+            const selEvento = document.getElementById('filter-evento');
+            const selProduto = document.getElementById('filter-produto');
+            const selAno = document.getElementById('filter-ano');
+            const eventoAtual = selEvento.value;
+            const produtoAtual = selProduto.value;
+            const anoAtual = selAno.value;
+
+            const eventosUnicos = [...new Map(
+                allEvidences
+                    .filter(e => e.distribution_event_id)
+                    .map(e => [e.distribution_event_id, e.distribution_events?.titulo || 'Evento sem título'])
+            ).entries()];
+            selEvento.innerHTML = '<option value="">Todos os eventos</option>' +
+                '<option value="__sem_evento__">Sem evento (soltas)</option>' +
+                eventosUnicos.map(([id, titulo]) =>
+                    `<option value="${id}">${escapeHtml(titulo)}</option>`
+                ).join('');
+            if ([...selEvento.options].some(o => o.value === eventoAtual)) selEvento.value = eventoAtual;
+
+            const produtosUnicos = [...new Set(
+                allEvidences.map(e => e.produto_evidencia).filter(Boolean)
+            )].sort();
+            selProduto.innerHTML = '<option value="">Todos os produtos</option>' +
+                produtosUnicos.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+            if ([...selProduto.options].some(o => o.value === produtoAtual)) selProduto.value = produtoAtual;
+
+            // Ano por split de string — nunca new Date() em coluna date pura.
+            const anosUnicos = [...new Set(
+                allEvidences
+                    .filter(e => e.data_captura)
+                    .map(e => e.data_captura.split('-')[0])
+            )].sort((a, b) => b - a);
+            selAno.innerHTML = '<option value="">Todos os anos</option>' +
+                anosUnicos.map(a => `<option value="${a}">${a}</option>`).join('');
+            if ([...selAno.options].some(o => o.value === anoAtual)) selAno.value = anoAtual;
+        }
+
+        function aplicarFiltrosEOrdenacao() {
+            let resultado = [...allEvidences];
+
+            if (statusChipAtivo) {
+                resultado = resultado.filter(e =>
+                    (e.status_validacao || 'pendente') === statusChipAtivo);
+            }
+
+            const evento = document.getElementById('filter-evento').value;
+            if (evento === '__sem_evento__') {
+                resultado = resultado.filter(e => !e.distribution_event_id);
+            } else if (evento) {
+                resultado = resultado.filter(e => e.distribution_event_id === evento);
+            }
+
+            const produto = document.getElementById('filter-produto').value;
+            if (produto) {
+                resultado = resultado.filter(e => e.produto_evidencia === produto);
+            }
+
+            const ano = document.getElementById('filter-ano').value;
+            if (ano) {
+                resultado = resultado.filter(e =>
+                    e.data_captura && e.data_captura.startsWith(ano));
+            }
+
+            const tipo = document.getElementById('filter-tipo').value;
+            if (tipo) {
+                resultado = resultado.filter(e => e.tipo_evidencia === tipo);
+            }
+
+            const ordem = document.getElementById('sort-evidencias').value;
+            resultado.sort((a, b) => {
+                if (ordem === 'recente')
+                    return new Date(b.criado_em) - new Date(a.criado_em);
+                if (ordem === 'antigo')
+                    return new Date(a.criado_em) - new Date(b.criado_em);
+                if (ordem === 'captura_recente')
+                    return (b.data_captura || '').localeCompare(a.data_captura || '');
+                if (ordem === 'captura_antiga')
+                    return (a.data_captura || '').localeCompare(b.data_captura || '');
+                return 0;
+            });
+
+            document.getElementById('filter-result-count').textContent =
+                `${resultado.length} de ${allEvidences.length} evidência(s)`;
+
+            renderEvidences(resultado);
+        }
+
+        function limparFiltrosEvidencias() {
+            statusChipAtivo = null;
+            document.getElementById('filter-evento').value = '';
+            document.getElementById('filter-produto').value = '';
+            document.getElementById('filter-ano').value = '';
+            document.getElementById('filter-tipo').value = '';
+            document.getElementById('sort-evidencias').value = 'recente';
+            renderStatusChips();
+            aplicarFiltrosEOrdenacao();
         }
 
         async function generateSignedUrls(sb, evidences) {
@@ -774,11 +1006,15 @@
             return `${dia}/${mes}/${ano}`;
         }
 
+        // Lista de linhas (antes era grid de cards grandes) — mesmo espírito
+        // visual da tabela de contratos: compacta e escaneável. A miniatura da
+        // foto continua importando (conteúdo visual), mas o container virou
+        // <table class="m2-table"> em vez de cards soltos.
         function renderEvidences(evidences) {
             const container = document.getElementById('evidence-list');
             if (!evidences || evidences.length === 0) {
                 container.innerHTML = `
-                    <div class="empty-state" style="grid-column: 1/-1;">
+                    <div class="empty-state">
                         <i data-lucide="image" style="width: 48px; height: 48px; color: var(--text-muted); margin-bottom: 1rem;"></i>
                         <h3>Sem evidências cadastradas</h3>
                         <p>Faça o upload da primeira comprovação de execução deste projeto.</p>
@@ -788,7 +1024,7 @@
                 return;
             }
 
-            container.innerHTML = evidences.map((ev) => {
+            const rows = evidences.map((ev) => {
                 const scoreClass = ev.ia_score >= 80 ? 'score-high' : (ev.ia_score >= 50 ? 'score-mid' : 'score-low');
                 const isImage = isImageFile(ev.file_path);
                 const url = signedUrls[ev.file_path] || '';
@@ -808,79 +1044,90 @@
                     : null;
 
                 return `
-                    <div class="glass-card evidence-card" onclick="openFullscreen('${ev.id}')">
-                        ${ev.ia_score ? `<div class="ia-score-badge">IA: <span class="${scoreClass}">${ev.ia_score}%</span></div>` : ''}
-
-                        <div class="evidence-preview">
-                            ${isImage && url
-                                ? `<img src="${url}" alt="${escapeHtml(ev.file_name || 'Evidência')}" loading="lazy">`
-                                : `<i data-lucide="${isPdfFile(ev.file_path) ? 'file-text' : 'file'}" style="width: 40px; height: 40px;"></i>`
-                            }
-                            <div class="preview-overlay">
-                                <i data-lucide="maximize-2"></i>
+                    <tr class="evidence-row" onclick="openFullscreen('${ev.id}')">
+                        <td>
+                            <div class="evidence-thumb">
+                                ${isImage && url
+                                    ? `<img src="${url}" alt="${escapeHtml(ev.file_name || 'Evidência')}" loading="lazy">`
+                                    : `<i data-lucide="${isPdfFile(ev.file_path) ? 'file-text' : 'file'}" style="width: 22px; height: 22px;"></i>`
+                                }
                             </div>
-                        </div>
-
-                        <div class="evidence-meta">
-                            <span class="meta-tag">${escapeHtml((ev.tipo_evidencia || 'outros').replace(/_/g, ' '))}</span>
-                            ${ev.file_name ? `<span class="meta-tag">${escapeHtml(ev.file_name)}</span>` : ''}
-                        </div>
-
-                        ${ev.distribution_event_id ? `
-                        <div style="display:inline-flex;align-items:center;gap:0.4rem;
-                                    background:#E3E8FF;border-radius:6px;padding:3px 8px;
-                                    font-size:0.78rem;color:#1547FF;font-weight:600;
-                                    margin-bottom:0.5rem;">
-                            <i data-lucide="ticket" style="width:13px;height:13px;"></i>
-                            Contrapartida · ${escapeHtml(ev.distribution_events?.titulo || '')}
-                        </div>` : ''}
-
-                        <div style="margin-bottom: 0.4rem;">
-                            ${ev.produto_evidencia
-                                ? `<span class="badge-rubrica"><i data-lucide="tag" style="width:10px;height:10px;"></i> ${escapeHtml(ev.produto_evidencia)}</span>`
-                                : `<span class="badge-sem-rubrica">Produto não definido</span>`
+                        </td>
+                        <td>
+                            <div style="font-weight: 600; font-size: 0.85rem; color: var(--text-primary);">
+                                ${escapeHtml(ev.file_name || 'Evidência')}
+                                ${ev.ia_score ? `<span class="${scoreClass}" style="font-size:0.72rem;font-weight:700;margin-left:0.4rem;">IA: ${ev.ia_score}%</span>` : ''}
+                            </div>
+                            ${descTrunc ? `
+                            <div style="font-size: 0.76rem; color: var(--text-secondary); font-style: italic; margin-top:0.15rem;" title="${escapeHtml(ev.descricao)}">
+                                ${escapeHtml(descTrunc)}
+                            </div>` : ''}
+                            <div style="margin-top: 0.35rem;">
+                                ${ev.produto_evidencia
+                                    ? `<span class="badge-rubrica"><i data-lucide="tag" style="width:10px;height:10px;"></i> ${escapeHtml(ev.produto_evidencia)}</span>`
+                                    : `<span class="badge-sem-rubrica">Produto não definido</span>`
+                                }
+                            </div>
+                        </td>
+                        <td><span class="meta-tag">${escapeHtml((ev.tipo_evidencia || 'outros').replace(/_/g, ' '))}</span></td>
+                        <td style="font-size:0.82rem; white-space:nowrap;">
+                            ${ev.distribution_event_id
+                                ? `<span style="display:inline-flex;align-items:center;gap:0.3rem;color:#1547FF;font-weight:600;">
+                                       <i data-lucide="ticket" style="width:12px;height:12px;"></i>
+                                       ${escapeHtml(ev.distribution_events?.titulo || '')}
+                                   </span>`
+                                : '<span style="color:var(--text-muted);">—</span>'
                             }
-                        </div>
-
-                        ${descTrunc ? `
-                        <div style="font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 0.5rem; font-style: italic;"
-                             title="${escapeHtml(ev.descricao)}">
-                            ${escapeHtml(descTrunc)}
-                        </div>` : ''}
-
-                        ${ev.data_captura ? `
-                        <div style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 0.4rem;">
-                            <i data-lucide="calendar" style="width:11px;height:11px;vertical-align:-1px;"></i>
-                            Capturada em ${formatDataCaptura(ev.data_captura)}
-                        </div>` : ''}
-
-                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+                        </td>
+                        <td style="font-size:0.82rem; white-space:nowrap; color:var(--text-secondary);">
+                            ${ev.data_captura ? formatDataCaptura(ev.data_captura) : '—'}
+                        </td>
+                        <td style="white-space:nowrap;">
                             <span class="status-badge status-${ev.status_validacao || 'pendente'}">${statusLabel}</span>
-                            <span style="font-size: 0.7rem; color: var(--text-muted);">${formatDate(ev.criado_em)}</span>
-                        </div>
-
-                        ${showMotivo ? `
-                            <div style="margin-top: 0.5rem; padding: 0.5rem; border-radius: var(--radius-sm); font-size: 0.75rem; background: #FF5807; color: #FFFFFF;">
-                                <strong>${motivoLabel}:</strong> ${escapeHtml(motivoMsg)}
-                            </div>
-                        ` : ''}
-
-                        ${isReviewable ? `
-                            <div class="card-actions" onclick="event.stopPropagation()">
-                                <button class="btn-approve" onclick="approveEvidence('${ev.id}')">
-                                    <i data-lucide="check" style="width: 14px; height: 14px;"></i> Aprovar
-                                </button>
-                                <button class="btn-complement" onclick="openComplementModal('${ev.id}')">
-                                    <i data-lucide="help-circle" style="width: 14px; height: 14px;"></i> Complemento
-                                </button>
-                                <button class="btn-reject" onclick="openRejectModal('${ev.id}')">
-                                    <i data-lucide="x" style="width: 14px; height: 14px;"></i> Reprovar
-                                </button>
-                            </div>
-                        ` : ''}
-                    </div>
+                            <div style="font-size:0.68rem; color:var(--text-muted); margin-top:0.2rem;">${formatDate(ev.criado_em)}</div>
+                            ${showMotivo ? `
+                                <div style="margin-top: 0.35rem; max-width:220px; padding: 0.35rem 0.5rem; border-radius: var(--radius-sm); font-size: 0.72rem; background: #FF5807; color: #FFFFFF; white-space:normal;">
+                                    <strong>${motivoLabel}:</strong> ${escapeHtml(motivoMsg)}
+                                </div>
+                            ` : ''}
+                        </td>
+                        <td onclick="event.stopPropagation()" style="white-space:nowrap;">
+                            ${isReviewable ? `
+                                <div class="card-actions" style="border-top:none; margin-top:0; padding-top:0; flex-wrap:wrap; min-width:190px;">
+                                    <button class="btn-approve" onclick="approveEvidence('${ev.id}')">
+                                        <i data-lucide="check" style="width: 14px; height: 14px;"></i> Aprovar
+                                    </button>
+                                    <button class="btn-complement" onclick="openComplementModal('${ev.id}')">
+                                        <i data-lucide="help-circle" style="width: 14px; height: 14px;"></i> Complemento
+                                    </button>
+                                    <button class="btn-reject" onclick="openRejectModal('${ev.id}')">
+                                        <i data-lucide="x" style="width: 14px; height: 14px;"></i> Reprovar
+                                    </button>
+                                </div>
+                            ` : '<span style="color:var(--text-muted);">—</span>'}
+                        </td>
+                    </tr>
                 `;
             }).join('');
+
+            container.innerHTML = `
+                <div style="overflow-x:auto;">
+                    <table class="m2-table">
+                        <thead>
+                            <tr>
+                                <th></th>
+                                <th>Evidência</th>
+                                <th>Tipo</th>
+                                <th>Evento</th>
+                                <th>Captura</th>
+                                <th>Status</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
 
             if (window.lucide) window.lucide.createIcons();
         }
@@ -987,7 +1234,8 @@
                 allEvidences[idx].validado_por = user?.id || null;
                 allEvidences[idx].validado_em = new Date().toISOString();
             }
-            renderEvidences(allEvidences);
+            renderStatusChips();
+            aplicarFiltrosEOrdenacao();
         }
 
         function openRejectModal(evidenceId) {
@@ -1035,7 +1283,8 @@
                 allEvidences[idx].validado_por = user?.id || null;
                 allEvidences[idx].validado_em = new Date().toISOString();
             }
-            renderEvidences(allEvidences);
+            renderStatusChips();
+            aplicarFiltrosEOrdenacao();
 
             closeRejectModal();
             showToast('Evidência reprovada.', 'success');
@@ -1086,7 +1335,8 @@
                 allEvidences[idx].validado_por = user?.id || null;
                 allEvidences[idx].validado_em = new Date().toISOString();
             }
-            renderEvidences(allEvidences);
+            renderStatusChips();
+            aplicarFiltrosEOrdenacao();
 
             closeComplementModal();
             showToast('Complemento solicitado.', 'success');
