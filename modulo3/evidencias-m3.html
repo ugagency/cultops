@@ -51,6 +51,55 @@
         }
         .evidencia-card:hover { box-shadow:0 4px 16px rgba(0,0,0,0.07); }
 
+        /* Barra de controle das evidências (portado de comprovacao-fisica.html
+           no M2) — .btn-inline/.status-chip não existiam em modulo3, então
+           replicados aqui com o mesmo visual. */
+        .btn-inline {
+            padding: 0.35rem 0.7rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid var(--border-light);
+            background: white;
+            display: inline-flex; align-items: center; gap: 0.3rem;
+        }
+        .btn-inline:hover { border-color: var(--m2-accent, var(--primary)); color: var(--m2-accent, var(--primary)); }
+
+        .status-chip {
+            padding: 0.4rem 0.9rem;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid var(--border-light);
+            background: white;
+            color: var(--text-secondary);
+            transition: all 0.15s;
+        }
+        .status-chip:hover { border-color: var(--m2-accent, var(--primary)); color: var(--m2-accent, var(--primary)); }
+        .status-chip.chip-active {
+            background: var(--color-primary, var(--primary));
+            border-color: var(--color-primary, var(--primary));
+            color: white;
+        }
+
+        /* Zona de upload com drag-and-drop (mesmo padrão do M2) */
+        .upload-zone-m3 {
+            border: 2px dashed var(--border-light);
+            border-radius: var(--radius-lg);
+            padding: 1.5rem;
+            text-align: center;
+            background: var(--glass-bg, #fafbff);
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        .upload-zone-m3:hover,
+        .upload-zone-m3.dragover {
+            border-color: var(--m2-accent, var(--primary));
+            background: rgba(21, 71, 255, 0.05);
+        }
+
         .encerrar-card {
             border:2px solid #FF5807;
             border-radius:var(--radius-md);
@@ -125,6 +174,39 @@
                         <i data-lucide="plus" style="width:15px;"></i> Adicionar Evidência
                     </button>
                 </div>
+
+                <div id="status-chips-m3" style="display:flex; gap:0.6rem; flex-wrap:wrap; margin-bottom:0.85rem;"></div>
+                <div style="display:flex; gap:0.6rem; flex-wrap:wrap; align-items:center; margin-bottom:0.6rem;">
+                    <select id="filter-produto-m3" onchange="aplicarFiltrosEOrdenacaoM3()"
+                        style="flex:1; min-width:150px; padding:0.5rem 0.8rem; border:1px solid var(--border-light); border-radius:var(--radius-md); background:white;">
+                        <option value="">Todos os produtos</option>
+                    </select>
+                    <select id="filter-ano-m3" onchange="aplicarFiltrosEOrdenacaoM3()"
+                        style="min-width:110px; padding:0.5rem 0.8rem; border:1px solid var(--border-light); border-radius:var(--radius-md); background:white;">
+                        <option value="">Todos os anos</option>
+                    </select>
+                    <select id="filter-tipo-m3" onchange="aplicarFiltrosEOrdenacaoM3()"
+                        style="min-width:170px; padding:0.5rem 0.8rem; border:1px solid var(--border-light); border-radius:var(--radius-md); background:white;">
+                        <option value="">Todos os tipos</option>
+                        <option value="foto_evento">Foto de execução</option>
+                        <option value="acessibilidade">Foto de acessibilidade</option>
+                        <option value="peca_marketing">Material de comunicação</option>
+                        <option value="relatorio_objeto">Relatório do Objeto</option>
+                        <option value="outros">Outros</option>
+                    </select>
+                    <select id="sort-evidencias-m3" onchange="aplicarFiltrosEOrdenacaoM3()"
+                        style="min-width:170px; padding:0.5rem 0.8rem; border:1px solid var(--border-light); border-radius:var(--radius-md); background:white;">
+                        <option value="recente">Mais recente primeiro</option>
+                        <option value="antigo">Mais antigo primeiro</option>
+                        <option value="captura_recente">Data de captura (mais recente)</option>
+                        <option value="captura_antiga">Data de captura (mais antiga)</option>
+                    </select>
+                    <button class="btn-inline" onclick="limparFiltrosEvidenciasM3()">
+                        <i data-lucide="x" style="width:14px;"></i> Limpar filtros
+                    </button>
+                </div>
+                <div id="filter-result-count-m3" style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:0.75rem;"></div>
+
                 <div id="evidencias-list"></div>
             </div>
 
@@ -189,8 +271,13 @@
             <div class="form-grid" style="gap:1rem;">
                 <div>
                     <label class="form-label">Arquivo (JPG, PNG ou PDF) *</label>
-                    <input type="file" id="ev-file" accept=".jpg,.jpeg,.png,.pdf" class="form-input"
-                           onchange="validateEvFile(this)">
+                    <div class="upload-zone-m3" id="ev-dropzone" onclick="document.getElementById('ev-file').click()">
+                        <i data-lucide="upload-cloud" style="width:28px;height:28px;color:var(--m2-accent, var(--primary));margin-bottom:0.4rem;"></i>
+                        <div style="font-size:0.85rem;font-weight:600;color:var(--text-primary);">Clique ou arraste o arquivo aqui</div>
+                        <div id="ev-file-name-display" style="font-size:0.78rem;color:var(--text-muted);margin-top:0.25rem;">Nenhum arquivo selecionado</div>
+                        <input type="file" id="ev-file" accept=".jpg,.jpeg,.png,.pdf" style="display:none;"
+                               onchange="validateEvFile(this)">
+                    </div>
                     <div id="ev-file-err" style="color:#FF5807;font-size:0.8rem;margin-top:0.25rem;display:none;"></div>
                 </div>
                 <div>
@@ -267,6 +354,7 @@
         let evidencias = [];
         let _role      = null;   // quem valida: admin/gestor/analista (operador só sobe)
         let allProdutosM3 = [];
+        let statusChipAtivoM3 = null;
 
         // ── Utilities ─────────────────────────────────────────
         function esc(s) {
@@ -323,6 +411,8 @@
 
             _role = session.user?.app_metadata?.role || session.user?.user_metadata?.role || null;
 
+            setupDragAndDropEvidenciaM3();
+
             await loadData();
         });
 
@@ -339,7 +429,9 @@
 
                 renderHeader();
                 renderAttendance();
-                renderEvidencias();
+                renderStatusChipsM3();
+                popularFiltrosEvidenciasM3();
+                aplicarFiltrosEOrdenacaoM3();
                 renderEncerrar();
 
                 document.getElementById('page-loading').style.display = 'none';
@@ -402,9 +494,122 @@
         }
 
         // ── Render Evidências ─────────────────────────────────
-        function renderEvidencias() {
+        // ── Barra de controle (chips + filtros + ordenação) ────
+        // Portado de comprovacao-fisica.html (M2) — mesma lógica, nomes
+        // adaptados às variáveis do M3 (evidencias em vez de allEvidences).
+        // Tudo client-side sobre `evidencias` (já carregado por completo);
+        // nenhuma query nova ao Supabase. O filtro de EVENTO do M2 foi
+        // omitido de propósito: aqui a tela já é sempre de um evento só.
+        function renderStatusChipsM3() {
+            const statuses = ['pendente', 'aprovada', 'reprovada',
+                'pendente_complemento', 'enviada_salic', 'erro_rpa'];
+            const container = document.getElementById('status-chips-m3');
+            container.innerHTML = statuses.map(s => {
+                const count = evidencias.filter(
+                    e => (e.status_validacao || 'pendente') === s
+                ).length;
+                if (count === 0) return '';
+                const active = statusChipAtivoM3 === s ? 'chip-active' : '';
+                return `<button class="status-chip ${active}"
+                    onclick="toggleStatusChipM3('${s}')">
+                    ${esc(STATUS_EV_LABELS[s] || s)}: <strong>${count}</strong>
+                </button>`;
+            }).join('');
+        }
+
+        function toggleStatusChipM3(status) {
+            statusChipAtivoM3 = (statusChipAtivoM3 === status) ? null : status;
+            renderStatusChipsM3();
+            aplicarFiltrosEOrdenacaoM3();
+        }
+
+        // Reconstrói as options do zero preservando a seleção atual (mesmo
+        // padrão de popularFiltrosEvidencias() no M2) — necessário porque
+        // loadData() pode rodar de novo (ex: após salvar evidência).
+        function popularFiltrosEvidenciasM3() {
+            const selProduto = document.getElementById('filter-produto-m3');
+            const selAno = document.getElementById('filter-ano-m3');
+            const produtoAtual = selProduto.value;
+            const anoAtual = selAno.value;
+
+            const produtosUnicos = [...new Set(
+                evidencias.map(e => e.produto_evidencia).filter(Boolean)
+            )].sort();
+            selProduto.innerHTML = '<option value="">Todos os produtos</option>' +
+                produtosUnicos.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
+            if ([...selProduto.options].some(o => o.value === produtoAtual)) selProduto.value = produtoAtual;
+
+            // Ano por split de string — nunca new Date() em coluna date pura.
+            const anosUnicos = [...new Set(
+                evidencias
+                    .filter(e => e.data_captura)
+                    .map(e => e.data_captura.split('-')[0])
+            )].sort((a, b) => b - a);
+            selAno.innerHTML = '<option value="">Todos os anos</option>' +
+                anosUnicos.map(a => `<option value="${a}">${a}</option>`).join('');
+            if ([...selAno.options].some(o => o.value === anoAtual)) selAno.value = anoAtual;
+        }
+
+        function aplicarFiltrosEOrdenacaoM3() {
+            let resultado = [...evidencias];
+
+            if (statusChipAtivoM3) {
+                resultado = resultado.filter(e =>
+                    (e.status_validacao || 'pendente') === statusChipAtivoM3);
+            }
+
+            const produto = document.getElementById('filter-produto-m3').value;
+            if (produto) {
+                resultado = resultado.filter(e => e.produto_evidencia === produto);
+            }
+
+            const ano = document.getElementById('filter-ano-m3').value;
+            if (ano) {
+                resultado = resultado.filter(e =>
+                    e.data_captura && e.data_captura.startsWith(ano));
+            }
+
+            const tipo = document.getElementById('filter-tipo-m3').value;
+            if (tipo) {
+                resultado = resultado.filter(e => e.tipo_evidencia === tipo);
+            }
+
+            const ordem = document.getElementById('sort-evidencias-m3').value;
+            resultado.sort((a, b) => {
+                if (ordem === 'recente')
+                    return new Date(b.criado_em) - new Date(a.criado_em);
+                if (ordem === 'antigo')
+                    return new Date(a.criado_em) - new Date(b.criado_em);
+                if (ordem === 'captura_recente')
+                    return (b.data_captura || '').localeCompare(a.data_captura || '');
+                if (ordem === 'captura_antiga')
+                    return (a.data_captura || '').localeCompare(b.data_captura || '');
+                return 0;
+            });
+
+            document.getElementById('filter-result-count-m3').textContent =
+                `${resultado.length} de ${evidencias.length} evidência(s)`;
+
+            renderEvidencias(resultado);
+        }
+
+        function limparFiltrosEvidenciasM3() {
+            statusChipAtivoM3 = null;
+            document.getElementById('filter-produto-m3').value = '';
+            document.getElementById('filter-ano-m3').value = '';
+            document.getElementById('filter-tipo-m3').value = '';
+            document.getElementById('sort-evidencias-m3').value = 'recente';
+            renderStatusChipsM3();
+            aplicarFiltrosEOrdenacaoM3();
+        }
+
+        // Aceita a lista já filtrada/ordenada (aplicarFiltrosEOrdenacaoM3);
+        // sem argumento cai no array completo — mantém loadData() simples
+        // para quem só quer o estado padrão (sem filtro nenhum aplicado).
+        function renderEvidencias(lista) {
+            const items = lista || evidencias;
             const el = document.getElementById('evidencias-list');
-            if (!evidencias.length) {
+            if (!items.length) {
                 el.innerHTML = `
                     <div class="empty-state" style="padding:2rem 0;">
                         <i data-lucide="image-off" style="width:36px;opacity:0.3;"></i>
@@ -415,7 +620,7 @@
                 reIcons();
                 return;
             }
-            el.innerHTML = evidencias.map(ev => {
+            el.innerHTML = items.map(ev => {
                 const statusCls = 'badge-' + (ev.status_validacao || 'pendente');
                 const statusLbl = STATUS_EV_LABELS[ev.status_validacao] || ev.status_validacao;
                 const tipoLbl   = TIPO_LABELS[ev.tipo_evidencia] || ev.tipo_evidencia || 'outros';
@@ -492,7 +697,11 @@
                 evidencias[idx].validado_por = userId || null;
                 evidencias[idx].validado_em = new Date().toISOString();
             }
-            renderEvidencias();
+            // Chips + filtros em vez de renderEvidencias() direto — senão a
+            // contagem dos chips fica desatualizada depois de uma ação
+            // (mesmo fix já aplicado no M2).
+            renderStatusChipsM3();
+            aplicarFiltrosEOrdenacaoM3();
         }
 
         async function aprovarEvidenciaM3(evidenceId) {
@@ -684,6 +893,7 @@
             document.getElementById('ev-descricao').value = '';
             document.getElementById('ev-data-captura').value = '';
             document.getElementById('ev-file-err').style.display = 'none';
+            document.getElementById('ev-file-name-display').textContent = 'Nenhum arquivo selecionado';
 
             renderProdutoFieldM3();
 
@@ -695,13 +905,36 @@
         }
         function validateEvFile(input) {
             const errEl = document.getElementById('ev-file-err');
+            const nameEl = document.getElementById('ev-file-name-display');
             if (input.files[0] && input.files[0].size > 10 * 1024 * 1024) {
                 errEl.textContent = 'Arquivo muito grande. Máximo: 10 MB.';
                 errEl.style.display = 'block';
                 input.value = '';
+                nameEl.textContent = 'Nenhum arquivo selecionado';
             } else {
                 errEl.style.display = 'none';
+                nameEl.textContent = input.files[0] ? input.files[0].name : 'Nenhum arquivo selecionado';
             }
+        }
+
+        // Arrastar e soltar na zona de upload — reaproveita validateEvFile()
+        // (mesma validação do clique), como no drag-and-drop do M2.
+        function setupDragAndDropEvidenciaM3() {
+            const zone = document.getElementById('ev-dropzone');
+            if (!zone) return;
+            ['dragenter', 'dragover'].forEach(ev =>
+                zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.add('dragover'); })
+            );
+            ['dragleave', 'drop'].forEach(ev =>
+                zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.remove('dragover'); })
+            );
+            zone.addEventListener('drop', e => {
+                const files = e.dataTransfer?.files;
+                if (!files || !files.length) return;
+                const input = document.getElementById('ev-file');
+                input.files = files;
+                validateEvFile(input);
+            });
         }
 
         // ── Produto vinculado (substitui rubrica_id_fk — ver comprovacao-fisica.html no M2) ──
