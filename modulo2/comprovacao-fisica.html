@@ -491,12 +491,16 @@
                 <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.4rem;">
                     Vincular a evento <span style="color:#FF5807;">*</span>
                 </label>
-                <div style="display:flex; gap:0.6rem; align-items:flex-start;">
+                <div style="display:flex; gap:0.6rem; align-items:stretch;">
                     <select id="ev-evento" required
                         style="flex:1; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white; box-sizing: border-box;">
                         <option value="">Selecione um evento…</option>
                     </select>
-                    <button type="button" class="btn-inline" id="btn-criar-evento-rapido" style="white-space:nowrap; padding:0.6rem 0.9rem;" onclick="openModalCriarEventoRapido()">
+                    <button type="button" id="btn-criar-evento-rapido"
+                        style="white-space:nowrap; display:inline-flex; align-items:center; gap:0.4rem; padding:0 1rem; border-radius: var(--radius-md); font-size:0.85rem; font-weight:600; cursor:pointer; border: 1px solid var(--border-light); background: white; box-sizing: border-box;"
+                        onmouseover="this.style.borderColor='var(--m2-accent)'; this.style.color='var(--m2-accent)';"
+                        onmouseout="this.style.borderColor='var(--border-light)'; this.style.color='';"
+                        onclick="openModalCriarEventoRapido()">
                         <i data-lucide="plus" style="width:14px;"></i> Criar evento
                     </button>
                 </div>
