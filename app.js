@@ -1428,8 +1428,13 @@ const EnvioLoteSalicView = () => {
 
     if (!hasQueue) {
         // Modo Seleção
-        // Documentos filtrados com status 'liberado_rpa_airtop'
-        const readyDocs = state.documents.filter(doc => doc.status === 'liberado_rpa_airtop');
+        // 'liberado_rpa_airtop' = prontos pela primeira vez; 'erro_rpa' = já
+        // tentados e o robô falhou por motivo técnico (ex: instabilidade no
+        // site do SALIC), não por bloqueio de conformidade — por isso entram
+        // direto aqui, sem exigir o "Assumir risco" que o avanço manual de
+        // status pede para os outros casos de erro (esses SIM são achados da
+        // auditoria de conformidade, erro_rpa não é).
+        const readyDocs = state.documents.filter(doc => ['liberado_rpa_airtop', 'erro_rpa'].includes(doc.status));
         const projetoSelecionado = state.filters.project || '';
 
         return `
@@ -1437,7 +1442,7 @@ const EnvioLoteSalicView = () => {
         <main class="main-content view-content">
             <header class="content-header">
                 <h1>Envio SALIC em Lote</h1>
-                <p class="page-subtitle">Selecione os documentos aprovados na auditoria de conformidade para enviar em lote sequencial ao SALIC.</p>
+                <p class="page-subtitle">Selecione os documentos aprovados na auditoria de conformidade (incluindo reenvios de erro técnico do robô) para enviar em lote sequencial ao SALIC.</p>
             </header>
 
             <div class="salic-batch-container">
@@ -1468,8 +1473,8 @@ const EnvioLoteSalicView = () => {
                     ${readyDocs.length === 0 ? `
                         <div style="padding: 3rem; text-align: center; color: var(--text-muted);">
                             <i data-lucide="send-to-back" style="width: 48px; height: 48px; margin-bottom: 1rem; color: var(--text-muted); opacity: 0.5;"></i>
-                            <p class="text-sm" style="font-weight: 500;">Nenhum documento com status "Pronto para envio" encontrado.</p>
-                            <p class="text-xs" style="margin-top: 0.25rem;">Apenas documentos validados e liberados pelo RPA com status correspondente aparecem aqui.</p>
+                            <p class="text-sm" style="font-weight: 500;">Nenhum documento pronto ou com erro de envio encontrado.</p>
+                            <p class="text-xs" style="margin-top: 0.25rem;">Aparecem aqui documentos liberados pelo RPA ("Pronto para envio") e os que o robô tentou enviar mas falhou por erro técnico ("Erro no Envio").</p>
                         </div>
                     ` : `
                         <table class="data-table">
@@ -1497,7 +1502,9 @@ const EnvioLoteSalicView = () => {
                                         <td style="font-size: 13px; color: var(--text-secondary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${projLabel}</td>
                                         <td style="font-size: 13px; font-weight: 500;">${doc.rubrica_nome || doc.rubrica || '-'}</td>
                                         <td>
-                                            <span class="status-badge status-completed">Pronto</span>
+                                            ${doc.status === 'erro_rpa'
+                                                ? '<span class="status-badge status-error">Reenvio (erro anterior)</span>'
+                                                : '<span class="status-badge status-completed">Pronto</span>'}
                                         </td>
                                     </tr>
                                     `;
