@@ -204,6 +204,366 @@ function parseValorBR(v) {
     return parseFloat(s) || 0;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// RUBRICAS — rótulo único e resolução inversa (os 3 seletores do M1)
+//
+// Um mesmo projeto pode ter rubricas homônimas na mesma etapa, distintas apenas
+// pelo PRODUTO (ex.: duas "Assistente de Produção" no PRONAC 258804 — uma sob
+// "Festival..." com R$ 80.000, outra sob "CURSO/OFICINA..." com R$ 3.000). Sem o
+// produto no rótulo a escolha é cega e o vínculo errado passa sem validação.
+//
+// <datalist> não aceita <optgroup>, então o produto entra como PREFIXO: ordenando
+// por produto, os itens do mesmo produto ficam adjacentes na lista e o efeito
+// visual é o de um agrupamento. A busca por digitação continua funcionando.
+//
+// Estes três helpers são usados por TODOS os seletores e por todos os pontos de
+// resolução (texto → rubrica). Não duplicar a montagem de rótulo em outro lugar:
+// rótulo e resolução precisam mudar juntos, senão o vínculo falha silenciosamente.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Escapa texto para uso dentro de atributo HTML (value="...").
+function escAttr(v) {
+    return String(v == null ? '' : v)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+// "PRODUTO · 65 - Nome da rubrica (R$ 3.000,00)"
+// Degrada sem quebrar: produto, rubrica_id e valor_aprovado são todos opcionais.
+function rotuloRubrica(r) {
+    if (!r) return '';
+    const produto = r.produto != null && String(r.produto).trim() !== '' ? String(r.produto).trim() : '';
+    const prod = produto ? `${produto} · ` : '';
+    const num = r.rubrica_id != null && String(r.rubrica_id).trim() !== '' ? `${r.rubrica_id} - ` : '';
+    const val = r.valor_aprovado != null && String(r.valor_aprovado).trim() !== ''
+        ? ` (${parseValorBR(r.valor_aprovado).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})`
+        : '';
+    return `${prod}${num}${r.nome || ''}${val}`;
+}
+
+// Ordena por produto e depois por rubrica_id (numérico quando possível, para que
+// 9 venha antes de 10). Rubricas sem produto vão para o fim da lista.
+function ordenarRubricas(lista) {
+    return [...(lista || [])].sort((a, b) => {
+        const pa = a.produto != null && String(a.produto).trim() !== '' ? String(a.produto).trim() : null;
+        const pb = b.produto != null && String(b.produto).trim() !== '' ? String(b.produto).trim() : null;
+        if (pa === null && pb !== null) return 1;
+        if (pb === null && pa !== null) return -1;
+        if (pa !== null && pb !== null) {
+            const cmp = pa.localeCompare(pb, 'pt-BR');
+            if (cmp !== 0) return cmp;
+        }
+        const na = parseFloat(a.rubrica_id);
+        const nb = parseFloat(b.rubrica_id);
+        if (!isNaN(na) && !isNaN(nb)) {
+            if (na !== nb) return na - nb;
+        } else if (!isNaN(na)) {
+            return -1;
+        } else if (!isNaN(nb)) {
+            return 1;
+        }
+        return String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR');
+    });
+}
+
+// Caminho inverso: texto digitado/escolhido → rubrica.
+// Aceita o rótulo novo, o rótulo antigo ("id - nome") para não quebrar valores já
+// preenchidos, e o nome puro — este último SÓ quando não houver homônimos, senão
+// voltaríamos a escolher às cegas. Retorna null quando ambíguo ou desconhecido.
+function resolverRubricaPorRotulo(texto, lista) {
+    const alvo = (texto || '').trim();
+    if (!alvo) return null;
+    const rubricas = lista || [];
+
+    const porRotulo = rubricas.find(r => rotuloRubrica(r) === alvo);
+    if (porRotulo) return porRotulo;
+
+    // Rótulo legado, ainda presente em inputs pré-preenchidos e na fila do lote.
+    const porRotuloLegado = rubricas.find(r => (r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome) === alvo);
+    if (porRotuloLegado) return porRotuloLegado;
+
+    const porNome = rubricas.filter(r => (r.nome || '') === alvo);
+    return porNome.length === 1 ? porNome[0] : null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COMBOBOX DE RUBRICAS — substitui o <datalist> nos 3 seletores do M1
+//
+// O <datalist> não aceita <optgroup>: só dava para prefixar o produto em cada
+// linha, o que repetia o produto 20x e não agrupava de verdade. Aqui o painel é
+// próprio, então o produto vira CABEÇALHO e as rubricas ficam indentadas embaixo:
+//
+//     CURSO/OFICINA/CAPACITAÇÃO - ARTES CÊNICAS
+//        65 - Assistente de Produção            R$ 3.000,00
+//        10 - Cenografia                       R$ 12.000,00
+//     FESTIVAL, BIENAL, FESTA OU FEIRA
+//         9 - Assistente de Produção           R$ 80.000,00
+//
+// A busca por digitação é preservada (requisito com 161 rubricas): filtro por
+// tokens sobre produto + número + nome, sem acento e sem caixa, com navegação por
+// teclado. Ao escolher, o input recebe rotuloRubrica(r) — exatamente o texto que
+// resolverRubricaPorRotulo() sabe desfazer, então a resolução inversa não muda.
+//
+// O painel vive no <body> (position: fixed) por dois motivos: não ser recortado
+// pelo overflow da tabela do lote, e não ser apagado pelo app.innerHTML do render.
+// ─────────────────────────────────────────────────────────────────────────────
+
+let _comboPainel = null;
+let _comboInput = null;
+let _comboLista = [];   // rubricas visíveis, alinhado com data-idx dos itens
+let _comboAtivo = -1;
+
+// Remove acento e caixa preservando o comprimento, para os índices do texto
+// normalizado continuarem válidos no texto original (usado no destaque).
+function _comboNormalizar(s) {
+    return Array.from(String(s == null ? '' : s)).map(ch => {
+        const n = ch.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+        return n.length === 1 ? n : ch;
+    }).join('');
+}
+
+function _comboTokens(termo) {
+    return _comboNormalizar(termo).split(/\s+/).filter(Boolean);
+}
+
+// Envolve em <mark> os trechos que casam com os termos digitados.
+function _comboDestacar(texto, tokens) {
+    const original = String(texto == null ? '' : texto);
+    if (!tokens.length) return escAttr(original);
+
+    const alvo = _comboNormalizar(original);
+    const marcado = new Array(original.length).fill(false);
+    tokens.forEach(t => {
+        let de = alvo.indexOf(t);
+        while (de !== -1) {
+            for (let i = de; i < de + t.length; i++) marcado[i] = true;
+            de = alvo.indexOf(t, de + t.length);
+        }
+    });
+
+    let html = '';
+    let i = 0;
+    while (i < original.length) {
+        const inicio = i;
+        const dentro = marcado[i];
+        while (i < original.length && marcado[i] === dentro) i++;
+        const trecho = escAttr(original.slice(inicio, i));
+        html += dentro ? `<mark>${trecho}</mark>` : trecho;
+    }
+    return html;
+}
+
+function _comboFiltrar(lista, termo) {
+    const tokens = _comboTokens(termo);
+    if (!tokens.length) return lista.slice();
+    return lista.filter(r => {
+        const alvo = _comboNormalizar(`${r.produto || ''} ${r.rubrica_id != null ? r.rubrica_id : ''} ${r.nome || ''}`);
+        return tokens.every(t => alvo.includes(t));
+    });
+}
+
+function _comboObterPainel() {
+    if (_comboPainel && document.body.contains(_comboPainel)) return _comboPainel;
+    _comboPainel = document.createElement('div');
+    _comboPainel.className = 'rubrica-combo-panel';
+    _comboPainel.setAttribute('role', 'listbox');
+    document.body.appendChild(_comboPainel);
+    return _comboPainel;
+}
+
+function _comboPosicionar() {
+    if (!_comboInput || !_comboPainel) return;
+    const rect = _comboInput.getBoundingClientRect();
+    const painel = _comboPainel;
+
+    const largura = Math.min(Math.max(rect.width, 340), window.innerWidth - 16);
+    painel.style.width = `${largura}px`;
+    painel.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - largura - 8))}px`;
+
+    const abaixo = window.innerHeight - rect.bottom - 12;
+    const acima = rect.top - 12;
+    const paraCima = abaixo < 200 && acima > abaixo;
+    painel.style.maxHeight = `${Math.max(140, Math.min(340, paraCima ? acima : abaixo))}px`;
+    if (paraCima) {
+        painel.style.top = 'auto';
+        painel.style.bottom = `${window.innerHeight - rect.top + 4}px`;
+    } else {
+        painel.style.bottom = 'auto';
+        painel.style.top = `${rect.bottom + 4}px`;
+    }
+}
+
+function _comboRenderizar() {
+    if (!_comboInput) return;
+    const painel = _comboObterPainel();
+    const termo = _comboInput.value || '';
+    const tokens = _comboTokens(termo);
+
+    // Se o texto atual é exatamente um rótulo válido, o operador acabou de escolher:
+    // mostrar a lista inteira em vez de filtrar por ela mesma (que devolveria 1 item).
+    const jaResolvido = resolverRubricaPorRotulo(termo, state.rubricas_disponiveis || []);
+    const base = state.rubricas_disponiveis || [];
+    _comboLista = ordenarRubricas(jaResolvido ? base : _comboFiltrar(base, termo));
+
+    if (_comboLista.length === 0) {
+        painel.innerHTML = `<div class="rubrica-combo-empty">${base.length === 0
+            ? 'Nenhuma rubrica carregada para este projeto.'
+            : 'Nenhuma rubrica encontrada para esta busca.'}</div>`;
+        _comboAtivo = -1;
+        return;
+    }
+
+    const marcarTokens = jaResolvido ? [] : tokens;
+    let produtoAtual = null;
+    let html = '';
+    _comboLista.forEach((r, idx) => {
+        const produto = r.produto != null && String(r.produto).trim() !== ''
+            ? String(r.produto).trim()
+            : 'Sem produto definido';
+        if (produto !== produtoAtual) {
+            produtoAtual = produto;
+            html += `<div class="rubrica-combo-group">${_comboDestacar(produto, marcarTokens)}</div>`;
+        }
+        const num = r.rubrica_id != null && String(r.rubrica_id).trim() !== ''
+            ? `<span class="rubrica-combo-num">${_comboDestacar(`${r.rubrica_id} - `, marcarTokens)}</span>`
+            : '';
+        const valor = r.valor_aprovado != null && String(r.valor_aprovado).trim() !== ''
+            ? `<span class="rubrica-combo-valor">${escAttr(parseValorBR(r.valor_aprovado).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }))}</span>`
+            : '';
+        html += `<div class="rubrica-combo-item" role="option" data-idx="${idx}">`
+            + `<span class="rubrica-combo-nome">${num}${_comboDestacar(r.nome || '', marcarTokens)}</span>`
+            + valor
+            + `</div>`;
+    });
+
+    painel.innerHTML = html;
+    _comboAtivo = _comboLista.length === 1 ? 0 : -1;
+    _comboMarcarAtivo(false);
+}
+
+function _comboMarcarAtivo(rolar = true) {
+    if (!_comboPainel) return;
+    const itens = _comboPainel.querySelectorAll('.rubrica-combo-item');
+    itens.forEach(el => el.classList.remove('is-active'));
+    if (_comboAtivo < 0 || _comboAtivo >= itens.length) return;
+    const alvo = itens[_comboAtivo];
+    alvo.classList.add('is-active');
+    if (rolar) alvo.scrollIntoView({ block: 'nearest' });
+}
+
+function _comboAbrir(input) {
+    _comboInput = input;
+    const painel = _comboObterPainel();
+    _comboRenderizar();
+    painel.classList.add('is-open');
+    _comboPosicionar();
+}
+
+function _comboFechar() {
+    if (_comboPainel) _comboPainel.classList.remove('is-open');
+    _comboInput = null;
+    _comboLista = [];
+    _comboAtivo = -1;
+}
+
+function _comboAberto() {
+    return !!(_comboPainel && _comboPainel.classList.contains('is-open') && _comboInput);
+}
+
+function _comboSelecionar(idx) {
+    const r = _comboLista[idx];
+    if (!r || !_comboInput) return;
+    _comboInput.value = rotuloRubrica(r);
+    // Guarda o id resolvido: útil para depurar um vínculo suspeito sem refazer o
+    // caminho do texto. A gravação continua saindo de resolverRubricaPorRotulo.
+    _comboInput.dataset.rubricaId = r.id;
+    _comboInput.dispatchEvent(new Event('change', { bubbles: true }));
+    _comboFechar();
+}
+
+function _comboMover(passo) {
+    if (!_comboLista.length) return;
+    _comboAtivo = _comboAtivo === -1
+        ? (passo > 0 ? 0 : _comboLista.length - 1)
+        : (_comboAtivo + passo + _comboLista.length) % _comboLista.length;
+    _comboMarcarAtivo();
+}
+
+function inicializarComboRubricas() {
+    if (window._comboRubricasPronto) return;
+    window._comboRubricasPronto = true;
+
+    // Delegação no document: os inputs são recriados a cada app.innerHTML, então
+    // não dá para prender listeners neles.
+    document.addEventListener('focusin', e => {
+        if (!e.target || !e.target.closest) return;
+        const input = e.target.closest('[data-rubrica-combo]');
+        if (input) _comboAbrir(input);
+        else if (_comboAberto() && !e.target.closest('.rubrica-combo-panel')) _comboFechar();
+    });
+
+    // Os handlers resolvem o input pelo alvo do evento, não por _comboInput: depois de
+    // escolher um item o painel fecha e _comboInput zera, e digitar de novo tem que
+    // reabrir a lista em vez de virar um campo de texto morto.
+    document.addEventListener('input', e => {
+        const input = e.target.closest && e.target.closest('[data-rubrica-combo]');
+        if (!input) return;
+        delete input.dataset.rubricaId;
+        if (_comboAberto() && _comboInput === input) {
+            _comboRenderizar();
+            _comboPosicionar();
+        } else {
+            _comboAbrir(input);
+        }
+    });
+
+    document.addEventListener('keydown', e => {
+        const input = e.target.closest && e.target.closest('[data-rubrica-combo]');
+        if (!input) return;
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (!_comboAberto() || _comboInput !== input) _comboAbrir(input);
+            else _comboMover(e.key === 'ArrowDown' ? 1 : -1);
+        } else if (e.key === 'Enter') {
+            if (_comboAberto() && _comboAtivo >= 0) {
+                e.preventDefault();
+                _comboSelecionar(_comboAtivo);
+            }
+        } else if (e.key === 'Escape') {
+            if (_comboAberto()) { e.preventDefault(); _comboFechar(); }
+        } else if (e.key === 'Tab') {
+            _comboFechar();
+        }
+    });
+
+    // mousedown (não click): dispara antes do blur, então o painel ainda existe.
+    document.addEventListener('mousedown', e => {
+        if (!e.target || !e.target.closest) return;
+        const item = e.target.closest('.rubrica-combo-item');
+        if (item) {
+            e.preventDefault();
+            _comboSelecionar(Number(item.dataset.idx));
+            return;
+        }
+        if (_comboAberto()
+            && !e.target.closest('.rubrica-combo-panel')
+            && !e.target.closest('[data-rubrica-combo]')) {
+            _comboFechar();
+        }
+    });
+
+    // Rolagem/redimensionamento: reposiciona, e fecha se o input sumiu do DOM.
+    const reposicionar = () => {
+        if (!_comboAberto()) return;
+        if (!document.body.contains(_comboInput)) _comboFechar();
+        else _comboPosicionar();
+    };
+    window.addEventListener('scroll', reposicionar, true);
+    window.addEventListener('resize', reposicionar);
+}
+
 const isSolicitanteMode = window.location.pathname.includes('solicitante') || window.location.hash.includes('solicitante') || window.location.search.includes('solicitante');
 
 // Cria o objeto de filtros com o campo `project` persistido em localStorage
@@ -1214,10 +1574,7 @@ ${Sidebar()}
 
                 <div class="form-group mb-4">
                     <label>Rubrica Orçamentária (Obrigatório)</label>
-                    <input type="text" id="rubrica-input" list="rubricas-list" placeholder="Digite para buscar rubrica..." autocomplete="off" style="width: 100%;">
-                    <datalist id="rubricas-list">
-                        <option value="">Selecione o projeto primeiro...</option>
-                    </datalist>
+                    <input type="text" id="rubrica-input" data-rubrica-combo placeholder="Digite para buscar rubrica..." autocomplete="off" style="width: 100%;">
                 </div>
 
                 <script>
@@ -1323,13 +1680,6 @@ ${Sidebar()}
                 ${state.loading ? `<p class="text-xs mt-4" style="color: var(--primary); text-align: center;">Enviando arquivos para a fila, aguarde...</p>` : ''}
             </div>
 
-            <datalist id="rubricas-lote-list">
-                ${rubricas.map(r => {
-        const valor = `${r.rubrica_id ? r.rubrica_id + ' - ' : ''}${r.nome}`;
-        return `<option value="${valor}">`;
-    }).join('')}
-            </datalist>
-
             <div class="card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                     <h3 class="h2" style="margin: 0;">2. Fila aguardando rubrica (${fila.length})</h3>
@@ -1356,12 +1706,17 @@ ${Sidebar()}
                             </tr>
                         </thead>
                         <tbody>
-                            ${fila.map(doc => `
+                            ${fila.map(doc => {
+        // Pré-preenche com o rótulo completo quando a nota já tem rubrica vinculada,
+        // para que a resolução no "Processar" case exatamente com a opção da lista.
+        const rubricaPre = rubricas.find(r => r.id === doc.rubrica_id_fk);
+        const valorInput = rubricaPre ? rotuloRubrica(rubricaPre) : (doc.rubrica || '');
+        return `
                                 <tr>
                                     <td style="max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${doc.name}">${doc.name}</td>
                                     <td>${doc.size || '-'}</td>
                                     <td>
-                                        <input type="text" id="lote-rubrica-${doc.id}" list="rubricas-lote-list" placeholder="${rubricas.length === 0 ? 'Selecione um projeto com rubricas...' : 'Digite para buscar rubrica...'}" autocomplete="off" style="width: 100%; padding: 0.5rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: 4px; background: white;" value="${doc.rubrica || ''}" ${rubricas.length === 0 ? 'disabled' : ''}>
+                                        <input type="text" id="lote-rubrica-${doc.id}" data-rubrica-combo placeholder="${rubricas.length === 0 ? 'Selecione um projeto com rubricas...' : 'Digite para buscar rubrica...'}" autocomplete="off" style="width: 100%; padding: 0.5rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: 4px; background: white;" value="${escAttr(valorInput)}" ${rubricas.length === 0 ? 'disabled' : ''}>
                                     </td>
                                     <td>
                                         <button class="btn btn-primary" style="padding: 0.4rem 0.75rem;" onclick="window.handleProcessarLoteItem('${doc.id}')">
@@ -1372,7 +1727,8 @@ ${Sidebar()}
                                         </button>
                                     </td>
                                 </tr>
-                            `).join('')}
+                            `;
+    }).join('')}
                         </tbody>
                     </table>
                 `}
@@ -2166,13 +2522,7 @@ ${Sidebar()}
                             ${doc.status === 'bloqueado_conformidade' ? `
                                 <div style="display: flex; gap: 0.5rem;">
                                     <div style="flex: 1;">
-                                        <input type="text" id="vincular-rubrica-input" list="vincular-rubricas-list" placeholder="${(state.rubricas_disponiveis || []).length === 0 ? 'Carregando rubricas...' : 'Digite para buscar rubrica...'}" autocomplete="off" style="width: 100%; padding: 0.5rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: 4px; background: white;" ${(state.rubricas_disponiveis || []).length === 0 ? 'disabled' : ''}>
-                                        <datalist id="vincular-rubricas-list">
-                                            ${(state.rubricas_disponiveis || []).map(r => {
-        const label = r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome;
-        return `<option value="${label}"></option>`;
-    }).join('')}
-                                        </datalist>
+                                        <input type="text" id="vincular-rubrica-input" data-rubrica-combo placeholder="${(state.rubricas_disponiveis || []).length === 0 ? 'Carregando rubricas...' : 'Digite para buscar rubrica...'}" autocomplete="off" style="width: 100%; padding: 0.5rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: 4px; background: white;" ${(state.rubricas_disponiveis || []).length === 0 ? 'disabled' : ''}>
                                     </div>
                                     <button class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 12px;" onclick="window.handleVincularRubrica('${doc.id}', '${doc.project_id}', ${doc.valor})">
                                         Corrigir Vínculo
@@ -3990,10 +4340,12 @@ async function fetchDocumentDetails(id, silent = false) {
         if (data && data.project_id) {
             const { data: rubData } = await supabaseClient
                 .from('rubricas')
-                .select('id, nome, rubrica_id')
+                .select('id, nome, rubrica_id, produto, valor_aprovado')
                 .eq('project_id', data.project_id)
-                .order('nome');
-            state.rubricas_disponiveis = rubData || [];
+                .order('produto', { ascending: true })
+                .order('rubrica_id', { ascending: true });
+            state.rubricas_disponiveis = ordenarRubricas(rubData || []);
+            state.uploadRubricasProjectId = data.project_id;
         }
 
     } catch (err) {
@@ -4014,19 +4366,18 @@ window.handleVincularRubrica = async function (documentId, projectId, valorDespe
         return;
     }
     // O input agora e autocomplete (datalist). Resolve o texto digitado de volta
-    // para a rubrica do state (compara com "codigo - nome" e tambem com o nome puro).
+    // para a rubrica do state (ver resolverRubricaPorRotulo).
     const inputEl = document.getElementById('vincular-rubrica-input');
     const inputText = (inputEl?.value || '').trim();
     if (!inputText) return alert('Digite ou selecione uma rubrica!');
 
     const rubricasDisp = state.rubricas_disponiveis || [];
-    const rubricaSelecionada = rubricasDisp.find(r => {
-        const label = r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome;
-        return label === inputText || r.nome === inputText;
-    });
+    const rubricaSelecionada = resolverRubricaPorRotulo(inputText, rubricasDisp);
 
     if (!rubricaSelecionada) {
-        return alert('Rubrica não encontrada. Selecione uma opção da lista.');
+        // Nome puro com homônimos cai aqui de propósito: sem o produto não dá para
+        // saber qual das rubricas é a certa, e vincular a primeira seria um chute.
+        return alert('Rubrica não encontrada ou ambígua. Selecione uma opção da lista (o produto aparece no início de cada item).');
     }
 
     const rubricaId = rubricaSelecionada.id;
@@ -5204,37 +5555,49 @@ window.handleSaveSettings = async function () {
 
 
 window.handleProjectSelectChange = async function (projectId) {
-    const list = document.getElementById('rubricas-list');
     const input = document.getElementById('rubrica-input');
-    if (!list || !input) return;
+    if (!input) return;
 
+    // Trocar de projeto invalida a rubrica escolhida.
     input.value = '';
-    list.innerHTML = '<option value="Carregando...">';
+    delete input.dataset.rubricaId;
+    input.placeholder = 'Carregando rubricas...';
+    // Marca de qual projeto é a lista em memória, para o render() não refazer a query
+    // (nem limpar o input) a cada re-render da tela de upload.
+    state.uploadRubricasProjectId = projectId || null;
 
     if (!projectId || !supabaseClient) {
-        list.innerHTML = '<option value="Selecione um projeto primeiro...">';
+        state.rubricas_disponiveis = [];
+        input.placeholder = 'Selecione o projeto primeiro...';
         return;
     }
 
     try {
         const { data, error } = await supabaseClient
             .from('rubricas')
-            .select('id, nome, rubrica_id')
+            .select('id, nome, rubrica_id, produto, valor_aprovado')
             .eq('project_id', projectId)
-            .order('nome');
+            .order('produto', { ascending: true })
+            .order('rubrica_id', { ascending: true });
 
         if (error) throw error;
 
-        if (data && data.length > 0) {
-            list.innerHTML = data.map(r => `<option value="${r.rubrica_id ? r.rubrica_id + ' - ' : ''}${r.nome}">${r.rubrica_id ? r.rubrica_id + ' - ' : ''}${r.nome}</option>`).join('');
-            input.placeholder = "Digite para buscar entre " + data.length + " rubricas...";
-        } else {
-            list.innerHTML = '<option value="Nenhuma rubrica cadastrada neste projeto.">';
-            input.placeholder = "Sem rubricas disponíveis";
-        }
+        // handleUpload resolve o texto digitado contra state.rubricas_disponiveis, que
+        // é a mesma lista que o combobox exibe — lista exibida e lista consultada na
+        // resolução não podem divergir, senão o vínculo falha em silêncio.
+        state.rubricas_disponiveis = ordenarRubricas(data || []);
+
+        input.placeholder = state.rubricas_disponiveis.length > 0
+            ? `Digite para buscar entre ${state.rubricas_disponiveis.length} rubricas...`
+            : 'Nenhuma rubrica cadastrada neste projeto';
+
+        // Se o operador já está com o campo aberto, atualiza o painel na hora.
+        if (_comboAberto() && _comboInput === input) _comboAbrir(input);
     } catch (error) {
         console.error("Erro ao carregar rubricas:", error);
-        list.innerHTML = '<option value="Erro ao carregar rubricas.">';
+        state.rubricas_disponiveis = [];
+        state.uploadRubricasProjectId = null; // deixa o render() tentar de novo
+        input.placeholder = 'Erro ao carregar rubricas';
     }
 };
 
@@ -5303,15 +5666,15 @@ window.handleUpload = async function (file) {
 
     let rubricaIdFk = null;
     let rubricaTexto = rubricaInput;
-    if (rubricaInput && state.rubricas_disponiveis) {
-        const r = state.rubricas_disponiveis.find(r => {
-            const label = r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome;
-            return label === rubricaInput || r.nome === rubricaInput;
-        });
-        if (r) {
-            rubricaIdFk = r.id;
-            rubricaTexto = r.nome;
+    if (rubricaInput) {
+        const r = resolverRubricaPorRotulo(rubricaInput, state.rubricas_disponiveis);
+        if (!r) {
+            // Falhar aqui em vez de subir a nota sem rubrica_id_fk: sem o vínculo a
+            // nota entra no fluxo apontando para lugar nenhum, e isso passa em silêncio.
+            return alert('Rubrica não encontrada ou ambígua. Selecione uma opção da lista (o produto aparece no início de cada item).');
         }
+        rubricaIdFk = r.id;
+        rubricaTexto = r.nome;
     }
 
     state.loading = true;
@@ -5337,21 +5700,26 @@ window.handleUpload = async function (file) {
 };
 
 async function fetchRubricasDisponiveis(projectId) {
+    // state.rubricas_disponiveis é compartilhado entre as telas; sempre registrar de
+    // qual projeto é a lista, senão a tela de upload reaproveita rubricas de outro.
+    state.uploadRubricasProjectId = projectId || null;
     if (!supabaseClient || !projectId) {
         state.rubricas_disponiveis = [];
         return;
     }
+    // produto e valor_aprovado entram no rótulo para distinguir rubricas homônimas.
     const { data, error } = await supabaseClient
         .from('rubricas')
-        .select('id, nome, rubrica_id')
+        .select('id, nome, rubrica_id, produto, valor_aprovado')
         .eq('project_id', projectId)
-        .order('nome');
+        .order('produto', { ascending: true })
+        .order('rubrica_id', { ascending: true });
     if (error) {
         console.error("Erro fetchRubricasDisponiveis:", error);
         state.rubricas_disponiveis = [];
         return;
     }
-    state.rubricas_disponiveis = data || [];
+    state.rubricas_disponiveis = ordenarRubricas(data || []);
 }
 
 async function fetchUploadLoteQueue() {
@@ -5492,18 +5860,12 @@ window.handleProcessarLoteItem = async function (documentId) {
     const rubricaInput = input ? input.value.trim() : '';
     if (!rubricaInput) return alert("Escolha a rubrica antes de processar.");
 
-    let rubricaIdFk = null;
-    let rubricaTexto = rubricaInput;
-    if (state.rubricas_disponiveis) {
-        const r = state.rubricas_disponiveis.find(r => {
-            const label = r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome;
-            return label === rubricaInput || r.nome === rubricaInput;
-        });
-        if (r) {
-            rubricaIdFk = r.id;
-            rubricaTexto = r.nome;
-        }
+    const rubricaResolvida = resolverRubricaPorRotulo(rubricaInput, state.rubricas_disponiveis);
+    if (!rubricaResolvida) {
+        return alert('Rubrica não encontrada ou ambígua. Selecione uma opção da lista (o produto aparece no início de cada item).');
     }
+    const rubricaIdFk = rubricaResolvida.id;
+    const rubricaTexto = rubricaResolvida.nome;
 
     const doc = state.uploadLoteQueue.find(d => d.id === documentId);
     if (!doc) return;
@@ -5541,25 +5903,32 @@ window.handleProcessarTodosLote = async function () {
             const input = document.getElementById(`lote-rubrica-${doc.id}`);
             const rubricaInput = input ? input.value.trim() : '';
             
-            let rubricaIdFk = null;
-            let rubricaTexto = rubricaInput;
-            if (rubricaInput && state.rubricas_disponiveis) {
-                const r = state.rubricas_disponiveis.find(r => {
-                    const label = r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome;
-                    return label === rubricaInput || r.nome === rubricaInput;
-                });
-                if (r) {
-                    rubricaIdFk = r.id;
-                    rubricaTexto = r.nome;
-                }
-            }
-            return { doc, rubricaTexto, rubricaIdFk, hasInput: !!rubricaInput };
+            const r = resolverRubricaPorRotulo(rubricaInput, state.rubricas_disponiveis);
+            return {
+                doc,
+                rubricaTexto: r ? r.nome : rubricaInput,
+                rubricaIdFk: r ? r.id : null,
+                hasInput: !!rubricaInput,
+                resolvida: !!r
+            };
         })
         .filter(x => x.hasInput);
 
     if (itensComRubrica.length === 0) {
         return alert("Preencha a rubrica em pelo menos um arquivo.");
     }
+
+    // Nenhum item sobe sem rubrica_id_fk — um vínculo nulo aqui só apareceria muito
+    // depois, na conciliação, sem pista de onde veio.
+    const naoResolvidos = itensComRubrica.filter(x => !x.resolvida);
+    if (naoResolvidos.length > 0) {
+        return alert(
+            'Rubrica não encontrada ou ambígua em:\n\n' +
+            naoResolvidos.map(x => `• ${x.doc.name}`).join('\n') +
+            '\n\nSelecione uma opção da lista (o produto aparece no início de cada item).'
+        );
+    }
+
     if (!confirm(`Processar ${itensComRubrica.length} documento(s)?`)) return;
 
     state.loading = true;
@@ -6352,6 +6721,30 @@ function render() {
     if (state.currentView === 'financeiro') {
         setTimeout(initFinanceiroCharts, 50); // Initialize charts after DOM updates
     }
+
+    // O painel do combobox é montado sob demanda, mas os inputs são recriados a cada
+    // innerHTML — se um estava aberto, ele agora aponta para um elemento fora do DOM.
+    if (_comboAberto() && !document.body.contains(_comboInput)) _comboFechar();
+
+    // O <script> inline da UploadView nunca roda (app.innerHTML não executa scripts),
+    // então as rubricas não eram carregadas ao entrar na tela com um projeto já
+    // selecionado. Dispara aqui, depois que o DOM existe.
+    if (state.currentView === 'upload') {
+        const selector = document.getElementById('project-selector');
+        const input = document.getElementById('rubrica-input');
+        if (selector && selector.value && input) {
+            if (state.uploadRubricasProjectId === selector.value) {
+                // Já carregado para este projeto: só reajusta o placeholder, sem refazer
+                // a query e sem limpar o que o operador já digitou.
+                const total = (state.rubricas_disponiveis || []).length;
+                input.placeholder = total > 0
+                    ? `Digite para buscar entre ${total} rubricas...`
+                    : 'Nenhuma rubrica cadastrada neste projeto';
+            } else {
+                window.handleProjectSelectChange(selector.value);
+            }
+        }
+    }
 }
 
 function initFinanceiroCharts() {
@@ -6633,6 +7026,10 @@ window.handleUploadExtratoLote = async function (file, projectId) {
 
 // Initial render and setup
 async function init() {
+    // Listeners delegados do combobox de rubricas — registrados uma vez só, antes de
+    // qualquer render, porque os inputs são recriados a cada app.innerHTML.
+    inicializarComboRubricas();
+
     if (supabaseClient) {
         // Verifica se é um fluxo de recuperação de senha pelo hash da URL ou query ?recovery=true
         const isRecovery = window.location.search.includes('recovery=true') || window.location.hash.includes('type=recovery');

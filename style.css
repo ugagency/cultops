@@ -1193,3 +1193,98 @@ textarea:focus {
         box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.15);
     }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   COMBOBOX DE RUBRICAS (M1)
+   Substitui o <datalist> nos 3 seletores de rubrica. O <datalist> não aceita
+   <optgroup>, então rubricas homônimas (mesmo nome, produtos diferentes) ficavam
+   indistinguíveis. Este painel agrupa por PRODUTO com cabeçalho + itens indentados,
+   mantendo a busca por digitação.
+   O painel é fixed e vive no <body> para não ser recortado por overflow de tabela
+   nem apagado pelo app.innerHTML de cada render.
+   ───────────────────────────────────────────────────────────────────────────── */
+.rubrica-combo-panel {
+    position: fixed;
+    z-index: 9999;
+    display: none;
+    background: var(--bg-card);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg), 0 0 0 1px rgba(0, 0, 0, 0.03);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0.25rem 0;
+}
+
+.rubrica-combo-panel.is-open {
+    display: block;
+}
+
+.rubrica-combo-group {
+    position: sticky;
+    top: 0;
+    background: var(--bg-sidebar);
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    padding: 0.45rem 0.75rem;
+    border-top: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.rubrica-combo-panel .rubrica-combo-group:first-child {
+    border-top: none;
+}
+
+.rubrica-combo-item {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.45rem 0.75rem 0.45rem 1.5rem;
+    font-size: 13px;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.rubrica-combo-item:hover,
+.rubrica-combo-item.is-active {
+    background: var(--bg-sidebar);
+}
+
+.rubrica-combo-item.is-active {
+    box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.rubrica-combo-num {
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.rubrica-combo-nome {
+    flex: 1;
+    min-width: 0;
+}
+
+.rubrica-combo-valor {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.rubrica-combo-item mark {
+    background: rgba(37, 99, 235, 0.16);
+    color: inherit;
+    border-radius: 2px;
+    padding: 0 1px;
+}
+
+.rubrica-combo-empty {
+    padding: 0.75rem;
+    font-size: 13px;
+    color: var(--text-muted);
+    text-align: center;
+}
