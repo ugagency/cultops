@@ -441,13 +441,16 @@
         <div class="glass-card mb-4">
             <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem;">
                 <label style="font-weight: 600; font-size: 0.9rem; white-space: nowrap;">Tipo:</label>
-                <select id="gestor-tipo-evidencia" style="flex: 1; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white;">
-                    <option value="foto_evento">Foto do evento</option>
-                    <option value="relatorio_objeto">Relatório do objeto</option>
-                    <option value="peca_marketing">Peça de marketing</option>
-                    <option value="outros">Outros</option>
+                <select id="gestor-tipo-evidencia" onchange="handleProdutoChange()" style="flex: 1; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white;">
+                    <option value="">Selecione…</option>
+                    <option value="foto_evento">Foto de execução</option>
+                    <option value="acessibilidade">Foto de acessibilidade</option>
+                    <option value="peca_marketing">Material de comunicação</option>
                 </select>
             </div>
+            <p style="font-size: 0.78rem; color: var(--text-muted); margin: -0.5rem 0 1rem;">
+                Define em qual seção do relatório do evento a evidência será agrupada.
+            </p>
             <div style="margin-bottom: 1rem;" id="produto-field-container">
                 <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.4rem;">Produto vinculado</label>
                 <select id="ev-produto" onchange="handleProdutoChange()"
@@ -515,10 +518,9 @@
                 <select id="filter-tipo" onchange="aplicarFiltrosEOrdenacao()"
                     style="min-width:160px; padding:0.5rem 0.8rem; border:1px solid var(--border-light); border-radius:var(--radius-md); background:white;">
                     <option value="">Todos os tipos</option>
-                    <option value="foto_evento">Foto do evento</option>
-                    <option value="relatorio_objeto">Relatório do objeto</option>
-                    <option value="peca_marketing">Peça de marketing</option>
-                    <option value="outros">Outros</option>
+                    <option value="foto_evento">Foto de execução</option>
+                    <option value="acessibilidade">Foto de acessibilidade</option>
+                    <option value="peca_marketing">Material de comunicação</option>
                 </select>
 
                 <select id="sort-evidencias" onchange="aplicarFiltrosEOrdenacao()"
@@ -605,6 +607,31 @@
     <script>
         const MIME_ACEITOS = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
         const TAMANHO_MAX = 50 * 1024 * 1024; // 50MB
+
+        // Rótulos de tipo_evidencia, idênticos aos do M3.
+        //
+        // O relatório de evento do M3 tem exatamente três seções, uma por tipo
+        // (modulo3/relatorio-evento.js → REL_GALERIAS): foto_evento,
+        // acessibilidade e peca_marketing. Evidência classificada fora desses três
+        // não entra em nenhuma seção — por isso o seletor só oferece esses valores.
+        //
+        // relatorio_objeto e outros continuam AQUI de propósito: saíram do seletor,
+        // mas seguem válidos na constraint do banco. Registros legados ou criados
+        // por outra via precisam continuar exibindo rótulo legível.
+        const TIPO_LABELS = {
+            foto_evento: 'Foto de execução',
+            acessibilidade: 'Foto de acessibilidade',
+            peca_marketing: 'Material de comunicação',
+            relatorio_objeto: 'Relatório do Objeto',
+            outros: 'Outros',
+        };
+
+        // Nunca devolve vazio: valor desconhecido cai no próprio valor cru, para o
+        // operador conseguir ver o que está gravado em vez de uma célula em branco.
+        function tipoLabel(tipo) {
+            if (!tipo) return 'Sem tipo';
+            return TIPO_LABELS[tipo] || String(tipo).replace(/_/g, ' ');
+        }
 
         let currentProjectId = ProjectManager.getSelected();
         let allProjects = [];
@@ -785,11 +812,13 @@
         function handleProdutoChange() {
             const produtoValor = getProdutoValorAtual();
             if (!produtoValor) return;
-            const tipoVal = document.getElementById('gestor-tipo-evidencia').value || 'evidência';
-            const tipoLabel = tipoVal.replace(/_/g, ' ');
+            // Este texto vai para descricao no banco: usa o mesmo rótulo do resto da
+            // interface, senão a descrição gravada diverge do tipo exibido.
+            const tipoVal = document.getElementById('gestor-tipo-evidencia').value;
+            const descricaoTipo = tipoVal ? tipoLabel(tipoVal).toLowerCase() : 'evidência';
             const hoje = new Date().toLocaleDateString('pt-BR');
             const ta = document.getElementById('gestor-observacoes');
-            ta.value = `Comprovação do produto ${produtoValor} — ${tipoLabel} de ${hoje}.`;
+            ta.value = `Comprovação do produto ${produtoValor} — ${descricaoTipo} de ${hoje}.`;
             updateCharCounter();
         }
 
@@ -1070,7 +1099,7 @@
                                 }
                             </div>
                         </td>
-                        <td><span class="meta-tag">${escapeHtml((ev.tipo_evidencia || 'outros').replace(/_/g, ' '))}</span></td>
+                        <td><span class="meta-tag">${escapeHtml(tipoLabel(ev.tipo_evidencia))}</span></td>
                         <td style="font-size:0.82rem; white-space:nowrap;">
                             ${ev.distribution_event_id
                                 ? `<span style="display:inline-flex;align-items:center;gap:0.3rem;color:#1547FF;font-weight:600;">
@@ -1144,8 +1173,10 @@
             const isPdf = isPdfFile(ev.file_path);
 
             // Title
-            document.getElementById('fs-title').textContent = ev.file_name || ev.tipo_evidencia || 'Evidência';
-            document.getElementById('fs-info').textContent = `${(ev.tipo_evidencia || '').replace('_', ' ')} · ${formatDate(ev.criado_em)} · ${ev.status_validacao}`;
+            // Sem arquivo e sem tipo, "Evidência" é melhor título que "Sem tipo".
+            document.getElementById('fs-title').textContent =
+                ev.file_name || (ev.tipo_evidencia ? tipoLabel(ev.tipo_evidencia) : 'Evidência');
+            document.getElementById('fs-info').textContent = `${tipoLabel(ev.tipo_evidencia)} · ${formatDate(ev.criado_em)} · ${ev.status_validacao}`;
 
             // Body content
             const body = document.getElementById('fs-body');
@@ -1380,7 +1411,15 @@
                 return;
             }
 
+            // O seletor passou a abrir em "Selecione…" para a classificação ser uma
+            // escolha e não um default silencioso. Sem esta checagem, subiria
+            // tipo_evidencia vazio — e evidência sem tipo não entra em nenhuma seção
+            // do relatório do evento, falhando em silêncio lá na frente.
             const tipoSelecionado = document.getElementById('gestor-tipo-evidencia').value;
+            if (!tipoSelecionado) {
+                showToast('Selecione o tipo da evidência antes de enviar.', 'error');
+                return;
+            }
             const produtoSelecionado = getProdutoValorAtual();
             if (!produtoSelecionado) {
                 showToast('Selecione ou digite o produto antes de enviar evidências.', 'error');
