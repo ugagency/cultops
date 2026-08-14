@@ -232,15 +232,12 @@ async function renderSidebar() {
 
     // Define handleLogout globalmente se ainda não existir
     if (!window.handleLogout) {
-        window.handleLogout = async function(e) {
-            if(e) e.preventDefault();
-            const config = window.CONFIG;
-            if (window.supabase && config) {
-                const sb = window.supabase.createClient(config.SUPABASE_URL, config.SUPABASE_KEY);
-                await sb.auth.signOut();
-            }
-            localStorage.removeItem('prestai_modulo_ativo');
-            window.location.href = '../index.html#login';
+        window.handleLogout = async function (e) {
+            if (e) e.preventDefault();
+            // Implementação única em auth-logout.js. Passa o cliente já criado por
+            // initSupabase() para não abrir um segundo GoTrueClient nesta página.
+            const sb = await initSupabase();
+            return window.prestaiLogout({ client: sb, base: '../' });
         };
     }
 }

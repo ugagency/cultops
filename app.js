@@ -10,6 +10,9 @@ function initializeSupabase() {
 
     if (window.supabase && supabaseUrl && supabaseKey) {
         supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
+        // `let` em script clássico não vira propriedade de window. Publicar aqui
+        // deixa auth-logout.js reaproveitar este cliente em vez de criar um segundo.
+        window.supabaseClient = supabaseClient;
         console.log("Supabase Client inicializado com sucesso.");
     } else {
         console.error("ERRO: Falha ao inicializar o Supabase.");
@@ -3316,7 +3319,14 @@ window.handleRegister = async function () {
 
 window.handleLogout = async function () {
     const wasFornecedor = getUserRole() === 'fornecedor';
-    await supabaseClient.auth.signOut();
+    // Implementação única em auth-logout.js: encerra a sessão e apaga o token
+    // persistido mesmo se o signOut falhar. redirect:false porque aqui já estamos
+    // no index.html — quem troca de tela é o navigate() abaixo, sem recarregar.
+    if (window.prestaiLogout) {
+        await window.prestaiLogout({ client: supabaseClient, redirect: false });
+    } else {
+        try { await supabaseClient.auth.signOut(); } catch (_) { }
+    }
     state.user = null;
     state.userStatus = null;
     // Sem isto a flag sobrevive ao logout: quem sai da troca obrigatória e
@@ -7029,6 +7039,24 @@ async function init() {
     // Listeners delegados do combobox de rubricas — registrados uma vez só, antes de
     // qualquer render, porque os inputs são recriados a cada app.innerHTML.
     inicializarComboRubricas();
+
+    // Chegada vinda de um botão "Sair" de qualquer módulo. Precisa ser tratada
+    // ANTES do getSession(): se sobrar qualquer resquício de sessão, o roteamento
+    // abaixo mandaria de volta ao module-selector.html — que é exatamente o bug de
+    // o "Sair" do M2/M3 devolver o usuário ao seletor em vez da tela de login.
+    if (window.location.search.includes('logout=1')) {
+        if (supabaseClient) {
+            try { await supabaseClient.auth.signOut(); } catch (_) { }
+        }
+        if (window.prestaiPurgarSessaoLocal) window.prestaiPurgarSessaoLocal();
+        state.user = null;
+        state.userStatus = null;
+        state.currentView = 'login';
+        // Tira o ?logout=1 da barra para o F5 não repetir o fluxo de saída.
+        try { history.replaceState(null, '', window.location.pathname + '#login'); } catch (_) { }
+        render();
+        return;
+    }
 
     if (supabaseClient) {
         // Verifica se é um fluxo de recuperação de senha pelo hash da URL ou query ?recovery=true

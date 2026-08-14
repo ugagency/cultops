@@ -96,17 +96,11 @@
     </div>
 
     <script src="../config.js"></script>
+    <script src="../auth-logout.js"></script>
     <script>
-        document.getElementById('btn-sair').addEventListener('click', async (e) => {
-            e.preventDefault();
-            try {
-                if (window.supabase && window.CONFIG) {
-                    const sb = window.supabase.createClient(window.CONFIG.SUPABASE_URL, window.CONFIG.SUPABASE_KEY);
-                    await sb.auth.signOut();
-                }
-            } catch (_) {}
-            localStorage.removeItem('prestai_modulo_ativo');
-            window.location.href = '../index.html#login';
+        document.getElementById('btn-sair').addEventListener('click', (e) => {
+            // Implementação única em auth-logout.js.
+            window.prestaiLogout({ event: e, base: '../' });
         });
     </script>
 </body>

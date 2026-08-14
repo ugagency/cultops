@@ -296,6 +296,7 @@
     </div>
 
     <script src="config.js"></script>
+    <script src="auth-logout.js"></script>
     <script>
         const MODULE_DEFS = {
             'modulo_1': {
@@ -495,17 +496,10 @@
         }
     </script>
     <script>
+        // Implementação única em auth-logout.js — antes daqui saía um redirect sem
+        // signOut quando o SDK não havia carregado, e a sessão sobrevivia.
         async function handleLogout() {
-            if (typeof window.supabase === 'undefined') {
-                window.location.href = 'index.html#login';
-                return;
-            }
-            try {
-                const sb = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
-                await sb.auth.signOut();
-            } catch (e) { }
-            localStorage.removeItem('prestai_modulo_ativo');
-            window.location.href = 'index.html#login';
+            return window.prestaiLogout({ base: '' });
         }
         window.handleLogout = handleLogout;
     </script>
