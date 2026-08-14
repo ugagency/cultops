@@ -238,15 +238,61 @@ body {
     background: white;
     color: var(--text-primary);
 }
+/* Sem isto o textarea herda o monospace do agente e destoa do resto do formulário. */
+.form-group textarea {
+    font-family: inherit;
+    line-height: 1.5;
+    resize: vertical;
+    min-height: 76px;
+}
 .form-group input:focus,
 .form-group select:focus,
 .form-group textarea:focus {
     border-color: var(--m3-accent);
     box-shadow: 0 0 0 3px rgba(21, 71, 255, 0.08);
 }
+
+/* O <input type="file"> não é alcançado pelos seletores de input do style.css e
+   ficava como controle nativo cru no meio de campos estilizados. Aqui a caixa
+   recebe a mesma moldura dos demais campos e o botão vira um botão secundário. */
+.form-group input[type="file"] {
+    padding: 0.5rem 0.625rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+.form-group input[type="file"]::file-selector-button {
+    margin-right: 0.75rem;
+    padding: 0.4rem 0.85rem;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    background: var(--bg-sidebar, #F7F5F2);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+}
+.form-group input[type="file"]::file-selector-button:hover {
+    border-color: var(--m3-accent);
+    background: white;
+}
+
 .form-group .hint {
     font-size: 0.73rem;
     color: var(--text-muted);
+}
+
+/* Mensagens de validação sob um campo (antes eram estilos inline soltos). */
+.field-error {
+    font-size: 0.78rem;
+    color: var(--error, #FF5807);
+}
+.field-warning {
+    font-size: 0.78rem;
+    color: #B45309;
+    margin: 0;
 }
 
 .form-section-title {

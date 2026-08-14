@@ -141,61 +141,63 @@
     </main>
 
     <!-- Modal: Adicionar Lista de Presença -->
-    <div id="modal-attendance" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9000;align-items:center;justify-content:center;">
-        <div class="glass-card" style="width:100%;max-width:480px;margin:1rem;position:relative;">
-            <button onclick="closeModalAttendance()"
-                    style="position:absolute;top:1rem;right:1rem;background:none;border:none;cursor:pointer;color:var(--text-muted);">
-                <i data-lucide="x" style="width:20px;"></i>
-            </button>
-            <div style="font-weight:800;font-size:1.1rem;color:var(--text-primary);margin-bottom:1.25rem;">
-                Adicionar Lista de Presença
-            </div>
-            <div class="form-grid" style="gap:1rem;">
-                <div>
-                    <label class="form-label">Arquivo (PDF) *</label>
-                    <input type="file" id="att-file" accept=".pdf" class="form-input"
-                           onchange="validateAttFile(this)">
-                    <div id="att-file-err" style="color:#FF5807;font-size:0.8rem;margin-top:0.25rem;display:none;"></div>
-                </div>
-                <div>
-                    <label class="form-label">Total de presentes *</label>
-                    <input type="number" id="att-total" min="0" placeholder="0" class="form-input">
-                </div>
-                <div>
-                    <label class="form-label">Observações</label>
-                    <textarea id="att-obs" rows="3" placeholder="Observações opcionais…" class="form-input"
-                              style="resize:vertical;min-height:72px;"></textarea>
-                </div>
-            </div>
-            <div style="display:flex;gap:0.75rem;margin-top:1.5rem;justify-content:flex-end;">
-                <button class="btn-secondary" onclick="closeModalAttendance()">Cancelar</button>
-                <button class="btn-primary" id="btn-salvar-attendance" onclick="salvarAttendance()">
-                    <i data-lucide="upload" style="width:15px;"></i> Enviar
+    <div id="modal-attendance" class="modal-backdrop" style="display:none;">
+        <div class="modal-card" style="max-width:480px;">
+            <div class="modal-header">
+                <h2>Adicionar Lista de Presença</h2>
+                <button class="btn-icon" onclick="closeModalAttendance()">
+                    <i data-lucide="x" style="width:22px;"></i>
                 </button>
+            </div>
+
+            <div class="form-group" style="margin-bottom:1.25rem;">
+                <label for="att-file">Arquivo (PDF) *</label>
+                <input type="file" id="att-file" accept=".pdf" onchange="validateAttFile(this)">
+                <div id="att-file-err" class="field-error" style="display:none;"></div>
+            </div>
+
+            <div class="form-group" style="margin-bottom:1.25rem;">
+                <label for="att-total">Total de presentes *</label>
+                <input type="number" id="att-total" min="0" placeholder="0">
+            </div>
+
+            <div class="form-group">
+                <label for="att-obs">Observações</label>
+                <textarea id="att-obs" rows="3" placeholder="Observações opcionais…"></textarea>
+            </div>
+
+            <div class="modal-footer">
+                <div class="actions-right">
+                    <button class="btn-secondary" onclick="closeModalAttendance()">Cancelar</button>
+                    <button class="btn-primary" id="btn-salvar-attendance" onclick="salvarAttendance()">
+                        <i data-lucide="upload" style="width:15px;"></i> Enviar
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 
     <!-- Modal: Adicionar Evidência -->
-    <div id="modal-evidencia" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9000;align-items:center;justify-content:center;">
-        <div class="glass-card" style="width:100%;max-width:520px;margin:1rem;position:relative;max-height:90vh;overflow-y:auto;">
-            <button onclick="closeModalEvidencia()"
-                    style="position:absolute;top:1rem;right:1rem;background:none;border:none;cursor:pointer;color:var(--text-muted);">
-                <i data-lucide="x" style="width:20px;"></i>
-            </button>
-            <div style="font-weight:800;font-size:1.1rem;color:var(--text-primary);margin-bottom:1.25rem;">
-                Adicionar Evidência
+    <div id="modal-evidencia" class="modal-backdrop" style="display:none;">
+        <div class="modal-card" style="max-width:560px;">
+            <div class="modal-header">
+                <h2>Adicionar Evidência</h2>
+                <button class="btn-icon" onclick="closeModalEvidencia()">
+                    <i data-lucide="x" style="width:22px;"></i>
+                </button>
             </div>
-            <div class="form-grid" style="gap:1rem;">
-                <div>
-                    <label class="form-label">Arquivo (JPG, PNG ou PDF) *</label>
-                    <input type="file" id="ev-file" accept=".jpg,.jpeg,.png,.pdf" class="form-input"
-                           onchange="validateEvFile(this)">
-                    <div id="ev-file-err" style="color:#FF5807;font-size:0.8rem;margin-top:0.25rem;display:none;"></div>
-                </div>
-                <div>
-                    <label class="form-label">Tipo de Evidência *</label>
-                    <select id="ev-tipo" class="form-input">
+
+            <div class="form-group" style="margin-bottom:1.25rem;">
+                <label for="ev-file">Arquivo (JPG, PNG ou PDF) *</label>
+                <input type="file" id="ev-file" accept=".jpg,.jpeg,.png,.pdf" onchange="validateEvFile(this)">
+                <div id="ev-file-err" class="field-error" style="display:none;"></div>
+            </div>
+
+            <!-- Tipo e data são campos curtos: cabem lado a lado. -->
+            <div class="form-grid" style="margin-bottom:1.25rem;">
+                <div class="form-group">
+                    <label for="ev-tipo">Tipo de Evidência *</label>
+                    <select id="ev-tipo">
                         <option value="">Selecione…</option>
                         <option value="foto_evento">Foto de execução</option>
                         <option value="acessibilidade">Foto de acessibilidade</option>
@@ -204,50 +206,59 @@
                         <option value="outros">Outros</option>
                     </select>
                 </div>
-                <div>
-                    <label class="form-label">Produto vinculado *</label>
-                    <select id="ev-produto" class="form-input" onchange="handleProdutoChangeM3()" style="display:none;"></select>
-                    <input type="text" id="ev-produto-manual" class="form-input"
-                           placeholder="Digite o produto (ex: Curso / Oficina / Capacitação)"
-                           oninput="handleProdutoChangeM3()" autocomplete="off" style="display:none;">
-                    <p id="produto-warning-m3" style="display:none;font-size:0.78rem;color:#b45309;margin-top:0.4rem;">
-                        Este projeto ainda não possui produtos importados. Digite manualmente.
-                    </p>
-                </div>
-                <div>
-                    <label class="form-label">Data da captura</label>
-                    <input type="date" id="ev-data-captura" class="form-input">
-                </div>
-                <div>
-                    <label class="form-label">Descrição *</label>
-                    <textarea id="ev-descricao" rows="3"
-                              placeholder="O que esta evidência comprova?"
-                              class="form-input" style="resize:vertical;min-height:72px;"></textarea>
+                <div class="form-group">
+                    <label for="ev-data-captura">Data da captura</label>
+                    <input type="date" id="ev-data-captura">
                 </div>
             </div>
-            <div style="display:flex;gap:0.75rem;margin-top:1.5rem;justify-content:flex-end;">
-                <button class="btn-secondary" onclick="closeModalEvidencia()">Cancelar</button>
-                <button class="btn-primary" id="btn-salvar-evidencia" onclick="salvarEvidencia()">
-                    <i data-lucide="upload" style="width:15px;"></i> Enviar
-                </button>
+
+            <div class="form-group" style="margin-bottom:1.25rem;">
+                <label for="ev-produto">Produto vinculado *</label>
+                <select id="ev-produto" onchange="handleProdutoChangeM3()" style="display:none;"></select>
+                <input type="text" id="ev-produto-manual"
+                       placeholder="Digite o produto (ex: Curso / Oficina / Capacitação)"
+                       oninput="handleProdutoChangeM3()" autocomplete="off" style="display:none;">
+                <p id="produto-warning-m3" class="field-warning" style="display:none;">
+                    Este projeto ainda não possui produtos importados. Digite manualmente.
+                </p>
+            </div>
+
+            <div class="form-group">
+                <label for="ev-descricao">Descrição *</label>
+                <textarea id="ev-descricao" rows="3" placeholder="O que esta evidência comprova?"></textarea>
+            </div>
+
+            <div class="modal-footer">
+                <div class="actions-right">
+                    <button class="btn-secondary" onclick="closeModalEvidencia()">Cancelar</button>
+                    <button class="btn-primary" id="btn-salvar-evidencia" onclick="salvarEvidencia()">
+                        <i data-lucide="upload" style="width:15px;"></i> Enviar
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 
     <!-- Modal: reprovar / solicitar complemento -->
-    <div id="modal-validacao" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9000;align-items:center;justify-content:center;">
-        <div style="background:white;border-radius:var(--radius-lg);padding:1.75rem;width:100%;max-width:440px;margin:1rem;box-shadow:0 24px 80px rgba(0,0,0,0.22);">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
-                <h2 id="validacao-titulo" style="font-size:1.1rem;font-weight:700;margin:0;color:var(--text-primary);">Reprovar evidência</h2>
-                <button class="btn-icon" onclick="fecharModalValidacao()"><i data-lucide="x" style="width:18px;"></i></button>
+    <div id="modal-validacao" class="modal-backdrop" style="display:none;">
+        <div class="modal-card" style="max-width:440px;">
+            <div class="modal-header">
+                <h2 id="validacao-titulo">Reprovar evidência</h2>
+                <button class="btn-icon" onclick="fecharModalValidacao()">
+                    <i data-lucide="x" style="width:22px;"></i>
+                </button>
             </div>
+
             <div class="form-group">
                 <label for="validacao-motivo">Motivo</label>
-                <textarea id="validacao-motivo" rows="3" maxlength="500" style="padding:0.625rem 0.875rem;border-radius:var(--radius-md);border:1px solid var(--border-light);font-size:0.9rem;font-family:inherit;resize:vertical;"></textarea>
+                <textarea id="validacao-motivo" rows="3" maxlength="500"></textarea>
             </div>
-            <div style="display:flex;gap:0.6rem;justify-content:flex-end;margin-top:1.25rem;">
-                <button class="btn-secondary" onclick="fecharModalValidacao()">Cancelar</button>
-                <button class="btn-danger" id="btn-confirmar-validacao" onclick="confirmarValidacaoM3()">Confirmar</button>
+
+            <div class="modal-footer">
+                <div class="actions-right">
+                    <button class="btn-secondary" onclick="fecharModalValidacao()">Cancelar</button>
+                    <button class="btn-danger" id="btn-confirmar-validacao" onclick="confirmarValidacaoM3()">Confirmar</button>
+                </div>
             </div>
         </div>
     </div>
