@@ -602,6 +602,9 @@ const state = {
     currentDocument: null,
     // Documento apontado por currentDocument.duplicata_de_id, para o comparativo.
     currentDuplicata: null,
+    // { extrato, lancamentoDaNota, lancamentos, notasPorId } — seção de extrato.
+    currentExtrato: null,
+    extratoLancamentosExpandido: false,
     loading: false,
     // Troca de senha obrigatória do primeiro acesso: distingue este fluxo do
     // de recuperação por e-mail, que compartilha a mesma UpdatePasswordView.
@@ -2843,7 +2846,156 @@ ${Sidebar()}
                 </div>
             </div>
         </div>
+
+        ${ExtratoBancarioSection(doc)}
     </main>
+    `;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EXTRATO BANCÁRIO — somente leitura
+//
+// Os lançamentos já eram gravados pelo n8n mas nunca chegavam à tela: o trabalho
+// de conciliação acontecia invisível. Aqui mostramos qual movimentação bancária
+// foi casada com esta nota e o que mais veio no mesmo extrato.
+//
+// Sem nenhuma ação de edição por decisão de escopo: a NF precisa existir como
+// documento antes da conciliação, então preencher nota a partir do lançamento
+// inverteria o processo de comprovação.
+// ─────────────────────────────────────────────────────────────────────────────
+const EXTRATO_LANC_VISIVEIS = 8;
+
+function fmtValorExtrato(v) {
+    const n = parseValorBR(v);
+    return 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+}
+
+function fmtDataExtrato(d) {
+    return d ? _laudoFmtDate(d) : '---';
+}
+
+function tipoLancamentoLabel(tipo) {
+    const t = String(tipo || '').toLowerCase();
+    if (['debit', 'debito', 'débito', 'd'].includes(t)) return 'Débito';
+    if (['credit', 'credito', 'crédito', 'c'].includes(t)) return 'Crédito';
+    return tipo || '---';
+}
+
+function statusConciliacaoBadge(status) {
+    const s = String(status || 'pendente').toLowerCase().trim();
+    const conciliado = s === 'conciliado' || s === 'conciliada';
+    const cor = conciliado ? 'var(--success)' : 'var(--warning)';
+    const fundo = conciliado ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)';
+    // Não expõe o valor cru do enum: 'pendente' vira 'Pendente'. Valor
+    // desconhecido também é capitalizado, em vez de aparecer em minúsculas.
+    const texto = conciliado ? 'Conciliado' : (s ? s.charAt(0).toUpperCase() + s.slice(1) : 'Pendente');
+    return `<span style="display:inline-flex; align-items:center; padding:0.1rem 0.5rem; border-radius:9999px; background:${fundo}; color:${cor}; font-size:11px; font-weight:600; white-space:nowrap;">${escAttr(texto)}</span>`;
+}
+
+const ExtratoBancarioSection = (doc) => {
+    const ctx = state.currentExtrato;
+    // Nota que ainda não chegou nessa etapa: não polui a tela.
+    if (!ctx || (!ctx.lancamentoDaNota && (ctx.lancamentos || []).length === 0)) return '';
+
+    const { extrato, lancamentoDaNota, lancamentos, notasPorId } = ctx;
+    const outros = (lancamentos || []).filter(l => l.id !== lancamentoDaNota?.id);
+    const expandido = state.extratoLancamentosExpandido;
+    const visiveis = expandido ? outros : outros.slice(0, EXTRATO_LANC_VISIVEIS);
+
+    const periodo = extrato && (extrato.periodo_inicio || extrato.periodo_fim)
+        ? `${fmtDataExtrato(extrato.periodo_inicio)} a ${fmtDataExtrato(extrato.periodo_fim)}`
+        : null;
+
+    const infoItem = (rotulo, valor) => `
+        <div class="info-item">
+            <label>${rotulo}</label>
+            <p class="text-sm" style="font-weight: 600;">${valor}</p>
+        </div>`;
+
+    return `
+        <div class="card" style="margin-top: 1.5rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;" class="mb-4">
+                <h3 class="h2" style="margin: 0;">Extrato Bancário</h3>
+                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    ${periodo ? `<span class="text-xs" style="color: var(--text-muted);">Período: ${periodo}</span>` : ''}
+                    ${extrato?.formato ? `<span class="text-xs" style="color: var(--text-muted); text-transform: uppercase;">${extrato.formato}</span>` : ''}
+                </div>
+            </div>
+
+            ${lancamentoDaNota ? `
+                <div style="padding: 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: rgba(16, 185, 129, 0.05);">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.875rem;">
+                        <i data-lucide="link" style="width: 16px; color: var(--success);"></i>
+                        <span class="text-xs" style="font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;">Lançamento conciliado com esta nota</span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: 1.25rem;">
+                        ${infoItem('Data do lançamento', fmtDataExtrato(lancamentoDaNota.data_lancamento))}
+                        ${infoItem('Valor', `<span style="color: var(--primary);">${fmtValorExtrato(lancamentoDaNota.valor)}</span>`)}
+                        ${infoItem('Tipo', tipoLancamentoLabel(lancamentoDaNota.tipo))}
+                        ${infoItem('Status', statusConciliacaoBadge(lancamentoDaNota.status_conciliacao))}
+                    </div>
+                    <div style="margin-top: 1rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 1.25rem;">
+                        ${infoItem('Histórico do banco', escAttr(lancamentoDaNota.memo || '---'))}
+                        ${lancamentoDaNota.fitid ? infoItem('FITID', `<span style="font-family: monospace; font-size: 12px;">${escAttr(lancamentoDaNota.fitid)}</span>`) : ''}
+                    </div>
+                </div>
+            ` : `
+                <div style="padding: 0.875rem 1rem; border: 1px dashed var(--border-light); border-radius: var(--radius-sm);">
+                    <p class="text-xs" style="color: var(--text-muted);">
+                        Nenhum lançamento deste extrato foi conciliado com esta nota ainda. Abaixo, o que veio no extrato.
+                    </p>
+                </div>
+            `}
+
+            ${outros.length > 0 ? `
+                <div style="margin-top: 1.5rem;">
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.75rem;">
+                        <span class="text-xs" style="font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;">Demais lançamentos do mesmo extrato</span>
+                        <span class="text-xs" style="color: var(--text-muted);">${outros.length} lançamento${outros.length > 1 ? 's' : ''}</span>
+                    </div>
+                    <div class="data-table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th style="white-space: nowrap;">Data</th>
+                                    <th style="text-align: right; white-space: nowrap;">Valor</th>
+                                    <th>Histórico</th>
+                                    <th>Situação</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${visiveis.map(l => {
+        const nota = l.document_id ? notasPorId[l.document_id] : null;
+        return `
+                                    <tr>
+                                        <td style="white-space: nowrap;"><div class="text-sm">${fmtDataExtrato(l.data_lancamento)}</div></td>
+                                        <td style="text-align: right; white-space: nowrap;"><div class="text-sm" style="font-weight: 600;">${fmtValorExtrato(l.valor)}</div></td>
+                                        <td><div class="text-sm">${escAttr(l.memo || '---')}</div></td>
+                                        <td>
+                                            ${l.document_id
+                ? `<div style="display: flex; flex-direction: column; gap: 0.2rem;">
+                                                       ${statusConciliacaoBadge(l.status_conciliacao || 'conciliado')}
+                                                       <span class="text-xs" style="color: var(--text-muted);">
+                                                           Nota: ${escAttr(nota ? (nota.numero_nf ? `nº ${nota.numero_nf}` : nota.name) : 'outra nota')}
+                                                       </span>
+                                                   </div>`
+                : statusConciliacaoBadge('pendente')}
+                                        </td>
+                                    </tr>`;
+    }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    ${outros.length > EXTRATO_LANC_VISIVEIS ? `
+                        <div style="margin-top: 0.75rem; text-align: center;">
+                            <button class="btn btn-secondary" style="padding: 0.4rem 0.9rem; font-size: 12px;" onclick="window.toggleExtratoLancamentos()">
+                                <i data-lucide="${expandido ? 'chevron-up' : 'chevron-down'}" style="width: 14px;"></i>
+                                ${expandido ? 'Mostrar menos' : `Ver todos os ${outros.length} lançamentos`}
+                            </button>
+                        </div>` : ''}
+                </div>
+            ` : ''}
+        </div>
     `;
 };
 
@@ -3472,6 +3624,11 @@ window.handleLogout = async function () {
     // de primeiro acesso e o botão Sair, que ali não fazem sentido.
     state.forcarTrocaSenha = false;
     window.navigate(wasFornecedor ? 'solicitante_login' : 'login');
+};
+
+window.toggleExtratoLancamentos = function () {
+    state.extratoLancamentosExpandido = !state.extratoLancamentosExpandido;
+    render();
 };
 
 window.toggleFiltroDuplicidade = function () {
@@ -4459,6 +4616,80 @@ window.salvarEdicaoCampos = async function (documentId) {
     fetchDocumentDetails(documentId);
 };
 
+// Carrega o extrato vinculado à nota e seus lançamentos, para a seção de leitura
+// da DetailsView. A nota chega ao extrato por dois caminhos:
+//   a) extrato_origem_id preenchido (veio do upload em lote);
+//   b) extrato enviado dentro da própria nota — aí o vínculo está no lançamento,
+//      via extratos_lancamentos.document_id, e é o lançamento que carrega o
+//      extrato_id.
+// Procura primeiro pelo lançamento da nota; se não houver, cai no extrato_origem_id.
+async function carregarExtratoDaNota(doc) {
+    state.currentExtrato = null;
+    // Abrir outra nota recomeça a lista recolhida.
+    state.extratoLancamentosExpandido = false;
+    if (!supabaseClient || !doc?.id || !doc?.project_id) return;
+
+    const COLS = 'id, extrato_id, project_id, fitid, tipo, valor, data_lancamento, memo, status_conciliacao, document_id';
+
+    try {
+        // Caminho (b): o lançamento já aponta para esta nota.
+        // project_id sempre no filtro — é o que mantém a leitura dentro do projeto.
+        const { data: doDoc, error: errDoc } = await supabaseClient
+            .from('extratos_lancamentos')
+            .select(COLS)
+            .eq('document_id', doc.id)
+            .eq('project_id', doc.project_id)
+            .limit(1);
+        if (errDoc) throw errDoc;
+
+        const lancamentoDaNota = (doDoc && doDoc[0]) || null;
+        const extratoId = lancamentoDaNota?.extrato_id || doc.extrato_origem_id || null;
+        if (!extratoId) return;
+
+        const [{ data: extrato }, { data: lancamentos, error: errLanc }] = await Promise.all([
+            supabaseClient
+                .from('extratos')
+                .select('id, formato, periodo_inicio, periodo_fim, saldo_final, status, created_at')
+                .eq('id', extratoId)
+                .maybeSingle(),
+            supabaseClient
+                .from('extratos_lancamentos')
+                .select(COLS)
+                .eq('extrato_id', extratoId)
+                .eq('project_id', doc.project_id)
+                .order('data_lancamento', { ascending: true }),
+        ]);
+        if (errLanc) throw errLanc;
+
+        const lista = lancamentos || [];
+
+        // Nomes das notas conciliadas com os OUTROS lançamentos, para a lista dizer
+        // "conciliado com X" em vez de só mostrar um id.
+        const outrosDocIds = [...new Set(
+            lista.map(l => l.document_id).filter(id => id && id !== doc.id)
+        )];
+        let notasPorId = {};
+        if (outrosDocIds.length > 0) {
+            const { data: notas } = await supabaseClient
+                .from('documents')
+                .select('id, name, numero_nf')
+                .in('id', outrosDocIds);
+            (notas || []).forEach(n => { notasPorId[n.id] = n; });
+        }
+
+        state.currentExtrato = {
+            extrato: extrato || null,
+            lancamentoDaNota: lancamentoDaNota || lista.find(l => l.document_id === doc.id) || null,
+            lancamentos: lista,
+            notasPorId,
+        };
+    } catch (err) {
+        // Não derruba o detalhe da nota por causa da seção de extrato.
+        console.error('[carregarExtratoDaNota]', err);
+        state.currentExtrato = null;
+    }
+}
+
 async function fetchDocumentDetails(id, silent = false) {
     // Se o supabase ou o usuário não estiver pronto, aguarda até 3s e tenta de novo
     if (!supabaseClient || !state.user) {
@@ -4527,6 +4758,10 @@ async function fetchDocumentDetails(id, silent = false) {
             state.uploadRubricasProjectId = data.project_id;
         }
 
+        // Extrato bancário e seus lançamentos (somente leitura).
+        state.currentExtrato = null;
+        if (data) await carregarExtratoDaNota(data);
+
         // Documento apontado como duplicata, para o comparativo lado a lado.
         // Pode não existir mais (duplicata_de_id vira NULL na exclusão, mas a
         // linha em memória pode estar desatualizada) — por isso maybeSingle.
@@ -4544,6 +4779,7 @@ async function fetchDocumentDetails(id, silent = false) {
         console.error("Erro ao buscar detalhes:", err);
         state.currentDocument = null;
         state.currentDuplicata = null;
+        state.currentExtrato = null;
         if (!silent) {
             showToast("Erro ao carregar detalhes do documento: " + err.message, 'error');
         }
