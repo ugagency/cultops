@@ -385,7 +385,7 @@
                     </select>
                     <div id="fornecedor-ocr-banner" style="display:none; margin-top:0.5rem; padding:0.65rem 0.9rem; background:#FFF3CD; border:1px solid #FBBF24; border-radius:8px; font-size:0.82rem; align-items:center; gap:0.75rem; flex-wrap:wrap;">
                         <span id="fornecedor-ocr-msg" style="flex:1;"></span>
-                        <button type="button" onclick="criarFornecedorOcr()" style="white-space:nowrap; padding:0.3rem 0.75rem; background:var(--primary); color:white; border:none; border-radius:6px; cursor:pointer; font-size:0.82rem; font-weight:600;">+ Criar e vincular</button>
+                        <button type="button" id="fornecedor-ocr-criar" onclick="criarFornecedorOcr()" style="white-space:nowrap; padding:0.3rem 0.75rem; background:var(--primary); color:white; border:none; border-radius:6px; cursor:pointer; font-size:0.82rem; font-weight:600;">+ Criar e vincular</button>
                     </div>
                 </label>
                 <!-- Contrato filho: fornecedor é sempre herdado do pai, campo
@@ -932,6 +932,7 @@
             _ocrContratFilePath = null;
             _ocrFornecedorPendente = null;
             document.getElementById('fornecedor-ocr-banner').style.display = 'none';
+            destacarFornecedorPendente(false);
 
             try {
                 // 1. Converter PDF para base64 (servidor faz upload com service_role, bypassa RLS)
@@ -967,9 +968,15 @@
                 if (d.data_fim)    document.getElementById('c-fim').value    = d.data_fim;
                 if (d.valor_total) document.getElementById('c-valor').value  = d.valor_total;
 
-                // 6. Resolver fornecedor pelo CNPJ
+                // 6. Resolver fornecedor pelo CNPJ.
+                // O prompt devolve fornecedor vazio DE PROPÓSITO quando não consegue
+                // decidir entre dois candidatos — vincular ao errado corromperia a
+                // prestação de contas em silêncio. Mas aqui o silêncio esconderia isso
+                // do operador, que ficaria sem saber que precisa escolher na mão.
                 if (d.fornecedor_cnpj) {
                     await resolverFornecedor(d.fornecedor_cnpj, d.fornecedor_nome || '');
+                } else {
+                    avisarFornecedorNaoIdentificado(d.fornecedor_nome || '');
                 }
 
                 showToast('Dados extraídos com sucesso!', 'success');
@@ -981,9 +988,53 @@
             }
         }
 
+        // Avisa que a extração não identificou o fornecedor. Sem CNPJ não dá para
+        // criar o cadastro, então o banner aqui não oferece "Criar e vincular":
+        // o caminho é escolher na lista, e o campo fica destacado até isso acontecer.
+        function avisarFornecedorNaoIdentificado(nomeExtraido) {
+            _ocrFornecedorPendente = null;
+            const msg = document.getElementById('fornecedor-ocr-msg');
+            const btnCriar = document.getElementById('fornecedor-ocr-criar');
+            const select = document.getElementById('c-fornecedor');
+
+            msg.textContent = nomeExtraido
+                ? `CNPJ do fornecedor não identificado no contrato. O nome extraído foi "${nomeExtraido}" — selecione o fornecedor correspondente na lista acima.`
+                : 'Não foi possível identificar o fornecedor neste contrato. Selecione manualmente na lista acima.';
+
+            if (btnCriar) btnCriar.style.display = 'none';
+            document.getElementById('fornecedor-ocr-banner').style.display = 'flex';
+            destacarFornecedorPendente(true);
+        }
+
+        function destacarFornecedorPendente(ativo) {
+            const select = document.getElementById('c-fornecedor');
+            if (!select) return;
+            if (ativo) {
+                select.style.borderColor = '#FBBF24';
+                select.style.boxShadow = '0 0 0 3px rgba(251, 191, 36, 0.18)';
+                // Escolher um fornecedor resolve a pendência: tira o destaque e o aviso.
+                select.addEventListener('change', () => {
+                    if (select.value) {
+                        destacarFornecedorPendente(false);
+                        document.getElementById('fornecedor-ocr-banner').style.display = 'none';
+                    }
+                }, { once: true });
+            } else {
+                select.style.borderColor = '';
+                select.style.boxShadow = '';
+            }
+        }
+
         async function resolverFornecedor(cnpjRaw, nomeExtracted) {
             const cnpj = cnpjRaw.replace(/\D/g, '');
-            if (!cnpj) return;
+            if (!cnpj) {
+                avisarFornecedorNaoIdentificado(nomeExtracted || '');
+                return;
+            }
+            // O banner é compartilhado: restaura o botão que o aviso sem CNPJ esconde.
+            const btnCriar = document.getElementById('fornecedor-ocr-criar');
+            if (btnCriar) btnCriar.style.display = '';
+            destacarFornecedorPendente(false);
 
             // Busca fornecedor pelo CNPJ (SELECT é permitido por RLS)
             const { data: forn } = await sb

@@ -1029,25 +1029,95 @@ async function userCanAccessProject(userId, projectId) {
 
 // OCR — Estrutura texto de contrato de prestação de serviços em JSON.
 async function estruturarContratoJson(textoOcr, apiKey) {
-    const instrucoes = `Analise o texto extraído de um contrato ou anexo de serviço e retorne APENAS um JSON com a seguinte estrutura:
+    // O prompt anterior falava só em "CONTRATADO" (masculino) e não cobria o
+    // vocabulário de locação. Casos reais que ele errava: contrato da HOLZ, que usa
+    // "CONTRATADA" por ser LTDA, e os 10 contratos de locação que usam
+    // LOCADORA/LOCATÁRIA. Como a parte que PAGA aparece antes no documento, a
+    // extração rasa pegava o CNPJ do contratante.
+    const instrucoes = `Você extrai dados de contratos brasileiros de prestação de serviços, locação e fornecimento. Retorne APENAS um JSON.
 
 {
-  "numero": "identificação do contrato ou anexo (ex: Anexo de Serviço nº 01/2026)",
-  "objeto": "descrição do objeto/serviço contratado (máx 500 chars)",
-  "fornecedor_nome": "razão social ou nome do CONTRATADO (não do contratante)",
-  "fornecedor_cnpj": "CNPJ do CONTRATADO somente dígitos sem pontos barras ou traços",
-  "data_inicio": "data de início dos serviços no formato AAAA-MM-DD",
-  "data_fim": "data de término dos serviços no formato AAAA-MM-DD",
+  "numero": "identificação do contrato ou anexo",
+  "objeto": "descrição do que foi contratado (máx 500 chars)",
+  "fornecedor_nome": "nome ou razão social de quem RECEBE o pagamento",
+  "fornecedor_cnpj": "CNPJ de quem RECEBE o pagamento, 14 dígitos",
+  "data_inicio": "AAAA-MM-DD",
+  "data_fim": "AAAA-MM-DD",
   "valor_total": 0.00
 }
 
-Regras:
-- CONTRATADO é quem presta o serviço (fornecedor), NÃO o contratante/cliente.
-- fornecedor_cnpj: somente os 14 dígitos numéricos, sem formatação.
-- valor_total: número decimal puro (ex: 14660.00), sem R$ ou separadores.
-- Datas: formato YYYY-MM-DD.
-- Se algum campo não for encontrado, retorne string vazia ou 0.
-- Retorne APENAS o JSON válido. Sem markdown, sem backticks, sem explicação.`;
+=== IDENTIFICAÇÃO DO FORNECEDOR — REGRA CENTRAL ===
+
+Todo contrato tem duas partes. Extraia sempre a que ENTREGA algo e RECEBE dinheiro. Nunca a que paga.
+
+Designações de quem RECEBE o pagamento (extrair esta):
+  CONTRATADA, CONTRATADO, PRESTADORA, PRESTADOR,
+  FORNECEDORA, FORNECEDOR, LOCADORA, LOCADOR,
+  VENDEDORA, VENDEDOR, EXECUTORA, EXECUTOR,
+  CEDENTE, CONSULTORA, CONSULTOR
+
+Designações de quem PAGA (nunca extrair esta):
+  CONTRATANTE, LOCATÁRIA, LOCATÁRIO, TOMADORA,
+  TOMADOR, COMPRADORA, COMPRADOR, CLIENTE,
+  CESSIONÁRIA, ADQUIRENTE
+
+As terminações variam conforme o gênero da razão social: CONTRATADA e CONTRATADO são o mesmo papel; LOCADORA e LOCADOR também. Trate como equivalentes.
+
+Se o contrato não usar nenhuma dessas palavras, use o critério do fluxo de dinheiro: quem emite nota fiscal, quem informa conta bancária para recebimento, ou quem executa a obrigação descrita no objeto é o fornecedor.
+
+=== COMO LOCALIZAR NO TEXTO ===
+
+A qualificação das partes fica no preâmbulo, antes das cláusulas. Normalmente a contratante vem primeiro e a contratada depois, separadas por expressões como "e, de outro lado", "e, por outro lado", "e", ou apenas por parágrafos distintos.
+
+NÃO extraia o primeiro CNPJ que aparecer no texto.
+
+Procedimento obrigatório:
+  1. Localize o trecho que qualifica a parte que RECEBE o pagamento, usando as designações acima.
+  2. Extraia o nome e o CNPJ que estão DENTRO desse mesmo trecho, próximos um do outro.
+  3. Confirme que esse CNPJ não é o mesmo da parte que paga.
+
+=== MÚLTIPLOS CNPJs ===
+
+O texto conterá dois ou mais CNPJs. Além das duas partes, podem aparecer CNPJs de testemunhas, intervenientes, seguradoras ou do projeto incentivado. Extraia exclusivamente o da parte que recebe o pagamento.
+
+=== FORNECEDOR PESSOA FÍSICA ===
+
+O fornecedor pode ser pessoa física com CNPJ de MEI ou empresário individual. Nesse caso fornecedor_nome será um nome de pessoa, sem LTDA ou ME. Isso é válido: extraia o nome como aparece.
+
+Se houver apenas CPF e nenhum CNPJ para o fornecedor, retorne fornecedor_cnpj vazio e preencha fornecedor_nome normalmente.
+
+=== VALOR ===
+
+valor_total é o valor global do contrato, número decimal puro (ex.: 14660.00), sem R$ nem separador de milhar.
+
+Contratos guarda-chuva ou contratos-quadro podem não ter valor definido, remetendo ao valor de anexos futuros. Nesse caso retorne 0. Não some parcelas nem estime.
+
+Se houver valor por item e valor total, extraia o total. Se houver apenas valores unitários e uma quantidade, retorne 0 e deixe o preenchimento manual.
+
+=== DATAS ===
+
+Formato AAAA-MM-DD. Use a vigência dos serviços, não a data de assinatura.
+
+Se o contrato indicar apenas período genérico, como "durante o ano de 2026" ou "por 12 meses a contar da assinatura", sem datas exatas, retorne string vazia nos dois campos.
+
+Contrato de locação por diárias: data_inicio é o primeiro dia e data_fim o último.
+
+=== NÚMERO E OBJETO ===
+
+numero: identificação como aparece no documento (ex.: "Anexo de Serviço nº 01/2026", "Contrato nº 12/2026"). Se o documento não tiver numeração, retorne string vazia.
+
+objeto: descreva o que foi contratado em texto corrido, até 500 caracteres. Resuma se for longo, preservando o que foi contratado, para qual evento ou finalidade, e quantidades relevantes.
+
+=== REGRA DE SEGURANÇA ===
+
+Na dúvida entre dois candidatos a fornecedor, retorne fornecedor_cnpj e fornecedor_nome vazios.
+
+Vincular o contrato ao fornecedor errado corrompe a prestação de contas de forma silenciosa. Deixar em branco apenas gera preenchimento manual. Prefira sempre o branco.
+
+=== SAÍDA ===
+
+Campo não encontrado: string vazia, ou 0 para valor_total.
+Responda APENAS o JSON válido. Sem markdown, sem backticks, sem explicação.`;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 90000);
