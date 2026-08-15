@@ -694,7 +694,10 @@
             document.getElementById('ev-file').value      = '';
             document.getElementById('ev-tipo').value      = '';
             document.getElementById('ev-descricao').value = '';
-            document.getElementById('ev-data-captura').value = '';
+            // Herda a data do evento como valor inicial (evento.data_evento já vem no
+            // formato YYYY-MM-DD do Supabase, direto compatível com <input type="date">).
+            // Continua editável: é só o ponto de partida, não trava o campo.
+            document.getElementById('ev-data-captura').value = evento?.data_evento || '';
             document.getElementById('ev-file-err').style.display = 'none';
 
             renderProdutoFieldM3();

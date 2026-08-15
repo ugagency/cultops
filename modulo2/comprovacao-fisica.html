@@ -467,7 +467,7 @@
                 <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.4rem;">
                     Vincular a evento (opcional)
                 </label>
-                <select id="ev-evento"
+                <select id="ev-evento" onchange="handleEventoChange()"
                     style="width: 100%; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white; box-sizing: border-box;">
                 </select>
                 <p id="evento-info" style="display:none; font-size: 0.78rem; color: var(--text-secondary); margin-top:0.4rem;">
@@ -484,7 +484,7 @@
             </div>
             <div style="margin-bottom: 1rem;">
                 <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.4rem;">Data da captura</label>
-                <input type="date" id="ev-data-captura"
+                <input type="date" id="ev-data-captura" oninput="marcarDataCapturaEditadaManualmente()"
                     style="width: 100%; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white; box-sizing: border-box;">
             </div>
             <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
@@ -639,6 +639,12 @@
         let statusChipAtivo = null;
         let allProdutos = [];
         let allEventosM3 = [];
+        // true assim que o usuário digita/escolhe a data com a própria mão — a partir
+        // daí trocar de evento não pode mais sobrescrever o que ele já ajustou.
+        // Setado só via oninput (interação real); atribuições programáticas de
+        // .value (default do dia, herança do evento) não disparam oninput e não
+        // marcam a flag.
+        let dataCapturaEditadaManualmente = false;
         let signedUrls = {};
         let pendingRejectId = null;
         let pendingComplementId = null;
@@ -799,6 +805,24 @@
                 select.innerHTML = '';
                 select.style.display = 'none';
                 info.style.display = '';
+            }
+        }
+
+        function marcarDataCapturaEditadaManualmente() {
+            dataCapturaEditadaManualmente = true;
+        }
+
+        // Herda data_evento como valor inicial de data_captura ao selecionar um
+        // evento. Não sobrescreve se o usuário já editou a data com a própria mão
+        // (a herança é só ponto de partida) nem quando "Nenhum evento" é escolhido
+        // (fluxo legado sem vínculo, preenchimento manual como sempre foi).
+        function handleEventoChange() {
+            if (dataCapturaEditadaManualmente) return;
+            const eventoId = document.getElementById('ev-evento')?.value;
+            if (!eventoId) return;
+            const evento = allEventosM3.find(ev => ev.id === eventoId);
+            if (evento?.data_evento) {
+                document.getElementById('ev-data-captura').value = evento.data_evento;
             }
         }
 
