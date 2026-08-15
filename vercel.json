@@ -6,6 +6,7 @@
     { "src": "index.html", "use": "@vercel/static" },
     { "src": "style.css", "use": "@vercel/static" },
     { "src": "app.js", "use": "@vercel/static" },
+    { "src": "auth-logout.js", "use": "@vercel/static" },
     { "src": "module-selector.html", "use": "@vercel/static" },
     { "src": "equipe.html", "use": "@vercel/static" },
     { "src": "configuracoes.html", "use": "@vercel/static" },

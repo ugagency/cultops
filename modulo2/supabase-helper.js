@@ -174,7 +174,7 @@ async function renderSidebar() {
                 <i data-lucide="grid-2x2"></i>
                 <span>Trocar Módulo</span>
             </a>
-            <a href="#" onclick="handleLogout()" class="nav-item" style="color: var(--error);">
+            <a href="../index.html?logout=1#login" onclick="handleLogout(event)" class="nav-item" style="color: var(--error);">
                 <i data-lucide="log-out"></i>
                 <span>Sair</span>
             </a>
@@ -233,6 +233,11 @@ async function renderSidebar() {
     // Define handleLogout globalmente se ainda não existir
     if (!window.handleLogout) {
         window.handleLogout = async function (e) {
+            // Se o auth-logout.js não carregou, NÃO cancelamos o clique: o href da
+            // âncora aponta para index.html?logout=1, que encerra a sessão na
+            // chegada. Cancelar aqui deixaria o botão inerte — foi o que aconteceu
+            // quando o arquivo ficou de fora da lista de builds do vercel.json.
+            if (typeof window.prestaiLogout !== 'function') return;
             if (e) e.preventDefault();
             // Implementação única em auth-logout.js. Passa o cliente já criado por
             // initSupabase() para não abrir um segundo GoTrueClient nesta página.

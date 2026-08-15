@@ -91,7 +91,7 @@
         <p>Sua conta não tem permissão para acessar o Módulo II (Prestação de Contas). Se você acredita que isso é um engano, procure um administrador da sua organização.</p>
         <div class="sem-acesso-actions">
             <a class="btn-sem-acesso btn-sem-acesso-primary" href="../module-selector.html">Voltar para seleção de módulo</a>
-            <a class="btn-sem-acesso btn-sem-acesso-secondary" href="#" id="btn-sair">Sair</a>
+            <a class="btn-sem-acesso btn-sem-acesso-secondary" href="../index.html?logout=1#login" id="btn-sair">Sair</a>
         </div>
     </div>
 
@@ -99,7 +99,9 @@
     <script src="../auth-logout.js"></script>
     <script>
         document.getElementById('btn-sair').addEventListener('click', (e) => {
-            // Implementação única em auth-logout.js.
+            // Sem o auth-logout.js, deixa o href levar a index.html?logout=1, que
+            // encerra a sessão na chegada.
+            if (typeof window.prestaiLogout !== 'function') return;
             window.prestaiLogout({ event: e, base: '../' });
         });
     </script>

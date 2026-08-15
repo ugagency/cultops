@@ -499,6 +499,13 @@
         // Implementação única em auth-logout.js — antes daqui saía um redirect sem
         // signOut quando o SDK não havia carregado, e a sessão sobrevivia.
         async function handleLogout() {
+            // Botão, não âncora: não há href para cair. Se o auth-logout.js não
+            // carregou, navega mesmo assim — index.html?logout=1 encerra a sessão
+            // na chegada, em vez de o botão não fazer nada.
+            if (typeof window.prestaiLogout !== 'function') {
+                window.location.href = 'index.html?logout=1#login';
+                return;
+            }
             return window.prestaiLogout({ base: '' });
         }
         window.handleLogout = handleLogout;
