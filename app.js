@@ -574,7 +574,8 @@ const isSolicitanteMode = window.location.pathname.includes('solicitante') || wi
 // e troca de módulo). Ler/escrever state.filters.project passa pelo accessor.
 function createFilters() {
     const PROJECT_KEY = 'prestai_project_id';
-    const f = { startDate: '', endDate: '', search: '', sort: 'date_desc', status: '' };
+    // duplicidade: '1' filtra só os documentos sinalizados e ainda não revisados.
+    const f = { startDate: '', endDate: '', search: '', sort: 'date_desc', status: '', duplicidade: '' };
     let _project = localStorage.getItem(PROJECT_KEY) || '';
     Object.defineProperty(f, 'project', {
         get() { return _project; },
@@ -599,6 +600,8 @@ const state = {
     rubricas_disponiveis: [],
     catalogo_rubricas: [],
     currentDocument: null,
+    // Documento apontado por currentDocument.duplicata_de_id, para o comparativo.
+    currentDuplicata: null,
     loading: false,
     // Troca de senha obrigatória do primeiro acesso: distingue este fluxo do
     // de recuperação por e-mail, que compartilha a mesma UpdatePasswordView.
@@ -647,6 +650,38 @@ function userCanDelete() {
 
 function userIsGestorOrAbove() {
     return ['admin', 'gestor'].includes(getUserRole());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DUPLICIDADE DE NF
+//
+// nivel_duplicidade é preenchido pelo trigger documents_checa_duplicidade
+// (migration_duplicidade_nf.sql) assim que numero_nf + cnpj_emissor + valor
+// chegam — o OCR do n8n grava direto no banco, então a marca aparece sozinha na
+// tela pelo Realtime, sem refresh. Aqui é só exibição: nada bloqueia o fluxo.
+// ─────────────────────────────────────────────────────────────────────────────
+const DUPLICIDADE_MAP = {
+    confirmada: {
+        label: 'Possível duplicata',
+        titulo: 'Documento idêntico já registrado',
+        descricao: 'Outro documento deste projeto tem o mesmo número, CNPJ e valor.',
+        cor: '#B91C1C', fundo: '#FEE2E2', borda: '#FCA5A5', icone: 'copy',
+    },
+    possivel: {
+        label: 'Conferir número',
+        titulo: 'Mesmo número e CNPJ, valor diferente',
+        descricao: 'Pode ser erro de digitação ou de leitura do OCR em um dos dois. Confira antes de seguir.',
+        cor: '#92400E', fundo: '#FEF3C7', borda: '#FDE68A', icone: 'alert-triangle',
+    },
+};
+
+function duplicidadeInfo(doc) {
+    if (!doc || !doc.nivel_duplicidade) return null;
+    return DUPLICIDADE_MAP[doc.nivel_duplicidade] || null;
+}
+
+function duplicidadesPendentes(docs) {
+    return (docs || []).filter(d => d.nivel_duplicidade && !d.duplicidade_revisada);
 }
 
 const STATUS_MAP = {
@@ -1312,7 +1347,14 @@ const DashboardView = () => {
     // Para simplificar agora, vamos mostrar o número de notas validadas se o valor não estiver fácil
     const aprovadas = state.documents.filter(d => ['validated', 'enviado_salic', 'concluido'].includes(d.status)).length;
 
-    const sortedDocs = [...state.documents].sort((a, b) => {
+    const duplicidades = duplicidadesPendentes(state.documents).length;
+    const filtrandoDuplicidade = state.filters.duplicidade === '1';
+
+    const docsVisiveis = filtrandoDuplicidade
+        ? duplicidadesPendentes(state.documents)
+        : state.documents;
+
+    const sortedDocs = [...docsVisiveis].sort((a, b) => {
         switch (state.filters.sort) {
             case 'date_asc': return new Date(a.created_at) - new Date(b.created_at);
             case 'status': {
@@ -1347,6 +1389,17 @@ ${Sidebar()}
             <p class="metric-label">Notas aprovadas</p>
             <div class="metric-value" style="color: var(--success);">${aprovadas}</div>
         </div>
+        ${duplicidades > 0 || filtrandoDuplicidade ? `
+        <div class="card metric-card" role="button" tabindex="0"
+            title="${filtrandoDuplicidade ? 'Mostrar todas as notas' : 'Mostrar só as duplicidades a revisar'}"
+            onclick="window.toggleFiltroDuplicidade()"
+            style="cursor: pointer; ${filtrandoDuplicidade ? 'outline: 2px solid var(--primary); outline-offset: -2px;' : ''}">
+            <p class="metric-label">Duplicidades a revisar</p>
+            <div class="metric-value" style="color: #B91C1C;">${duplicidades}</div>
+            <p class="text-xs" style="color: var(--text-muted); margin-top: 0.25rem;">
+                ${filtrandoDuplicidade ? 'Filtro ativo — clique para limpar' : 'Clique para filtrar'}
+            </p>
+        </div>` : ''}
         <div class="card metric-card">
             <p class="metric-label">Divergências</p>
             <div class="metric-value" style="color: var(--error);">${erros}</div>
@@ -1406,12 +1459,18 @@ ${Sidebar()}
     </div>
 
     <div class="data-table-container">
-        ${state.documents.length === 0 ? `
+        ${sortedDocs.length === 0 ? `
             <div class="empty-state">
-                <div class="empty-state-icon"><i data-lucide="file-warning"></i></div>
-                <h3 class="h2">Nenhuma nota encontrada</h3>
-                <p class="text-sm">Tente ajustar seus filtros ou envie sua primeira nota fiscal para começar.</p>
-                <button class="btn btn-primary" onclick="window.navigate('upload')">Enviar nota</button>
+                <div class="empty-state-icon"><i data-lucide="${filtrandoDuplicidade ? 'check-circle' : 'file-warning'}"></i></div>
+                ${filtrandoDuplicidade ? `
+                    <h3 class="h2">Nenhuma duplicidade a revisar</h3>
+                    <p class="text-sm">Todas as duplicidades sinalizadas já foram revisadas.</p>
+                    <button class="btn btn-primary" onclick="window.toggleFiltroDuplicidade()">Ver todas as notas</button>
+                ` : `
+                    <h3 class="h2">Nenhuma nota encontrada</h3>
+                    <p class="text-sm">Tente ajustar seus filtros ou envie sua primeira nota fiscal para começar.</p>
+                    <button class="btn btn-primary" onclick="window.navigate('upload')">Enviar nota</button>
+                `}
             </div>
         ` : `
             <table class="data-table">
@@ -1439,6 +1498,17 @@ ${Sidebar()}
                             <td>
                                 <div style="font-weight: 500;">${doc.name}</div>
                                 <div class="text-xs">${doc.size || '---'}</div>
+                                ${(() => {
+            const dup = duplicidadeInfo(doc);
+            if (!dup) return '';
+            // Clicar abre o documento já com o comparativo lado a lado.
+            return `<button type="button" title="${dup.titulo}"
+                                    onclick="event.stopPropagation(); window.navigate('details', '${doc.id}')"
+                                    style="margin-top: 0.35rem; display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.15rem 0.5rem; border-radius: 9999px; border: 1px solid ${dup.borda}; background: ${dup.fundo}; color: ${dup.cor}; font-size: 11px; font-weight: 600; cursor: pointer; ${doc.duplicidade_revisada ? 'opacity: 0.55;' : ''}">
+                                    <i data-lucide="${dup.icone}" style="width: 12px;"></i>
+                                    ${dup.label}${doc.duplicidade_revisada ? ' · revisado' : ''}
+                                </button>`;
+        })()}
                             </td>
                             <td>
                                 <div class="text-sm">${project ? project.pronac : '---'}</div>
@@ -2389,6 +2459,74 @@ ${Sidebar()}
             </div>
         </div>
 
+        ${(() => {
+        const dup = duplicidadeInfo(doc);
+        if (!dup) return '';
+        const outro = state.currentDuplicata;
+        const fmtV = (v) => v != null ? 'R$ ' + parseValorBR(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '---';
+        const fmtD = (d) => d ? _laudoFmtDate(d) : '---';
+        // Destaca só o que difere NOS CAMPOS FISCAIS: é o que decide se é duplicata
+        // de verdade. O nome do arquivo sempre difere entre dois envios, então
+        // marcá-lo só criaria ruído (comparar: false).
+        const linha = (rotulo, a, b, comparar = true) => {
+            const difere = comparar && outro && String(a ?? '') !== String(b ?? '');
+            return `<tr>
+                <th style="text-align:left; padding:0.4rem 0.75rem 0.4rem 0; font-size:11px; text-transform:uppercase; letter-spacing:0.03em; color:var(--text-secondary); font-weight:700; white-space:nowrap;">${rotulo}</th>
+                <td style="padding:0.4rem 0.75rem; font-size:13px; font-weight:600;">${a}</td>
+                <td style="padding:0.4rem 0; font-size:13px; font-weight:600; ${difere ? `color:${dup.cor};` : ''}">${outro ? b : '<span style="color:var(--text-muted);font-weight:400;">—</span>'}${difere ? ' <span style="font-size:11px;font-weight:700;">≠</span>' : ''}</td>
+            </tr>`;
+        };
+        return `
+        <div class="card" style="margin-bottom: 1.5rem; border: 1px solid ${dup.borda}; background: ${dup.fundo};">
+            <div style="display:flex; align-items:flex-start; gap:0.75rem; flex-wrap:wrap;">
+                <i data-lucide="${dup.icone}" style="width:20px; color:${dup.cor}; flex-shrink:0; margin-top:0.15rem;"></i>
+                <div style="flex:1; min-width:220px;">
+                    <p style="margin:0; font-weight:700; color:${dup.cor};">${dup.titulo}</p>
+                    <p class="text-sm" style="margin:0.25rem 0 0; color:${dup.cor};">${dup.descricao}</p>
+                </div>
+                ${doc.duplicidade_revisada
+                ? `<span class="badge" style="background:white; color:${dup.cor}; border:1px solid ${dup.borda};">
+                           <i data-lucide="check" style="width:12px;"></i> Revisado
+                       </span>`
+                : `<button class="btn btn-secondary" style="padding:0.4rem 0.75rem; font-size:12px; background:white;"
+                            onclick="window.handleMarcarDuplicidadeRevisada('${doc.id}')">
+                           <i data-lucide="check" style="width:14px;"></i> Marcar como revisado
+                       </button>`}
+            </div>
+
+            <div style="margin-top:1rem; background:white; border-radius:var(--radius-sm); padding:0.75rem 1rem; overflow-x:auto;">
+                <table style="width:100%; border-collapse:collapse;">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            <th style="text-align:left; padding:0 0.75rem 0.5rem; font-size:11px; text-transform:uppercase; color:var(--text-secondary);">Este documento</th>
+                            <th style="text-align:left; padding:0 0 0.5rem; font-size:11px; text-transform:uppercase; color:var(--text-secondary);">
+                                ${outro ? 'Documento relacionado' : 'Documento relacionado (não encontrado)'}
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${linha('Arquivo', doc.name || '---', outro?.name || '---', false)}
+                        ${linha('Nº da nota', doc.numero_nf || '---', outro?.numero_nf || '---')}
+                        ${linha('CNPJ', doc.cnpj_emissor || '---', outro?.cnpj_emissor || '---')}
+                        ${linha('Valor', fmtV(doc.valor), fmtV(outro?.valor))}
+                        ${linha('Emissão', fmtD(doc.data_emissao), fmtD(outro?.data_emissao))}
+                    </tbody>
+                </table>
+                ${outro ? `
+                    <div style="margin-top:0.75rem; text-align:right;">
+                        <button class="btn btn-secondary" style="padding:0.4rem 0.75rem; font-size:12px;"
+                            onclick="window.navigate('details', '${outro.id}')">
+                            <i data-lucide="external-link" style="width:14px;"></i> Abrir o documento relacionado
+                        </button>
+                    </div>` : `
+                    <p class="text-xs" style="margin:0.5rem 0 0; color:var(--text-muted);">
+                        O documento relacionado pode ter sido excluído. O sinalizador foi mantido como histórico.
+                    </p>`}
+            </div>
+        </div>`;
+    })()}
+
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 1.5rem;">
             <div style="display: flex; flex-direction: column; gap: 1.5rem;">
                 <div class="card">
@@ -3334,6 +3472,37 @@ window.handleLogout = async function () {
     // de primeiro acesso e o botão Sair, que ali não fazem sentido.
     state.forcarTrocaSenha = false;
     window.navigate(wasFornecedor ? 'solicitante_login' : 'login');
+};
+
+window.toggleFiltroDuplicidade = function () {
+    state.filters.duplicidade = state.filters.duplicidade === '1' ? '' : '1';
+    render();
+};
+
+// Marca ciência da duplicidade. NÃO apaga nivel_duplicidade: o sinalizador fica
+// como histórico, só sai da contagem de pendências.
+window.handleMarcarDuplicidadeRevisada = async function (documentId) {
+    if (!supabaseClient) return;
+    const { error } = await supabaseClient
+        .from('documents')
+        .update({ duplicidade_revisada: true })
+        .eq('id', documentId);
+
+    if (error) {
+        showToast('Erro ao marcar como revisado: ' + error.message, 'error');
+        return;
+    }
+
+    // Atualiza o state local sem esperar o Realtime, para o retorno ser imediato.
+    if (state.currentDocument?.id === documentId) {
+        state.currentDocument = { ...state.currentDocument, duplicidade_revisada: true };
+    }
+    state.documents = state.documents.map(d =>
+        d.id === documentId ? { ...d, duplicidade_revisada: true } : d
+    );
+
+    showToast('Duplicidade marcada como revisada.', 'success');
+    render();
 };
 
 window.handleForgotPassword = async function () {
@@ -4358,9 +4527,23 @@ async function fetchDocumentDetails(id, silent = false) {
             state.uploadRubricasProjectId = data.project_id;
         }
 
+        // Documento apontado como duplicata, para o comparativo lado a lado.
+        // Pode não existir mais (duplicata_de_id vira NULL na exclusão, mas a
+        // linha em memória pode estar desatualizada) — por isso maybeSingle.
+        state.currentDuplicata = null;
+        if (data && data.duplicata_de_id) {
+            const { data: dupData } = await supabaseClient
+                .from('documents')
+                .select('id, name, numero_nf, cnpj_emissor, valor, data_emissao, status')
+                .eq('id', data.duplicata_de_id)
+                .maybeSingle();
+            state.currentDuplicata = dupData || null;
+        }
+
     } catch (err) {
         console.error("Erro ao buscar detalhes:", err);
         state.currentDocument = null;
+        state.currentDuplicata = null;
         if (!silent) {
             showToast("Erro ao carregar detalhes do documento: " + err.message, 'error');
         }
