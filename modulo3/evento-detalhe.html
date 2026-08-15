@@ -507,7 +507,9 @@
                 </button>
             </div>
             <div id="add-os-list-wrap" class="add-list" style="margin-bottom:1rem;"></div>
-            <div class="form-group" style="margin-bottom:0;">
+            <!-- Em evento de entrada livre não há ingresso a alocar: o bloco some
+                 (ver aplicarTipoAcessoNosModais()). -->
+            <div class="form-group" style="margin-bottom:0;" id="add-os-ingressos-wrap">
                 <label>Ingressos a Alocar *</label>
                 <input type="number" id="add-os-ingressos" min="1" placeholder="0">
                 <span class="hint" id="add-os-hint"></span>
@@ -533,7 +535,9 @@
                 </button>
             </div>
             <div id="add-pa-list-wrap" class="add-list" style="margin-bottom:1rem;"></div>
-            <div class="form-group" style="margin-bottom:0;">
+            <!-- Em evento de entrada livre não há ingresso a alocar: o bloco some
+                 (ver aplicarTipoAcessoNosModais()). -->
+            <div class="form-group" style="margin-bottom:0;" id="add-pa-ingressos-wrap">
                 <label>Ingressos a Alocar *</label>
                 <input type="number" id="add-pa-ingressos" min="1" placeholder="0">
                 <span class="hint" id="add-pa-hint"></span>
@@ -737,19 +741,44 @@
                     <span class="ev-meta-label">Cidade/UF</span>
                     <span class="ev-meta-value">${esc(evento.cidade)}/${esc(evento.estado)}</span>
                 </div>
+                ${eventoEhLivre(evento) ? `
+                <div class="ev-meta-item">
+                    <span class="ev-meta-label">Acesso</span>
+                    <span class="ev-meta-value">Entrada livre</span>
+                </div>
+                <div class="ev-meta-item">
+                    <span class="ev-meta-label">Entradas (check-in)</span>
+                    <span class="ev-meta-value" data-checkin="total">…</span>
+                </div>
+                <div class="ev-meta-item">
+                    <span class="ev-meta-label">Via OS</span>
+                    <span class="ev-meta-value" data-checkin="os">…</span>
+                </div>
+                <div class="ev-meta-item">
+                    <span class="ev-meta-label">Via PA</span>
+                    <span class="ev-meta-value" data-checkin="pa">…</span>
+                </div>
+                <div class="ev-meta-item">
+                    <span class="ev-meta-label">Público geral</span>
+                    <span class="ev-meta-value" data-checkin="publico_geral">…</span>
+                </div>
+                ` : `
                 <div class="ev-meta-item">
                     <span class="ev-meta-label">Total Ingressos</span>
-                    <span class="ev-meta-value">${evento.total_ingressos}</span>
+                    <span class="ev-meta-value">${evento.total_ingressos ?? '—'}</span>
                 </div>
                 <div class="ev-meta-item">
                     <span class="ev-meta-label">Cota OS</span>
-                    <span class="ev-meta-value">${evento.ingressos_os}</span>
+                    <span class="ev-meta-value">${evento.ingressos_os ?? '—'}</span>
                 </div>
                 <div class="ev-meta-item">
                     <span class="ev-meta-label">Cota PA</span>
-                    <span class="ev-meta-value">${evento.ingressos_pa}</span>
+                    <span class="ev-meta-value">${evento.ingressos_pa ?? '—'}</span>
                 </div>
+                `}
             `;
+
+            if (eventoEhLivre(evento)) atualizarCheckinsNaTela();
 
             document.getElementById('ev-actions').innerHTML = `
                 <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:1rem;">
@@ -787,6 +816,27 @@
             reIcons();
         }
 
+        // ── Contagem real de check-in (evento de entrada livre) ──
+        // Preenche os placeholders "…" espalhados pela tela. Roda depois da
+        // renderização para não segurá-la, e é idempotente: pode ser chamada de
+        // vários pontos sem efeito colateral.
+        async function atualizarCheckinsNaTela() {
+            if (!eventoEhLivre(evento)) return;
+
+            const totais = await contarCheckins(eventId);
+            document.querySelectorAll('[data-checkin]').forEach(el => {
+                el.textContent = totais[el.dataset.checkin] ?? 0;
+            });
+
+            // Por vínculo: quantas pessoas daquela OS/PA entraram.
+            const pendentes = [...document.querySelectorAll('[data-checkin-vinculo]')];
+            await Promise.all(pendentes.map(async el => {
+                const id = el.dataset.checkinVinculo;
+                const n = await contarCheckinsDoVinculo(eventId, el.dataset.tipo === 'os' ? { osId: id } : { paId: id });
+                el.textContent = n;
+            }));
+        }
+
         // ── Render OS tab ─────────────────────────────────────
         function calcSaldoOs() {
             const alocado = (evento.distribution_event_os || []).reduce((s, v) => s + Number(v.ingressos_alocados || 0), 0);
@@ -802,12 +852,17 @@
             const saldo   = calcSaldoOs();
             const saldoCls = saldo > 0 ? 'saldo-ok' : 'saldo-zero';
             document.getElementById('count-os').textContent = list.length;
-            document.getElementById('saldo-os-bar').innerHTML = `
+            // Evento livre não tem cota nem saldo: a barra mostra o que já entrou.
+            document.getElementById('saldo-os-bar').innerHTML = eventoEhLivre(evento) ? `
+                <i data-lucide="door-open" style="width:16px;flex-shrink:0;"></i>
+                Entrada livre &nbsp;·&nbsp; Check-ins via OS: <strong data-checkin="os">…</strong>
+            ` : `
                 <i data-lucide="ticket" style="width:16px;flex-shrink:0;"></i>
                 Cota OS: <strong>${evento.ingressos_os}</strong> &nbsp;·&nbsp;
                 Alocados: <strong>${evento.ingressos_os - saldo}</strong> &nbsp;·&nbsp;
                 Saldo: <span class="${saldoCls}">${saldo}</span>
             `;
+            if (eventoEhLivre(evento)) atualizarCheckinsNaTela();
 
             const wrap = document.getElementById('os-lista');
             if (!list.length) {
@@ -828,12 +883,16 @@
             const saldo = calcSaldoPa();
             const saldoCls = saldo > 0 ? 'saldo-ok' : 'saldo-zero';
             document.getElementById('count-pa').textContent = list.length;
-            document.getElementById('saldo-pa-bar').innerHTML = `
+            document.getElementById('saldo-pa-bar').innerHTML = eventoEhLivre(evento) ? `
+                <i data-lucide="door-open" style="width:16px;flex-shrink:0;"></i>
+                Entrada livre &nbsp;·&nbsp; Check-ins via PA: <strong data-checkin="pa">…</strong>
+            ` : `
                 <i data-lucide="ticket" style="width:16px;flex-shrink:0;"></i>
                 Cota PA: <strong>${evento.ingressos_pa}</strong> &nbsp;·&nbsp;
                 Alocados: <strong>${evento.ingressos_pa - saldo}</strong> &nbsp;·&nbsp;
                 Saldo: <span class="${saldoCls}">${saldo}</span>
             `;
+            if (eventoEhLivre(evento)) atualizarCheckinsNaTela();
 
             const wrap = document.getElementById('pa-lista');
             if (!list.length) {
@@ -888,10 +947,15 @@
                     </div>
 
                     <div class="vinculo-footer">
+                        ${eventoEhLivre(evento) ? `
+                        <span class="ingressos-pill" title="Entrada livre: pessoas desta ${tipo.toUpperCase()} que fizeram check-in">
+                            <i data-lucide="door-open" style="width:11px;vertical-align:middle;"></i>
+                            <span data-checkin-vinculo="${esc(entId)}" data-tipo="${tipo}">…</span> entrada(s)
+                        </span>` : `
                         <span class="ingressos-pill">
                             <i data-lucide="ticket" style="width:11px;vertical-align:middle;"></i>
                             ${v.ingressos_alocados} ingresso${v.ingressos_alocados !== 1 ? 's' : ''}
-                        </span>
+                        </span>`}
                         <select class="status-select" onchange="${onchange}" ${terminal ? 'disabled' : ''}>
                             ${selectOpts}
                         </select>
@@ -1182,6 +1246,10 @@
             const hint   = document.getElementById('add-os-hint');
             const jaVinc = new Set((evento.distribution_event_os || []).map(v => v.os_id));
 
+            // Evento livre não aloca ingresso: esconde o campo em vez de pedir
+            // um número que não tem significado nenhum ali.
+            const wrapIngressos = document.getElementById('add-os-ingressos-wrap');
+            if (wrapIngressos) wrapIngressos.style.display = eventoEhLivre(evento) ? 'none' : '';
             hint.textContent = `Saldo disponível: ${saldo} ingresso${saldo !== 1 ? 's' : ''}`;
             document.getElementById('add-os-ingressos').value = '';
             document.getElementById('add-os-ingressos').max   = saldo;
@@ -1246,10 +1314,15 @@
 
         async function submitAddOs() {
             if (!selectedOs) { showToast('Selecione uma OS.', 'error'); return; }
-            const ingressos = Number(document.getElementById('add-os-ingressos').value);
+            // Em evento livre o vínculo continua existindo (identifica de onde a
+            // pessoa veio), só sem número de alocação prévia: grava 0.
+            const livre     = eventoEhLivre(evento);
+            const ingressos = livre ? 0 : Number(document.getElementById('add-os-ingressos').value);
             const saldo     = calcSaldoOs();
-            if (!ingressos || ingressos <= 0) { showToast('Informe a quantidade de ingressos.', 'error'); return; }
-            if (ingressos > saldo)            { showToast(`Saldo disponível: ${saldo}.`, 'error'); return; }
+            if (!livre) {
+                if (!ingressos || ingressos <= 0) { showToast('Informe a quantidade de ingressos.', 'error'); return; }
+                if (ingressos > saldo)            { showToast(`Saldo disponível: ${saldo}.`, 'error'); return; }
+            }
 
             const btn = document.getElementById('add-os-submit-btn');
             btn.disabled = true;
@@ -1276,6 +1349,10 @@
             const hint   = document.getElementById('add-pa-hint');
             const jaVinc = new Set((evento.distribution_event_pa || []).map(v => v.pa_id));
 
+            // Evento livre não aloca ingresso: esconde o campo em vez de pedir
+            // um número que não tem significado nenhum ali.
+            const wrapIngressos = document.getElementById('add-pa-ingressos-wrap');
+            if (wrapIngressos) wrapIngressos.style.display = eventoEhLivre(evento) ? 'none' : '';
             hint.textContent = `Saldo disponível: ${saldo} ingresso${saldo !== 1 ? 's' : ''}`;
             document.getElementById('add-pa-ingressos').value = '';
             document.getElementById('add-pa-ingressos').max   = saldo;
@@ -1332,10 +1409,15 @@
 
         async function submitAddPa() {
             if (!selectedPa) { showToast('Selecione um PA.', 'error'); return; }
-            const ingressos = Number(document.getElementById('add-pa-ingressos').value);
+            // Em evento livre o vínculo continua existindo (identifica de onde a
+            // pessoa veio), só sem número de alocação prévia: grava 0.
+            const livre     = eventoEhLivre(evento);
+            const ingressos = livre ? 0 : Number(document.getElementById('add-pa-ingressos').value);
             const saldo     = calcSaldoPa();
-            if (!ingressos || ingressos <= 0) { showToast('Informe a quantidade de ingressos.', 'error'); return; }
-            if (ingressos > saldo)            { showToast(`Saldo disponível: ${saldo}.`, 'error'); return; }
+            if (!livre) {
+                if (!ingressos || ingressos <= 0) { showToast('Informe a quantidade de ingressos.', 'error'); return; }
+                if (ingressos > saldo)            { showToast(`Saldo disponível: ${saldo}.`, 'error'); return; }
+            }
 
             const btn = document.getElementById('add-pa-submit-btn');
             btn.disabled = true;

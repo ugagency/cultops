@@ -613,7 +613,9 @@
                                 <i data-lucide="calendar" style="width:12px;height:12px;"></i>
                                 ${fmtDate(ev.data_evento)}
                             </span>
-                            <span>OS: ${ev.ingressos_os || 0} · PA: ${ev.ingressos_pa || 0}</span>
+                            <span>${eventoEhLivre(ev)
+        ? `Entrada livre · check-ins: <span data-checkin="total" data-evento="${esc(ev.id)}">…</span>`
+        : `OS: ${ev.ingressos_os || 0} · PA: ${ev.ingressos_pa || 0}`}</span>
                         </div>
                     </div>
                     <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
@@ -628,6 +630,13 @@
                     </div>
                 </div>`).join('');
             reIcons();
+            // Eventos livres não têm cota: preenche os placeholders com o
+            // check-in real, sem segurar a renderização da lista.
+            (eventos || []).filter(eventoEhLivre).forEach(async ev => {
+                const c = await contarCheckins(ev.id);
+                document.querySelectorAll(`[data-evento="${ev.id}"][data-checkin]`)
+                    .forEach(el => { el.textContent = c[el.dataset.checkin] ?? 0; });
+            });
         }
 
         // ── Gerar Relatório do Período ─────────────────────────

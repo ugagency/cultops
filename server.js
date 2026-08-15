@@ -1886,7 +1886,10 @@ app.get('/api/m3/pwa/eventos', requireAuth, async (req, res) => {
         const q = (req.query.q || '').trim();
         let query = supabase
             .from('distribution_events')
-            .select('id, titulo, data_evento, nome_local, cidade, estado, status')
+            // tipo_acesso distingue evento de entrada livre. ingressos_os/pa já eram
+            // exibidos pelo PWA mas não vinham no select — a lista mostrava
+            // "0 ingressos" para todo evento.
+            .select('id, titulo, data_evento, nome_local, cidade, estado, status, tipo_acesso, ingressos_os, ingressos_pa')
             .eq('organization_id', orgId)
             .is('excluido_em', null)
             .order('data_evento', { ascending: false })

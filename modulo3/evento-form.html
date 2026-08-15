@@ -123,6 +123,14 @@
                     </select>
                 </div>
                 <div class="form-group span-2">
+                    <label for="f-tipo-acesso">Tipo de acesso *</label>
+                    <select id="f-tipo-acesso" onchange="aplicarTipoAcesso()">
+                        <option value="ingresso">Ingresso — com alocação prévia para OS e PA</option>
+                        <option value="livre">Entrada livre — sem ingresso, contagem por check-in</option>
+                    </select>
+                    <span class="hint" id="tipo-acesso-hint"></span>
+                </div>
+                <div class="form-group span-2">
                     <label>Descrição</label>
                     <textarea id="f-descricao" rows="2" placeholder="Descrição opcional do evento…" style="resize:vertical;"></textarea>
                 </div>
@@ -197,23 +205,30 @@
                     </div>
                 </div>
 
-                <!-- Ingressos -->
-                <div class="form-section-title">Ingressos</div>
-                <div class="form-group span-2">
+                <!-- Ingressos: some inteiro quando o evento é de entrada livre. -->
+                <div class="form-section-title" id="ingressos-titulo">Ingressos</div>
+                <div class="form-group span-2" id="ingressos-total-wrap">
                     <label>Total de Ingressos *</label>
                     <input type="number" id="f-total" min="0" placeholder="0" oninput="validateIngressos()">
                 </div>
-                <div class="form-group">
+                <div class="form-group" id="ingressos-os-wrap">
                     <label>Ingressos para OS *</label>
                     <input type="number" id="f-os" min="0" placeholder="0" oninput="validateIngressos()">
                 </div>
-                <div class="form-group">
+                <div class="form-group" id="ingressos-pa-wrap">
                     <label>Ingressos para PA *</label>
                     <input type="number" id="f-pa" min="0" placeholder="0" oninput="validateIngressos()">
                 </div>
                 <div id="ingressos-error" class="span-2" style="display:none;color:#FF5807;font-size:0.82rem;font-weight:600;margin-top:-0.25rem;">
                     <i data-lucide="alert-circle" style="width:14px;vertical-align:middle;"></i>
                     OS + PA não podem ultrapassar o total de ingressos.
+                </div>
+                <div id="livre-aviso" class="span-2" style="display:none;">
+                    <p class="hint" style="margin:0;">
+                        Evento de entrada livre: não há ingresso a distribuir. O público é
+                        contado pelo check-in real na portaria, e a origem de cada pessoa
+                        (OS, PA ou público geral) vem do próprio cadastro do convidado.
+                    </p>
                 </div>
             </div>
 
@@ -306,6 +321,7 @@
             } else {
                 enterCreateMode();
                 atualizarResumoGeo();
+                aplicarTipoAcesso();
             }
         });
 
@@ -409,6 +425,10 @@
             set('f-total',      ev.total_ingressos);
             set('f-os',         ev.ingressos_os);
             set('f-pa',         ev.ingressos_pa);
+            // Evento antigo vem sem tipo_acesso até a migration rodar; o padrão
+            // 'ingresso' mantém o comportamento de sempre.
+            set('f-tipo-acesso', ev.tipo_acesso || 'ingresso');
+            aplicarTipoAcesso();
             document.getElementById('ingressos-error').style.display = 'none';
             // Coordenada já salva foi conferida por alguém: não pode ser
             // sobrescrita por uma busca de CEP posterior.
@@ -419,7 +439,14 @@
         function getFormData() {
             const v    = id => document.getElementById(id)?.value.trim() || null;
             const vNum = id => { const val = document.getElementById(id)?.value; return (val !== '' && val != null) ? Number(val) : null; };
+            const livre = (document.getElementById('f-tipo-acesso')?.value || 'ingresso') === 'livre';
             return {
+                tipo_acesso:     livre ? 'livre' : 'ingresso',
+                // Em evento livre os três vão NULL de propósito: não existe
+                // ingresso a alocar, e a contagem vem do check-in.
+                total_ingressos: livre ? null : vNum('f-total'),
+                ingressos_os:    livre ? null : vNum('f-os'),
+                ingressos_pa:    livre ? null : vNum('f-pa'),
                 titulo:          v('f-titulo'),
                 tipo:            v('f-tipo'),
                 data_evento:     v('f-data'),
@@ -434,10 +461,28 @@
                 estado:          v('f-estado'),
                 lat:             vNum('f-lat'),
                 lon:             vNum('f-lon'),
-                total_ingressos: vNum('f-total'),
-                ingressos_os:    vNum('f-os'),
-                ingressos_pa:    vNum('f-pa'),
             };
+        }
+
+        // ── Tipo de acesso ────────────────────────────────────
+        // 'livre' esconde a seção de ingressos inteira; 'ingresso' mantém tudo
+        // exatamente como sempre foi.
+        function aplicarTipoAcesso() {
+            const livre = (document.getElementById('f-tipo-acesso')?.value || 'ingresso') === 'livre';
+            const mostrar = (id, ver) => { const el = document.getElementById(id); if (el) el.style.display = ver ? '' : 'none'; };
+
+            ['ingressos-titulo', 'ingressos-total-wrap', 'ingressos-os-wrap', 'ingressos-pa-wrap']
+                .forEach(id => mostrar(id, !livre));
+            mostrar('livre-aviso', livre);
+            if (livre) document.getElementById('ingressos-error').style.display = 'none';
+
+            const hint = document.getElementById('tipo-acesso-hint');
+            if (hint) {
+                hint.textContent = livre
+                    ? 'Para museus e ações sociais: o público é contado por quem faz check-in.'
+                    : 'O total é dividido em cotas para OS e PA, alocadas antes do evento.';
+            }
+            if (!livre) validateIngressos();
         }
 
         // ── CEP / coordenadas ─────────────────────────────────
@@ -471,6 +516,11 @@
         }
 
         function validateIngressos() {
+            // Evento livre não tem soma a validar.
+            if ((document.getElementById('f-tipo-acesso')?.value || 'ingresso') === 'livre') {
+                document.getElementById('ingressos-error').style.display = 'none';
+                return true;
+            }
             const total = Number(document.getElementById('f-total')?.value || 0);
             const os    = Number(document.getElementById('f-os')?.value    || 0);
             const pa    = Number(document.getElementById('f-pa')?.value    || 0);
@@ -492,10 +542,13 @@
             if (!dados.endereco)    { showToast('Endereço é obrigatório.', 'error');         return; }
             if (!dados.cidade)      { showToast('Cidade é obrigatória.', 'error');           return; }
             if (!dados.estado)      { showToast('Estado é obrigatório.', 'error');           return; }
-            if (dados.total_ingressos == null) { showToast('Total de ingressos é obrigatório.', 'error'); return; }
-            if (dados.ingressos_os  == null)   { showToast('Ingressos OS é obrigatório.', 'error');       return; }
-            if (dados.ingressos_pa  == null)   { showToast('Ingressos PA é obrigatório.', 'error');       return; }
-            if (!validateIngressos()) { showToast('OS + PA ultrapassam o total de ingressos.', 'error'); return; }
+            // Em entrada livre não há ingresso a exigir nem soma a validar.
+            if (dados.tipo_acesso !== 'livre') {
+                if (dados.total_ingressos == null) { showToast('Total de ingressos é obrigatório.', 'error'); return; }
+                if (dados.ingressos_os  == null)   { showToast('Ingressos OS é obrigatório.', 'error');       return; }
+                if (dados.ingressos_pa  == null)   { showToast('Ingressos PA é obrigatório.', 'error');       return; }
+                if (!validateIngressos()) { showToast('OS + PA ultrapassam o total de ingressos.', 'error'); return; }
+            }
 
             const btn = document.getElementById('submit-btn');
             btn.disabled = true;

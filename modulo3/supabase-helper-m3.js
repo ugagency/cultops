@@ -271,6 +271,69 @@ async function deleteOrganizacaoSocial(id) {
     if (error) throw error;
 }
 
+// ── Evento de entrada livre ───────────────────────────────────
+//
+// Museu e ação social não distribuem ingresso: contam quem entrou. Em evento com
+// tipo_acesso = 'livre', total_ingressos/ingressos_os/ingressos_pa ficam nulos e
+// todo lugar que exibiria "N ingressos alocados" passa a exibir o check-in REAL.
+//
+// Nenhum mecanismo de contagem novo: distribution_guests.checkin_em (marcado na
+// portaria) e .tipo_entrada ('os' | 'pa' | 'publico_geral') já respondem quantas
+// pessoas de cada origem efetivamente entraram.
+function eventoEhLivre(evento) {
+    return evento?.tipo_acesso === 'livre';
+}
+
+// Devolve { os, pa, publico_geral, total } contando só quem tem check-in.
+// Erro de rede devolve zeros em vez de lançar: a tela não pode quebrar por causa
+// de um contador.
+async function contarCheckins(eventId) {
+    const vazio = { os: 0, pa: 0, publico_geral: 0, total: 0 };
+    if (!eventId) return vazio;
+    try {
+        const sb = await initSupabase();
+        const { data, error } = await sb
+            .from('distribution_guests')
+            .select('tipo_entrada')
+            .eq('event_id', eventId)
+            .not('checkin_em', 'is', null);
+        if (error) throw error;
+
+        return (data || []).reduce((acc, g) => {
+            const t = g.tipo_entrada;
+            if (t === 'os' || t === 'pa' || t === 'publico_geral') acc[t]++;
+            acc.total++;
+            return acc;
+        }, { ...vazio });
+    } catch (err) {
+        console.error('[contarCheckins]', err);
+        return vazio;
+    }
+}
+
+// Check-ins de um vínculo específico (OS ou PA) num evento — substitui o
+// "ingressos_alocados" daquele vínculo quando o evento é livre.
+async function contarCheckinsDoVinculo(eventId, { osId = null, paId = null } = {}) {
+    if (!eventId || (!osId && !paId)) return 0;
+    try {
+        const sb = await initSupabase();
+        // Mesmo padrão de contarCheckins (traz as linhas e conta aqui) em vez de
+        // count/head: são poucas linhas por vínculo, e um caminho só evita duas
+        // formas diferentes de contar a mesma coisa.
+        let q = sb.from('distribution_guests')
+            .select('id')
+            .eq('event_id', eventId)
+            .not('checkin_em', 'is', null);
+        q = osId ? q.eq('os_id', osId) : q.eq('pa_id', paId);
+        const { data, error } = await q;
+        if (error) throw error;
+        return (data || []).length;
+    } catch (err) {
+        console.error('[contarCheckinsDoVinculo]', err);
+        return 0;
+    }
+}
+
 // ── Busca de endereço por CEP (BrasilAPI CEP V2) ──────────────
 //
 // Primeira e única chamada a uma API externa no projeto — até aqui só havia
@@ -969,6 +1032,9 @@ window.createOrganizacaoSocial = createOrganizacaoSocial;
 window.updateOrganizacaoSocial = updateOrganizacaoSocial;
 window.deleteOrganizacaoSocial = deleteOrganizacaoSocial;
 window.getOsProximas           = getOsProximas;
+window.eventoEhLivre           = eventoEhLivre;
+window.contarCheckins          = contarCheckins;
+window.contarCheckinsDoVinculo = contarCheckinsDoVinculo;
 window.buscarEnderecoPorCep    = buscarEnderecoPorCep;
 window.formatarCep             = formatarCep;
 window.ligarBuscaCep           = ligarBuscaCep;

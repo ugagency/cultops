@@ -416,7 +416,9 @@
                             ${local ? `<div style="font-size:0.82rem;color:var(--text-muted);margin-top:0.2rem;">${local}</div>` : ''}
                             <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;align-items:center;">
                                 <span class="badge ${esc(statusCls)}">${esc(statusLabel)}</span>
-                                <span style="font-size:0.8rem;color:var(--text-muted);">${v.ingressos_alocados} ingresso(s)</span>
+                                <span style="font-size:0.8rem;color:var(--text-muted);">${eventoEhLivre(evento)
+        ? 'Entrada livre — sem alocação prévia'
+        : `${v.ingressos_alocados} ingresso(s)`}</span>
                             </div>
                         </div>
                         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
@@ -472,7 +474,9 @@
                             <div style="font-weight:700;font-size:1rem;color:var(--text-primary);">${esc(pa.nome||'—')}</div>
                             <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;align-items:center;">
                                 <span class="badge ${esc(statusCls)}">${esc(statusLabel)}</span>
-                                <span style="font-size:0.8rem;color:var(--text-muted);">${v.ingressos_alocados} ingresso(s)</span>
+                                <span style="font-size:0.8rem;color:var(--text-muted);">${eventoEhLivre(evento)
+        ? 'Entrada livre — sem alocação prévia'
+        : `${v.ingressos_alocados} ingresso(s)`}</span>
                             </div>
                         </div>
                         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
@@ -706,7 +710,10 @@
                     `satisfação que convidamos a ${orgNome.slice(0,50)} para participar`,
                     `do evento que ocorrerá na data indicada acima.`,
                     '',
-                    `Foram reservados ${vinc.ingressos_alocados} ingresso(s) para ${destinat}.`,
+                    // Em evento livre não há reserva: o convite não promete ingresso.
+                    eventoEhLivre(evento)
+                        ? `A entrada é livre, sem necessidade de ingresso, e ${destinat} está convidado(a) a participar.`
+                        : `Foram reservados ${vinc.ingressos_alocados} ingresso(s) para ${destinat}.`,
                     '',
                     `Contamos com a sua presença para celebrar a cultura brasileira e a`,
                     `Lei Federal de Incentivo à Cultura — Lei Rouanet.`,

@@ -404,11 +404,26 @@
 
                 area.innerHTML = `<div class="cards-grid">${list.map(renderCard).join('')}</div>`;
                 reIcons();
+                // Eventos livres não têm número pré-alocado: os placeholders são
+                // preenchidos depois, com a contagem real de check-in.
+                preencherCheckinsDosCards(list);
             } catch (err) {
                 console.error(err);
                 area.innerHTML = `<div class="empty-state" style="color:#FF5807;"><i data-lucide="alert-circle" style="width:28px;"></i><div style="margin-top:0.5rem;">Erro: ${esc(err.message)}</div></div>`;
                 reIcons();
             }
+        }
+
+        // Uma consulta por evento livre, em paralelo, depois que os cards já estão
+        // na tela — não segura a renderização da lista.
+        async function preencherCheckinsDosCards(list) {
+            const livres = (list || []).filter(eventoEhLivre);
+            await Promise.all(livres.map(async ev => {
+                const c = await contarCheckins(ev.id);
+                document.querySelectorAll(`[data-evento="${ev.id}"][data-checkin]`).forEach(el => {
+                    el.textContent = c[el.dataset.checkin] ?? 0;
+                });
+            }));
         }
 
         function renderCard(ev) {
@@ -440,9 +455,17 @@
                     </div>
 
                     <div class="ev-ingressos">
-                        <div>OS: <span>${ev.ingressos_os}</span></div>
-                        <div>PA: <span>${ev.ingressos_pa}</span></div>
-                        <div style="margin-left:auto;">Total: <span>${ev.total_ingressos}</span></div>
+                        ${eventoEhLivre(ev) ? `
+                            <div>Check-ins OS: <span data-checkin="os" data-evento="${esc(ev.id)}">…</span></div>
+                            <div>PA: <span data-checkin="pa" data-evento="${esc(ev.id)}">…</span></div>
+                            <div style="margin-left:auto;" title="Entrada livre: contagem por check-in real">
+                                Entradas: <span data-checkin="total" data-evento="${esc(ev.id)}">…</span>
+                            </div>
+                        ` : `
+                            <div>OS: <span>${ev.ingressos_os ?? '—'}</span></div>
+                            <div>PA: <span>${ev.ingressos_pa ?? '—'}</span></div>
+                            <div style="margin-left:auto;">Total: <span>${ev.total_ingressos ?? '—'}</span></div>
+                        `}
                     </div>
 
                     <div class="ev-card-footer">

@@ -355,7 +355,9 @@
                                 </span>
                             </div>
                             <div style="margin-top:0.5rem;font-size:0.78rem;color:var(--text-muted);">
-                                OS: ${ev.ingressos_os || 0} ingressos · PA: ${ev.ingressos_pa || 0} ingressos
+                                ${ev.tipo_acesso === 'livre'
+                                    ? 'Entrada livre — sem ingresso'
+                                    : `OS: ${ev.ingressos_os || 0} ingressos · PA: ${ev.ingressos_pa || 0} ingressos`}
                             </div>
                         </div>`).join('')
                 }
@@ -482,7 +484,9 @@
                         <span class="pwa-card-meta-item">${icon('mapPin', 13)} ${esc(eventoAtual.nome_local)}, ${esc(eventoAtual.cidade)}/${esc(eventoAtual.estado)}</span>
                     </div>
                     <div style="margin-top:0.5rem;font-size:0.78rem;color:var(--text-muted);">
-                        OS: ${eventoAtual.ingressos_os || 0} ingressos · PA: ${eventoAtual.ingressos_pa || 0} ingressos
+                        ${eventoAtual.tipo_acesso === 'livre'
+                            ? 'Entrada livre — o público é contado pelo check-in'
+                            : `OS: ${eventoAtual.ingressos_os || 0} ingressos · PA: ${eventoAtual.ingressos_pa || 0} ingressos`}
                     </div>
                 </div>
 

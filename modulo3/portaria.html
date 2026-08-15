@@ -190,8 +190,12 @@
                     `${evento.nome_local}, ${evento.cidade}/${evento.estado}`;
                 document.getElementById('ev-data').textContent   =
                     fmtDate(evento.data_evento) + (evento.horario ? ' · ' + evento.horario.slice(0,5) : '');
-                document.getElementById('ev-cotas').textContent  =
-                    `OS: ${evento.ingressos_os} ingressos  |  PA: ${evento.ingressos_pa} ingressos`;
+                // Evento livre não tem cota: o rótulo passa a mostrar o que já
+                // entrou, atualizado a cada check-in (ver atualizarCotasHeader).
+                document.getElementById('ev-cotas').textContent = eventoEhLivre(evento)
+                    ? 'Entrada livre — contagem por check-in'
+                    : `OS: ${evento.ingressos_os} ingressos  |  PA: ${evento.ingressos_pa} ingressos`;
+                if (eventoEhLivre(evento)) atualizarCotasHeader();
 
                 document.getElementById('page-loading').style.display = 'none';
                 document.getElementById('page-body').style.display    = '';
@@ -252,6 +256,16 @@
             }
         }
 
+        // Em evento livre o header mostra quantas pessoas já entraram, por origem.
+        // Esta tela é de consulta (o check-in é gravado no PWA), então a contagem
+        // é lida ao abrir; recarregar a página traz o número atualizado.
+        async function atualizarCotasHeader() {
+            if (!eventoEhLivre(evento)) return;
+            const c = await contarCheckins(evento.id);
+            document.getElementById('ev-cotas').textContent =
+                `Entrada livre — ${c.total} entrada(s): OS ${c.os} · PA ${c.pa} · Público geral ${c.publico_geral}`;
+        }
+
         // ── Render resultados ─────────────────────────────────
         function renderResultados(resultados) {
             const area = document.getElementById('result-area');
@@ -284,7 +298,10 @@
                 const status    = vincOs?.status || vincPa?.status || '—';
                 const statusCls = status !== '—' ? 'badge-' + status : 'badge-gray';
                 const statusLbl = STATUS_LABELS[status] || status;
-                const ingressos = vincOs?.ingressos_alocados ?? vincPa?.ingressos_alocados ?? '—';
+                // Evento livre não tem alocação prévia: o campo perde o sentido.
+                const ingressos = eventoEhLivre(evento)
+                    ? '—'
+                    : (vincOs?.ingressos_alocados ?? vincPa?.ingressos_alocados ?? '—');
                 const horaCheckin = g.checkin_em
                     ? new Date(g.checkin_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
                     : null;
