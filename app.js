@@ -4687,10 +4687,14 @@ async function carregarExtratoDaNota(doc) {
         const extratoId = lancamentoDaNota?.extrato_id || doc.extrato_origem_id || null;
         if (!extratoId) return;
 
-        const [{ data: extrato }, { data: lancamentos, error: errLanc }] = await Promise.all([
+        // Só as colunas que a tabela realmente tem: pedir uma inexistente faz o
+        // PostgREST devolver 400 e o extrato voltar nulo — foi o que derrubou o
+        // botão de visualizar, silenciosamente, por causa de um 'created_at' que
+        // não existe em extratos. Por isso o erro abaixo é checado, não ignorado.
+        const [{ data: extrato, error: errExtrato }, { data: lancamentos, error: errLanc }] = await Promise.all([
             supabaseClient
                 .from('extratos')
-                .select('id, file_path, formato, periodo_inicio, periodo_fim, saldo_final, status, created_at')
+                .select('id, file_path, formato, periodo_inicio, periodo_fim, saldo_final, status')
                 .eq('id', extratoId)
                 .maybeSingle(),
             supabaseClient
@@ -4701,6 +4705,7 @@ async function carregarExtratoDaNota(doc) {
                 .order('data_lancamento', { ascending: true }),
         ]);
         if (errLanc) throw errLanc;
+        if (errExtrato) throw errExtrato;
 
         const lista = lancamentos || [];
 
