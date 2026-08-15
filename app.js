@@ -575,7 +575,7 @@ const isSolicitanteMode = window.location.pathname.includes('solicitante') || wi
 function createFilters() {
     const PROJECT_KEY = 'prestai_project_id';
     // duplicidade: '1' filtra só os documentos sinalizados e ainda não revisados.
-    const f = { startDate: '', endDate: '', search: '', sort: 'date_desc', status: '', duplicidade: '' };
+    const f = { startDate: '', endDate: '', search: '', sort: 'date_desc', status: '', duplicidade: '', aprovacaoFornecedor: '' };
     let _project = localStorage.getItem(PROJECT_KEY) || '';
     Object.defineProperty(f, 'project', {
         get() { return _project; },
@@ -754,6 +754,19 @@ const STATUS_MAP = {
         label: 'Aguardando Rubrica',
         class: 'status-pending',
         description: 'Aguardando rubrica: Documento enviado em lote, aguardando o usuário escolher a rubrica antes de iniciar o processamento.'
+    },
+    // Gate das NFs subidas pelo próprio fornecedor: elas não passaram pelo crivo
+    // do gestor, então param aqui até decisão humana (ver
+    // migration_gate_aprovacao_fornecedor.sql).
+    'aguardando_aprovacao_fornecedor': {
+        label: 'Aguardando aprovação',
+        class: 'status-pending',
+        description: 'Aguardando aprovação: nota enviada pelo fornecedor. Um gestor precisa conferir os dados extraídos (CNAE, CNPJ, valor e rubrica) antes de liberar para o fluxo de conformidade.'
+    },
+    'rejeitado_fornecedor': {
+        label: 'Rejeitada',
+        class: 'status-error',
+        description: 'Rejeitada: o gestor recusou esta nota enviada pelo fornecedor. O motivo está registrado e o fornecedor deve enviar um documento novo e corrigido.'
     },
     'validating': {
         label: 'Validando',
@@ -1254,8 +1267,15 @@ const SolicitanteDashboardView = () => `
                             </tr>
                         </thead>
                         <tbody>
-                            ${state.documents.map(doc => `
-                                <tr>
+                            ${state.documents.map(doc => {
+        // O fornecedor vê o ESTADO, não o detalhe interno da análise.
+        const emAnalise = doc.status === 'aguardando_aprovacao_fornecedor';
+        const rejeitada = doc.status === 'rejeitado_fornecedor';
+        const rotulo = emAnalise ? 'Em análise pelo gestor'
+            : (STATUS_MAP[doc.status] || {}).label || (doc.is_m2 ? (doc.status.charAt(0).toUpperCase() + doc.status.slice(1)) : doc.status);
+        const classe = (STATUS_MAP[doc.status] || {}).class || (doc.is_m2 ? (doc.status === 'aprovada' ? 'status-success' : doc.status === 'reprovada' ? 'status-error' : 'status-pending') : 'status-pending');
+        return `
+                                <tr${rejeitada ? ' style="background: rgba(239, 68, 68, 0.04);"' : ''}>
                                     <td>
                                         <div class="file-info">
                                             <span class="file-name">${doc.name}</span>
@@ -1264,14 +1284,23 @@ const SolicitanteDashboardView = () => `
                                     </td>
                                     <td style="font-size: 0.875rem;">${doc.projects ? doc.projects.pronac : '---'}</td>
                                     <td>
-                                        <span class="badge ${(STATUS_MAP[doc.status] || {}).class || (doc.is_m2 ? (doc.status === 'aprovada' ? 'status-success' : doc.status === 'reprovada' ? 'status-error' : 'status-pending') : 'status-pending')}">
+                                        <span class="badge ${classe}">
                                             <span class="badge-dot"></span>
-                                            ${(STATUS_MAP[doc.status] || {}).label || (doc.is_m2 ? (doc.status.charAt(0).toUpperCase() + doc.status.slice(1)) : doc.status)}
+                                            ${rotulo}
                                         </span>
+                                        ${rejeitada ? `
+                                            <div style="margin-top: 0.5rem; padding: 0.6rem 0.75rem; background: #FEE2E2; border: 1px solid #FCA5A5; border-radius: var(--radius-sm); max-width: 420px;">
+                                                <p style="margin: 0 0 0.2rem; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: #B91C1C;">Motivo da recusa</p>
+                                                <p style="margin: 0; font-size: 0.8rem; color: #B91C1C; white-space: pre-wrap;">${escAttr(doc.motivo_rejeicao_fornecedor || 'Motivo não informado.')}</p>
+                                                <p style="margin: 0.45rem 0 0; font-size: 0.75rem; color: #B91C1C;">
+                                                    Corrija e envie um <strong>novo documento</strong> usando "Adicionar Novo Documento" acima.
+                                                </p>
+                                            </div>` : ''}
                                     </td>
                                     <td style="color: var(--text-muted); font-size: 0.75rem;">${new Date(doc.created_at).toLocaleString('pt-BR')}</td>
                                 </tr>
-                            `).join('')}
+                            `;
+    }).join('')}
                         </tbody>
                     </table>`
     }
@@ -1353,9 +1382,16 @@ const DashboardView = () => {
     const duplicidades = duplicidadesPendentes(state.documents).length;
     const filtrandoDuplicidade = state.filters.duplicidade === '1';
 
-    const docsVisiveis = filtrandoDuplicidade
-        ? duplicidadesPendentes(state.documents)
-        : state.documents;
+    // Fila de aprovação das NFs do fornecedor — só admin/gestor decide.
+    const podeAprovarFornecedor = userIsGestorOrAbove();
+    const aguardandoAprovacao = podeAprovarFornecedor
+        ? state.documents.filter(d => d.status === 'aguardando_aprovacao_fornecedor').length
+        : 0;
+    const filtrandoAprovacao = podeAprovarFornecedor && state.filters.aprovacaoFornecedor === '1';
+
+    const docsVisiveis = filtrandoAprovacao
+        ? state.documents.filter(d => d.status === 'aguardando_aprovacao_fornecedor')
+        : (filtrandoDuplicidade ? duplicidadesPendentes(state.documents) : state.documents);
 
     const sortedDocs = [...docsVisiveis].sort((a, b) => {
         switch (state.filters.sort) {
@@ -1392,6 +1428,17 @@ ${Sidebar()}
             <p class="metric-label">Notas aprovadas</p>
             <div class="metric-value" style="color: var(--success);">${aprovadas}</div>
         </div>
+        ${podeAprovarFornecedor && (aguardandoAprovacao > 0 || filtrandoAprovacao) ? `
+        <div class="card metric-card" role="button" tabindex="0"
+            title="${filtrandoAprovacao ? 'Mostrar todas as notas' : 'Mostrar só as notas do fornecedor aguardando aprovação'}"
+            onclick="window.toggleFiltroAprovacaoFornecedor()"
+            style="cursor: pointer; ${filtrandoAprovacao ? 'outline: 2px solid var(--primary); outline-offset: -2px;' : ''}">
+            <p class="metric-label">Notas do fornecedor a aprovar</p>
+            <div class="metric-value" style="color: var(--warning);">${aguardandoAprovacao}</div>
+            <p class="text-xs" style="color: var(--text-muted); margin-top: 0.25rem;">
+                ${filtrandoAprovacao ? 'Filtro ativo — clique para limpar' : 'Clique para filtrar'}
+            </p>
+        </div>` : ''}
         ${duplicidades > 0 || filtrandoDuplicidade ? `
         <div class="card metric-card" role="button" tabindex="0"
             title="${filtrandoDuplicidade ? 'Mostrar todas as notas' : 'Mostrar só as duplicidades a revisar'}"
@@ -2474,6 +2521,8 @@ ${Sidebar()}
             </div>
         </div>
 
+        ${AprovacaoFornecedorSection(doc)}
+
         ${(() => {
         const dup = duplicidadeInfo(doc);
         if (!dup) return '';
@@ -2863,6 +2912,92 @@ ${Sidebar()}
         ${ExtratoBancarioSection(doc)}
     </main>
     `;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GATE DE APROVAÇÃO — NFs subidas pelo próprio fornecedor
+//
+// Nota que veio do portal Solicitante não passou pelo crivo do gestor: pode ter
+// CNAE incompatível com a rubrica, por exemplo. O trigger do banco a segura em
+// 'aguardando_aprovacao_fornecedor' até a decisão humana; aqui é onde ela é
+// tomada, com os dados do OCR já na tela para embasar.
+//
+// Operador não decide: só admin/gestor (userIsGestorOrAbove).
+// ─────────────────────────────────────────────────────────────────────────────
+const AprovacaoFornecedorSection = (doc) => {
+    const noGate = doc.status === 'aguardando_aprovacao_fornecedor';
+    const rejeitada = doc.status === 'rejeitado_fornecedor';
+    if (!noGate && !rejeitada) return '';
+
+    const podeDecidir = userIsGestorOrAbove();
+    const cnae = doc.json_extraido?.cnae_prestador || null;
+
+    if (rejeitada) {
+        return `
+        <div class="card" style="margin-bottom: 1.5rem; border: 1px solid #FCA5A5; background: #FEE2E2;">
+            <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
+                <i data-lucide="x-circle" style="width: 20px; color: #B91C1C; flex-shrink: 0; margin-top: 0.15rem;"></i>
+                <div style="flex: 1; min-width: 0;">
+                    <p style="margin: 0; font-weight: 700; color: #B91C1C;">Nota rejeitada</p>
+                    <p class="text-sm" style="margin: 0.25rem 0 0; color: #B91C1C;">
+                        O fornecedor precisa enviar um documento novo e corrigido — esta nota não segue no fluxo.
+                    </p>
+                    ${doc.motivo_rejeicao_fornecedor ? `
+                        <div style="margin-top: 0.75rem; padding: 0.75rem; background: white; border-radius: var(--radius-sm);">
+                            <p class="text-xs" style="font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-secondary); margin: 0 0 0.25rem;">Motivo</p>
+                            <p class="text-sm" style="margin: 0; white-space: pre-wrap;">${escAttr(doc.motivo_rejeicao_fornecedor)}</p>
+                        </div>` : ''}
+                </div>
+            </div>
+        </div>`;
+    }
+
+    const infoItem = (rotulo, valor) => `
+        <div class="info-item">
+            <label>${rotulo}</label>
+            <p class="text-sm" style="font-weight: 600;">${valor}</p>
+        </div>`;
+
+    return `
+        <div class="card" style="margin-bottom: 1.5rem; border: 1px solid #FDE68A; background: #FFFBEB;">
+            <div style="display: flex; align-items: flex-start; gap: 0.75rem; flex-wrap: wrap;">
+                <i data-lucide="user-check" style="width: 20px; color: #92400E; flex-shrink: 0; margin-top: 0.15rem;"></i>
+                <div style="flex: 1; min-width: 240px;">
+                    <p style="margin: 0; font-weight: 700; color: #92400E;">Nota enviada pelo fornecedor — aguardando aprovação</p>
+                    <p class="text-sm" style="margin: 0.25rem 0 0; color: #92400E;">
+                        Esta nota não passou pelo crivo do gestor. Confira os dados extraídos antes de liberá-la para o fluxo de conformidade.
+                    </p>
+                </div>
+            </div>
+
+            <div style="margin-top: 1rem; padding: 1rem; background: white; border-radius: var(--radius-sm);">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 1.25rem;">
+                    ${infoItem('CNAE do prestador', cnae ? escAttr(cnae) : '<span style="color: var(--text-muted); font-weight: 400;">não extraído</span>')}
+                    ${infoItem('CNPJ do emissor', escAttr(doc.cnpj_emissor || '---'))}
+                    ${infoItem('Valor', doc.valor != null ? 'R$ ' + parseValorBR(doc.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '---')}
+                    ${infoItem('Rubrica sugerida', escAttr(doc.rubrica || '---'))}
+                </div>
+                <div style="margin-top: 1rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 1.25rem;">
+                    ${infoItem('Fornecedor que enviou', escAttr(doc.nome_emissor || doc.fornecedor_nome || '---'))}
+                    ${infoItem('Enviado em', doc.created_at ? new Date(doc.created_at).toLocaleString('pt-BR') : '---')}
+                </div>
+            </div>
+
+            ${podeDecidir ? `
+                <div style="margin-top: 1rem; display: flex; gap: 0.75rem; justify-content: flex-end; flex-wrap: wrap;">
+                    <button class="btn btn-secondary" style="background: white;" onclick="window.handleRejeitarNotaFornecedor('${doc.id}')">
+                        <i data-lucide="x" style="width: 14px;"></i> Rejeitar
+                    </button>
+                    <button class="btn btn-primary" onclick="window.handleAprovarNotaFornecedor('${doc.id}')">
+                        <i data-lucide="check" style="width: 14px;"></i> Aprovar e liberar
+                    </button>
+                </div>
+            ` : `
+                <p class="text-xs" style="margin-top: 1rem; color: var(--text-muted); font-style: italic;">
+                    Somente gestor ou administrador pode aprovar ou rejeitar esta nota.
+                </p>
+            `}
+        </div>`;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3674,7 +3809,63 @@ window.toggleExtratoLancamentos = function () {
 
 window.toggleFiltroDuplicidade = function () {
     state.filters.duplicidade = state.filters.duplicidade === '1' ? '' : '1';
+    state.filters.aprovacaoFornecedor = '';
     render();
+};
+
+window.toggleFiltroAprovacaoFornecedor = function () {
+    if (!userIsGestorOrAbove()) return;
+    state.filters.aprovacaoFornecedor = state.filters.aprovacaoFornecedor === '1' ? '' : '1';
+    state.filters.duplicidade = '';
+    render();
+};
+
+// Libera a NF do fornecedor para o fluxo normal. A partir daqui não há diferença
+// nenhuma em relação a uma nota subida pelo M1.
+window.handleAprovarNotaFornecedor = async function (documentId) {
+    if (!userIsGestorOrAbove()) {
+        showToast('Sem permissão para aprovar notas do fornecedor.', 'error');
+        return;
+    }
+    if (!confirm('Aprovar esta nota e liberá-la para o fluxo de conformidade?')) return;
+
+    const { error } = await supabaseClient
+        .from('documents')
+        .update({
+            status: 'aguardando_conformidade',
+            aprovado_por: state.user?.id || null,
+            aprovado_em: new Date().toISOString(),
+            motivo_rejeicao_fornecedor: null,
+        })
+        .eq('id', documentId);
+
+    if (error) { showToast('Erro ao aprovar: ' + error.message, 'error'); return; }
+
+    showToast('Nota aprovada e liberada para conformidade.', 'success');
+    await fetchDocumentDetails(documentId);
+};
+
+window.handleRejeitarNotaFornecedor = async function (documentId) {
+    if (!userIsGestorOrAbove()) {
+        showToast('Sem permissão para rejeitar notas do fornecedor.', 'error');
+        return;
+    }
+    // Motivo é obrigatório: é o que o fornecedor vai ler para saber o que corrigir.
+    const motivo = (prompt('Motivo da rejeição (será exibido ao fornecedor):') || '').trim();
+    if (!motivo) {
+        showToast('A rejeição precisa de um motivo.', 'warning');
+        return;
+    }
+
+    const { error } = await supabaseClient
+        .from('documents')
+        .update({ status: 'rejeitado_fornecedor', motivo_rejeicao_fornecedor: motivo })
+        .eq('id', documentId);
+
+    if (error) { showToast('Erro ao rejeitar: ' + error.message, 'error'); return; }
+
+    showToast('Nota rejeitada. O fornecedor verá o motivo no portal.', 'success');
+    await fetchDocumentDetails(documentId);
 };
 
 // Marca ciência da duplicidade. NÃO apaga nivel_duplicidade: o sinalizador fica
