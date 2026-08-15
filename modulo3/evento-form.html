@@ -133,9 +133,22 @@
                     <label>Nome do Local *</label>
                     <input type="text" id="f-nome-local" placeholder="Ex: Teatro Municipal de São Paulo">
                 </div>
+                <div class="form-group">
+                    <label>CEP</label>
+                    <input type="text" id="f-cep" placeholder="00000-000" inputmode="numeric"
+                           maxlength="9" autocomplete="postal-code">
+                    <span class="hint" id="cep-status">Preenche endereço e coordenadas automaticamente.</span>
+                </div>
+                <div class="form-group"></div><!-- spacer -->
+
                 <div class="form-group span-2">
                     <label>Endereço *</label>
-                    <input type="text" id="f-endereco" placeholder="Rua, número, bairro…">
+                    <input type="text" id="f-endereco" placeholder="Rua, número, complemento…">
+                    <span class="hint">Número e complemento não vêm do CEP — complete aqui.</span>
+                </div>
+                <div class="form-group">
+                    <label>Bairro</label>
+                    <input type="text" id="f-bairro" placeholder="Ex: Bela Vista">
                 </div>
                 <div class="form-group">
                     <label>Cidade *</label>
@@ -154,15 +167,34 @@
                         <option>SP</option><option>SE</option><option>TO</option>
                     </select>
                 </div>
-                <div class="form-group">
-                    <label>Latitude</label>
-                    <input type="number" id="f-lat" step="any" placeholder="-23.5505">
-                    <span class="hint">Necessário para filtro 30km</span>
+                <div class="form-group"></div><!-- spacer -->
+
+                <!-- Coordenadas: preenchidas pelo CEP, editáveis sob demanda. -->
+                <div class="form-group span-2">
+                    <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+                        <button type="button" class="btn-secondary" id="btn-toggle-geo"
+                                style="padding:0.35rem 0.75rem; font-size:0.82rem;" onclick="toggleGeoManual()">
+                            Ajustar coordenadas manualmente
+                        </button>
+                        <span class="hint" id="geo-resumo"></span>
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label>Longitude</label>
-                    <input type="number" id="f-lon" step="any" placeholder="-46.6333">
-                    <span class="hint">Necessário para filtro 30km</span>
+                <div class="form-group span-2" id="geo-manual" style="display:none;">
+                    <p class="hint" style="margin-bottom:0.5rem;">
+                        Localização aproximada, baseada no CEP. Ajuste manualmente se necessário.
+                    </p>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="f-lat">Latitude</label>
+                            <input type="number" id="f-lat" step="any" placeholder="-23.5505" oninput="marcarGeoEditadaManualmente()">
+                            <span class="hint">Necessário para filtro 30km</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="f-lon">Longitude</label>
+                            <input type="number" id="f-lon" step="any" placeholder="-46.6333" oninput="marcarGeoEditadaManualmente()">
+                            <span class="hint">Necessário para filtro 30km</span>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Ingressos -->
@@ -259,6 +291,13 @@
             if (!session) { window.location.href = '../index.html#login'; return; }
             _role = session.user?.app_metadata?.role || session.user?.user_metadata?.role || null;
 
+            // Antes de carregar o registro: fillForm() marca geoEditadaManualmente
+            // quando já há coordenada salva, e o handler precisa estar de pé.
+            ligarBuscaCep({
+                geoJaEditada: () => geoEditadaManualmente,
+                aoPreencher: () => atualizarResumoGeo(),
+            });
+
             const params = new URLSearchParams(window.location.search);
             currentEditId = params.get('id');
 
@@ -266,6 +305,7 @@
                 await enterEditMode(currentEditId);
             } else {
                 enterCreateMode();
+                atualizarResumoGeo();
             }
         });
 
@@ -359,7 +399,9 @@
             set('f-status',     ev.status);
             set('f-descricao',  ev.descricao);
             set('f-nome-local', ev.nome_local);
+            set('f-cep',        ev.cep ? formatarCep(ev.cep) : '');
             set('f-endereco',   ev.endereco);
+            set('f-bairro',     ev.bairro);
             set('f-cidade',     ev.cidade);
             set('f-estado',     ev.estado);
             set('f-lat',        ev.lat);
@@ -368,6 +410,10 @@
             set('f-os',         ev.ingressos_os);
             set('f-pa',         ev.ingressos_pa);
             document.getElementById('ingressos-error').style.display = 'none';
+            // Coordenada já salva foi conferida por alguém: não pode ser
+            // sobrescrita por uma busca de CEP posterior.
+            if (ev.lat != null || ev.lon != null) geoEditadaManualmente = true;
+            atualizarResumoGeo();
         }
 
         function getFormData() {
@@ -381,7 +427,9 @@
                 status:          v('f-status') || 'rascunho',
                 descricao:       v('f-descricao'),
                 nome_local:      v('f-nome-local'),
+                cep:             (document.getElementById('f-cep')?.value || '').replace(/\D/g, '') || null,
                 endereco:        v('f-endereco'),
+                bairro:          v('f-bairro'),
                 cidade:          v('f-cidade'),
                 estado:          v('f-estado'),
                 lat:             vNum('f-lat'),
@@ -390,6 +438,36 @@
                 ingressos_os:    vNum('f-os'),
                 ingressos_pa:    vNum('f-pa'),
             };
+        }
+
+        // ── CEP / coordenadas ─────────────────────────────────
+        // Coordenada ajustada à mão vence a busca por CEP: o CEP é aproximado
+        // (OpenStreetMap) e getOsProximas() filtra por 30 km em cima dela.
+        let geoEditadaManualmente = false;
+
+        function marcarGeoEditadaManualmente() {
+            geoEditadaManualmente = true;
+            atualizarResumoGeo();
+        }
+
+        function toggleGeoManual() {
+            const bloco = document.getElementById('geo-manual');
+            const aberto = bloco.style.display !== 'none';
+            bloco.style.display = aberto ? 'none' : '';
+            document.getElementById('btn-toggle-geo').textContent =
+                aberto ? 'Ajustar coordenadas manualmente' : 'Ocultar coordenadas';
+        }
+
+        // Mostra o que está guardado mesmo com o bloco recolhido, para ninguém
+        // achar que a coordenada se perdeu.
+        function atualizarResumoGeo() {
+            const lat = document.getElementById('f-lat')?.value;
+            const lon = document.getElementById('f-lon')?.value;
+            const el = document.getElementById('geo-resumo');
+            if (!el) return;
+            el.textContent = (lat && lon)
+                ? `Coordenadas: ${lat}, ${lon} (aproximadas, do CEP)`
+                : 'Sem coordenadas — o filtro de 30 km depende delas.';
         }
 
         function validateIngressos() {

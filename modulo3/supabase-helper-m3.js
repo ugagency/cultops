@@ -271,6 +271,164 @@ async function deleteOrganizacaoSocial(id) {
     if (error) throw error;
 }
 
+// ── Busca de endereço por CEP (BrasilAPI CEP V2) ──────────────
+//
+// Primeira e única chamada a uma API externa no projeto — até aqui só havia
+// tráfego para o Supabase. Escolhida por devolver endereço E coordenada numa
+// requisição só, sem autenticação.
+//
+// A geolocalização vem do OpenStreetMap e é APROXIMADA: a própria documentação
+// da V2 diz isso. Por isso lat/lon continuam editáveis nos formulários e o texto
+// de apoio na tela não promete precisão — getOsProximas() filtra por 30 km e um
+// erro de coordenada aqui distorce esse filtro.
+//
+// Devolve sempre um objeto { ok, dados, erro }, nunca lança: indisponibilidade da
+// API não pode travar o cadastro do evento nem da OS.
+async function buscarEnderecoPorCep(cep) {
+    const limpo = String(cep || '').replace(/\D/g, '');
+    if (limpo.length !== 8) {
+        return { ok: false, erro: 'CEP precisa ter 8 dígitos.' };
+    }
+
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
+        let resp;
+        try {
+            resp = await fetch(`https://brasilapi.com.br/api/cep/v2/${limpo}`, { signal: controller.signal });
+        } finally {
+            clearTimeout(timeout);
+        }
+
+        if (resp.status === 404) {
+            return { ok: false, erro: 'CEP não encontrado. Preencha o endereço manualmente.' };
+        }
+        if (!resp.ok) {
+            return { ok: false, erro: 'Serviço de CEP indisponível. Preencha o endereço manualmente.' };
+        }
+
+        const d = await resp.json();
+        // street e neighborhood vêm NULOS em muitos CEPs de cidade pequena e área
+        // rural (ex.: 69750000). O objeto location pode vir vazio. Normalizamos
+        // para string vazia / null para nenhum campo do formulário receber "null".
+        const coords = d?.location?.coordinates || {};
+        const lat = coords.latitude != null && coords.latitude !== '' ? Number(coords.latitude) : null;
+        const lon = coords.longitude != null && coords.longitude !== '' ? Number(coords.longitude) : null;
+
+        return {
+            ok: true,
+            dados: {
+                cep: d.cep || limpo,
+                estado: d.state || '',
+                cidade: d.city || '',
+                bairro: d.neighborhood || '',
+                logradouro: d.street || '',
+                lat: Number.isFinite(lat) ? lat : null,
+                lon: Number.isFinite(lon) ? lon : null,
+            },
+        };
+    } catch (err) {
+        const msg = err?.name === 'AbortError'
+            ? 'Busca de CEP demorou demais. Preencha o endereço manualmente.'
+            : 'Não foi possível consultar o CEP. Preencha o endereço manualmente.';
+        return { ok: false, erro: msg };
+    }
+}
+
+function formatarCep(valor) {
+    const d = String(valor || '').replace(/\D/g, '').slice(0, 8);
+    return d.length > 5 ? `${d.slice(0, 5)}-${d.slice(5)}` : d;
+}
+
+// Liga um campo de CEP aos campos de endereço de um formulário. Os forms de
+// Evento e de OS usam os mesmos ids, então a fiação é a mesma nos dois — manter
+// isto aqui evita duas cópias que divergiriam.
+//
+// opts.geoJaEditada: função que diz se lat/lon foram ajustadas à mão. Quando true,
+// a busca preenche o endereço mas NÃO toca nas coordenadas: ajuste manual vence,
+// porque getOsProximas() depende delas e o CEP é aproximado.
+function ligarBuscaCep(opts = {}) {
+    const {
+        idCep = 'f-cep', idStatus = 'cep-status',
+        idEndereco = 'f-endereco', idBairro = 'f-bairro',
+        idCidade = 'f-cidade', idEstado = 'f-estado',
+        idLat = 'f-lat', idLon = 'f-lon',
+        geoJaEditada = () => false,
+        aoPreencher = () => {},
+    } = opts;
+
+    const campoCep = document.getElementById(idCep);
+    if (!campoCep) return;
+
+    const status = document.getElementById(idStatus);
+    const setStatus = (txt, cor) => {
+        if (!status) return;
+        status.textContent = txt;
+        status.style.color = cor || '';
+    };
+    const set = (id, val) => {
+        const el = document.getElementById(id);
+        // Só escreve quando veio conteúdo: em CEP de cidade pequena a API devolve
+        // street/neighborhood nulos, e apagar o que o usuário digitou seria pior
+        // do que não preencher.
+        if (el && val) el.value = val;
+    };
+
+    let debounce = null;
+    let ultimoBuscado = null;
+
+    campoCep.addEventListener('input', () => {
+        const digitos = campoCep.value.replace(/\D/g, '').slice(0, 8);
+        campoCep.value = formatarCep(digitos);
+
+        clearTimeout(debounce);
+        if (digitos.length !== 8) {
+            ultimoBuscado = null;
+            setStatus('Preencha o CEP para buscar o endereço.', '');
+            return;
+        }
+        if (digitos === ultimoBuscado) return;
+
+        setStatus('Buscando endereço…', '');
+        debounce = setTimeout(async () => {
+            ultimoBuscado = digitos;
+            const r = await buscarEnderecoPorCep(digitos);
+
+            if (!r.ok) {
+                // Nunca trava o cadastro: o formulário segue utilizável no manual.
+                setStatus(r.erro, '#B45309');
+                return;
+            }
+
+            set(idEndereco, r.dados.logradouro);
+            set(idBairro, r.dados.bairro);
+            set(idCidade, r.dados.cidade);
+            set(idEstado, r.dados.estado);
+
+            const temCoord = r.dados.lat != null && r.dados.lon != null;
+            const preservou = temCoord && geoJaEditada();
+            if (temCoord && !preservou) {
+                const elLat = document.getElementById(idLat);
+                const elLon = document.getElementById(idLon);
+                if (elLat) elLat.value = r.dados.lat;
+                if (elLon) elLon.value = r.dados.lon;
+            }
+
+            const faltando = [];
+            if (!r.dados.logradouro) faltando.push('logradouro');
+            if (!r.dados.bairro) faltando.push('bairro');
+
+            let msg = 'Endereço preenchido pelo CEP.';
+            if (faltando.length) msg += ` A API não retornou ${faltando.join(' e ')} — complete à mão.`;
+            if (!temCoord) msg += ' Sem coordenada para este CEP: informe manualmente.';
+            else if (preservou) msg += ' Coordenadas mantidas (ajuste manual preservado).';
+            setStatus(msg, faltando.length || !temCoord ? '#B45309' : '');
+
+            aoPreencher(r.dados);
+        }, 500);
+    });
+}
+
 // Filtra OS no raio de 30 km usando Haversine (equivalente ao distancia_km do banco)
 function _haversineKm(lat1, lon1, lat2, lon2) {
     const R    = 6371;
@@ -811,6 +969,9 @@ window.createOrganizacaoSocial = createOrganizacaoSocial;
 window.updateOrganizacaoSocial = updateOrganizacaoSocial;
 window.deleteOrganizacaoSocial = deleteOrganizacaoSocial;
 window.getOsProximas           = getOsProximas;
+window.buscarEnderecoPorCep    = buscarEnderecoPorCep;
+window.formatarCep             = formatarCep;
+window.ligarBuscaCep           = ligarBuscaCep;
 window.getPatrocinadores       = getPatrocinadores;
 window.createPatrocinador      = createPatrocinador;
 window.updatePatrocinador      = updatePatrocinador;
