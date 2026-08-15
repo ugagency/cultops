@@ -2342,6 +2342,18 @@ ${Sidebar()}
     // front em vez de pedir upload manual de novo — a conciliação é automática.
     const extratoDoLote = !!doc.extrato_origem_id;
     const extratoStatusPendente = doc.status === 'aguardando_conciliacao_bancaria' || doc.status === 'aguardando_comprovante';
+    // Botão de abrir o ARQUIVO do extrato (o que a Ana pediu: ver o documento).
+    // Mesmo mecanismo já usado para o arquivo da NF nesta tela — URL pública do
+    // bucket 'documentos', que é onde handleUploadExtrato grava os extratos.
+    // OFX e CSV o navegador baixa em vez de exibir; é o comportamento esperado.
+    const extratoArquivo = state.currentExtrato?.extrato?.file_path || null;
+    const btnVerExtrato = extratoArquivo ? `
+        <button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-top: 0.5rem;"
+            onclick="window.open('${CONFIG.SUPABASE_URL}/storage/v1/object/public/documentos/${extratoArquivo}', '_blank')">
+            <i data-lucide="file-search" style="width: 14px;"></i>
+            Visualizar extrato${state.currentExtrato?.extrato?.formato ? ` (${String(state.currentExtrato.extrato.formato).toUpperCase()})` : ''}
+        </button>` : '';
+
     let extratoBoxHtml;
     if (state.isUploadingExtrato) {
         extratoBoxHtml = `<div style="padding: 0.5rem; text-align: center;">
@@ -2781,6 +2793,7 @@ ${Sidebar()}
                     extratoBoxHtml :
                     `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando liberação...</p>`))
         }
+                            ${btnVerExtrato}
                         </div>
 
                         <!-- Box do SALIC -->
@@ -2874,11 +2887,26 @@ function fmtDataExtrato(d) {
     return d ? _laudoFmtDate(d) : '---';
 }
 
-function tipoLancamentoLabel(tipo) {
-    const t = String(tipo || '').toLowerCase();
-    if (['debit', 'debito', 'débito', 'd'].includes(t)) return 'Débito';
-    if (['credit', 'credito', 'crédito', 'c'].includes(t)) return 'Crédito';
-    return tipo || '---';
+// A coluna extratos_lancamentos.tipo NÃO guarda o tipo do lançamento: o workflow
+// de conciliação do n8n grava ali a justificativa textual do modelo ("O lançamento
+// com fitid '71.301' foi selecionado pois: 1. O valor pago (-700)..."). Enquanto
+// isso não for corrigido na origem, o tipo é derivado do SINAL DO VALOR, que é
+// dado do banco e confiável.
+function tipoLancamentoDerivado(valor) {
+    const n = parseValorBR(valor);
+    if (!n) return '---';
+    return n < 0 ? 'Débito' : 'Crédito';
+}
+
+// Palavras que seriam um tipo de verdade, caso a coluna passe a ser preenchida
+// corretamente. Qualquer outra coisa é tratada como justificativa.
+const TIPOS_REAIS = ['debit', 'credit', 'debito', 'débito', 'credito', 'crédito', 'd', 'c'];
+
+function justificativaConciliacao(tipo) {
+    const t = String(tipo == null ? '' : tipo).trim();
+    if (!t) return '';
+    if (TIPOS_REAIS.includes(t.toLowerCase())) return '';
+    return t;
 }
 
 function statusConciliacaoBadge(status) {
@@ -2931,13 +2959,26 @@ const ExtratoBancarioSection = (doc) => {
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: 1.25rem;">
                         ${infoItem('Data do lançamento', fmtDataExtrato(lancamentoDaNota.data_lancamento))}
                         ${infoItem('Valor', `<span style="color: var(--primary);">${fmtValorExtrato(lancamentoDaNota.valor)}</span>`)}
-                        ${infoItem('Tipo', tipoLancamentoLabel(lancamentoDaNota.tipo))}
+                        ${infoItem('Tipo', tipoLancamentoDerivado(lancamentoDaNota.valor))}
                         ${infoItem('Status', statusConciliacaoBadge(lancamentoDaNota.status_conciliacao))}
                     </div>
                     <div style="margin-top: 1rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 1.25rem;">
                         ${infoItem('Histórico do banco', escAttr(lancamentoDaNota.memo || '---'))}
                         ${lancamentoDaNota.fitid ? infoItem('FITID', `<span style="font-family: monospace; font-size: 12px;">${escAttr(lancamentoDaNota.fitid)}</span>`) : ''}
                     </div>
+                    ${(() => {
+            const just = justificativaConciliacao(lancamentoDaNota.tipo);
+            if (!just) return '';
+            // Está na coluna errada, mas o conteúdo tem valor de auditoria:
+            // fica recolhido, rotulado pelo que de fato é.
+            return `
+                    <details style="margin-top: 1rem;">
+                        <summary style="cursor: pointer; font-size: 12px; font-weight: 600; color: var(--text-secondary);">
+                            Justificativa da conciliação (gerada pela IA)
+                        </summary>
+                        <p class="text-xs" style="margin-top: 0.5rem; line-height: 1.5; color: var(--text-secondary); white-space: pre-wrap;">${escAttr(just)}</p>
+                    </details>`;
+        })()}
                 </div>
             ` : `
                 <div style="padding: 0.875rem 1rem; border: 1px dashed var(--border-light); border-radius: var(--radius-sm);">
@@ -4649,7 +4690,7 @@ async function carregarExtratoDaNota(doc) {
         const [{ data: extrato }, { data: lancamentos, error: errLanc }] = await Promise.all([
             supabaseClient
                 .from('extratos')
-                .select('id, formato, periodo_inicio, periodo_fim, saldo_final, status, created_at')
+                .select('id, file_path, formato, periodo_inicio, periodo_fim, saldo_final, status, created_at')
                 .eq('id', extratoId)
                 .maybeSingle(),
             supabaseClient
