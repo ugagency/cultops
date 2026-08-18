@@ -4482,9 +4482,14 @@ window.navigate = async function (view, id = null) {
         }
     } else if (view === 'upload_lote') {
         await fetchProjects();
+        // fetchUploadLoteQueue precisa vir antes: fetchExtratoLoteVinculado só
+        // restaura o vínculo se a fila deste projeto ainda tiver algo pendente.
         await fetchUploadLoteQueue();
         if (state.filters.project) {
-            await fetchRubricasDisponiveis(state.filters.project);
+            await Promise.all([
+                fetchRubricasDisponiveis(state.filters.project),
+                fetchExtratoLoteVinculado(state.filters.project),
+            ]);
         }
     } else if (view === 'envio_lote_salic') {
         await fetchProjects();
@@ -6303,10 +6308,13 @@ async function subirParaStorage(file, projectId, opts = {}) {
     return dbData;
 }
 
+// Devolve a promise do fetch para quem precisar aguardar (processamento
+// sequencial de lote); as chamadas existentes continuam fire-and-forget, porque
+// nada as obriga a usar o retorno.
 function dispararOcr(documentId, filePath) {
-    if (!CONFIG.N8N_WEBHOOK_URL) return;
+    if (!CONFIG.N8N_WEBHOOK_URL) return Promise.resolve();
     console.log("Tentando notificar n8n em:", CONFIG.N8N_WEBHOOK_URL);
-    fetch(CONFIG.N8N_WEBHOOK_URL, {
+    return fetch(CONFIG.N8N_WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         mode: 'cors',
@@ -6406,11 +6414,45 @@ window.fetchUploadLoteQueue = fetchUploadLoteQueue;
 
 window.handleLoteProjectChange = async function (projectId) {
     state.filters.project = projectId;
-    // Um extrato pertence a UM projeto — trocar de projeto invalida o vínculo.
-    state.loteExtratoVinculado = null;
-    await fetchRubricasDisponiveis(projectId);
+    await Promise.all([
+        fetchRubricasDisponiveis(projectId),
+        // Restaura do banco em vez de só zerar: outro projeto pode ter um
+        // vínculo próprio ativo de uma sessão anterior.
+        fetchExtratoLoteVinculado(projectId),
+    ]);
     render();
 };
+
+// Restaura state.loteExtratoVinculado a partir do banco — é o que faz o vínculo
+// sobreviver a F5, troca de aba prolongada ou expiração de sessão. Só restaura
+// se ainda houver algo pendente na fila deste projeto: uma vez que o lote é
+// totalmente processado, um vínculo antigo esquecido no banco não deve
+// "vazar" para um lote novo e diferente que o usuário monte semanas depois.
+async function fetchExtratoLoteVinculado(projectId) {
+    state.loteExtratoVinculado = null;
+    if (!supabaseClient || !projectId || !state.user) return;
+
+    const filaDoProjeto = (state.uploadLoteQueue || []).filter(d => d.project_id === projectId);
+    if (filaDoProjeto.length === 0) return;
+
+    const { data, error } = await supabaseClient
+        .from('extratos')
+        .select('id, file_path')
+        .eq('project_id', projectId)
+        .eq('user_id', state.user.id)
+        .eq('vinculo_lote_ativo', true)
+        .limit(1)
+        .maybeSingle();
+
+    if (error) { console.error('[fetchExtratoLoteVinculado]', error); return; }
+    if (!data) return;
+
+    state.loteExtratoVinculado = {
+        id: data.id,
+        nome: (data.file_path || '').split('/').pop() || 'extrato',
+        projectId
+    };
+}
 
 // Extrato do lote: sobe o arquivo e cria a linha em `extratos` — SEM disparar
 // nenhum parse agora. O extrato sobe ANTES das notas do lote existirem, então
@@ -6448,8 +6490,24 @@ window.handleUploadExtratoParaLote = async function (file) {
             .from('documentos').upload(filePath, file);
         if (upErr) throw upErr;
 
+        // Desmarca qualquer vínculo ativo anterior deste projeto+usuário ANTES de
+        // criar o novo — só um extrato pode ser "o vínculo do lote" por vez,
+        // senão fetchExtratoLoteVinculado() acharia mais de uma linha.
+        const { error: unsetErr } = await supabaseClient
+            .from('extratos')
+            .update({ vinculo_lote_ativo: false })
+            .eq('project_id', projectId)
+            .eq('user_id', state.user.id)
+            .eq('vinculo_lote_ativo', true);
+        if (unsetErr) throw unsetErr;
+
         // Colunas conferidas no banco: extratos usa user_id (NOT NULL),
         // não `enviado_por`. organization_id é opcional.
+        //
+        // vinculo_lote_ativo:true é o que faz este vínculo sobreviver a um F5:
+        // sem persistir no banco, um reload entre "subir extrato" e "Processar
+        // Todos" apaga o vínculo em silêncio (extrato_origem_id grava null sem
+        // erro nem aviso) — era exatamente esse o bug relatado em produção.
         const { data: extrato, error: insErr } = await supabaseClient
             .from('extratos')
             .insert({
@@ -6458,7 +6516,8 @@ window.handleUploadExtratoParaLote = async function (file) {
                 organization_id: state.user?.app_metadata?.org_id || null,
                 file_path: filePath,
                 formato: formato,
-                status: 'pendente' // o workflow de parse muda para 'processado' ou 'erro'
+                status: 'pendente', // o workflow de parse muda para 'processado' ou 'erro'
+                vinculo_lote_ativo: true
             })
             .select('id')
             .single();
@@ -6474,11 +6533,22 @@ window.handleUploadExtratoParaLote = async function (file) {
     }
 };
 
-window.handleRemoverExtratoLote = function () {
-    // Só desfaz o vínculo na tela; NÃO apaga o extrato já criado (pode ser
-    // reaproveitado). Trocar cria um extrato novo no próximo upload.
+window.handleRemoverExtratoLote = async function () {
+    // Desfaz também no banco — sem isso, um F5 logo depois de "Trocar" faria
+    // fetchExtratoLoteVinculado() reencontrar o vínculo removido e restaurá-lo.
+    // NÃO apaga o extrato já criado (pode ser reaproveitado); só desmarca a flag.
+    // "Trocar" cria um extrato novo no próximo upload.
+    const vinc = state.loteExtratoVinculado;
     state.loteExtratoVinculado = null;
     render();
+
+    if (vinc && supabaseClient) {
+        const { error } = await supabaseClient
+            .from('extratos')
+            .update({ vinculo_lote_ativo: false })
+            .eq('id', vinc.id);
+        if (error) console.error('[handleRemoverExtratoLote]', error);
+    }
 };
 
 // Só carimba o extrato em documentos do MESMO projeto do extrato: a fila de
@@ -6600,8 +6670,14 @@ window.handleProcessarTodosLote = async function () {
     state.loading = true;
     render();
 
-    const resultados = await Promise.allSettled(
-        itensComRubrica.map(async ({ doc, rubricaTexto, rubricaIdFk }) => {
+    // Sequencial, não Promise.allSettled: documentos do mesmo lote (mesmo extrato)
+    // disparados em paralelo corriam risco de corrida na conciliação — o n8n busca
+    // "candidatos pendentes" contra o mesmo extrato, e dois documentos concluindo
+    // ao mesmo tempo podiam competir pelo mesmo lançamento. Um por vez, aguardando
+    // o disparo ao n8n antes do próximo, elimina a corrida.
+    let sucessos = 0, falhas = 0;
+    for (const { doc, rubricaTexto, rubricaIdFk } of itensComRubrica) {
+        try {
             const { error } = await supabaseClient
                 .from('documents')
                 .update({
@@ -6612,12 +6688,14 @@ window.handleProcessarTodosLote = async function () {
                 })
                 .eq('id', doc.id);
             if (error) throw error;
-            dispararOcr(doc.id, doc.file_path);
-        })
-    );
+            await dispararOcr(doc.id, doc.file_path);
+            sucessos++;
+        } catch (err) {
+            console.error('[handleProcessarTodosLote]', doc.id, err);
+            falhas++;
+        }
+    }
 
-    const sucessos = resultados.filter(r => r.status === 'fulfilled').length;
-    const falhas = resultados.length - sucessos;
     if (sucessos > 0) showToast(`${sucessos} documento(s) enviados para processamento.`, 'success');
     if (falhas > 0) showToast(`${falhas} falharam.`, 'error');
 
