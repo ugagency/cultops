@@ -176,14 +176,15 @@ app.post('/api/salic/inserir', async (req, res) => {
             documento: {
                 cnpj_fornecedor: doc.cnpj_emissor,
                 valor: doc.valor,
-                numero: doc.numero_nf || doc.json_extraido?.numero_nota || 'S/N',
+                numero: doc.numero_nf || 'S/N',   // json_extraido.numero_nota nunca é escrito pela extração — fallback removido
                 data_emissao: doc.data_emissao,   // Data de Emissão real da NF/recibo (#dataEmissao)
                 data_pagamento: dataPagamento,    // Bug #2: Data do Pagamento = data do débito (#dtPagamento)
                 nf_path: doc.file_path,
                 nf_url: `${process.env.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.file_path}`,
                 recibo: doc.recibo,
                 recibo_url: doc.recibo ? `${process.env.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.recibo}` : null,
-                numero_extrato: numeroExtrato
+                numero_extrato: numeroExtrato,
+                numero_guia: doc.json_extraido?.guia?.numero_guia || null,   // sinal de Guia de Recolhimento p/ o worker
             },
             browserWSEndpoint: process.env.BROWSERLESS_ENDPOINT
         };

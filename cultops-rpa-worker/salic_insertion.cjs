@@ -680,18 +680,21 @@ async function executarInsercaoSalic(config) {
 
         // 5. Preenche Dados do Comprovante com eventos Materialize
         // CHG-13: Recibo usa '4' (Recibo de Pagamento); NF usa '3' (Nota Fiscal/Fatura).
-        const tpDocumentoValue = isRecibo ? TP_DOCUMENTO_RECIBO : '3';
+        // Guia de Recolhimento usa '2' — sinalizada por documento.numero_guia (json_extraido.guia).
+        const isGuia = !!(documento.numero_guia && String(documento.numero_guia).trim());
+        const tpDocumentoValue = isGuia ? '2' : (isRecibo ? TP_DOCUMENTO_RECIBO : '3');
         await setMaterializeSelect(targetPage, '#tpDocumento', tpDocumentoValue);
-        console.log(`[SALIC] Tipo de documento definido: ${tpDocumentoValue} (${isRecibo ? 'Recibo' : 'Nota Fiscal/Fatura'})`);
+        console.log(`[SALIC] Tipo de documento definido: ${tpDocumentoValue} (${isGuia ? 'Guia de Recolhimento' : (isRecibo ? 'Recibo' : 'Nota Fiscal/Fatura')})`);
         await wait(500);
 
         await setMaterializeField(targetPage, '#dataEmissao', dataFormatada);
         await wait(300);
 
         // CHG-13 (corrigido): igual para Recibo e NF — sempre o numero do documento.
-        const numeroComprovante = String(documento.numero || '');
+        // Guia usa numero_guia — mais confiável que numero (pode carregar resíduo do bug antigo em docs não reprocessados).
+        const numeroComprovante = isGuia ? String(documento.numero_guia) : String(documento.numero || '');
         await setMaterializeField(targetPage, '#nrComprovante', numeroComprovante);
-        console.log(`[SALIC] #nrComprovante: ${numeroComprovante}`);
+        console.log(`[SALIC] #nrComprovante: ${numeroComprovante}${isGuia ? ' (numero_guia)' : ''}`);
         await wait(300);
 
         // 6. Upload do Arquivo (PDF)
