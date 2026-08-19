@@ -2309,6 +2309,43 @@ ${Sidebar()}
 </main>
 `;
 
+// Guia de recolhimento (DARF/GPS/etc.) extraída pelo OCR em json_extraido.guia.
+// Complementa o grid de "Dados Extraídos" do DetailsView — não é uma seção nova,
+// nem indica visualmente "isto é uma guia": só entram as linhas cujo valor
+// existe, no mesmo padrão info-item já usado ali. NF comum (sem doc.json_extraido
+// .guia) não chama esta função com dado nenhum, então nada muda para ela.
+function renderDadosGuia(doc, esc) {
+    const guia = doc?.json_extraido?.guia;
+    if (!guia || typeof guia !== 'object') return '';
+
+    const linha = (rotulo, valor) => (valor === null || valor === undefined || valor === '')
+        ? ''
+        : `<div class="info-item">
+                            <label>${rotulo}</label>
+                            <p class="text-sm" style="font-weight: 600;">${esc(valor)}</p>
+                        </div>`;
+
+    // vencimento chega em ISO (AAAA-MM-DD); competencia já vem como texto livre
+    // ("06/2026") — só o primeiro precisa de parse para bater com o formato
+    // dd/mm/aaaa usado em "Data de Emissão" no mesmo grid.
+    const vencimentoFmt = guia.vencimento ? _laudoFmtDate(guia.vencimento) : null;
+    const valorTributoFmt = guia.valor_tributo != null
+        ? 'R$ ' + Number(guia.valor_tributo).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
+        : null;
+    const recolhidoPor = guia.recolhimento_nome
+        ? guia.recolhimento_nome + (guia.recolhimento_cnpj ? ` (${guia.recolhimento_cnpj})` : '')
+        : null;
+
+    return [
+        linha('Tributo', guia.tributo),
+        linha('Competência', guia.competencia),
+        linha('Vencimento', vencimentoFmt),
+        linha('Valor do Tributo', valorTributoFmt),
+        linha('Recolhido por', recolhidoPor),
+        linha('Código de Receita', guia.codigo_receita),
+    ].join('');
+}
+
 const DetailsView = () => {
     const doc = state.currentDocument;
     if (!doc) {
@@ -2676,6 +2713,7 @@ ${Sidebar()}
                             <label>Protocolo SALIC</label>
                             <p class="text-sm">${doc.protocolo_salic || '---'}</p>
                         </div>
+                        ${renderDadosGuia(doc, esc)}
                     </div>
                     `}`;
     })()}
