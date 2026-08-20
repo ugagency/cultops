@@ -2432,6 +2432,11 @@ ${Sidebar()}
     camposPendentes.algum = doc.status === 'revisao_manual'
         && Object.values(camposPendentes).some(Boolean);
 
+    // Independente de status: usado pra bloquear o envio ao SALIC (diferente
+    // de camposPendentes.algum, que só liga o banner em 'revisao_manual').
+    const faltaDadoObrigatorioSalic = camposPendentes.cnpj || camposPendentes.nome
+        || camposPendentes.valor || camposPendentes.data || camposPendentes.numero;
+
     // Extrato já vinculado via upload em lote (extrato_origem_id): reconhece no
     // front em vez de pedir upload manual de novo — a conciliação é automática.
     const extratoDoLote = !!doc.extrato_origem_id;
@@ -2907,10 +2912,18 @@ ${Sidebar()}
                     </div>
                     <p class="text-xs" style="color: var(--primary); font-weight: 600;">Robô em processo...</p>
                  </div>` :
-                `<button class="btn btn-primary" style="width: 100%; font-size: 11px; padding: 0.5rem; background: linear-gradient(135deg, #059669 0%, #10b981 100%); border: none; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);" onclick="window.handleEnviarSalic('${doc.id}')" ${state.loading ? 'disabled' : ''}>
+                (faltaDadoObrigatorioSalic ?
+                    `<div style="display: flex; flex-direction: column; gap: 0.375rem;">
+                                        <button class="btn btn-primary" style="width: 100%; font-size: 11px; padding: 0.5rem; opacity: 0.5; cursor: not-allowed;" disabled>
+                                            <i data-lucide="plus-circle" style="width: 14px;"></i>
+                                            Adicionar documento no SALIC
+                                         </button>
+                                        <p class="text-xs" style="color: var(--text-secondary); font-style: italic;">Preencha os dados obrigatórios (destacados acima) antes de enviar ao SALIC.</p>
+                                     </div>` :
+                    `<button class="btn btn-primary" style="width: 100%; font-size: 11px; padding: 0.5rem; background: linear-gradient(135deg, #059669 0%, #10b981 100%); border: none; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);" onclick="window.handleEnviarSalic('${doc.id}')" ${state.loading ? 'disabled' : ''}>
                                         <i data-lucide="plus-circle" style="width: 14px;"></i>
                                         Adicionar documento no SALIC
-                                     </button>`) :
+                                     </button>`)) :
             (doc.status === 'enviado_salic' || doc.status === 'concluido' ?
                 `<div style="display: flex; flex-direction: column; gap: 0.25rem;">
                                     <p class="text-xs" style="color: var(--success); font-weight: 600;">Comprovado com sucesso!</p>
@@ -2927,7 +2940,10 @@ ${Sidebar()}
                         `<div style="display: flex; flex-direction: column; gap: 0.5rem;">
                                             <p class="text-xs" style="color: var(--error); font-weight: 500;">Falha no envio automático:</p>
                                             <p class="text-xs" style="color: var(--text-muted); font-style: italic;">${doc.just_erro || 'Erro no robô SALIC'}</p>
-                                            <button class="btn btn-secondary" style="width: 100%; font-size: 10px; padding: 0.3rem;" onclick="window.handleEnviarSalic('${doc.id}')">Tentar Novamente</button>
+                                            ${faltaDadoObrigatorioSalic ?
+                        `<button class="btn btn-secondary" style="width: 100%; font-size: 10px; padding: 0.3rem; opacity: 0.5; cursor: not-allowed;" disabled>Tentar Novamente</button>
+                                            <p class="text-xs" style="color: var(--text-secondary); font-style: italic;">Preencha os dados obrigatórios (destacados acima) antes de tentar novamente.</p>` :
+                        `<button class="btn btn-secondary" style="width: 100%; font-size: 10px; padding: 0.3rem;" onclick="window.handleEnviarSalic('${doc.id}')">Tentar Novamente</button>`}
                                          </div>`) :
                     `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando liberação financeira (D+3)...</p>`))
         }
@@ -6782,6 +6798,21 @@ window.handleExcluirLoteItem = async function (documentId, filePath) {
 
 window.handleEnviarSalic = async function (documentId) {
     if (!supabaseClient || !state.user) return;
+
+    // Defesa em profundidade: o botão já fica desabilitado nesse caso, mas
+    // isso cobre disparo direto via console/replay de request.
+    const docParaValidar = state.currentDocument;
+    const camposFaltandoSalic = docParaValidar ? [
+        !docParaValidar.cnpj_emissor && 'CNPJ/CPF',
+        !docParaValidar.nome_emissor && 'Fornecedor',
+        (!docParaValidar.valor || Number(docParaValidar.valor) === 0) && 'Valor',
+        !docParaValidar.data_emissao && 'Data de Emissão',
+        !docParaValidar.numero_nf && 'Nr. Comprovante',
+    ].filter(Boolean) : [];
+    if (camposFaltandoSalic.length > 0) {
+        showToast(`Faltam dados obrigatórios para enviar ao SALIC: ${camposFaltandoSalic.join(', ')}.`, 'error');
+        return;
+    }
 
     state.loading = true;
     state.isSalicRunning = true;
