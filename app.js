@@ -2314,6 +2314,16 @@ ${Sidebar()}
 // nem indica visualmente "isto é uma guia": só entram as linhas cujo valor
 // existe, no mesmo padrão info-item já usado ali. NF comum (sem doc.json_extraido
 // .guia) não chama esta função com dado nenhum, então nada muda para ela.
+// Sinaliza, no lugar do "---", quando um campo obrigatório para a comprovação
+// financeira (mesmo critério de camposPendentes, ver DetailsView) está vazio —
+// texto simples, sem ícone/cor de alerta forte, sem bloquear nenhuma ação.
+const DADO_FALTANTE_MSG = 'Faltando dados para a comprovação financeira';
+function renderCampoOuFaltando(valorFormatado, faltando) {
+    return faltando
+        ? `<span style="color: var(--text-secondary); font-weight: 400; font-style: italic;">${DADO_FALTANTE_MSG}</span>`
+        : valorFormatado;
+}
+
 function renderDadosGuia(doc, esc) {
     const guia = doc?.json_extraido?.guia;
     if (!guia || typeof guia !== 'object') return '';
@@ -2691,23 +2701,23 @@ ${Sidebar()}
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
                         <div class="info-item">
                             <label>Solicitante (CNPJ/CPF)</label>
-                            <p class="text-sm" style="font-weight: 600;">${doc.cnpj_emissor || '---'}</p>
+                            <p class="text-sm" style="font-weight: 600;">${renderCampoOuFaltando(doc.cnpj_emissor, camposPendentes.cnpj)}</p>
                         </div>
                         <div class="info-item">
                             <label>Fornecedor</label>
-                            <p class="text-sm" style="font-weight: 600;">${doc.nome_emissor || '---'}</p>
+                            <p class="text-sm" style="font-weight: 600;">${renderCampoOuFaltando(doc.nome_emissor, camposPendentes.nome)}</p>
                         </div>
                         <div class="info-item">
                             <label>Valor Total</label>
-                            <p class="text-sm" style="font-weight: 600; color: var(--primary);">R$ ${doc.valor ? doc.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '0,00'}</p>
+                            <p class="text-sm" style="font-weight: 600; color: var(--primary);">${renderCampoOuFaltando('R$ ' + (doc.valor ? doc.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '0,00'), camposPendentes.valor)}</p>
                         </div>
                         <div class="info-item">
                             <label>Data de Emissão</label>
-                            <p class="text-sm">${doc.data_emissao ? _laudoFmtDate(doc.data_emissao) : '---'}</p>
+                            <p class="text-sm">${renderCampoOuFaltando(doc.data_emissao ? _laudoFmtDate(doc.data_emissao) : '---', camposPendentes.data)}</p>
                         </div>
                         <div class="info-item">
                             <label>Nr. Comprovante</label>
-                            <p class="text-sm" style="font-weight: 600;">${doc.numero_nf || '---'}</p>
+                            <p class="text-sm" style="font-weight: 600;">${renderCampoOuFaltando(doc.numero_nf, camposPendentes.numero)}</p>
                         </div>
                         <div class="info-item">
                             <label>Protocolo SALIC</label>
