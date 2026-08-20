@@ -116,6 +116,20 @@ app.post('/api/salic/inserir', async (req, res) => {
 
         console.log(`[API] Documento identificado: ${doc.name} | Rubrica: ${doc.rubrica}`);
 
+        // Segunda camada de proteção (a primeira é o botão desabilitado no
+        // front, app.js@main) — bloqueia também chamada direta à API com
+        // dado obrigatório faltando, pra não deixar o SALIC com dado incompleto.
+        const camposFaltando = [
+            !doc.cnpj_emissor && 'CNPJ/CPF',
+            !doc.nome_emissor && 'Fornecedor',
+            (!doc.valor || Number(doc.valor) === 0) && 'Valor',
+            !doc.data_emissao && 'Data de Emissão',
+            !doc.numero_nf && 'Nr. Comprovante',
+        ].filter(Boolean);
+        if (camposFaltando.length > 0) {
+            throw new Error(`Faltam dados obrigatórios para enviar ao SALIC: ${camposFaltando.join(', ')}.`);
+        }
+
         // Busca o valor aprovado da rubrica na tabela `rubricas` usando o project_id e o texto da rubrica
         let rubricaValorAprovado = null;
         if (doc.rubrica) {
