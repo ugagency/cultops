@@ -784,13 +784,9 @@ async function executarInsercaoSalic(config) {
         }
         await wait(300);
 
-        // CHG-13: Recibo usa justificativa fixa da spec (grafia "usuario" SEM acento e obrigatoria).
-        const justificativa = isRecibo
-            ? 'Inserção realizada por usuario Prestai da empresa @Cliente'
-            : 'Insercao automatizada via Sistema Cultops';
-        await setMaterializeField(targetPage, '#dsJustificativa', justificativa);
-        console.log(`[SALIC] Justificativa definida: ${justificativa}`);
-        await wait(300);
+        // #dsJustificativa é opcional no formulário do SALIC — decisão de não
+        // preencher com nada, pra nenhum tipo de documento (NF, recibo ou guia).
+        console.log('[SALIC] Justificativa: campo opcional, deixado vazio (não preenchido).');
 
         // Log de auditoria: mostra o estado de todos os campos antes de salvar
         const estadoCampos = await targetPage.evaluate(() => {
