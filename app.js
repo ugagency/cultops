@@ -1568,6 +1568,13 @@ ${Sidebar()}
                                     <span class="badge-dot"></span>
                                     ${status.label}
                                 </span>
+                                ${estaTravado(doc) ? `
+                                    <button type="button" title="Sem avançar há ${formatarTempoTravado(minutosParadoDoc(doc))} — clique para reprocessar"
+                                        onclick="event.stopPropagation(); window.handleReprocessarDocumentoTravado('${doc.id}')"
+                                        style="margin-top: 0.35rem; display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.15rem 0.5rem; border-radius: 9999px; border: 1px solid #FCA5A5; background: #FEE2E2; color: #B91C1C; font-size: 11px; font-weight: 600; cursor: pointer;">
+                                        <i data-lucide="alert-triangle" style="width: 12px;"></i>
+                                        Parado há ${formatarTempoTravado(minutosParadoDoc(doc))} — reprocessar
+                                    </button>` : ''}
                             </td>
                             <td>
                                 <div class="text-sm">${new Date(doc.created_at).toLocaleDateString('pt-BR')}</div>
@@ -2309,6 +2316,29 @@ ${Sidebar()}
 </main>
 `;
 
+// Tempo (minutos) parado numa etapa intermediária do pipeline pra considerar
+// "travado" e oferecer reprocessar. Ajustável aqui sem precisar de deploy de
+// schema nem migração — é só uma constante de UI, mude e faça o commit normal.
+const MINUTOS_TRAVADO = 30;
+// bloqueado_conformidade fica de fora (já tem resultado — bloqueio é decisão
+// tomada, não trava); aguardando_rubrica fica de fora (espera ação do gestor,
+// não é falha de pipeline); aguardando_comprovante fica de fora (hoje é
+// pulado automaticamente pelo trigger do banco, não deveria aparecer).
+const STATUS_INTERMEDIARIOS_TRAVAVEIS = ['processing_ocr', 'validating', 'aguardando_conformidade'];
+function estaTravado(doc) {
+    if (!doc || !STATUS_INTERMEDIARIOS_TRAVAVEIS.includes(doc.status) || !doc.updated_at) return false;
+    return minutosParadoDoc(doc) > MINUTOS_TRAVADO;
+}
+function minutosParadoDoc(doc) {
+    return (Date.now() - new Date(doc.updated_at).getTime()) / 60000;
+}
+function formatarTempoTravado(minutos) {
+    if (minutos < 60) return `${Math.floor(minutos)}min`;
+    const horas = Math.floor(minutos / 60);
+    const restoMin = Math.floor(minutos % 60);
+    return restoMin > 0 ? `${horas}h${restoMin}min` : `${horas}h`;
+}
+
 // Guia de recolhimento (DARF/GPS/etc.) extraída pelo OCR em json_extraido.guia.
 // Complementa o grid de "Dados Extraídos" do DetailsView — não é uma seção nova,
 // nem indica visualmente "isto é uma guia": só entram as linhas cujo valor
@@ -2520,6 +2550,26 @@ ${Sidebar()}
                 </div>
             </div>
         </div>
+
+        ${estaTravado(doc) ? `
+        <div class="card mb-4" style="background: #FEF2F2; border-left: 4px solid #DC2626; padding: 1.25rem;">
+            <div style="display: flex; gap: 1rem; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+                <div style="display: flex; gap: 1rem; align-items: flex-start;">
+                    <div style="background: #DC2626; color: white; padding: 0.5rem; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                        <i data-lucide="alert-triangle" style="width: 18px;"></i>
+                    </div>
+                    <div>
+                        <h4 style="font-size: 14px; margin-bottom: 0.25rem; font-weight: 700; color: #991B1B;">Documento parado há ${formatarTempoTravado(minutosParadoDoc(doc))}</h4>
+                        <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.5;">Esta etapa costuma terminar rápido — outros documentos do mesmo lote provavelmente já avançaram. Pode ser uma falha pontual no processamento automático.</p>
+                    </div>
+                </div>
+                <button class="btn btn-primary" style="background: #DC2626; border: none; white-space: nowrap;" onclick="window.handleReprocessarDocumentoTravado('${doc.id}')">
+                    <i data-lucide="refresh-cw" style="width: 14px;"></i>
+                    Reprocessar documento
+                </button>
+            </div>
+        </div>
+        ` : ''}
 
         <div class="card mb-4" style="padding: 2rem;">
             <div style="display: flex; justify-content: space-between; position: relative;">
@@ -3309,6 +3359,73 @@ window.handleForcarAvanco = async function (docId, currentStatus) {
         await fetchDocumentDetails(docId);
     } catch (err) {
         window.showToast('Erro ao forçar avanço: ' + err.message, 'error');
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
+
+// Reprocessa um documento travado numa etapa intermediária (ver estaTravado,
+// MINUTOS_TRAVADO). Diferente de handleForcarAvanco: aqui não se pula etapa
+// nenhuma nem se assume risco — só se dispara de novo o mesmo processamento
+// que deveria ter terminado sozinho.
+window.handleReprocessarDocumentoTravado = async function (documentId) {
+    const doc = state.documents.find(d => d.id === documentId) || state.currentDocument;
+    if (!doc) return;
+
+    if (!confirm('Reenviar este documento para processamento?')) return;
+
+    state.loading = true;
+    render();
+
+    try {
+        if (doc.status === 'aguardando_conformidade') {
+            // OCR já rodou (json_extraido preenchido) — reprocessar aqui é
+            // re-disparar a VALIDAÇÃO, não o OCR de novo. Mesmo mecanismo já
+            // usado quando o gestor edita a rubrica manualmente
+            // (handleVincularRubrica) — reaproveitado, não duplicado.
+            const { error } = await supabaseClient.from('documents')
+                .update({ status: 'processing_ocr', just_erro: null })
+                .eq('id', documentId);
+            if (error) throw error;
+
+            if (CONFIG.N8N_WEBHOOK_VALIDATION_URL) {
+                fetch(CONFIG.N8N_WEBHOOK_VALIDATION_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    mode: 'cors',
+                    body: JSON.stringify({
+                        document_id: documentId,
+                        cnpj_fornecedor: doc.cnpj_emissor,
+                        rubrica_id: doc.rubrica_id_fk,
+                        rubrica_nome: doc.rubrica
+                    })
+                }).then(r => console.log("n8n Validation Triggered (reprocessar travado):", r.status))
+                    .catch(e => console.error("Erro ao notificar n8n:", e.message));
+            }
+        } else {
+            // processing_ocr ou validating travados: o OCR em si não completou.
+            // Reaproveita o mesmo caminho do upload original (dispararOcr).
+            const { error } = await supabaseClient.from('documents')
+                .update({ status: 'processing_ocr', just_erro: null })
+                .eq('id', documentId);
+            if (error) throw error;
+
+            await dispararOcr(documentId, doc.file_path);
+        }
+
+        window.showToast('Documento reenviado para processamento.', 'success');
+
+        if (state.currentDocument?.id === documentId) {
+            await fetchDocumentDetails(documentId);
+        } else {
+            const idx = state.documents.findIndex(d => d.id === documentId);
+            if (idx !== -1) {
+                state.documents[idx] = { ...state.documents[idx], status: 'processing_ocr', updated_at: new Date().toISOString(), just_erro: null };
+            }
+        }
+    } catch (err) {
+        window.showToast('Erro ao reprocessar: ' + err.message, 'error');
     } finally {
         state.loading = false;
         render();
