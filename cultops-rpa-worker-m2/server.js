@@ -22,11 +22,30 @@ app.get('/', (req, res) => {
   });
 });
 
+// SPEC-SEC-01 Fix 2 (Achado A, extensão de escopo): mesmo padrão vulnerável
+// do worker de M1 — lia { evidenciaId, userId } cru do body e usava userId
+// sem checar nada. Exige token de sessão válido, deriva o userId dele.
+async function exigirUsuarioAutenticado(req, res, next) {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) {
+    return res.status(401).json({ error: 'Token de autenticação ausente.' });
+  }
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user) {
+    return res.status(401).json({ error: 'Token inválido ou expirado.' });
+  }
+  req.userId = data.user.id;
+  next();
+}
+
 app.post('/api/salic/comprovar-fisico',
+  exigirUsuarioAutenticado,
   async (req, res) => {
   const { executarComprovacaoFisica } =
     require('./salic_comprovacao_fisica.cjs');
-  const { evidenciaId, userId } = req.body;
+  const { evidenciaId } = req.body;
+  const userId = req.userId; // do token verificado, não do body
 
   if (!evidenciaId)
     return res.status(400).json({

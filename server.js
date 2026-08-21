@@ -52,6 +52,26 @@ app.get('/api/health', (req, res) => {
 const staticPath = path.resolve(__dirname);
 app.use(express.static(staticPath));
 
+// SPEC-SEC-01 Fix 2 (Achado A): o endpoint não validava quem estava pedindo
+// — lia { documentId, userId } cru do body e usava userId sem checar nada,
+// com um client Supabase inicializado com SERVICE_ROLE_KEY (ignora RLS). Um
+// POST simples com qualquer userId real fazia o servidor buscar a senha
+// daquele usuário e logar de verdade no SALIC. Exige um token de sessão
+// válido e deriva o userId dele, não mais do body.
+async function exigirUsuarioAutenticado(req, res, next) {
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) {
+        return res.status(401).json({ error: 'Token de autenticação ausente.' });
+    }
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user) {
+        return res.status(401).json({ error: 'Token inválido ou expirado.' });
+    }
+    req.userId = data.user.id;
+    next();
+}
+
 // Bug #2: a Data do Pagamento no SALIC deve vir do lançamento bancário
 // conciliado (extratos_lancamentos.data_lancamento = data do débito),
 // NUNCA de documents.data_emissao (data de emissão da NF).
@@ -74,11 +94,12 @@ function resolverDataPagamento(lancamento, doc) {
 /**
  * Endpoint para disparar o robô do SALIC
  */
-app.post('/api/salic/inserir', async (req, res) => {
+app.post('/api/salic/inserir', exigirUsuarioAutenticado, async (req, res) => {
     // Carregamento "Lazy" do robô para economizar memória na Vercel
     const { executarInsercaoSalic } = require('./salic_insertion.cjs');
-    
-    const { documentId, userId } = req.body;
+
+    const { documentId } = req.body;
+    const userId = req.userId; // do token verificado, não do body
 
     if (!documentId) return res.status(400).json({ error: 'ID do documento não fornecido.' });
 

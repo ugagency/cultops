@@ -23,6 +23,24 @@ app.get('/', (req, res) => {
     res.json({ status: 'Cultopps RPA Worker is online' });
 });
 
+// SPEC-SEC-01 Fix 2 (Achado A): mesmo problema do server.js da raiz — este é
+// o worker real (Dockerfile próprio, Chromium de verdade), então é aqui que
+// a vulnerabilidade importava de fato. Exige token de sessão válido, deriva
+// o userId dele em vez de confiar no body.
+async function exigirUsuarioAutenticado(req, res, next) {
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) {
+        return res.status(401).json({ error: 'Token de autenticação ausente.' });
+    }
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user) {
+        return res.status(401).json({ error: 'Token inválido ou expirado.' });
+    }
+    req.userId = data.user.id;
+    next();
+}
+
 // Bug #2: a Data do Pagamento no SALIC deve vir do lançamento bancário
 // conciliado (extratos_lancamentos.data_lancamento = data do débito),
 // NUNCA de documents.data_emissao (data de emissão da NF).
@@ -72,9 +90,10 @@ function formatarNrDocPagamento(docExtrato) {
 }
 
 // Endpoint SALIC
-app.post('/api/salic/inserir', async (req, res) => {
+app.post('/api/salic/inserir', exigirUsuarioAutenticado, async (req, res) => {
     const { executarInsercaoSalic } = require('./salic_insertion.cjs');
-    const { documentId, userId } = req.body;
+    const { documentId } = req.body;
+    const userId = req.userId; // do token verificado, não do body
 
     if (!documentId) return res.status(400).json({ error: 'ID do documento não fornecido.' });
 
@@ -101,6 +120,20 @@ app.post('/api/salic/inserir', async (req, res) => {
         if (docError || !doc) throw new Error('Documento não encontrado no banco de dados.');
 
         console.log(`[API] Documento: ${doc.name} | Rubrica: ${doc.rubrica}`);
+
+        // Segunda camada de proteção (a primeira é o botão desabilitado no
+        // front, app.js@main) — bloqueia também chamada direta à API com
+        // dado obrigatório faltando, pra não deixar o SALIC com dado incompleto.
+        const camposFaltando = [
+            !doc.cnpj_emissor && 'CNPJ/CPF',
+            !doc.nome_emissor && 'Fornecedor',
+            (!doc.valor || Number(doc.valor) === 0) && 'Valor',
+            !doc.data_emissao && 'Data de Emissão',
+            !doc.numero_nf && 'Nr. Comprovante',
+        ].filter(Boolean);
+        if (camposFaltando.length > 0) {
+            throw new Error(`Faltam dados obrigatórios para enviar ao SALIC: ${camposFaltando.join(', ')}.`);
+        }
 
         // Resolucao da rubrica em CASCATA (3 estrategias, da mais confiavel a mais ambigua).
         // Motivacao: doc.rubrica e texto livre e nem sempre tem prefixo numerico; nomes
@@ -222,13 +255,14 @@ app.post('/api/salic/inserir', async (req, res) => {
             documento: {
                 cnpj_fornecedor: doc.cnpj_emissor,
                 valor: doc.valor,
-                numero: doc.numero_nf || doc.json_extraido?.numero_nota || 'S/N',
+                numero: doc.numero_nf || 'S/N',   // json_extraido.numero_nota nunca é escrito pela extração — fallback removido
                 data_emissao: doc.data_emissao,   // Data de Emissão real da NF/recibo (#dataEmissao)
                 data_pagamento: dataPagamento,    // Bug #2: Data do Pagamento = data do débito (#dtPagamento)
                 nf_path: doc.file_path,
                 nf_url: `${process.env.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.file_path}`,
                 recibo: doc.recibo,   // flag de tipo: 'yes' = Recibo, 'no' = NF (NÃO é caminho de arquivo)
-                numero_extrato: formatarNrDocPagamento(numeroExtrato)
+                numero_extrato: formatarNrDocPagamento(numeroExtrato),
+                numero_guia: doc.json_extraido?.guia?.numero_guia || null,   // sinal de Guia de Recolhimento p/ o worker
             }
         };
 
