@@ -219,7 +219,7 @@
                     <label>Ingressos para PA *</label>
                     <input type="number" id="f-pa" min="0" placeholder="0" oninput="validateIngressos()">
                 </div>
-                <div id="ingressos-error" class="span-2" style="display:none;color:#FF5807;font-size:0.82rem;font-weight:600;margin-top:-0.25rem;">
+                <div id="ingressos-error" class="span-2" style="display:none;color:var(--color-alert);font-size:0.82rem;font-weight:600;margin-top:-0.25rem;">
                     <i data-lucide="alert-circle" style="width:14px;vertical-align:middle;"></i>
                     OS + PA não podem ultrapassar o total de ingressos.
                 </div>
@@ -251,7 +251,7 @@
     <!-- ── Confirm Delete ────────────────────────────────────── -->
     <div id="confirm-backdrop" class="modal-backdrop" style="display:none;z-index:3000;">
         <div class="confirm-card">
-            <i data-lucide="alert-triangle" style="width:40px;height:40px;color:#FF5807;margin:0 auto 1rem;display:block;"></i>
+            <i data-lucide="alert-triangle" style="width:40px;height:40px;color:var(--color-alert);margin:0 auto 1rem;display:block;"></i>
             <h3>Excluir Evento?</h3>
             <div id="confirm-delete-contagens" style="text-align:left;margin:0 auto 0.75rem;max-width:320px;"></div>
             <p><strong>O evento sairá de todas as listagens e relatórios</strong>, mas os dados não serão apagados — podem ser restaurados pelo suporte, se necessário. Evidências físicas vinculadas ficam órfãs do evento (não são excluídas).</p>
@@ -384,7 +384,7 @@
             } catch (err) {
                 console.error(err);
                 document.getElementById('page-loading').innerHTML = `
-                    <div class="empty-state" style="color:#FF5807;">
+                    <div class="empty-state" style="color:var(--color-alert);">
                         <i data-lucide="alert-circle" style="width:32px;"></i>
                         <div style="margin-top:0.75rem;">Erro ao carregar evento: ${esc(err.message)}</div>
                         <a href="eventos.html" class="btn-secondary" style="margin-top:1rem;text-decoration:none;">Voltar</a>

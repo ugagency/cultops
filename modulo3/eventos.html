@@ -100,9 +100,9 @@
 
         /* Status badges */
         .badge-rascunho  { background: #F1F5F9; color: #64748b; }
-        .badge-ativo     { background: #E3E8FF; color: #1547FF; }
+        .badge-ativo     { background: var(--color-blue-15); color: var(--color-primary); }
         .badge-encerrado { background: #DCFCE7; color: #16a34a; }
-        .badge-cancelado { background: #FFECE4; color: #FF5807; }
+        .badge-cancelado { background: #FFECE4; color: var(--color-alert); }
     </style>
 </head>
 <body>
@@ -138,7 +138,7 @@
     <!-- ── Modal: excluir evento (soft delete) com aviso de risco ── -->
     <div id="excluir-ev-backdrop" class="modal-backdrop" style="display:none;z-index:3000;">
         <div class="confirm-card">
-            <i data-lucide="alert-triangle" style="width:40px;height:40px;color:#FF5807;margin:0 auto 1rem;display:block;"></i>
+            <i data-lucide="alert-triangle" style="width:40px;height:40px;color:var(--color-alert);margin:0 auto 1rem;display:block;"></i>
             <h3>Excluir evento "<span id="excluir-ev-titulo"></span>"?</h3>
             <div id="excluir-ev-contagens" style="text-align:left;margin:0 auto 0.75rem;max-width:320px;"></div>
             <p><strong>O evento sairá de todas as listagens e relatórios</strong>, mas os dados não serão apagados — podem ser restaurados pelo suporte, se necessário. Evidências físicas vinculadas ficam órfãs do evento (não são excluídas).</p>
@@ -409,7 +409,7 @@
                 preencherCheckinsDosCards(list);
             } catch (err) {
                 console.error(err);
-                area.innerHTML = `<div class="empty-state" style="color:#FF5807;"><i data-lucide="alert-circle" style="width:28px;"></i><div style="margin-top:0.5rem;">Erro: ${esc(err.message)}</div></div>`;
+                area.innerHTML = `<div class="empty-state" style="color:var(--color-alert);"><i data-lucide="alert-circle" style="width:28px;"></i><div style="margin-top:0.5rem;">Erro: ${esc(err.message)}</div></div>`;
                 reIcons();
             }
         }
@@ -445,11 +445,11 @@
 
                     <div class="ev-card-info">
                         <div class="ev-card-info-row">
-                            <i data-lucide="calendar" style="width:14px;flex-shrink:0;color:#94a3b8;"></i>
+                            <i data-lucide="calendar" style="width:14px;flex-shrink:0;color:var(--text-muted);"></i>
                             <span>${fmtDate(ev.data_evento)}${ev.horario ? ' · ' + ev.horario.slice(0,5) : ''}</span>
                         </div>
                         <div class="ev-card-info-row">
-                            <i data-lucide="map-pin" style="width:14px;flex-shrink:0;color:#94a3b8;"></i>
+                            <i data-lucide="map-pin" style="width:14px;flex-shrink:0;color:var(--text-muted);"></i>
                             <span>${esc(ev.nome_local)}, ${esc(ev.cidade)}/${esc(ev.estado)}</span>
                         </div>
                     </div>
@@ -481,7 +481,7 @@
                         ${_role !== 'operador' ? `
                         <button class="btn-secondary" title="Excluir evento" style="padding:0.4rem 0.6rem;font-size:0.8rem;margin-left:auto;"
                             onclick="abrirModalExclusao('${esc(ev.id)}', '${esc(ev.titulo).replace(/'/g, "\\'")}')">
-                            <i data-lucide="trash-2" style="width:13px;color:#FF5807;"></i>
+                            <i data-lucide="trash-2" style="width:13px;color:var(--color-alert);"></i>
                         </button>` : ''}
                     </div>
                 </div>

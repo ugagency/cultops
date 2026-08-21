@@ -18,15 +18,15 @@
         /* status badges physical_evidences */
         .badge-pendente               { background:#F1F5F9;color:#64748b; }
         .badge-aprovada               { background:#DCFCE7;color:#16a34a; }
-        .badge-reprovada              { background:#FFECE4;color:#FF5807; }
+        .badge-reprovada              { background:#FFECE4;color:var(--color-alert); }
         .badge-pendente_complemento   { background:#FEF9C3;color:#854D0E; }
-        .badge-enviada_salic          { background:#E3E8FF;color:#1547FF; }
-        .badge-erro_rpa               { background:#FFECE4;color:#FF5807; }
+        .badge-enviada_salic          { background:var(--color-blue-15);color:var(--color-primary); }
+        .badge-erro_rpa               { background:#FFECE4;color:var(--color-alert); }
 
         /* evento status */
         .badge-ativo      { background:#DCFCE7;color:#16a34a; }
         .badge-encerrado  { background:#F1F5F9;color:#64748b; }
-        .badge-cancelado  { background:#FFECE4;color:#FF5807; }
+        .badge-cancelado  { background:#FFECE4;color:var(--color-alert); }
 
         .ev-header-meta {
             display:flex; gap:1.25rem; flex-wrap:wrap;
@@ -52,7 +52,7 @@
         .evidencia-card:hover { box-shadow:0 4px 16px rgba(0,0,0,0.07); }
 
         .encerrar-card {
-            border:2px solid #FF5807;
+            border:2px solid var(--color-alert);
             border-radius:var(--radius-md);
             background:#fff8f5;
             padding:1.25rem;
@@ -77,18 +77,18 @@
             <div class="glass-card" style="margin-bottom:1.5rem;">
                 <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
                     <div>
-                        <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#94a3b8;margin-bottom:0.25rem;">Evidências do Evento</div>
+                        <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:0.25rem;">Evidências do Evento</div>
                         <div id="ev-titulo" style="font-size:1.3rem;font-weight:800;color:var(--text-primary);line-height:1.2;margin-bottom:0.4rem;"></div>
                         <span id="ev-status-badge" class="badge"></span>
                     </div>
                 </div>
                 <div class="ev-header-meta" style="margin-top:0.75rem;">
                     <div class="ev-header-meta-item">
-                        <i data-lucide="calendar" style="width:14px;color:#94a3b8;"></i>
+                        <i data-lucide="calendar" style="width:14px;color:var(--text-muted);"></i>
                         <span id="ev-data"></span>
                     </div>
                     <div class="ev-header-meta-item">
-                        <i data-lucide="map-pin" style="width:14px;color:#94a3b8;"></i>
+                        <i data-lucide="map-pin" style="width:14px;color:var(--text-muted);"></i>
                         <span id="ev-local"></span>
                     </div>
                 </div>
@@ -360,7 +360,7 @@
             } catch (err) {
                 console.error(err);
                 document.getElementById('page-loading').innerHTML = `
-                    <div class="empty-state" style="color:#FF5807;">
+                    <div class="empty-state" style="color:var(--color-alert);">
                         <i data-lucide="alert-circle" style="width:32px;"></i>
                         <div style="margin-top:0.75rem;">Erro ao carregar: ${esc(err.message)}</div>
                     </div>`;
@@ -399,7 +399,7 @@
             }
             el.innerHTML = attendance.map(a => `
                 <div class="attendance-item">
-                    <i data-lucide="file-text" style="width:20px;flex-shrink:0;color:#1547FF;margin-top:2px;"></i>
+                    <i data-lucide="file-text" style="width:20px;flex-shrink:0;color:var(--color-primary);margin-top:2px;"></i>
                     <div>
                         <div style="font-weight:600;font-size:0.9rem;color:var(--text-primary);">
                             ${fmtDateTime(a.uploaded_at)}
@@ -456,7 +456,7 @@
                         </div>
                         ${['reprovada', 'pendente_complemento'].includes(ev.status_validacao) && ev.motivo_reprovacao ? `
                         <div style="display:flex;align-items:center;gap:0.4rem;margin-top:0.5rem;
-                                    font-size:0.82rem;color:#FF5807;font-weight:600;">
+                                    font-size:0.82rem;color:var(--color-alert);font-weight:600;">
                             <i data-lucide="alert-triangle" style="width:14px;height:14px;"></i>
                             ${esc(ev.motivo_reprovacao)}
                         </div>` : ''}
@@ -583,7 +583,7 @@
             const semLista = attendance.length === 0;
             el.innerHTML = `
                 <div class="encerrar-card">
-                    <div style="font-weight:700;font-size:1rem;color:#FF5807;margin-bottom:0.4rem;display:flex;align-items:center;gap:0.5rem;">
+                    <div style="font-weight:700;font-size:1rem;color:var(--color-alert);margin-bottom:0.4rem;display:flex;align-items:center;gap:0.5rem;">
                         <i data-lucide="lock" style="width:16px;"></i> Encerrar Evento
                     </div>
                     <div style="font-size:0.875rem;color:var(--text-secondary);margin-bottom:1rem;">
@@ -593,14 +593,14 @@
                     </div>
                     <button id="btn-encerrar"
                             class="btn-danger"
-                            style="background:#FF5807;color:white;border:none;border-radius:10px;
+                            style="background:var(--color-alert);color:white;border:none;border-radius:10px;
                                    padding:0.5rem 1.25rem;font-weight:700;cursor:pointer;
                                    opacity:${semLista?'0.5':'1'};"
                             ${semLista ? 'disabled title="Adicione uma lista de presença primeiro"' : ''}
                             onclick="confirmarEncerrar()">
                         <i data-lucide="lock" style="width:15px;vertical-align:middle;"></i> Encerrar Evento
                     </button>
-                    ${semLista ? `<div style="font-size:0.8rem;color:#94a3b8;margin-top:0.5rem;">
+                    ${semLista ? `<div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.5rem;">
                         Adicione uma lista de presença antes de encerrar.</div>` : ''}
                 </div>`;
             reIcons();

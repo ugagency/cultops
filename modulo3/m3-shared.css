@@ -287,7 +287,7 @@ body {
 /* Mensagens de validação sob um campo (antes eram estilos inline soltos). */
 .field-error {
     font-size: 0.78rem;
-    color: var(--error, #FF5807);
+    color: var(--error, var(--color-alert));
 }
 .field-warning {
     font-size: 0.78rem;

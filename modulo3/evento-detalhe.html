@@ -43,8 +43,8 @@
             border-bottom-color: var(--m3-accent);
         }
         .tab-btn .tab-count {
-            background: #E3E8FF;
-            color: #1547FF;
+            background: var(--color-blue-15);
+            color: var(--color-primary);
             font-size: 0.7rem;
             font-weight: 700;
             padding: 0.1rem 0.45rem;
@@ -79,7 +79,7 @@
         }
         .saldo-bar strong { color: var(--text-primary); }
         .saldo-bar .saldo-ok   { color: #16a34a; font-weight: 700; }
-        .saldo-bar .saldo-zero { color: #FF5807; font-weight: 700; }
+        .saldo-bar .saldo-zero { color: var(--color-alert); font-weight: 700; }
 
         /* ── Vínculo cards ─────────────────── */
         .vinculo-grid {
@@ -148,19 +148,19 @@
             border-radius: 8px;
             border: 1px solid #fde8e8;
             background: #fff5f5;
-            color: #FF5807;
+            color: var(--color-alert);
             display: flex; align-items: center; justify-content: center;
             cursor: pointer;
             transition: all 0.15s;
             flex-shrink: 0;
         }
-        .btn-remove:hover { background: #FF5807; color: white; border-color: #FF5807; }
+        .btn-remove:hover { background: var(--color-alert); color: white; border-color: var(--color-alert); }
 
         .ingressos-pill {
             font-size: 0.78rem;
             font-weight: 700;
-            color: #1547FF;
-            background: #E3E8FF;
+            color: var(--color-primary);
+            background: var(--color-blue-15);
             padding: 0.2rem 0.6rem;
             border-radius: 999px;
             white-space: nowrap;
@@ -170,9 +170,9 @@
         .badge-pendente        { background: #F1F5F9; color: #64748b; }
         .badge-convite_enviado { background: #FEF9C3; color: #854D0E; }
         .badge-confirmado      { background: #DCFCE7; color: #16a34a; }
-        .badge-recusado        { background: #FFECE4; color: #FF5807; }
-        .badge-lista_enviada   { background: #E3E8FF; color: #1547FF; }
-        .badge-concluido       { background: #1547FF; color: white; }
+        .badge-recusado        { background: #FFECE4; color: var(--color-alert); }
+        .badge-lista_enviada   { background: var(--color-blue-15); color: var(--color-primary); }
+        .badge-concluido       { background: var(--color-primary); color: white; }
 
         /* ── Adicionar modal ───────────────── */
         .add-list {
@@ -193,8 +193,8 @@
             cursor: pointer;
             transition: border-color 0.15s, background 0.15s;
         }
-        .add-item:hover { border-color: #1547FF; background: #f0f4ff; }
-        .add-item.selected { border-color: #1547FF; background: #E3E8FF; }
+        .add-item:hover { border-color: var(--color-primary); background: #f0f4ff; }
+        .add-item.selected { border-color: var(--color-primary); background: var(--color-blue-15); }
         .add-item-name { font-weight: 600; font-size: 0.875rem; color: var(--text-primary); }
         .add-item-sub  { font-size: 0.78rem; color: var(--text-muted); }
 
@@ -259,7 +259,7 @@
         .rel-add-link {
             text-decoration: none; display: inline-flex; align-items: center;
             gap: 0.3rem; font-size: 0.82rem; font-weight: 600;
-            color: #1547FF; margin-top: 0.6rem;
+            color: var(--color-primary); margin-top: 0.6rem;
         }
         .rel-link-row { display: flex; align-items: center; gap: 0.5rem; }
         .rel-link-row input[type="text"] { flex: 1.1; min-width: 0; }
@@ -708,7 +708,7 @@
             } catch (err) {
                 console.error(err);
                 document.getElementById('page-loading').innerHTML = `
-                    <div class="empty-state" style="color:#FF5807;">
+                    <div class="empty-state" style="color:var(--color-alert);">
                         <i data-lucide="alert-circle" style="width:32px;"></i>
                         <div style="margin-top:0.75rem;">Erro ao carregar evento: ${esc(err.message)}</div>
                     </div>`;
@@ -1184,7 +1184,7 @@
                             <thead><tr><th>Nome</th><th>Origem</th><th>Check-in</th></tr></thead>
                             <tbody>${linhas}</tbody>
                         </table>
-                    </div>` : `<div style="color:#94a3b8;font-size:0.85rem;">Nenhum check-in registrado ainda.</div>`}
+                    </div>` : `<div style="color:var(--text-muted);font-size:0.85rem;">Nenhum check-in registrado ainda.</div>`}
                 </div>
             `;
         }
@@ -1219,7 +1219,7 @@
                 reIcons();
             } catch (err) {
                 console.error(err);
-                wrap.innerHTML = `<div class="empty-state" style="color:#FF5807;"><i data-lucide="alert-circle" style="width:28px;"></i><div style="margin-top:0.5rem;">Erro ao carregar: ${esc(err.message)}</div></div>`;
+                wrap.innerHTML = `<div class="empty-state" style="color:var(--color-alert);"><i data-lucide="alert-circle" style="width:28px;"></i><div style="margin-top:0.5rem;">Erro ao carregar: ${esc(err.message)}</div></div>`;
                 reIcons();
             }
         }
@@ -1287,7 +1287,7 @@
                     `).join('');
                 }
             } catch (err) {
-                wrap.innerHTML = `<div class="empty-state" style="color:#FF5807;">Erro: ${esc(err.message)}</div>`;
+                wrap.innerHTML = `<div class="empty-state" style="color:var(--color-alert);">Erro: ${esc(err.message)}</div>`;
             }
             reIcons();
         }
@@ -1382,7 +1382,7 @@
                     `).join('');
                 }
             } catch (err) {
-                wrap.innerHTML = `<div class="empty-state" style="color:#FF5807;">Erro: ${esc(err.message)}</div>`;
+                wrap.innerHTML = `<div class="empty-state" style="color:var(--color-alert);">Erro: ${esc(err.message)}</div>`;
             }
             reIcons();
         }

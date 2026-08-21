@@ -28,16 +28,16 @@
         }
         .tab-btn.active { color:var(--m3-accent); border-bottom-color:var(--m3-accent); }
         .tab-btn .tab-count {
-            background:#E3E8FF; color:#1547FF; font-size:0.7rem; font-weight:700;
+            background:var(--color-blue-15); color:var(--color-primary); font-size:0.7rem; font-weight:700;
             padding:0.1rem 0.45rem; border-radius:999px; min-width:18px; text-align:center;
         }
 
         .badge-pendente        { background:#F1F5F9;color:#64748b; }
         .badge-convite_enviado { background:#FEF9C3;color:#854D0E; }
         .badge-confirmado      { background:#DCFCE7;color:#16a34a; }
-        .badge-recusado        { background:#FFECE4;color:#FF5807; }
-        .badge-lista_enviada   { background:#E3E8FF;color:#1547FF; }
-        .badge-concluido       { background:#1547FF;color:white; }
+        .badge-recusado        { background:#FFECE4;color:var(--color-alert); }
+        .badge-lista_enviada   { background:var(--color-blue-15);color:var(--color-primary); }
+        .badge-concluido       { background:var(--color-primary);color:white; }
 
         .guest-row {
             display:flex; align-items:center; gap:0.75rem;
@@ -47,11 +47,11 @@
 
         .btn-remove-guest {
             width:28px; height:28px; border-radius:8px;
-            border:1px solid #fde8e8; background:#fff5f5; color:#FF5807;
+            border:1px solid #fde8e8; background:#fff5f5; color:var(--color-alert);
             display:flex; align-items:center; justify-content:center;
             cursor:pointer; transition:all 0.15s; flex-shrink:0;
         }
-        .btn-remove-guest:hover { background:#FF5807; color:white; border-color:#FF5807; }
+        .btn-remove-guest:hover { background:var(--color-alert); color:white; border-color:var(--color-alert); }
 
         .lgpd-notice {
             background:#f0f4ff; border:1px solid #c7d5ff;
@@ -148,7 +148,7 @@
                 <div class="form-group">
                     <label>
                         CPF
-                        <span id="cpf-hint" style="color:#94a3b8;font-size:0.78rem;font-weight:400;">
+                        <span id="cpf-hint" style="color:var(--text-muted);font-size:0.78rem;font-weight:400;">
                             (requer consentimento LGPD)
                         </span>
                     </label>
@@ -156,11 +156,11 @@
                            disabled maxlength="14" oninput="fmtCpfInput(this)">
                 </div>
                 <div class="form-group">
-                    <label>RG <span style="color:#94a3b8;font-size:0.78rem;font-weight:400;">(opcional)</span></label>
+                    <label>RG <span style="color:var(--text-muted);font-size:0.78rem;font-weight:400;">(opcional)</span></label>
                     <input type="text" id="g-rg" placeholder="RG do convidado">
                 </div>
                 <div class="form-group span-2">
-                    <label>Telefone <span style="color:#94a3b8;font-size:0.78rem;font-weight:400;">(opcional)</span></label>
+                    <label>Telefone <span style="color:var(--text-muted);font-size:0.78rem;font-weight:400;">(opcional)</span></label>
                     <input type="tel" id="g-tel" placeholder="(00) 00000-0000">
                 </div>
                 <!-- Só aparece quando o evento tem 2+ atividades cadastradas -->
@@ -230,7 +230,7 @@
                         <tbody id="import-preview-body"></tbody>
                     </table>
                 </div>
-                <div id="import-errors" style="display:none;margin-top:0.5rem;padding:0.5rem 0.75rem;background:#fff5f5;border-radius:8px;border:1px solid #fde8e8;font-size:0.8rem;color:#FF5807;"></div>
+                <div id="import-errors" style="display:none;margin-top:0.5rem;padding:0.5rem 0.75rem;background:#fff5f5;border-radius:8px;border:1px solid #fde8e8;font-size:0.8rem;color:var(--color-alert);"></div>
             </div>
 
             <!-- LGPD para importação em lote -->
@@ -368,7 +368,7 @@
             } catch (err) {
                 console.error(err);
                 document.getElementById('page-loading').innerHTML = `
-                    <div class="empty-state" style="color:#FF5807;">
+                    <div class="empty-state" style="color:var(--color-alert);">
                         <i data-lucide="alert-circle" style="width:32px;"></i>
                         <div style="margin-top:0.75rem;">Erro: ${esc(err.message)}</div>
                     </div>`;

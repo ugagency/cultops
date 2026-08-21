@@ -17,7 +17,7 @@
     <style>
         .badge-ativo      { background:#DCFCE7;color:#16a34a; }
         .badge-encerrado  { background:#F1F5F9;color:#64748b; }
-        .badge-cancelado  { background:#FFECE4;color:#FF5807; }
+        .badge-cancelado  { background:#FFECE4;color:var(--color-alert); }
 
         .kpi-grid {
             display: grid;
@@ -42,7 +42,7 @@
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.06em;
-            color: #94a3b8;
+            color: var(--text-muted);
         }
         .kpi-value {
             font-size: 2rem;
@@ -53,7 +53,7 @@
         .kpi-value-pct {
             font-size: 1.5rem;
             font-weight: 800;
-            color: #1547FF;
+            color: var(--color-primary);
             line-height: 1;
         }
         .kpi-card-wide {
@@ -117,7 +117,7 @@
             <div class="glass-card" style="margin-bottom:1.5rem;">
                 <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;">
                     <div>
-                        <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#94a3b8;margin-bottom:0.25rem;">Módulo III</div>
+                        <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:0.25rem;">Módulo III</div>
                         <div style="font-size:1.5rem;font-weight:800;color:var(--text-primary);line-height:1.1;">Contrapartidas</div>
                         <div id="projeto-label" style="font-size:0.875rem;color:var(--text-secondary);margin-top:0.25rem;"></div>
                     </div>
@@ -538,7 +538,7 @@
                 console.error(err);
                 document.getElementById('page-loading').style.display = '';
                 document.getElementById('page-loading').innerHTML = `
-                    <div class="empty-state" style="color:#FF5807;">
+                    <div class="empty-state" style="color:var(--color-alert);">
                         <i data-lucide="alert-circle" style="width:32px;"></i>
                         <div style="margin-top:0.75rem;">Erro ao carregar dashboard: ${esc(err.message)}</div>
                     </div>`;
@@ -569,7 +569,7 @@
                     </div>
                     <a href="../modulo2/comprovacao-fisica.html"
                        style="text-decoration:none;display:inline-flex;align-items:center;gap:0.4rem;
-                              font-size:0.875rem;font-weight:700;color:#1547FF;">
+                              font-size:0.875rem;font-weight:700;color:var(--color-primary);">
                         Ver no M2 <i data-lucide="arrow-right" style="width:15px;"></i>
                     </a>`;
             } else {
@@ -624,7 +624,7 @@
                         </span>
                         <a href="evento-detalhe.html?id=${esc(ev.id)}"
                            style="text-decoration:none;display:inline-flex;align-items:center;gap:0.3rem;
-                                  font-size:0.82rem;font-weight:600;color:#1547FF;">
+                                  font-size:0.82rem;font-weight:600;color:var(--color-primary);">
                             Ver detalhes <i data-lucide="arrow-right" style="width:13px;"></i>
                         </a>
                     </div>

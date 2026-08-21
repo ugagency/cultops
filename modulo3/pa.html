@@ -192,7 +192,7 @@
     <!-- ── Confirm Delete ────────────────────────────────────── -->
     <div id="confirm-backdrop" class="modal-backdrop" style="display:none;z-index:3000;">
         <div class="confirm-card">
-            <i data-lucide="alert-triangle" style="width:40px;height:40px;color:#FF5807;margin:0 auto 1rem;display:block;"></i>
+            <i data-lucide="alert-triangle" style="width:40px;height:40px;color:var(--color-alert);margin:0 auto 1rem;display:block;"></i>
             <h3>Excluir Patrocinador?</h3>
             <p>Esta ação é irreversível. Todos os dados deste PA serão removidos permanentemente.</p>
             <div style="display:flex;gap:0.75rem;justify-content:center;">
@@ -289,7 +289,7 @@
                 reIcons();
             } catch (err) {
                 console.error(err);
-                grid.innerHTML = `<div style="grid-column:1/-1;"><div class="empty-state" style="color:#FF5807;">
+                grid.innerHTML = `<div style="grid-column:1/-1;"><div class="empty-state" style="color:var(--color-alert);">
                     <i data-lucide="alert-circle" style="width:28px;"></i>
                     <div style="margin-top:0.5rem;">Erro ao carregar: ${esc(err.message)}</div>
                 </div></div>`;
@@ -299,10 +299,10 @@
 
         function renderCard(pa) {
             const infoRows = [
-                (pa.cidade || pa.estado) ? `<div class="pa-card-info-row"><i data-lucide="map-pin" style="width:14px;flex-shrink:0;color:#94a3b8;"></i><span>${[pa.cidade, pa.estado].filter(Boolean).map(esc).join('/')}</span></div>` : '',
-                pa.nome_coordenador ? `<div class="pa-card-info-row"><i data-lucide="user" style="width:14px;flex-shrink:0;color:#94a3b8;"></i><span>${esc(pa.nome_coordenador)}</span></div>` : '',
-                pa.email ? `<div class="pa-card-info-row"><i data-lucide="mail" style="width:14px;flex-shrink:0;color:#94a3b8;"></i><span>${esc(pa.email)}</span></div>` : '',
-                pa.telefone ? `<div class="pa-card-info-row"><i data-lucide="phone" style="width:14px;flex-shrink:0;color:#94a3b8;"></i><span>${esc(pa.telefone)}</span></div>` : '',
+                (pa.cidade || pa.estado) ? `<div class="pa-card-info-row"><i data-lucide="map-pin" style="width:14px;flex-shrink:0;color:var(--text-muted);"></i><span>${[pa.cidade, pa.estado].filter(Boolean).map(esc).join('/')}</span></div>` : '',
+                pa.nome_coordenador ? `<div class="pa-card-info-row"><i data-lucide="user" style="width:14px;flex-shrink:0;color:var(--text-muted);"></i><span>${esc(pa.nome_coordenador)}</span></div>` : '',
+                pa.email ? `<div class="pa-card-info-row"><i data-lucide="mail" style="width:14px;flex-shrink:0;color:var(--text-muted);"></i><span>${esc(pa.email)}</span></div>` : '',
+                pa.telefone ? `<div class="pa-card-info-row"><i data-lucide="phone" style="width:14px;flex-shrink:0;color:var(--text-muted);"></i><span>${esc(pa.telefone)}</span></div>` : '',
             ].filter(Boolean).join('');
 
             const cnpjBadge = pa.cnpj

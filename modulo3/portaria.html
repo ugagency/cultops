@@ -18,9 +18,9 @@
         .badge-pendente        { background:#F1F5F9;color:#64748b; }
         .badge-convite_enviado { background:#FEF9C3;color:#854D0E; }
         .badge-confirmado      { background:#DCFCE7;color:#16a34a; }
-        .badge-recusado        { background:#FFECE4;color:#FF5807; }
-        .badge-lista_enviada   { background:#E3E8FF;color:#1547FF; }
-        .badge-concluido       { background:#1547FF;color:white; }
+        .badge-recusado        { background:#FFECE4;color:var(--color-alert); }
+        .badge-lista_enviada   { background:var(--color-blue-15);color:var(--color-primary); }
+        .badge-concluido       { background:var(--color-primary);color:white; }
 
         .portaria-meta {
             display:flex; gap:1.5rem; flex-wrap:wrap;
@@ -57,23 +57,23 @@
             <!-- Event header -->
             <div class="glass-card" style="margin-bottom:1.5rem;">
                 <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;">
-                    <i data-lucide="door-open" style="width:22px;color:#1547FF;flex-shrink:0;"></i>
+                    <i data-lucide="door-open" style="width:22px;color:var(--color-primary);flex-shrink:0;"></i>
                     <div>
-                        <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#94a3b8;">Portaria</div>
+                        <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);">Portaria</div>
                         <div id="ev-titulo" style="font-size:1.3rem;font-weight:800;color:var(--text-primary);line-height:1.2;"></div>
                     </div>
                 </div>
                 <div class="portaria-meta">
                     <div class="portaria-meta-item">
-                        <i data-lucide="map-pin" style="width:14px;color:#94a3b8;"></i>
+                        <i data-lucide="map-pin" style="width:14px;color:var(--text-muted);"></i>
                         <span id="ev-local"></span>
                     </div>
                     <div class="portaria-meta-item">
-                        <i data-lucide="calendar" style="width:14px;color:#94a3b8;"></i>
+                        <i data-lucide="calendar" style="width:14px;color:var(--text-muted);"></i>
                         <span id="ev-data"></span>
                     </div>
                     <div class="portaria-meta-item">
-                        <i data-lucide="ticket" style="width:14px;color:#94a3b8;"></i>
+                        <i data-lucide="ticket" style="width:14px;color:var(--text-muted);"></i>
                         <span id="ev-cotas"></span>
                     </div>
                 </div>
@@ -205,7 +205,7 @@
             } catch (err) {
                 console.error(err);
                 document.getElementById('page-loading').innerHTML = `
-                    <div class="empty-state" style="color:#FF5807;">
+                    <div class="empty-state" style="color:var(--color-alert);">
                         <i data-lucide="alert-circle" style="width:32px;"></i>
                         <div style="margin-top:0.75rem;">Erro ao carregar evento: ${esc(err.message)}</div>
                     </div>`;

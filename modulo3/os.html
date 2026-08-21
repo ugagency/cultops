@@ -256,7 +256,7 @@
     <!-- ── Confirm Delete ────────────────────────────────────── -->
     <div id="confirm-backdrop" class="modal-backdrop" style="display:none;z-index:3000;">
         <div class="confirm-card">
-            <i data-lucide="alert-triangle" style="width:40px;height:40px;color:#FF5807;margin:0 auto 1rem;display:block;"></i>
+            <i data-lucide="alert-triangle" style="width:40px;height:40px;color:var(--color-alert);margin:0 auto 1rem;display:block;"></i>
             <h3>Excluir Organização Social?</h3>
             <p>Esta ação é irreversível. Todos os dados desta OS serão removidos permanentemente.</p>
             <div style="display:flex;gap:0.75rem;justify-content:center;">
@@ -358,7 +358,7 @@
                 reIcons();
             } catch (err) {
                 console.error(err);
-                grid.innerHTML = `<div style="grid-column:1/-1;"><div class="empty-state" style="color:#FF5807;">
+                grid.innerHTML = `<div style="grid-column:1/-1;"><div class="empty-state" style="color:var(--color-alert);">
                     <i data-lucide="alert-circle" style="width:28px;"></i>
                     <div style="margin-top:0.5rem;">Erro ao carregar: ${esc(err.message)}</div>
                 </div></div>`;
@@ -377,10 +377,10 @@
                 : '';
 
             const infoRows = [
-                os.cidade  ? `<div class="os-card-info-row"><i data-lucide="map-pin" style="width:14px;flex-shrink:0;color:#94a3b8;"></i><span>${esc(os.cidade)}${os.estado ? '/' + esc(os.estado) : ''}</span></div>` : '',
-                os.nome_coordenador ? `<div class="os-card-info-row"><i data-lucide="user" style="width:14px;flex-shrink:0;color:#94a3b8;"></i><span>${esc(os.nome_coordenador)}</span></div>` : '',
-                os.telefone ? `<div class="os-card-info-row"><i data-lucide="phone" style="width:14px;flex-shrink:0;color:#94a3b8;"></i><span>${esc(os.telefone)}</span></div>` : '',
-                os.nr_associados != null ? `<div class="os-card-info-row"><i data-lucide="users" style="width:14px;flex-shrink:0;color:#94a3b8;"></i><span>${Number(os.nr_associados).toLocaleString('pt-BR')} associados</span></div>` : '',
+                os.cidade  ? `<div class="os-card-info-row"><i data-lucide="map-pin" style="width:14px;flex-shrink:0;color:var(--text-muted);"></i><span>${esc(os.cidade)}${os.estado ? '/' + esc(os.estado) : ''}</span></div>` : '',
+                os.nome_coordenador ? `<div class="os-card-info-row"><i data-lucide="user" style="width:14px;flex-shrink:0;color:var(--text-muted);"></i><span>${esc(os.nome_coordenador)}</span></div>` : '',
+                os.telefone ? `<div class="os-card-info-row"><i data-lucide="phone" style="width:14px;flex-shrink:0;color:var(--text-muted);"></i><span>${esc(os.telefone)}</span></div>` : '',
+                os.nr_associados != null ? `<div class="os-card-info-row"><i data-lucide="users" style="width:14px;flex-shrink:0;color:var(--text-muted);"></i><span>${Number(os.nr_associados).toLocaleString('pt-BR')} associados</span></div>` : '',
             ].filter(Boolean).join('');
 
             return `
