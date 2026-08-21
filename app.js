@@ -2121,15 +2121,14 @@ window.handleIniciarEnvioLote = async function () {
         state.loading = true;
         render();
 
-        const { data: creds, error: credError } = await supabaseClient
-            .from('decrypted_external_credentials')
-            .select('*')
-            .eq('service_name', 'salic')
-            .limit(1)
-            .maybeSingle();
+        // SPEC-SEC-01 Fix 1: RPC que só responde existe/não existe, nunca a
+        // senha em texto claro (a view decrypted_external_credentials expunha
+        // credencial de qualquer organização pra qualquer usuário autenticado).
+        const { data: temCredencial, error: credError } = await supabaseClient
+            .rpc('has_external_credential', { p_service_name: 'salic' });
 
         if (credError) throw credError;
-        if (!creds) {
+        if (!temCredencial) {
             alert("Você precisa configurar suas credenciais SALIC em 'Configurações' antes de enviar em lote.");
             window.navigate('configuracoes');
             return;
@@ -2227,13 +2226,22 @@ async function processarFilaSalic() {
                 ? window.location.origin + CONFIG.SALIC_API_URL
                 : CONFIG.SALIC_API_URL;
 
+            // SPEC-SEC-01 Fix 2: o endpoint não tinha autenticação nenhuma —
+            // qualquer POST com um userId real disparava login de verdade no
+            // SALIC com a senha daquele usuário. Backend agora deriva o
+            // userId do token, não confia mais no body.
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (!session) throw new Error('Sessão expirada. Faça login novamente.');
+
             const response = await fetch(fullUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + session.access_token
+                },
                 mode: 'cors',
                 body: JSON.stringify({
-                    documentId: item.id,
-                    userId: state.user.id
+                    documentId: item.id
                 })
             });
 
@@ -6940,16 +6948,13 @@ window.handleEnviarSalic = async function (documentId) {
         const doc = state.currentDocument;
         if (!doc) throw new Error("Documento não encontrado no estado.");
 
-        // Busca credenciais SALIC se existirem
-        const { data: creds, error: credError } = await supabaseClient
-            .from('decrypted_external_credentials')
-            .select('*')
-            .eq('service_name', 'salic')
-            .limit(1)
-            .maybeSingle();
+        // SPEC-SEC-01 Fix 1: mesma RPC do handleIniciarEnvioLote — só
+        // existe/não existe, nunca a senha (ver comentário lá).
+        const { data: temCredencial, error: credError } = await supabaseClient
+            .rpc('has_external_credential', { p_service_name: 'salic' });
 
         if (credError) throw credError;
-        if (!creds) {
+        if (!temCredencial) {
             alert("Você precisa configurar suas credenciais SALIC em 'Configurações' antes de enviar.");
             window.navigate('configuracoes');
             return;
@@ -6996,13 +7001,20 @@ window.handleEnviarSalic = async function (documentId) {
                 ? window.location.origin + CONFIG.SALIC_API_URL
                 : CONFIG.SALIC_API_URL;
 
+            // SPEC-SEC-01 Fix 2: idem processarFilaSalic — backend agora
+            // deriva o userId do token verificado, não confia no body.
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (!session) { alert("Sessão expirada. Faça login novamente."); return; }
+
             const response = await fetch(fullUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + session.access_token
+                },
                 mode: 'cors',
                 body: JSON.stringify({
-                    documentId: documentId,
-                    userId: state.user.id
+                    documentId: documentId
                 })
             });
 
