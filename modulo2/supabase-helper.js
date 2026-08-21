@@ -100,6 +100,16 @@ async function verificarAcessoM2() {
         return false;
     }
 
+    // Guard de módulo (mesmo padrão do M3 — verificarAcessoM3): papel correto
+    // não implica organização com o M2 contratado. Sem isto, qualquer
+    // admin/gestor/analista de uma org só com modulo_1 acessa o M2 por URL.
+    const orgData = await getUserModules();
+    if (!orgData || !(orgData.params.modulos || []).includes('modulo_2')) {
+        console.warn('[M2] Organização sem acesso ao Módulo 2');
+        window.location.href = '../module-selector.html';
+        return false;
+    }
+
     return true;
 }
 
