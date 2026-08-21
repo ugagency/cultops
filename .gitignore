@@ -33,3 +33,5 @@ build/
 
 # Versão do Banco (SQL com dados sensíveis se houver)
  seed_data.sql
+
+# teste de deploy automatico - 21/08
