@@ -3435,6 +3435,16 @@ window.handleSolicitanteLogin = async function () {
         }
 
         state.user = data.user;
+
+        // Conta criada por um gestor (criar-acesso-fornecedor) nunca definiu a
+        // própria senha: tranca no formulário de nova senha, mesmo padrão do
+        // login de gestor/equipe.
+        if (state.user?.app_metadata?.must_change_password === true) {
+            state.forcarTrocaSenha = true;
+            state.currentView = 'update_password';
+            return;
+        }
+
         window.navigate('solicitante_dashboard');
     } catch (error) {
         alert("Erro no login Solicitante: " + error.message);
@@ -4021,7 +4031,18 @@ window.handleUpdatePassword = async function () {
             // O app_metadata novo só entra no JWT quando a sessão é renovada;
             // sem isso os guards do seletor/M2/M3 ainda leriam a flag antiga.
             await supabaseClient.auth.refreshSession();
+            const { data: { session: refreshed } } = await supabaseClient.auth.getSession();
+            if (refreshed) state.user = refreshed.user;
             state.forcarTrocaSenha = false;
+
+            // Fornecedor não tem organization_users nem lugar no seletor de
+            // módulos (esse é só de equipe/gestor) — vai direto pro portal dele.
+            const roleAtualizado = state.user?.user_metadata?.role || state.user?.app_metadata?.role;
+            if (roleAtualizado === 'fornecedor') {
+                window.navigate('solicitante_dashboard');
+                return;
+            }
+
             window.location.href = 'module-selector.html';
             return;
         }

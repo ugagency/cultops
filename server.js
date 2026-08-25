@@ -722,8 +722,13 @@ app.post('/api/gestor/criar-acesso-fornecedor',
                 email,
                 password,
                 email_confirm: true,
-                user_metadata: { role: 'fornecedor', nome: fornecedor.razao_social, org_id: orgId },
-                app_metadata:  { role: 'fornecedor', org_id: orgId, must_change_password: true }
+                // Sem org_id no token: a visibilidade do fornecedor é definida só pelo
+                // vínculo em projeto_fornecedores, nunca por organização. Com org_id
+                // aqui, o fornecedor herdaria leitura de contracts/tax_guides/
+                // physical_evidences da organização inteira — essas tabelas checam só
+                // organization_id = current_user_org_id(), sem checar papel.
+                user_metadata: { role: 'fornecedor', nome: fornecedor.razao_social },
+                app_metadata:  { role: 'fornecedor', must_change_password: true }
             });
             if (createErr) throw createErr;
 
