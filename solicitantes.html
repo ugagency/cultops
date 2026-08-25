@@ -15,11 +15,9 @@
     <link rel="stylesheet" href="style.css">
 
     <style>
-        /* Página neutra — sem sidebar de módulo. */
         body { background-color: var(--bg-main); }
         .neutral-shell {
             max-width: 1100px;
-            margin: 0 auto;
             padding: 2rem 1.5rem 3rem;
         }
         .neutral-back {
@@ -139,10 +137,33 @@
             padding: 3rem 1rem;
             color: var(--text-muted);
         }
+
+        .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 2rem;
+            border-radius: var(--radius-lg);
+            width: 100%;
+            max-width: 640px;
+            margin: 1rem;
+            box-shadow: var(--shadow-lg);
+            max-height: 90vh;
+            overflow-y: auto;
+        }
     </style>
 </head>
 <body>
-    <div class="neutral-shell">
+    <main class="main-content neutral-shell">
         <button class="neutral-back" onclick="history.back()">
             <i data-lucide="arrow-left" style="width: 16px;"></i> Voltar
         </button>
@@ -155,9 +176,15 @@
 
             <!-- Vincular Novo Solicitante -->
             <section class="glass-card" style="border-top: 5px solid var(--color-primary);">
-                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem;">
-                    <i data-lucide="user-plus" style="color: var(--color-primary); width: 24px; height: 24px;"></i>
-                    <h3 style="font-size: 1.25rem; font-weight: 700;">Vincular Solicitante</h3>
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <i data-lucide="user-plus" style="color: var(--color-primary); width: 24px; height: 24px;"></i>
+                        <h3 style="font-size: 1.25rem; font-weight: 700;">Vincular Solicitante</h3>
+                    </div>
+                    <button type="button" class="btn btn-secondary" onclick="abrirModalFornecedor()">
+                        <i data-lucide="plus" style="width: 16px;"></i>
+                        Cadastrar novo fornecedor
+                    </button>
                 </div>
 
                 <form id="vincular-form">
@@ -207,14 +234,125 @@
                 </div>
             </section>
         </div>
+    </main>
+
+    <!-- Modal: Cadastrar / Completar Fornecedor -->
+    <div id="modal-fornecedor" class="modal">
+        <div class="modal-content">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem;">
+                <h3 id="modal-fornecedor-title" style="font-size: 1.25rem; font-weight: 700;">Cadastrar novo fornecedor</h3>
+                <button type="button" class="btn btn-ghost" onclick="fecharModalFornecedor()">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+
+            <form id="fornecedor-form" onsubmit="handleSalvarFornecedor(event)">
+                <input type="hidden" id="fornecedor-id">
+
+                <div class="form-group" id="fornecedor-projeto-group">
+                    <label>Projeto</label>
+                    <select id="fornecedor-projeto" class="form-select">
+                        <option value="">Selecione o projeto...</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>CNPJ</label>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <input type="text" id="fornecedor-cnpj" class="form-control" placeholder="00.000.000/0000-00" style="flex: 1;" required>
+                        <button type="button" class="btn btn-secondary" id="btn-buscar-cnpj" onclick="buscarDadosCnpj()" style="white-space: nowrap;">Buscar dados</button>
+                    </div>
+                    <p id="fornecedor-busca-status" style="font-size: 0.8rem; margin-top: 0.5rem;"></p>
+                </div>
+
+                <div class="form-group">
+                    <label>Razão Social</label>
+                    <input type="text" id="fornecedor-razao" class="form-control" required>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label>Nome Fantasia</label>
+                        <input type="text" id="fornecedor-fantasia" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>Situação Cadastral</label>
+                        <input type="text" id="fornecedor-situacao" class="form-control">
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label>E-mail</label>
+                        <input type="email" id="fornecedor-email" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>Telefone</label>
+                        <input type="text" id="fornecedor-telefone" class="form-control">
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label>CNAE (código)</label>
+                        <input type="text" id="fornecedor-cnae-codigo" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>CNAE (descrição)</label>
+                        <input type="text" id="fornecedor-cnae-descricao" class="form-control">
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label>Logradouro</label>
+                        <input type="text" id="fornecedor-logradouro" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>Número</label>
+                        <input type="text" id="fornecedor-numero" class="form-control">
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label>Bairro</label>
+                        <input type="text" id="fornecedor-bairro" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>Município</label>
+                        <input type="text" id="fornecedor-municipio" class="form-control">
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label>UF</label>
+                        <input type="text" id="fornecedor-uf" class="form-control" maxlength="2" style="text-transform: uppercase;">
+                    </div>
+                    <div class="form-group">
+                        <label>CEP</label>
+                        <input type="text" id="fornecedor-cep" class="form-control">
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.5rem;">
+                    <button type="button" class="btn btn-secondary" onclick="fecharModalFornecedor()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" id="btn-salvar-fornecedor">Salvar</button>
+                </div>
+            </form>
+        </div>
     </div>
 
     <div id="toast-container" class="toast-container"></div>
 
     <script src="config.js"></script>
+    <script src="auth-logout.js"></script>
     <script>
         let sbClient = null;
         let currentUser = null;
+        let currentOrgId = null;
+        let vinculosCache = [];
 
         async function initSupabase() {
             if (sbClient) return sbClient;
@@ -234,6 +372,154 @@
             }, 3500);
         }
 
+        // ── Sidebar (S0 fix): esta é uma página neutra na raiz do repo,
+        // acessível a partir de qualquer um dos 3 módulos — por isso não tinha
+        // dono de sidebar. `prestai_modulo_ativo` (gravado pelo module-selector
+        // ao entrar num módulo) é quem diz qual variante mostrar aqui.
+        const SIDEBAR_VARIANTS = {
+            modulo_1: {
+                moduleLabel: null,
+                items: [
+                    { label: 'Dashboard', icon: 'layout-dashboard', path: 'index.html#dashboard' },
+                    { label: 'Projetos', icon: 'briefcase', path: 'index.html#projects' },
+                    { label: 'Rubricas', icon: 'list-checks', path: 'index.html#orcamento' },
+                    { label: 'Documentos', icon: 'file-text', path: 'index.html#upload' },
+                    { label: 'Documentos em Lote', icon: 'layers', path: 'index.html#upload_lote' },
+                    { label: 'Envio SALIC', icon: 'send', path: 'index.html#envio_lote_salic' },
+                    { label: 'Relatórios', icon: 'bar-chart-3', path: 'index.html#financeiro' },
+                    { label: 'Ferramentas', icon: 'wrench', path: 'index.html#ferramentas', restrito: true },
+                    { label: 'Solicitantes', icon: 'users', path: 'solicitantes.html', restrito: true },
+                    { label: 'Configurações', icon: 'settings', path: 'configuracoes.html', restrito: true },
+                    { label: 'Equipe', icon: 'user-cog', path: 'equipe.html', restrito: true },
+                ]
+            },
+            modulo_2: {
+                moduleLabel: null,
+                items: [
+                    { label: 'Dashboard', icon: 'layout-dashboard', path: 'modulo2/financeiro.html' },
+                    { label: 'Projetos', icon: 'folder-kanban', path: 'modulo2/projeto-setup.html' },
+                    { label: 'Dados do Projeto', icon: 'file-text', path: 'modulo2/dados-projeto-salic.html' },
+                    { label: 'Rubricas', icon: 'pie-chart', path: 'modulo2/rubricas.html' },
+                    { label: 'Contratos', icon: 'file-text', path: 'modulo2/contratos.html' },
+                    { label: 'Impostos', icon: 'landmark', path: 'modulo2/impostos.html' },
+                    { label: 'Evidências', icon: 'camera', path: 'modulo2/comprovacao-fisica.html' },
+                    { label: 'Prestação de Contas', icon: 'file-check-2', path: 'modulo2/prestacao-contas.html' },
+                    { label: 'Exportações', icon: 'download', path: 'modulo2/exportacoes.html' },
+                    { label: 'Equipe', icon: 'user-cog', path: 'equipe.html', restrito: true },
+                    { label: 'Configurações', icon: 'settings', path: 'configuracoes.html', restrito: true },
+                    { label: 'Solicitantes', icon: 'users', path: 'solicitantes.html', restrito: true },
+                ]
+            },
+            modulo_3: {
+                moduleLabel: 'Módulo III · Distribuição',
+                items: [
+                    { label: 'Dashboard', icon: 'layout-dashboard', path: 'modulo3/contrapartidas.html' },
+                    { label: 'Org. Sociais', icon: 'users', path: 'modulo3/os.html' },
+                    { label: 'Patrocinadores', icon: 'building-2', path: 'modulo3/pa.html' },
+                    { label: 'Eventos', icon: 'calendar', path: 'modulo3/eventos.html' },
+                    { label: 'Relatórios', icon: 'file-text', path: 'modulo3/relatorios.html' },
+                    { label: 'Equipe', icon: 'user-cog', path: 'equipe.html', restrito: true },
+                    { label: 'Configurações', icon: 'settings', path: 'configuracoes.html', restrito: true },
+                    { label: 'Solicitantes', icon: 'users', path: 'solicitantes.html', restrito: true },
+                    { label: 'Campo (PWA)', icon: 'smartphone', path: 'modulo3/pwa/index.html', blank: true },
+                ]
+            }
+        };
+
+        async function renderPageSidebar(role) {
+            const existing = document.querySelector('.sidebar');
+            if (existing) existing.remove();
+
+            const moduloAtivo = localStorage.getItem('prestai_modulo_ativo') || 'modulo_1';
+            const variant = SIDEBAR_VARIANTS[moduloAtivo] || SIDEBAR_VARIANTS.modulo_1;
+            const filtered = variant.items.filter(item => !item.restrito || ['admin', 'gestor'].includes(role));
+
+            const sidebar = document.createElement('aside');
+            sidebar.className = 'sidebar';
+
+            const navHtml = filtered.map(item => {
+                const active = item.path === 'solicitantes.html';
+                const attrs = item.blank ? 'target="_blank" rel="noopener"' : '';
+                return `
+                    <a href="${item.path}" ${attrs} class="nav-item ${active ? 'active' : ''}">
+                        <i data-lucide="${item.icon}"></i>
+                        <span>${item.label}</span>
+                    </a>
+                `;
+            }).join('');
+
+            sidebar.innerHTML = `
+                <div class="sidebar-logo">
+                    <img class="sidebar-logo-full" src="PAI-Logo-Azul.png" alt="Prestaí">
+                    <img class="sidebar-logo-icon" src="PAI-Icone-Azul.png" alt="Prestaí">
+                </div>
+                ${variant.moduleLabel ? `<div style="font-size:0.65rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.1em;margin:-0.75rem 0 0.5rem 0.75rem;">${variant.moduleLabel}</div>` : ''}
+                <nav class="sidebar-nav">
+                    ${navHtml}
+                </nav>
+                <div class="sidebar-footer">
+                    <div class="sidebar-user">
+                        <div class="sidebar-avatar"></div>
+                        <div style="overflow: hidden;">
+                            <p class="sidebar-user-name" style="font-size: 13px; font-weight: 600; color: var(--text-primary); white-space: nowrap; text-overflow: ellipsis;"></p>
+                            <p class="sidebar-user-role" style="font-size: 11px; color: var(--text-secondary);"></p>
+                        </div>
+                    </div>
+                    <a href="module-selector.html" class="nav-item" style="color: var(--primary);">
+                        <i data-lucide="grid-2x2"></i>
+                        <span>Trocar Módulo</span>
+                    </a>
+                    <a href="index.html?logout=1#login" onclick="window.handleLogout(event)" class="nav-item" style="color: var(--error);">
+                        <i data-lucide="log-out"></i>
+                        <span>Sair</span>
+                    </a>
+                </div>
+            `;
+
+            document.body.prepend(sidebar);
+
+            (async () => {
+                try {
+                    const sb = await initSupabase();
+                    const { data: { session } } = await sb.auth.getSession();
+                    const user = session?.user;
+                    if (!user || !user.email) return;
+                    const r = user.app_metadata?.role || user.user_metadata?.role;
+                    const labels = { admin: 'Administrador', gestor: 'Gestor', analista: 'Analista', operador: 'Operador', fornecedor: 'Fornecedor' };
+                    sidebar.querySelector('.sidebar-avatar').textContent = user.email[0].toUpperCase();
+                    sidebar.querySelector('.sidebar-user-name').textContent = user.email.split('@')[0];
+                    sidebar.querySelector('.sidebar-user-role').textContent = labels[r] || 'Gestor';
+                } catch (_) {}
+            })();
+
+            const overlay = document.createElement('div');
+            overlay.className = 'sidebar-overlay';
+            overlay.addEventListener('click', () => {
+                sidebar.classList.remove('sidebar-open');
+                overlay.classList.remove('active');
+            });
+            document.body.appendChild(overlay);
+
+            const hamburger = document.createElement('button');
+            hamburger.className = 'hamburger-btn';
+            hamburger.setAttribute('aria-label', 'Abrir menu');
+            hamburger.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>';
+            hamburger.addEventListener('click', () => {
+                sidebar.classList.toggle('sidebar-open');
+                overlay.classList.toggle('active');
+            });
+            document.body.appendChild(hamburger);
+
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        window.handleLogout = async function (e) {
+            if (typeof window.prestaiLogout !== 'function') return;
+            if (e) e.preventDefault();
+            const sb = await initSupabase();
+            return window.prestaiLogout({ client: sb, base: '' });
+        };
+
         document.addEventListener('DOMContentLoaded', async () => {
             if (window.lucide) window.lucide.createIcons();
 
@@ -241,17 +527,20 @@
             const { data: { session } } = await sb.auth.getSession();
             if (!session) { window.location.href = 'index.html#login'; return; }
 
-            // Página neutra: guard de role no carregamento (mesmo padrão do
-            // menu escondido != página protegida usado em M2/M3).
+            // Página neutra (sem módulo próprio, ver DOC-EVIDENCIAS-M2-M3.md):
+            // guard de role no carregamento, mesmo padrão de M2/M3.
             const role = session.user?.app_metadata?.role || session.user?.user_metadata?.role;
             if (!['admin', 'gestor'].includes(role)) {
                 window.location.href = 'module-selector.html';
                 return;
             }
 
+            await renderPageSidebar(role);
+
             try {
                 const { data: { user } } = await sb.auth.getUser();
                 currentUser = user;
+                currentOrgId = session.user?.app_metadata?.org_id || null;
 
                 await carregarProjetos();
                 await carregarFornecedores();
@@ -269,6 +558,7 @@
         async function carregarProjetos() {
             const sb = await initSupabase();
             const select = document.getElementById('select-projeto');
+            const selectModal = document.getElementById('fornecedor-projeto');
             const { data, error } = await sb.from('projects')
                 .select('id, nome, pronac')
                 .eq('user_id', currentUser.id)
@@ -276,18 +566,21 @@
 
             if (error || !data || data.length === 0) {
                 select.innerHTML = '<option value="">Nenhum projeto encontrado.</option>';
+                if (selectModal) selectModal.innerHTML = '<option value="">Nenhum projeto encontrado.</option>';
                 return;
             }
 
-            select.innerHTML = '<option value="">Selecione um projeto...</option>' +
+            const options = '<option value="">Selecione um projeto...</option>' +
                 data.map(p => `<option value="${p.id}">${p.nome} (PRONAC: ${p.pronac})</option>`).join('');
+            select.innerHTML = options;
+            if (selectModal) selectModal.innerHTML = options;
         }
 
         async function carregarFornecedores() {
             const sb = await initSupabase();
             const select = document.getElementById('select-fornecedor');
             const { data, error } = await sb.from('fornecedores')
-                .select('id, razao_social, cnpj')
+                .select('id, razao_social, cnpj, dados_completos')
                 .order('razao_social');
 
             if (error || !data || data.length === 0) {
@@ -296,7 +589,7 @@
             }
 
             select.innerHTML = '<option value="">Selecione um solicitante...</option>' +
-                data.map(f => `<option value="${f.id}">${f.razao_social} (${f.cnpj})</option>`).join('');
+                data.map(f => `<option value="${f.id}">${f.razao_social} (${f.cnpj})${f.dados_completos === false ? ' — dados incompletos' : ''}</option>`).join('');
         }
 
         async function carregarVinculos() {
@@ -304,7 +597,7 @@
             const tbody = document.getElementById('vinculos-tbody');
 
             const { data: vinculos, error } = await sb.from('projeto_fornecedores')
-                .select('*, fornecedores(razao_social, cnpj), projects(nome)')
+                .select('*, fornecedores(id, razao_social, cnpj, dados_completos), projects(nome)')
                 .eq('gestor_id', currentUser.id)
                 .order('created_at', { ascending: false });
 
@@ -313,20 +606,24 @@
                 return;
             }
 
-            if (!vinculos || vinculos.length === 0) {
+            vinculosCache = vinculos || [];
+
+            if (vinculosCache.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="4" class="empty-state-inline">Nenhum solicitante vinculado aos seus projetos ainda.</td></tr>`;
                 return;
             }
 
-            tbody.innerHTML = vinculos.map(v => `
+            tbody.innerHTML = vinculosCache.map(v => `
                 <tr>
                     <td>
                         <div style="font-weight: 600;">${v.fornecedores?.razao_social || 'Desconhecido'}</div>
                         <div style="font-size: 0.8rem; color: var(--text-muted);">${v.fornecedores?.cnpj || ''}</div>
+                        ${v.fornecedores?.dados_completos === false ? '<span class="badge status-pending" style="margin-top: 4px;"><span class="badge-dot"></span>Dados incompletos</span>' : ''}
                     </td>
                     <td style="font-weight: 500;">${v.projects?.nome || 'Desconhecido'}</td>
                     <td style="text-align: center;">${new Date(v.created_at).toLocaleDateString('pt-BR')}</td>
-                    <td style="text-align: center;">
+                    <td style="text-align: center; white-space: nowrap;">
+                        ${v.fornecedores?.dados_completos === false ? `<button class="btn btn-secondary" style="padding: 0.4rem 0.75rem; margin-right: 0.5rem;" onclick="abrirModalFornecedor('${v.fornecedores.id}')">Completar dados</button>` : ''}
                         <button class="btn-remove" onclick="removerVinculo('${v.id}')" title="Remover Vínculo">
                             <i data-lucide="trash-2" style="width: 18px; height: 18px;"></i>
                         </button>
@@ -385,6 +682,184 @@
                 await carregarVinculos();
             } catch (err) {
                 showToast('Erro ao remover: ' + err.message, 'error');
+            }
+        }
+
+        // ── Cadastro manual / enriquecimento de fornecedores (BL-13) ──────
+
+        const FORNECEDOR_FORM_FIELDS = [
+            'cnpj', 'razao', 'fantasia', 'situacao', 'email', 'telefone',
+            'cnae-codigo', 'cnae-descricao', 'logradouro', 'numero', 'bairro', 'municipio', 'uf', 'cep'
+        ];
+
+        // Sem fornecedorId abre em modo de criação (com seleção de projeto);
+        // com fornecedorId abre em modo "completar dados" de um fornecedor
+        // já criado pelo trigger de upload de NF (dados_completos = false).
+        function abrirModalFornecedor(fornecedorId) {
+            const isEdit = !!fornecedorId;
+
+            document.getElementById('modal-fornecedor-title').textContent = isEdit ? 'Completar dados do fornecedor' : 'Cadastrar novo fornecedor';
+            document.getElementById('fornecedor-id').value = fornecedorId || '';
+            document.getElementById('fornecedor-busca-status').textContent = '';
+
+            FORNECEDOR_FORM_FIELDS.forEach(f => {
+                document.getElementById('fornecedor-' + f).value = '';
+            });
+
+            const projetoGroup = document.getElementById('fornecedor-projeto-group');
+            if (isEdit) {
+                projetoGroup.style.display = 'none';
+                const vinculo = vinculosCache.find(v => v.fornecedores?.id === fornecedorId);
+                if (vinculo) {
+                    document.getElementById('fornecedor-cnpj').value = vinculo.fornecedores.cnpj || '';
+                    document.getElementById('fornecedor-razao').value = vinculo.fornecedores.razao_social || '';
+                }
+            } else {
+                projetoGroup.style.display = 'block';
+            }
+
+            document.getElementById('modal-fornecedor').style.display = 'flex';
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        function fecharModalFornecedor() {
+            document.getElementById('modal-fornecedor').style.display = 'none';
+        }
+
+        // Consulta pública da CNPJá, direto do navegador (sem chave). Limite
+        // de 5 consultas/minuto por IP — se fosse via servidor, todas as
+        // organizações dividiriam o mesmo limite, por isso a chamada é
+        // client-side mesmo.
+        async function buscarDadosCnpj() {
+            const cnpjInput = document.getElementById('fornecedor-cnpj');
+            const cnpjLimpo = (cnpjInput.value || '').replace(/\D/g, '');
+            const statusEl = document.getElementById('fornecedor-busca-status');
+
+            if (cnpjLimpo.length !== 14) {
+                statusEl.textContent = 'CNPJ inválido — deve ter 14 dígitos.';
+                statusEl.style.color = 'var(--error)';
+                return;
+            }
+
+            const btn = document.getElementById('btn-buscar-cnpj');
+            btn.disabled = true;
+            btn.textContent = 'Buscando...';
+            statusEl.textContent = '';
+
+            try {
+                const resp = await fetch(`https://open.cnpja.com/office/${cnpjLimpo}`);
+
+                if (resp.status === 429) {
+                    statusEl.textContent = 'Limite de consultas atingido, tente novamente em instantes. Os campos continuam editáveis manualmente.';
+                    statusEl.style.color = 'var(--error)';
+                    return;
+                }
+                if (!resp.ok) {
+                    statusEl.textContent = 'Não foi possível buscar os dados agora. Preencha os campos manualmente.';
+                    statusEl.style.color = 'var(--error)';
+                    return;
+                }
+
+                const d = await resp.json();
+
+                document.getElementById('fornecedor-razao').value = d.company?.name || '';
+                document.getElementById('fornecedor-fantasia').value = d.alias || '';
+                document.getElementById('fornecedor-email').value = d.emails?.[0]?.address || '';
+                document.getElementById('fornecedor-situacao').value = d.status?.text || '';
+                document.getElementById('fornecedor-cnae-codigo').value = d.mainActivity?.id || '';
+                document.getElementById('fornecedor-cnae-descricao').value = d.mainActivity?.text || '';
+                document.getElementById('fornecedor-logradouro').value = d.address?.street || '';
+                document.getElementById('fornecedor-numero').value = d.address?.number || '';
+                document.getElementById('fornecedor-bairro').value = d.address?.district || '';
+                document.getElementById('fornecedor-municipio').value = d.address?.city || '';
+                document.getElementById('fornecedor-uf').value = d.address?.state || '';
+                document.getElementById('fornecedor-cep').value = d.address?.zip || '';
+
+                const phone = d.phones?.[0];
+                document.getElementById('fornecedor-telefone').value = phone ? `${phone.area || ''}${phone.number || ''}` : '';
+
+                statusEl.textContent = 'Dados encontrados. Confira e edite se necessário antes de salvar.';
+                statusEl.style.color = 'var(--success)';
+            } catch (err) {
+                console.error('buscarDadosCnpj:', err);
+                statusEl.textContent = 'Erro ao buscar dados. Preencha os campos manualmente.';
+                statusEl.style.color = 'var(--error)';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Buscar dados';
+            }
+        }
+
+        async function handleSalvarFornecedor(e) {
+            e.preventDefault();
+            const sb = await initSupabase();
+
+            const fornecedorId = document.getElementById('fornecedor-id').value;
+            const isEdit = !!fornecedorId;
+
+            const cnpjLimpo = document.getElementById('fornecedor-cnpj').value.replace(/\D/g, '');
+            const razaoSocial = document.getElementById('fornecedor-razao').value.trim();
+            if (!cnpjLimpo || !razaoSocial) return showToast('Preencha ao menos CNPJ e razão social.', 'error');
+
+            const projectId = document.getElementById('fornecedor-projeto').value;
+            if (!isEdit && !projectId) return showToast('Selecione o projeto.', 'error');
+
+            const btn = document.getElementById('btn-salvar-fornecedor');
+            btn.disabled = true;
+            btn.textContent = 'Salvando...';
+
+            const payload = {
+                cnpj: cnpjLimpo,
+                razao_social: razaoSocial,
+                nome_fantasia: document.getElementById('fornecedor-fantasia').value.trim() || null,
+                email: document.getElementById('fornecedor-email').value.trim() || null,
+                telefone: document.getElementById('fornecedor-telefone').value.trim() || null,
+                situacao_cadastral: document.getElementById('fornecedor-situacao').value.trim() || null,
+                cnae_codigo: document.getElementById('fornecedor-cnae-codigo').value.trim() || null,
+                cnae_descricao: document.getElementById('fornecedor-cnae-descricao').value.trim() || null,
+                endereco_logradouro: document.getElementById('fornecedor-logradouro').value.trim() || null,
+                endereco_numero: document.getElementById('fornecedor-numero').value.trim() || null,
+                endereco_bairro: document.getElementById('fornecedor-bairro').value.trim() || null,
+                endereco_municipio: document.getElementById('fornecedor-municipio').value.trim() || null,
+                endereco_uf: document.getElementById('fornecedor-uf').value.trim() || null,
+                endereco_cep: document.getElementById('fornecedor-cep').value.trim() || null,
+                dados_completos: true,
+                dados_atualizados_em: new Date().toISOString()
+            };
+
+            try {
+                if (isEdit) {
+                    const { error } = await sb.from('fornecedores').update(payload).eq('id', fornecedorId);
+                    if (error) throw error;
+                    showToast('Dados do fornecedor atualizados.', 'success');
+                } else {
+                    payload.organization_id = currentOrgId;
+
+                    const { data: novoFornecedor, error } = await sb.from('fornecedores')
+                        .insert(payload)
+                        .select('id')
+                        .single();
+                    if (error) throw error;
+
+                    const { error: vinculoError } = await sb.from('projeto_fornecedores').insert({
+                        fornecedor_id: novoFornecedor.id,
+                        project_id: projectId,
+                        gestor_id: currentUser.id
+                    });
+                    if (vinculoError) throw vinculoError;
+
+                    showToast('Fornecedor cadastrado e vinculado ao projeto.', 'success');
+                }
+
+                fecharModalFornecedor();
+                await carregarFornecedores();
+                await carregarVinculos();
+            } catch (err) {
+                console.error('handleSalvarFornecedor:', err);
+                showToast('Erro ao salvar fornecedor: ' + (err.code === '23505' ? 'Este CNPJ já está cadastrado.' : err.message), 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Salvar';
             }
         }
     </script>
