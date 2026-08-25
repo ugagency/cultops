@@ -1317,49 +1317,11 @@ const SolicitanteDashboardView = () => `
                 <button class="btn btn-ghost" onclick="document.getElementById('modal-upload-unified').style.display='none'" style="padding: 0.5rem;"><i data-lucide="x"></i></button>
             </div>
             
-            <div style="margin-bottom: 1.5rem;">
-                <label style="font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; display: block;">O que você deseja enviar?</label>
-                <div style="display: flex; gap: 1rem;">
-                    <label style="flex: 1; border: 2px solid var(--border-light); padding: 1.5rem 1rem; border-radius: 8px; cursor: pointer; text-align: center; transition: all 0.2s;" id="label-tipo-nf" onclick="window.selectUnifiedType('nf')">
-                        <input type="radio" name="unified_type" value="nf" style="display:none;">
-                        <i data-lucide="file-text" style="margin: 0 auto 0.75rem; color: #f59e0b; width: 32px; height: 32px;"></i>
-                        <div style="font-weight: 600; font-size: 0.875rem;">Nota Fiscal<br>Recibo</div>
-                    </label>
-                    <label style="flex: 1; border: 2px solid var(--border-light); padding: 1.5rem 1rem; border-radius: 8px; cursor: pointer; text-align: center; transition: all 0.2s;" id="label-tipo-m2" onclick="window.selectUnifiedType('m2')">
-                        <input type="radio" name="unified_type" value="m2" style="display:none;">
-                        <i data-lucide="camera" style="margin: 0 auto 0.75rem; color: #4f46e5; width: 32px; height: 32px;"></i>
-                        <div style="font-weight: 600; font-size: 0.875rem;">Comprovação<br>Física</div>
-                    </label>
-                </div>
-            </div>
-
             <!-- Campos NF -->
             <div id="unified-fields-nf" style="display: none; margin-bottom: 1.5rem;">
                 <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">Anexe a nota fiscal e nossa inteligência artificial fará a leitura e o processamento automático do pagamento.</p>
                 <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">Arquivo PDF / Imagem *</label>
                 <input type="file" id="f-upload-nf" accept=".pdf,.png,.jpg,.jpeg" style="width: 100%; padding: 0.75rem; border: 1px dashed var(--border-light); border-radius: 6px;">
-            </div>
-
-            <!-- Campos M2 -->
-            <div id="unified-fields-m2" style="display: none; margin-bottom: 1.5rem;">
-                <div style="margin-bottom: 1rem;">
-                    <label style="font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; display: block;">Tipo de Evidência *</label>
-                    <select id="m2-tipo-evidencia" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-light); border-radius: 6px;">
-                        <option value="">Selecione...</option>
-                        <option value="foto_evento">Foto do Evento</option>
-                        <option value="relatorio_objeto">Relatório Fotográfico/Objeto</option>
-                        <option value="peca_marketing">Peça de Marketing/Divulgação</option>
-                        <option value="outros">Outros</option>
-                    </select>
-                </div>
-                <div style="margin-bottom: 1rem;">
-                    <label style="font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; display: block;">Descrição (Opcional)</label>
-                    <textarea id="m2-descricao" rows="2" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-light); border-radius: 6px;" placeholder="Detalhes do arquivo..."></textarea>
-                </div>
-                <div>
-                    <label style="font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; display: block;">Arquivo / Mídia *</label>
-                    <input type="file" id="m2-file-upload" accept=".pdf,.png,.jpg,.jpeg,.mp4" style="width: 100%; padding: 0.75rem; border: 1px dashed var(--border-light); border-radius: 6px;">
-                </div>
             </div>
 
             <button class="btn btn-primary" id="btn-submit-unified" style="width: 100%; justify-content: center; display: none; padding: 1rem;" onclick="window.submitUnifiedFile()">
@@ -3550,42 +3512,19 @@ window.openUnifiedUploadModal = function () {
     if (!projectId) return alert("Selecione um projeto primeiro!");
 
     // Reset modal state
-    document.getElementById('unified-fields-nf').style.display = 'none';
-    document.getElementById('unified-fields-m2').style.display = 'none';
-    document.getElementById('btn-submit-unified').style.display = 'none';
-
-    document.getElementById('label-tipo-nf').style.borderColor = 'var(--border-light)';
-    document.getElementById('label-tipo-nf').style.background = '#fff';
-    document.getElementById('label-tipo-m2').style.borderColor = 'var(--border-light)';
-    document.getElementById('label-tipo-m2').style.background = '#fff';
-
     document.getElementById('f-upload-nf').value = '';
-    document.getElementById('m2-file-upload').value = '';
-    document.getElementById('m2-tipo-evidencia').value = '';
-    document.getElementById('m2-descricao').value = '';
 
     document.getElementById('modal-upload-unified').style.display = 'flex';
+    window.selectUnifiedType('nf');
 };
 
 window.selectUnifiedType = function (type) {
-    document.getElementById('label-tipo-nf').style.borderColor = type === 'nf' ? '#f59e0b' : 'var(--border-light)';
-    document.getElementById('label-tipo-nf').style.background = type === 'nf' ? '#fffbeb' : '#fff';
-
-    document.getElementById('label-tipo-m2').style.borderColor = type === 'm2' ? '#4f46e5' : 'var(--border-light)';
-    document.getElementById('label-tipo-m2').style.background = type === 'm2' ? '#eef2ff' : '#fff';
-
     document.getElementById('unified-fields-nf').style.display = type === 'nf' ? 'block' : 'none';
-    document.getElementById('unified-fields-m2').style.display = type === 'm2' ? 'block' : 'none';
 
     const btn = document.getElementById('btn-submit-unified');
     btn.style.display = 'flex';
     btn.setAttribute('data-type', type);
-
-    if (type === 'nf') {
-        btn.style.background = 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)';
-    } else {
-        btn.style.background = 'linear-gradient(135deg, #4f46e5 0%, #3730a3 100%)';
-    }
+    btn.style.background = 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)';
 };
 
 window.submitUnifiedFile = async function () {
@@ -3601,75 +3540,6 @@ window.submitUnifiedFile = async function () {
         if (!fileInput.files || fileInput.files.length === 0) return alert("Selecione o arquivo da Nota Fiscal.");
         document.getElementById('modal-upload-unified').style.display = 'none';
         await handleSolicitanteUpload(fileInput.files[0], projectId);
-    } else if (type === 'm2') {
-        const fileInput = document.getElementById('m2-file-upload');
-        if (!fileInput.files || fileInput.files.length === 0) return alert("Selecione o arquivo de comprovação.");
-
-        const tipoSelect = document.getElementById('m2-tipo-evidencia');
-        if (!tipoSelect.value) return alert("Selecione o tipo de evidência.");
-
-        document.getElementById('modal-upload-unified').style.display = 'none';
-        await submitM2Evidencia(fileInput.files[0], tipoSelect.value, document.getElementById('m2-descricao').value, projectId);
-    }
-};
-
-window.submitM2Evidencia = async function (file, tipo, descricao, projectId) {
-    state.loading = true;
-    render();
-
-    try {
-        // projectId é passado como parâmetro por submitUnifiedFile (capturado antes do render)
-        const selectedProject = state.projects.find(p => (p.project_id === projectId) || (p.id === projectId));
-
-        if (!projectId || !selectedProject) {
-            console.error("ERRO: Projeto não encontrado no estado.", {
-                projetoProcurado: projectId,
-                listaProjetos: state.projects,
-                currentView: state.currentView
-            });
-            throw new Error(`Projeto inválido ou não vinculado à sua conta (ID: ${projectId}).`);
-        }
-
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${crypto.randomUUID()}.${fileExt}`;
-        const filePath = `${projectId}/${fileName}`;
-
-        // 1. Upload Storage
-        const { error: uploadError } = await supabaseClient.storage
-            .from('physical-evidences')
-            .upload(filePath, file);
-
-        if (uploadError) throw uploadError;
-
-        const insertPayload = {
-            project_id: projectId,
-            tipo_evidencia: tipo,
-            descricao: descricao,
-            file_path: filePath,
-            file_name: file.name,
-            file_size: file.size,
-            mime_type: file.type,
-            enviado_por: state.user.id,
-            enviado_via_token: false,
-            status_validacao: 'pendente'
-        };
-
-        if (selectedProject.organization_id) {
-            insertPayload.organization_id = selectedProject.organization_id;
-        }
-
-        // 2. Insert into physical_evidences table
-        const { error: dbError } = await supabaseClient.from('physical_evidences').insert(insertPayload);
-
-        if (dbError) throw dbError;
-
-        await fetchSolicitanteDashboard(); // recarrega a grid
-    } catch (err) {
-        console.error(err);
-        alert("Erro ao enviar evidência: " + err.message);
-    } finally {
-        state.loading = false;
-        render();
     }
 };
 
