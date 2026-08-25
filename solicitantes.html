@@ -118,20 +118,6 @@
 
         .solic-table tr:hover td { background: var(--bg-sidebar); }
 
-        .btn-remove {
-            background: var(--color-alert);
-            color: white;
-            border: none;
-            padding: 0.5rem;
-            border-radius: var(--radius-md);
-            cursor: pointer;
-            transition: all 0.2s;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .btn-remove:hover { opacity: 0.85; }
-
         .empty-state-inline {
             text-align: center;
             padding: 3rem 1rem;
@@ -208,29 +194,18 @@
                 </form>
             </section>
 
-            <!-- Lista de Solicitantes Vinculados -->
+            <!-- Fornecedores: lista única da organização, com ou sem vínculo de projeto -->
             <section class="glass-card">
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
                     <div style="display: flex; align-items: center; gap: 0.75rem;">
-                        <i data-lucide="users" style="color: var(--text-primary); width: 24px; height: 24px;"></i>
-                        <h3 style="font-size: 1.25rem; font-weight: 700;">Solicitantes Ativos</h3>
+                        <i data-lucide="building-2" style="color: var(--text-primary); width: 24px; height: 24px;"></i>
+                        <h3 style="font-size: 1.25rem; font-weight: 700;">Fornecedores</h3>
                     </div>
+                    <input type="text" id="fornecedores-busca" class="form-control" placeholder="Buscar por nome ou CNPJ..." style="max-width: 280px; padding: 0.6rem 1rem;" oninput="window.filtrarFornecedores(this.value)">
                 </div>
 
-                <div style="overflow-x: auto;">
-                    <table class="solic-table">
-                        <thead>
-                            <tr>
-                                <th>Solicitante (Razão Social / CNPJ)</th>
-                                <th>Projeto Vinculado</th>
-                                <th style="text-align: center;">Data de Vínculo</th>
-                                <th style="text-align: center;">Ações</th>
-                            </tr>
-                        </thead>
-                        <tbody id="vinculos-tbody">
-                            <tr><td colspan="4" class="empty-state-inline"><i data-lucide="loader" class="spin"></i> Carregando...</td></tr>
-                        </tbody>
-                    </table>
+                <div id="fornecedores-table-wrap" style="overflow-x: auto;">
+                    <p class="empty-state-inline"><i data-lucide="loader" class="spin"></i> Carregando...</p>
                 </div>
             </section>
         </div>
@@ -344,6 +319,51 @@
         </div>
     </div>
 
+    <!-- Modal: Criar Acesso do Fornecedor -->
+    <div id="modal-criar-acesso" class="modal">
+        <div class="modal-content" style="max-width: 480px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem;">
+                <h3 style="font-size: 1.25rem; font-weight: 700;">Criar acesso</h3>
+                <button type="button" class="btn btn-ghost" onclick="fecharModalCriarAcesso()">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+
+            <div id="criar-acesso-form-wrap">
+                <p class="text-sm" style="margin-bottom: 1rem; color: var(--text-secondary);">
+                    Fornecedor: <strong id="criar-acesso-fornecedor-nome"></strong>
+                </p>
+                <input type="hidden" id="criar-acesso-fornecedor-id">
+                <div class="form-group">
+                    <label>E-mail de acesso</label>
+                    <input type="email" id="criar-acesso-email" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label>Senha provisória (mín. 6 caracteres)</label>
+                    <input type="text" id="criar-acesso-senha" class="form-control" minlength="6" required>
+                </div>
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem;">
+                    <button type="button" class="btn btn-secondary" onclick="fecharModalCriarAcesso()">Cancelar</button>
+                    <button type="button" class="btn btn-primary" id="btn-criar-acesso-submit" onclick="handleCriarAcesso()">Criar Acesso</button>
+                </div>
+            </div>
+
+            <div id="criar-acesso-sucesso-wrap" style="display: none;">
+                <div style="padding: 1rem; background: var(--bg-sidebar); border-radius: var(--radius-md); margin-bottom: 1rem;">
+                    <p class="text-sm" style="margin-bottom: 0.75rem;">Acesso criado com sucesso. Anote e repasse ao fornecedor — a senha não fica salva em nenhum lugar depois que esta janela for fechada:</p>
+                    <p style="font-size: 0.9rem; margin-bottom: 0.25rem;"><strong>E-mail:</strong> <span id="criar-acesso-resultado-email"></span></p>
+                    <p style="font-size: 0.9rem;"><strong>Senha:</strong> <span id="criar-acesso-resultado-senha" style="font-family: monospace;"></span></p>
+                </div>
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                    <button type="button" class="btn btn-secondary" onclick="copiarCredenciaisAcesso()">
+                        <i data-lucide="copy" style="width: 14px;"></i> Copiar
+                    </button>
+                    <button type="button" class="btn btn-primary" onclick="fecharModalCriarAcesso()">Concluir</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="toast-container" class="toast-container"></div>
 
     <script src="config.js"></script>
@@ -352,7 +372,9 @@
         let sbClient = null;
         let currentUser = null;
         let currentOrgId = null;
-        let vinculosCache = [];
+        let fornecedoresUnificadosCache = [];
+        let fornecedoresSort = { key: null, dir: 'asc' }; // null = modo prioridade (CNPJ inválido primeiro)
+        let fornecedoresFiltro = '';
 
         async function initSupabase() {
             if (sbClient) return sbClient;
@@ -544,7 +566,7 @@
 
                 await carregarProjetos();
                 await carregarFornecedores();
-                await carregarVinculos();
+                await carregarFornecedoresUnificados();
 
                 document.getElementById('vincular-form').addEventListener('submit', handleVincular);
             } catch (err) {
@@ -592,46 +614,220 @@
                 data.map(f => `<option value="${f.id}">${f.razao_social} (${f.cnpj})${f.dados_completos === false ? ' — dados incompletos' : ''}</option>`).join('');
         }
 
-        async function carregarVinculos() {
+        // Lista única de fornecedores da organização (Camada 3): substitui as
+        // antigas "Fornecedores da Organização" + "Solicitantes Ativos". Busca
+        // direto de fornecedores (RLS já filtra por organization_id sozinha) e
+        // complementa com contagem de documentos/contratos e projetos vinculados
+        // via duas queries auxiliares, em vez de N+1 por fornecedor.
+        const FORNECEDORES_COLUNAS = [
+            { key: 'razao_social', label: 'Fornecedor' },
+            { key: 'doc_count', label: 'Documentos', center: true },
+            { key: 'projetos_count', label: 'Projetos' },
+            { key: 'cnpj_invalido', label: 'Dados' },
+            { key: 'auth_user_id', label: 'Acesso' },
+        ];
+
+        async function carregarFornecedoresUnificados() {
             const sb = await initSupabase();
-            const tbody = document.getElementById('vinculos-tbody');
+            const wrap = document.getElementById('fornecedores-table-wrap');
 
-            const { data: vinculos, error } = await sb.from('projeto_fornecedores')
-                .select('*, fornecedores(id, razao_social, cnpj, dados_completos), projects(nome)')
-                .eq('gestor_id', currentUser.id)
-                .order('created_at', { ascending: false });
+            const [{ data: fornecedoresData, error: fErr }, { data: docRows }, { data: contractRows }, { data: vinculos }] = await Promise.all([
+                sb.from('fornecedores').select('id, razao_social, cnpj, dados_completos, cnpj_invalido, auth_user_id'),
+                sb.from('documents').select('fornecedor_id').not('fornecedor_id', 'is', null),
+                sb.from('contracts').select('fornecedor_id').not('fornecedor_id', 'is', null),
+                sb.from('projeto_fornecedores').select('fornecedor_id, projects(nome, pronac)')
+            ]);
 
-            if (error) {
-                tbody.innerHTML = `<tr><td colspan="4" class="empty-state-inline" style="color:var(--error);">Erro ao carregar vínculos.</td></tr>`;
+            if (fErr || !fornecedoresData) {
+                wrap.innerHTML = `<p class="empty-state-inline" style="color: var(--error);">Erro ao carregar fornecedores.</p>`;
                 return;
             }
 
-            vinculosCache = vinculos || [];
+            const docCountMap = new Map();
+            (docRows || []).forEach(d => docCountMap.set(d.fornecedor_id, (docCountMap.get(d.fornecedor_id) || 0) + 1));
+            (contractRows || []).forEach(c => docCountMap.set(c.fornecedor_id, (docCountMap.get(c.fornecedor_id) || 0) + 1));
 
-            if (vinculosCache.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="4" class="empty-state-inline">Nenhum solicitante vinculado aos seus projetos ainda.</td></tr>`;
+            const projetosMap = new Map();
+            (vinculos || []).forEach(v => {
+                if (!v.projects) return;
+                const lista = projetosMap.get(v.fornecedor_id) || [];
+                lista.push(v.projects);
+                projetosMap.set(v.fornecedor_id, lista);
+            });
+
+            fornecedoresUnificadosCache = fornecedoresData.map(f => ({
+                ...f,
+                doc_count: docCountMap.get(f.id) || 0,
+                projetos: projetosMap.get(f.id) || []
+            }));
+
+            renderFornecedoresTable();
+        }
+
+        window.filtrarFornecedores = function (valor) {
+            fornecedoresFiltro = valor;
+            renderFornecedoresTable();
+        };
+
+        window.ordenarFornecedoresPor = function (key) {
+            if (fornecedoresSort.key === key) {
+                fornecedoresSort.dir = fornecedoresSort.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+                fornecedoresSort = { key, dir: 'asc' };
+            }
+            renderFornecedoresTable();
+        };
+
+        function renderFornecedoresTable() {
+            const wrap = document.getElementById('fornecedores-table-wrap');
+            const termo = fornecedoresFiltro.trim().toLowerCase();
+            const termoDigitos = termo.replace(/\D/g, '');
+
+            let lista = fornecedoresUnificadosCache.filter(f => {
+                if (!termo) return true;
+                const nomeMatch = (f.razao_social || '').toLowerCase().includes(termo);
+                const cnpjMatch = termoDigitos.length > 0 && (f.cnpj || '').includes(termoDigitos);
+                return nomeMatch || cnpjMatch;
+            });
+
+            lista = lista.slice().sort((a, b) => {
+                if (!fornecedoresSort.key) {
+                    // Modo prioridade (padrão): CNPJ inválido primeiro, depois alfabética.
+                    if (a.cnpj_invalido !== b.cnpj_invalido) return a.cnpj_invalido ? -1 : 1;
+                    return (a.razao_social || '').localeCompare(b.razao_social || '');
+                }
+                const dir = fornecedoresSort.dir === 'asc' ? 1 : -1;
+                let va, vb;
+                if (fornecedoresSort.key === 'projetos_count') {
+                    va = a.projetos.length; vb = b.projetos.length;
+                } else {
+                    va = a[fornecedoresSort.key]; vb = b[fornecedoresSort.key];
+                }
+                if (typeof va === 'string') va = va.toLowerCase();
+                if (typeof vb === 'string') vb = vb.toLowerCase();
+                if (va === vb) return 0;
+                return (va > vb ? 1 : -1) * dir;
+            });
+
+            const headerHtml = FORNECEDORES_COLUNAS.map(c => {
+                const ativo = fornecedoresSort.key === c.key;
+                const seta = ativo ? (fornecedoresSort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+                return `<th style="cursor: pointer; user-select: none; ${c.center ? 'text-align: center;' : ''}" onclick="window.ordenarFornecedoresPor('${c.key}')">${c.label}${seta}</th>`;
+            }).join('');
+
+            if (lista.length === 0) {
+                wrap.innerHTML = `<p class="empty-state-inline">${fornecedoresUnificadosCache.length === 0 ? 'Nenhum fornecedor cadastrado ainda.' : 'Nenhum fornecedor encontrado para essa busca.'}</p>`;
                 return;
             }
 
-            tbody.innerHTML = vinculosCache.map(v => `
-                <tr>
-                    <td>
-                        <div style="font-weight: 600;">${v.fornecedores?.razao_social || 'Desconhecido'}</div>
-                        <div style="font-size: 0.8rem; color: var(--text-muted);">${v.fornecedores?.cnpj || ''}</div>
-                        ${v.fornecedores?.dados_completos === false ? '<span class="badge status-pending" style="margin-top: 4px;"><span class="badge-dot"></span>Dados incompletos</span>' : ''}
-                    </td>
-                    <td style="font-weight: 500;">${v.projects?.nome || 'Desconhecido'}</td>
-                    <td style="text-align: center;">${new Date(v.created_at).toLocaleDateString('pt-BR')}</td>
-                    <td style="text-align: center; white-space: nowrap;">
-                        ${v.fornecedores?.dados_completos === false ? `<button class="btn btn-secondary" style="padding: 0.4rem 0.75rem; margin-right: 0.5rem;" onclick="abrirModalFornecedor('${v.fornecedores.id}')">Completar dados</button>` : ''}
-                        <button class="btn-remove" onclick="removerVinculo('${v.id}')" title="Remover Vínculo">
-                            <i data-lucide="trash-2" style="width: 18px; height: 18px;"></i>
-                        </button>
-                    </td>
-                </tr>
-            `).join('');
+            wrap.innerHTML = `
+                <table class="solic-table">
+                    <thead><tr>${headerHtml}<th style="text-align: center;">Ações</th></tr></thead>
+                    <tbody>
+                        ${lista.map(f => `
+                            <tr>
+                                <td>
+                                    <div style="font-weight: 600;">${f.razao_social}</div>
+                                    <div style="font-size: 0.8rem; color: var(--text-muted);">${f.cnpj}</div>
+                                </td>
+                                <td style="text-align: center;">${f.doc_count}</td>
+                                <td>
+                                    ${f.projetos.length === 0
+                    ? '<span class="text-xs" style="color: var(--text-muted); font-style: italic;">Nenhum projeto vinculado</span>'
+                    : f.projetos.map(p => `<span class="badge status-completed" style="margin: 2px;"><span class="badge-dot"></span>${p.pronac || p.nome}</span>`).join('')}
+                                </td>
+                                <td>
+                                    ${f.cnpj_invalido
+                    ? '<span class="badge" style="background: var(--color-alert); color: #fff; font-weight: 700;"><span class="badge-dot"></span>CNPJ inválido</span>'
+                    : (f.dados_completos === false ? '<span class="badge status-pending"><span class="badge-dot"></span>Dados incompletos</span>' : '')}
+                                </td>
+                                <td>
+                                    <span class="badge ${f.auth_user_id ? 'status-completed' : 'status-pending'}"><span class="badge-dot"></span>${f.auth_user_id ? 'Acesso ativo' : 'Sem acesso'}</span>
+                                </td>
+                                <td style="text-align: center; white-space: nowrap;">
+                                    <button class="btn btn-secondary" style="padding: 0.4rem 0.6rem; margin: 2px;" onclick="abrirModalFornecedor('${f.id}')">Completar dados</button>
+                                    ${!f.auth_user_id ? `<button class="btn btn-secondary" style="padding: 0.4rem 0.6rem; margin: 2px;" onclick="abrirModalCriarAcesso('${f.id}', '${(f.razao_social || '').replace(/'/g, "\\'")}')">Criar acesso</button>` : ''}
+                                    <button class="btn btn-secondary" style="padding: 0.4rem 0.6rem; margin: 2px;" onclick="selecionarFornecedorParaVincular('${f.id}')">Vincular a projeto</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
 
             if (window.lucide) window.lucide.createIcons();
+        }
+
+        function selecionarFornecedorParaVincular(fornecedorId) {
+            document.getElementById('select-fornecedor').value = fornecedorId;
+            document.querySelector('.glass-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            document.getElementById('select-projeto').focus();
+        }
+
+        function abrirModalCriarAcesso(fornecedorId, razaoSocial) {
+            document.getElementById('criar-acesso-fornecedor-id').value = fornecedorId;
+            document.getElementById('criar-acesso-fornecedor-nome').textContent = razaoSocial;
+            document.getElementById('criar-acesso-email').value = '';
+            document.getElementById('criar-acesso-senha').value = '';
+            document.getElementById('criar-acesso-resultado-email').textContent = '';
+            document.getElementById('criar-acesso-resultado-senha').textContent = '';
+            document.getElementById('criar-acesso-form-wrap').style.display = 'block';
+            document.getElementById('criar-acesso-sucesso-wrap').style.display = 'none';
+            document.getElementById('modal-criar-acesso').style.display = 'flex';
+        }
+
+        function fecharModalCriarAcesso() {
+            document.getElementById('modal-criar-acesso').style.display = 'none';
+            // A senha não deve sobreviver ao fechamento do modal em lugar nenhum da tela.
+            document.getElementById('criar-acesso-senha').value = '';
+            document.getElementById('criar-acesso-resultado-senha').textContent = '';
+        }
+
+        async function handleCriarAcesso() {
+            const fornecedorId = document.getElementById('criar-acesso-fornecedor-id').value;
+            const email = document.getElementById('criar-acesso-email').value.trim();
+            const password = document.getElementById('criar-acesso-senha').value;
+
+            if (!email || !password) return showToast('Preencha e-mail e senha.', 'error');
+            if (password.length < 6) return showToast('Senha precisa ter pelo menos 6 caracteres.', 'error');
+
+            const btn = document.getElementById('btn-criar-acesso-submit');
+            btn.disabled = true;
+            btn.textContent = 'Criando...';
+
+            try {
+                const sb = await initSupabase();
+                const { data: { session } } = await sb.auth.getSession();
+                const resp = await fetch('/api/gestor/criar-acesso-fornecedor', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${session.access_token}`
+                    },
+                    body: JSON.stringify({ fornecedor_id: fornecedorId, email, password })
+                });
+                const json = await resp.json().catch(() => ({}));
+                if (!resp.ok) throw new Error(json.error || 'Falha ao criar acesso.');
+
+                document.getElementById('criar-acesso-resultado-email').textContent = email;
+                document.getElementById('criar-acesso-resultado-senha').textContent = password;
+                document.getElementById('criar-acesso-form-wrap').style.display = 'none';
+                document.getElementById('criar-acesso-sucesso-wrap').style.display = 'block';
+
+                await carregarFornecedoresUnificados();
+            } catch (err) {
+                showToast(err.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Criar Acesso';
+            }
+        }
+
+        function copiarCredenciaisAcesso() {
+            const email = document.getElementById('criar-acesso-resultado-email').textContent;
+            const senha = document.getElementById('criar-acesso-resultado-senha').textContent;
+            navigator.clipboard.writeText(`E-mail: ${email}\nSenha: ${senha}`);
+            showToast('Credenciais copiadas.', 'success');
         }
 
         async function handleVincular(e) {
@@ -661,27 +857,13 @@
 
                 showToast('Solicitante vinculado com sucesso!', 'success');
                 document.getElementById('vincular-form').reset();
-                await carregarVinculos();
+                await carregarFornecedoresUnificados();
             } catch (err) {
                 showToast(err.message, 'error');
             } finally {
                 btn.innerHTML = originalText;
                 btn.disabled = false;
                 if (window.lucide) window.lucide.createIcons();
-            }
-        }
-
-        async function removerVinculo(id) {
-            if (!confirm('Tem certeza que deseja remover o acesso deste solicitante a este projeto?')) return;
-            try {
-                const sb = await initSupabase();
-                const { error } = await sb.from('projeto_fornecedores').delete().eq('id', id);
-                if (error) throw error;
-
-                showToast('Vínculo removido com sucesso.', 'success');
-                await carregarVinculos();
-            } catch (err) {
-                showToast('Erro ao remover: ' + err.message, 'error');
             }
         }
 
@@ -709,10 +891,10 @@
             const projetoGroup = document.getElementById('fornecedor-projeto-group');
             if (isEdit) {
                 projetoGroup.style.display = 'none';
-                const vinculo = vinculosCache.find(v => v.fornecedores?.id === fornecedorId);
-                if (vinculo) {
-                    document.getElementById('fornecedor-cnpj').value = vinculo.fornecedores.cnpj || '';
-                    document.getElementById('fornecedor-razao').value = vinculo.fornecedores.razao_social || '';
+                const fornecedor = fornecedoresUnificadosCache.find(f => f.id === fornecedorId);
+                if (fornecedor) {
+                    document.getElementById('fornecedor-cnpj').value = fornecedor.cnpj || '';
+                    document.getElementById('fornecedor-razao').value = fornecedor.razao_social || '';
                 }
             } else {
                 projetoGroup.style.display = 'block';
@@ -853,7 +1035,7 @@
 
                 fecharModalFornecedor();
                 await carregarFornecedores();
-                await carregarVinculos();
+                await carregarFornecedoresUnificados();
             } catch (err) {
                 console.error('handleSalvarFornecedor:', err);
                 showToast('Erro ao salvar fornecedor: ' + (err.code === '23505' ? 'Este CNPJ já está cadastrado.' : err.message), 'error');

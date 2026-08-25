@@ -686,6 +686,164 @@ app.post('/api/gestor/criar-analista',
     }
 );
 
+// POST /api/gestor/criar-acesso-fornecedor
+// Cria a conta de login de um fornecedor já cadastrado em `fornecedores`
+// (via cadastro manual ou trigger de NF), vinculando pelo auth_user_id em vez
+// de organization_users — fornecedor não é membro de equipe, escopo dele é
+// fornecedores.organization_id + projeto_fornecedores. Espelha exatamente
+// /api/gestor/criar-analista (mesmo rollback em caso de vínculo falho).
+app.post('/api/gestor/criar-acesso-fornecedor',
+    requireAuth, requireRole('admin', 'gestor', 'analista'),
+    async (req, res) => {
+        const { fornecedor_id, email, password } = req.body || {};
+        if (!fornecedor_id || !email || !password) {
+            return res.status(400).json({ error: 'fornecedor_id, email e password são obrigatórios.' });
+        }
+        if (typeof password !== 'string' || password.length < 6) {
+            return res.status(400).json({ error: 'Senha precisa ter pelo menos 6 caracteres.' });
+        }
+
+        const orgId = req.user.app_metadata?.org_id;
+        if (!orgId) return res.status(400).json({ error: 'org_id ausente. Faça logout e login novamente.' });
+
+        try {
+            // Confirma que o fornecedor existe, pertence à organização de quem chama,
+            // e ainda não tem conta.
+            const { data: fornecedor, error: fErr } = await supabase
+                .from('fornecedores')
+                .select('id, razao_social, cnpj, auth_user_id, organization_id')
+                .eq('id', fornecedor_id)
+                .single();
+            if (fErr || !fornecedor) return res.status(404).json({ error: 'Fornecedor não encontrado.' });
+            if (fornecedor.organization_id !== orgId) return res.status(403).json({ error: 'Fornecedor não pertence à sua organização.' });
+            if (fornecedor.auth_user_id) return res.status(409).json({ error: 'Este fornecedor já tem uma conta de acesso.' });
+
+            const { data: created, error: createErr } = await supabase.auth.admin.createUser({
+                email,
+                password,
+                email_confirm: true,
+                user_metadata: { role: 'fornecedor', nome: fornecedor.razao_social, org_id: orgId },
+                app_metadata:  { role: 'fornecedor', org_id: orgId, must_change_password: true }
+            });
+            if (createErr) throw createErr;
+
+            const newUserId = created?.user?.id;
+            if (!newUserId) throw new Error('Falha ao obter id do usuário criado.');
+
+            const { error: linkErr } = await supabase
+                .from('fornecedores')
+                .update({ auth_user_id: newUserId, acesso_criado_em: new Date().toISOString(), acesso_criado_por: req.user.id })
+                .eq('id', fornecedor_id);
+            if (linkErr) {
+                // Rollback: remove o user criado para não deixar órfão sem vínculo
+                await supabase.auth.admin.deleteUser(newUserId);
+                throw linkErr;
+            }
+
+            await supabase.from('audit_log').insert({
+                tabela: 'fornecedores', registro_id: fornecedor_id, campo: 'acesso_criado',
+                valor_anterior: null, valor_novo: email,
+                alterado_por: req.user.id, origem: 'gestor_ui'
+            });
+
+            res.json({ ok: true, user: { id: newUserId, email } });
+        } catch (err) {
+            console.error('[GESTOR] criar-acesso-fornecedor:', err);
+            const msg = err?.message || 'Erro ao criar acesso.';
+            const status = /already.*registered|duplicate|exists/i.test(msg) ? 409 : 500;
+            res.status(status).json({ error: msg });
+        }
+    }
+);
+
+// Camada 4 (BL-13): povoamento de fornecedores via API pública do SALIC, no
+// onboarding de projeto. A API devolve 1 registro por produto/pagamento, não
+// por fornecedor — testado com dado real: 100 registros retornaram 74 CNPJs
+// distintos. O Map abaixo dedup antes de chamar resolver_fornecedor().
+// Paginação (_links.next) não foi validada com projeto grande o suficiente
+// ainda: se data.total sugerir que há mais do que os 100 primeiros, só grava
+// um aviso no log — não pagina automaticamente por ora.
+async function importarFornecedoresSalic(pronac, organizationId) {
+    const resp = await fetch(`https://api.salic.cultura.gov.br/api/v1/fornecedores?PRONAC=${pronac}&limit=100`);
+    if (!resp.ok) return { importados: 0, erro: 'API do SALIC indisponível' };
+    const data = await resp.json();
+    const registros = data._embedded?.fornecedores || [];
+    const porCnpj = new Map();
+    for (const f of registros) {
+        if (!porCnpj.has(f.cgccpf)) porCnpj.set(f.cgccpf, f.nome);
+    }
+    let importados = 0;
+    for (const [cnpj, nome] of porCnpj) {
+        if (cnpj.includes('*')) continue; // CPF mascarado, sem dado utilizável
+        await supabase.rpc('resolver_fornecedor', { p_cnpj: cnpj, p_nome: nome, p_organization_id: organizationId });
+        importados++;
+    }
+    if (data.total && data.total > registros.length) {
+        console.warn(`[SALIC-FORNECEDORES] PRONAC ${pronac}: API reporta total=${data.total} mas só ${registros.length} vieram nesta página — paginação (_links.next) ainda não implementada.`);
+    }
+    return { importados, total_na_api: data.total };
+}
+
+// Chamado pelo front logo após a importação do projeto via PRONAC ter sucesso
+// (window.handleFetchSalicProject, em app.js). Roda silencioso: PRONAC novo
+// (sem execução anterior) ou API do SALIC fora do ar não bloqueiam a criação
+// do projeto, que já aconteceu antes desta chamada.
+app.post('/api/gestor/importar-fornecedores-salic',
+    requireAuth, requireRole('admin', 'gestor', 'analista'),
+    async (req, res) => {
+        const { pronac } = req.body || {};
+        if (!pronac) return res.status(400).json({ error: 'pronac é obrigatório.' });
+
+        const orgId = req.user.app_metadata?.org_id;
+        if (!orgId) return res.status(400).json({ error: 'org_id ausente. Faça logout e login novamente.' });
+
+        try {
+            const resultado = await importarFornecedoresSalic(pronac, orgId);
+            res.json({ ok: true, ...resultado });
+        } catch (err) {
+            console.error('[SALIC-FORNECEDORES] importar-fornecedores-salic:', err);
+            res.status(500).json({ error: err.message });
+        }
+    }
+);
+
+// Camada 5 (BL-13): checagem de existência do fornecedor no SALIC, disparada
+// pelo trigger trg_verificar_fornecedor_salic (SQL, aplicado separado) quando
+// um documento chega em 'aguardando_d3'. Mesmo padrão de segredo do
+// /api/m2/cron-alerta-guias (x-cron-secret / CRON_SECRET).
+app.post('/api/m1/verificar-fornecedor-salic', async (req, res) => {
+    if (req.headers['x-cron-secret'] !== process.env.CRON_SECRET) {
+        return res.status(401).json({ error: 'Não autorizado.' });
+    }
+    const { document_id, cnpj } = req.body;
+    const cnpjLimpo = (cnpj || '').replace(/\D/g, '');
+
+    if (cnpjLimpo.length === 11) {
+        // CPF — a API do SALIC mascara CPF, não dá pra verificar
+        await supabase.from('documents').select('fornecedor_id').eq('id', document_id).single()
+            .then(({ data }) => data?.fornecedor_id && supabase.from('fornecedores')
+                .update({ existe_no_salic: null, salic_verificado_em: new Date().toISOString() })
+                .eq('id', data.fornecedor_id));
+        return res.json({ ok: true, verificavel: false, motivo: 'CPF não verificável na API pública' });
+    }
+
+    try {
+        const resp = await fetch(`https://api.salic.cultura.gov.br/api/v1/fornecedores?cgccpf=${cnpjLimpo}`);
+        const existe = resp.status === 200;
+
+        const { data: doc } = await supabase.from('documents').select('fornecedor_id').eq('id', document_id).single();
+        if (doc?.fornecedor_id) {
+            await supabase.from('fornecedores')
+                .update({ existe_no_salic: existe, salic_verificado_em: new Date().toISOString() })
+                .eq('id', doc.fornecedor_id);
+        }
+        res.json({ ok: true, existe_no_salic: existe });
+    } catch (err) {
+        console.error('[verificar-fornecedor-salic]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // --- Sync de organization_id para app_metadata (S0) ---
 app.post('/api/auth/sync-org-metadata',
     requireAuth,

@@ -2437,6 +2437,12 @@ ${Sidebar()}
     const faltaDadoObrigatorioSalic = camposPendentes.cnpj || camposPendentes.nome
         || camposPendentes.valor || camposPendentes.data || camposPendentes.numero;
 
+    // Camada 5 (BL-13): aviso informativo, nunca bloqueia o envio — a base
+    // pública do SALIC pode estar desatualizada. Vem do trigger server-side
+    // (trg_verificar_fornecedor_salic → /api/m1/verificar-fornecedor-salic)
+    // disparado quando o documento chega em 'aguardando_d3'.
+    const fornecedorPodeNaoEstarNoSalic = doc.fornecedores?.existe_no_salic === false;
+
     // Extrato já vinculado via upload em lote (extrato_origem_id): reconhece no
     // front em vez de pedir upload manual de novo — a conciliação é automática.
     const extratoDoLote = !!doc.extrato_origem_id;
@@ -2924,6 +2930,11 @@ ${Sidebar()}
                                 <span class="text-xs" style="font-weight: 600; text-transform: uppercase;">3. Portal SALIC</span>
                                 ${['enviado_salic', 'concluido'].includes(doc.status) ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : (doc.status === 'erro_rpa' ? '<i data-lucide="alert-circle" style="width: 16px; color: var(--error);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>')}
                             </div>
+                            ${fornecedorPodeNaoEstarNoSalic ? `
+                            <div style="padding: 0.6rem; background: rgba(245, 158, 11, 0.1); border-radius: 4px; border: 1px solid rgba(245, 158, 11, 0.3); margin-bottom: 0.5rem; display: flex; gap: 0.5rem; align-items: flex-start;">
+                                <i data-lucide="alert-triangle" style="width: 14px; color: #d97706; flex-shrink: 0; margin-top: 2px;"></i>
+                                <p class="text-xs" style="color: #d97706; line-height: 1.4;">Este fornecedor pode não estar cadastrado no SALIC — confirme antes do envio. (A base pública pode estar desatualizada.)</p>
+                            </div>` : ''}
                             ${doc.status === 'liberado_rpa_airtop' ?
             (state.isSalicRunning ?
                 `<div style="padding: 0.5rem; text-align: center;">
@@ -5027,7 +5038,7 @@ async function fetchDocumentDetails(id, silent = false) {
         // Tenta buscar com join completo
         let { data, error } = await supabaseClient
             .from('documents')
-            .select('*, projects(nome, pronac), despesas(*)')
+            .select('*, projects(nome, pronac), despesas(*), fornecedores(existe_no_salic)')
             .eq('id', id)
             .single();
 
@@ -5528,6 +5539,12 @@ window.handleFetchSalicProject = async function () {
         fetchProjects();
         render();
 
+        // Camada 4 (BL-13): povoa fornecedores a partir do histórico do PRONAC
+        // no SALIC. Best-effort e silencioso — PRONAC novo (sem execução
+        // anterior) ou API do SALIC fora do ar não podem atrapalhar a criação
+        // do projeto, que já aconteceu no passo acima.
+        importarFornecedoresSalicDoProjeto(pronac);
+
     } catch (err) {
         state.error = err.message;
         showToast(err.message, 'error');
@@ -5536,6 +5553,32 @@ window.handleFetchSalicProject = async function () {
         render();
     }
 };
+
+// Camada 4 (BL-13): chama o endpoint que busca fornecedores do histórico do
+// PRONAC na API do SALIC (server.js, resolver_fornecedor). Fire-and-forget de
+// propósito — não bloqueia nem atrasa a UI de criação do projeto, e falha em
+// silêncio (só loga no console) se a API do SALIC estiver fora do ar ou o
+// PRONAC for novo.
+async function importarFornecedoresSalicDoProjeto(pronac) {
+    try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session) return;
+
+        const resp = await fetch('/api/gestor/importar-fornecedores-salic', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${session.access_token}`
+            },
+            body: JSON.stringify({ pronac })
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json.error || 'Falha ao importar fornecedores do SALIC.');
+        console.log(`[SALIC-FORNECEDORES] PRONAC ${pronac}: ${json.importados} fornecedor(es) importado(s).`);
+    } catch (err) {
+        console.warn('[SALIC-FORNECEDORES] importação silenciosa falhou:', err.message);
+    }
+}
 
 window.showProjectDetails = function (projectId) {
     const project = state.projects.find(p => p.id === projectId);
