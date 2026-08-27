@@ -284,6 +284,7 @@
                 .from('tax_guides')
                 .select('*')
                 .eq('project_id', currentProjectId)
+                .neq('status', 'cancelada')
                 .order('data_vencimento', { ascending: true });
 
             if (error) {
@@ -356,6 +357,10 @@
                                 </button>
                             ` : ''}
                             ${verArquivoBtn}
+                            <button class="btn-m2" title="Excluir guia" style="background: var(--bg-sidebar); border: 1px solid var(--border-light); font-size: 0.75rem; flex: 0;"
+                                onclick="confirmarExclusaoGuia('${tax.id}', '${escapeHtml(tax.tipo_imposto)}', '${escapeHtml(tax.competencia || '')}')">
+                                <i data-lucide="trash-2" style="color: var(--color-alert);"></i>
+                            </button>
                         </div>
                     </div>
                 `;
@@ -408,6 +413,33 @@
                 return;
             }
             window.open(sig.signedUrl, '_blank');
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // EXCLUSÃO (soft delete) — mesmo padrão de contratos.html: não há
+        // DELETE em tax_guides (nem policy de RLS pra isso), a guia só some
+        // da listagem quando status = 'cancelada' (loadTaxes já filtra isso).
+        // ─────────────────────────────────────────────────────────────
+        function confirmarExclusaoGuia(taxId, tipoImposto, competencia) {
+            const label = competencia ? `${tipoImposto} (competência ${competencia})` : tipoImposto;
+            if (!confirm(`Confirma a exclusão da guia de ${label}?\n\nEssa ação não pode ser desfeita.`)) return;
+            executarExclusaoGuia(taxId);
+        }
+
+        async function executarExclusaoGuia(taxId) {
+            const sb = await initSupabase();
+            const { error } = await sb
+                .from('tax_guides')
+                .update({ status: 'cancelada', motivo_cancelamento: 'Excluída pelo gestor.' })
+                .eq('id', taxId);
+
+            if (error) {
+                showToast('Erro ao excluir guia: ' + error.message, 'error');
+                return;
+            }
+
+            showToast('Guia excluída com sucesso.', 'success');
+            await loadTaxes();
         }
 
         function escapeHtml(s) {
