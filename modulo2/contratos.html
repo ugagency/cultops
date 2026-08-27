@@ -532,6 +532,13 @@
                 document.getElementById('project-select').value = currentProjectId;
                 await loadContracts();
             }
+
+            // #btn-salvar-contrato só habilita quando algo mudou desde a última
+            // carga/salvamento (ver markContratoFormClean / checkContratoFormDirty).
+            const formContrato = document.getElementById('form-contrato');
+            formContrato.addEventListener('input', checkContratoFormDirty);
+            formContrato.addEventListener('change', checkContratoFormDirty);
+
             if (window.lucide) window.lucide.createIcons();
         });
 
@@ -816,6 +823,31 @@
         // ─────────────────────────────────────────────────────────────
         // CADASTRO DE CONTRATO
         // ─────────────────────────────────────────────────────────────
+        // ─────────────────────────────────────────────────────────────
+        // #btn-salvar-contrato só fica habilitado quando há alteração
+        // pendente desde a última carga (abrir o modal) ou salvamento.
+        // ─────────────────────────────────────────────────────────────
+        const CONTRATO_FORM_FIELD_IDS = ['c-numero', 'c-valor', 'c-objeto', 'c-inicio', 'c-fim', 'c-fornecedor', 'c-rubrica', 'c-arquivo'];
+        let _contratoFormSnapshot = null;
+
+        function getContratoFormSnapshot() {
+            const values = {};
+            CONTRATO_FORM_FIELD_IDS.forEach(id => {
+                const el = document.getElementById(id);
+                values[id] = el ? el.value : '';
+            });
+            return JSON.stringify(values);
+        }
+
+        function markContratoFormClean() {
+            _contratoFormSnapshot = getContratoFormSnapshot();
+            document.getElementById('btn-salvar-contrato').disabled = true;
+        }
+
+        function checkContratoFormDirty() {
+            document.getElementById('btn-salvar-contrato').disabled = (getContratoFormSnapshot() === _contratoFormSnapshot);
+        }
+
         async function openContratoModal(parentContractId = null) {
             if (!currentProjectId) {
                 showToast('Selecione um projeto primeiro!', 'error');
@@ -827,13 +859,13 @@
             document.querySelector('#modal-contrato h3').innerHTML = parentContractId
                 ? '<i data-lucide="paperclip" style="width:18px; vertical-align:-3px;"></i> Cadastrar anexo de contrato'
                 : '<i data-lucide="file-plus" style="width:18px; vertical-align:-3px;"></i> Cadastrar novo contrato';
-            document.getElementById('btn-salvar-contrato').disabled = false;
             document.getElementById('btn-salvar-contrato').innerHTML = '<i data-lucide="check" style="width:16px;"></i> Salvar contrato';
             const arquivoAtualEl = document.getElementById('c-arquivo-atual-info');
             if (arquivoAtualEl) arquivoAtualEl.style.display = 'none';
             await loadFornecedoresSelect();
             await loadRubricasSelect();
             atualizarFornecedorAnexo(parentContractId);
+            markContratoFormClean();
             document.getElementById('modal-contrato').hidden = false;
             if (window.lucide) window.lucide.createIcons();
         }
@@ -888,9 +920,9 @@
                 arquivoAtualEl.style.display = '';
             }
 
-            document.getElementById('btn-salvar-contrato').disabled = false;
             document.getElementById('btn-salvar-contrato').innerHTML =
                 '<i data-lucide="check" style="width:16px;"></i> Salvar alterações';
+            markContratoFormClean();
             document.getElementById('modal-contrato').hidden = false;
             if (window.lucide) window.lucide.createIcons();
         }

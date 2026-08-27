@@ -1307,21 +1307,22 @@
                     evidenciasRes,
                     contratosRes,
                     impostosRes,
-                    despesasIdsRes
+                    despesasIdsRes,
+                    extratosIdsRes
                 ] = await Promise.all([
                     sbClient.from('projects').select('*').eq('id', pid).maybeSingle(),
                     sbClient.from('documents')
-                        .select('name, status, valor, tipo_documento, created_at')
+                        .select('id, name, status, valor, tipo_documento, created_at')
                         .eq('project_id', pid)
                         .order('created_at', { ascending: false })
                         .limit(200),
                     sbClient.from('physical_evidences')
-                        .select('file_name, tipo_evidencia, status_validacao, criado_em, validado_em')
+                        .select('id, file_name, tipo_evidencia, status_validacao, criado_em, validado_em')
                         .eq('project_id', pid)
                         .order('criado_em', { ascending: false })
                         .limit(100),
                     sbClient.from('contracts')
-                        .select('numero, objeto, valor_total, status, data_inicio, data_fim')
+                        .select('id, numero, objeto, valor_total, status, data_inicio, data_fim')
                         .eq('project_id', pid)
                         .is('excluido_em', null)
                         .order('data_inicio', { ascending: true }),
@@ -1329,10 +1330,11 @@
                         .select('tipo_imposto, competencia, valor, status, data_vencimento, data_pagamento')
                         .eq('project_id', pid)
                         .order('data_vencimento', { ascending: true }),
-                    sbClient.from('despesas').select('id').eq('project_id', pid)
+                    sbClient.from('despesas').select('id').eq('project_id', pid),
+                    sbClient.from('extratos').select('id').eq('project_id', pid)
                 ]);
 
-                const erros = [projetoRes, documentosRes, evidenciasRes, contratosRes, impostosRes, despesasIdsRes]
+                const erros = [projetoRes, documentosRes, evidenciasRes, contratosRes, impostosRes, despesasIdsRes, extratosIdsRes]
                     .map(r => r.error).filter(Boolean);
                 if (erros.length) throw erros[0];
 
@@ -1342,13 +1344,26 @@
                 const contratos = contratosRes.data || [];
                 const impostos = impostosRes.data || [];
                 const despesasIds = (despesasIdsRes.data || []).map(d => d.id);
+                const extratosIds = (extratosIdsRes.data || []).map(e => e.id);
+
+                // BL-20: audit_log também cobre documents, contracts,
+                // physical_evidences e extratos — não só despesas. Sem juntar
+                // esses IDs, o relatório de auditoria nunca mostrava alterações
+                // dessas 4 tabelas, mesmo tendo trilha registrada para elas.
+                const idsAuditaveis = [
+                    ...despesasIds,
+                    ...documentos.map(d => d.id),
+                    ...contratos.map(c => c.id),
+                    ...evidencias.map(e => e.id),
+                    ...extratosIds
+                ];
 
                 let auditoria = [];
-                if (despesasIds.length > 0) {
+                if (idsAuditaveis.length > 0) {
                     const { data: auditData, error: auditErr } = await sbClient
                         .from('audit_log')
                         .select('tabela, campo, valor_anterior, valor_novo, origem, created_at')
-                        .in('registro_id', despesasIds)
+                        .in('registro_id', idsAuditaveis)
                         .order('created_at', { ascending: false })
                         .limit(500);
                     if (auditErr) throw auditErr;

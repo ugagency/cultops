@@ -477,11 +477,9 @@
 
         function setSelectorPlaceholder(hasProject) {
             const placeholder = document.getElementById('selector-placeholder');
-            const selector = document.getElementById('project-selector');
             if (placeholder) {
                 placeholder.textContent = hasProject ? 'Trocar projeto' : 'Selecione um projeto';
             }
-            if (selector) selector.value = '';
         }
 
         function updateHeaderProject(pid) {
@@ -596,7 +594,7 @@
                         .is('contrato_pai_id', null)
                         .is('excluido_em', null),
                     sb.from('despesas')
-                        .select('data_pagamento, valor, status, fornecedor_nome, rubricas(nome)')
+                        .select('data_pagamento, created_at, valor, status, fornecedor_nome, rubricas(nome)')
                         .eq('project_id', projectId)
                         .order('data_pagamento', { ascending: false, nullsFirst: false })
                         .limit(8),
@@ -784,7 +782,7 @@
 
             const rows = despesas.map(d => `
                 <tr>
-                    <td>${fmtDate(d.data_pagamento)}</td>
+                    <td>${fmtDate(d.data_pagamento || d.created_at)}</td>
                     <td>
                         <div style="font-weight: 500;">${escapeHtml(d.fornecedor_nome || '—')}</div>
                         <div style="font-size: 0.7rem; color: var(--text-muted);">${escapeHtml((d.rubricas && d.rubricas.nome) || '—')}</div>

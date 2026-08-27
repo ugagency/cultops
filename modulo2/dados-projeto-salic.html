@@ -507,7 +507,17 @@
             if (!error && data) {
                 currentImportId   = data.id;
                 currentImportMeta = data;
-                renderReview(data.dados_extraidos || {});
+
+                // Quando já foi revisado, os dados salvos pelo gestor vivem nas 5
+                // tabelas de destino (project_etapas_trabalho etc.) — não em
+                // dados_extraidos, que continua sendo só o OCR bruto original e
+                // ignoraria qualquer edição feita depois.
+                if (data.status === 'revisado') {
+                    await renderReviewFromSavedTables(projectId);
+                } else {
+                    renderReview(data.dados_extraidos || {});
+                }
+
                 updateFooterInfo(data);
                 document.getElementById('review-footer').style.display = 'flex';
                 document.getElementById('page-subtitle').style.display = 'none';
@@ -635,6 +645,37 @@
         }
 
         // ─── Render Review ────────────────────────────────────────────
+        // Reconstrói o mesmo formato de dados_extraidos a partir das 5 tabelas
+        // de destino já revisadas — os campos têm os mesmos nomes usados no
+        // JSON original (ver persistirDadosSalic / salvar-revisao-salic em
+        // server.js), então renderReview() funciona sem adaptação.
+        async function renderReviewFromSavedTables(projectId) {
+            const sb = await initSupabase();
+            const [etapasRes, locaisRes, deslocRes, divulgRes, complRes] = await Promise.all([
+                sb.from('project_etapas_trabalho').select('*').eq('project_id', projectId).order('ordem'),
+                sb.from('project_locais_realizacao').select('*').eq('project_id', projectId),
+                sb.from('project_deslocamentos').select('*').eq('project_id', projectId),
+                sb.from('project_plano_divulgacao').select('*').eq('project_id', projectId),
+                sb.from('project_dados_complementares').select('*').eq('project_id', projectId).maybeSingle()
+            ]);
+
+            const complementar = complRes.data || {};
+            renderReview({
+                etapas_trabalho: etapasRes.data || [],
+                locais_realizacao: locaisRes.data || [],
+                deslocamentos: deslocRes.data || [],
+                plano_divulgacao: divulgRes.data || [],
+                sintese: complementar.sintese || null,
+                objetivo_geral: complementar.objetivo_geral || null,
+                objetivos_especificos: complementar.objetivos_especificos || [],
+                justificativa: complementar.justificativa || null,
+                periodo_inicio: complementar.periodo_inicio || null,
+                periodo_fim: complementar.periodo_fim || null,
+                produtos: complementar.produtos || [],
+                ficha_tecnica: complementar.ficha_tecnica || []
+            });
+        }
+
         function renderReview(data) {
             data = data || {};
             renderEtapas(data.etapas_trabalho || []);
