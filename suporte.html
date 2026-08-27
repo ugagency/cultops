@@ -1,0 +1,1060 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prestaí — Suporte (SSYS)</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <link rel="stylesheet" href="style.css">
+
+    <style>
+        /* Página neutra — sem sidebar de módulo, interna SSYS. Cross-tenant por
+           natureza (visão de qualquer organização), não cabe dentro da SPA do
+           app.js, que assume org_id fixo da sessão em quase tudo. */
+        body { background-color: var(--bg-main); }
+        .neutral-shell {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem 3rem;
+        }
+        .neutral-back {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            cursor: pointer;
+            background: none;
+            border: none;
+            padding: 0;
+        }
+        .neutral-back:hover { color: var(--text-primary); }
+
+        .clickable-row { cursor: pointer; }
+        .clickable-row:hover td { background: var(--bg-sidebar); }
+        .clickable-row.selecionada td { background: var(--color-blue-15); }
+
+        .badge-mod {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.2rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            background: var(--color-blue-15);
+            color: var(--color-primary);
+            margin-right: 0.25rem;
+            white-space: nowrap;
+        }
+
+        .doc-row-atencao td {
+            background: rgba(239, 68, 68, 0.06);
+        }
+
+        .empty-state-inline {
+            text-align: center;
+            padding: 2rem 1rem;
+            color: var(--text-muted);
+        }
+
+        .busca-resultado-item {
+            padding: 0.6rem 0.75rem;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border-light);
+            margin-bottom: 0.4rem;
+            cursor: pointer;
+        }
+        .busca-resultado-item:hover { background: var(--bg-sidebar); border-color: var(--color-primary); }
+
+        .tab-btn {
+            padding: 0.6rem 1rem;
+            border: none;
+            background: none;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            border-bottom: 2px solid transparent;
+            margin-bottom: -1px;
+        }
+        .tab-btn:hover { color: var(--text-primary); }
+        .tab-btn.active { color: var(--color-primary); border-bottom-color: var(--color-primary); }
+
+        .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-content {
+            background: white;
+            padding: 2rem;
+            border-radius: var(--radius-lg);
+            width: 100%;
+            max-width: 440px;
+            margin: 1rem;
+            box-shadow: var(--shadow-lg);
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="neutral-shell">
+        <button class="neutral-back" onclick="history.back()">
+            <i data-lucide="arrow-left" style="width: 16px;"></i> Voltar
+        </button>
+
+        <header class="content-header">
+            <h1>Suporte</h1>
+            <p class="page-subtitle">Interno SSYS — visão de qualquer organização para diagnóstico. Quase tudo aqui é só consulta; "Resetar acesso" e "Reprocessar OCR" são as únicas exceções de escrita, e ambas ficam registradas em audit_log.</p>
+        </header>
+
+        <div class="card" style="margin-bottom: 1.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
+                <i data-lucide="search"></i>
+                <h3 class="h2">Busca global</h3>
+            </div>
+            <input type="text" id="busca-input" placeholder="Nome do projeto, PRONAC, CNPJ ou razão social do fornecedor..." oninput="handleBuscaInput(this.value)" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem;">
+            <div id="busca-resultados" style="margin-top: 0.75rem;"></div>
+        </div>
+
+        <div class="card" style="margin-bottom: 1.5rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <i data-lucide="globe"></i>
+                    <h3 class="h2">Organizações <span id="orgs-count" style="color: var(--text-muted); font-weight: 500;"></span></h3>
+                </div>
+                <input type="text" id="orgs-filtro-input" placeholder="Filtrar por nome ou slug..." oninput="handleFiltrarOrgs(this.value)" style="max-width: 260px; padding: 0.5rem 0.75rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm); font-size: 0.85rem;">
+            </div>
+            <div class="data-table-container">
+                <div id="orgs-tabela-wrap" style="min-width: 0;">
+                    <p class="text-sm" style="color: var(--text-muted); padding: 1rem;">Carregando…</p>
+                </div>
+            </div>
+            <div id="orgs-paginacao"></div>
+        </div>
+
+        <div id="secao-org-selecionada" style="display: none;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
+                <div class="card">
+                    <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
+                        <i data-lucide="briefcase"></i>
+                        <h3 class="h2">Projetos <span id="projetos-count" style="color: var(--text-muted); font-weight: 500;"></span></h3>
+                    </div>
+                    <div class="data-table-container">
+                        <div id="projetos-tabela-wrap" style="min-width: 0;"></div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
+                        <i data-lucide="users"></i>
+                        <h3 class="h2">Usuários <span id="usuarios-count" style="color: var(--text-muted); font-weight: 500;"></span></h3>
+                    </div>
+                    <div class="data-table-container">
+                        <div id="usuarios-tabela-wrap" style="min-width: 0;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="secao-projeto-detalhe" class="card" style="display: none;">
+                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
+                    <i data-lucide="folder-open"></i>
+                    <h3 class="h2">Projeto — <span id="projeto-detalhe-nome">—</span></h3>
+                </div>
+
+                <div style="display: flex; gap: 0.25rem; border-bottom: 1px solid var(--border-subtle); margin-bottom: 1rem;">
+                    <button class="tab-btn active" data-tab="documentos" onclick="trocarAbaProjeto('documentos')">Documentos</button>
+                    <button class="tab-btn" data-tab="contratos" onclick="trocarAbaProjeto('contratos')">Contratos</button>
+                    <button class="tab-btn" data-tab="guias" onclick="trocarAbaProjeto('guias')">Guias</button>
+                    <button class="tab-btn" data-tab="auditoria" onclick="trocarAbaProjeto('auditoria')">Auditoria</button>
+                </div>
+
+                <div id="aba-documentos" class="aba-projeto">
+                    <p class="text-xs" style="color: var(--text-muted); margin-bottom: 1rem;">Linhas em destaque estão bloqueadas por conformidade ou têm erro registrado — cenário mais comum de precisar de suporte.</p>
+                    <div class="data-table-container">
+                        <div id="documentos-tabela-wrap" style="min-width: 0;"></div>
+                    </div>
+                    <div id="documentos-paginacao"></div>
+                </div>
+                <div id="aba-contratos" class="aba-projeto" style="display: none;">
+                    <div class="data-table-container">
+                        <div id="contratos-tabela-wrap" style="min-width: 0;"></div>
+                    </div>
+                    <div id="contratos-paginacao"></div>
+                </div>
+                <div id="aba-guias" class="aba-projeto" style="display: none;">
+                    <div class="data-table-container">
+                        <div id="guias-tabela-wrap" style="min-width: 0;"></div>
+                    </div>
+                    <div id="guias-paginacao"></div>
+                </div>
+                <div id="aba-auditoria" class="aba-projeto" style="display: none;">
+                    <p class="text-xs" style="color: var(--text-muted); margin-bottom: 1rem;">Mesma lógica de rótulo usada no PDF de Auditoria (Exportações do Módulo II), renderizada em tela.</p>
+                    <div class="data-table-container">
+                        <div id="auditoria-tabela-wrap" style="min-width: 0;"></div>
+                    </div>
+                    <div id="auditoria-paginacao"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" style="margin-top: 1.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
+                <i data-lucide="activity"></i>
+                <h3 class="h2">Status do Sistema (crons/RPA)</h3>
+            </div>
+            <div class="data-table-container">
+                <div id="crons-tabela-wrap" style="min-width: 0;">
+                    <p class="text-sm" style="color: var(--text-muted); padding: 1rem;">Carregando…</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Resetar acesso (ESCRITA — auditada em audit_log) -->
+    <div id="modal-resetar-senha" class="modal">
+        <div class="modal-content">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem;">
+                <h3 style="font-size: 1.25rem; font-weight: 700;">Resetar acesso</h3>
+                <button type="button" class="btn btn-ghost" onclick="fecharModalResetarSenha()">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+
+            <div id="resetar-senha-form-wrap">
+                <p class="text-sm" style="margin-bottom: 1rem; color: var(--text-secondary);">Usuário: <strong id="resetar-senha-email"></strong></p>
+                <input type="hidden" id="resetar-senha-user-id">
+                <div class="form-group">
+                    <label>Nova senha provisória (mín. 6 caracteres)</label>
+                    <input type="text" id="resetar-senha-valor" class="form-control" minlength="6" required>
+                </div>
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem;">
+                    <button type="button" class="btn btn-secondary" onclick="fecharModalResetarSenha()">Cancelar</button>
+                    <button type="button" class="btn btn-primary" id="btn-resetar-senha-submit" onclick="handleResetarSenha()">Resetar acesso</button>
+                </div>
+            </div>
+
+            <div id="resetar-senha-sucesso-wrap" style="display: none;">
+                <div style="padding: 1rem; background: var(--bg-sidebar); border-radius: var(--radius-md); margin-bottom: 1rem;">
+                    <p class="text-sm" style="margin-bottom: 0.75rem;">Senha resetada. Anote e repasse ao usuário — não fica salva em nenhum lugar depois que esta janela for fechada:</p>
+                    <p style="font-size: 0.9rem; margin-bottom: 0.25rem;"><strong>E-mail:</strong> <span id="resetar-senha-resultado-email"></span></p>
+                    <p style="font-size: 0.9rem;"><strong>Senha:</strong> <span id="resetar-senha-resultado-senha" style="font-family: monospace;"></span></p>
+                </div>
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                    <button type="button" class="btn btn-secondary" onclick="copiarCredenciaisReset()">
+                        <i data-lucide="copy" style="width: 14px;"></i> Copiar
+                    </button>
+                    <button type="button" class="btn btn-primary" onclick="fecharModalResetarSenha()">Concluir</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="config.js"></script>
+    <script>
+        let sbClient = null;
+        async function initSupabase() {
+            if (sbClient) return sbClient;
+            sbClient = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+            return sbClient;
+        }
+
+        function showToast(msg, type = 'success') {
+            const c = document.getElementById('toast-container');
+            const t = document.createElement('div');
+            t.className = `toast toast-${type}`;
+            t.innerHTML = `<div class="toast-content"><p class="toast-message">${msg}</p></div>`;
+            c.appendChild(t);
+            setTimeout(() => {
+                t.classList.add('fade-out');
+                setTimeout(() => t.remove(), 300);
+            }, 4000);
+        }
+
+        function esc(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function fmtMoney(v) {
+            if (v == null) return '—';
+            return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        }
+
+        function fmtDate(iso) {
+            if (!iso) return '—';
+            return new Date(iso).toLocaleDateString('pt-BR');
+        }
+
+        const MOD_LABELS = { modulo_1: 'M1 Financeiro', modulo_2: 'M2 Prestação', modulo_3: 'M3 Contrapartidas' };
+        const ROLE_LABELS = { admin: 'Administrador', gestor: 'Gestor', analista: 'Analista', operador: 'Operador', fornecedor: 'Fornecedor' };
+
+        // ── Paginação genérica ───────────────────────────────────────
+        // Client-side: os endpoints já devolvem a lista inteira (ou até um
+        // teto alto, ex. documentos/limit 200); paginar só a exibição evita
+        // telas gigantes conforme as organizações crescem, sem reescrever os
+        // endpoints agora.
+        const ITENS_POR_PAGINA = 15;
+
+        function paginar(array, pagina, porPagina = ITENS_POR_PAGINA) {
+            const inicio = (pagina - 1) * porPagina;
+            return array.slice(inicio, inicio + porPagina);
+        }
+
+        function totalPaginas(totalItens, porPagina = ITENS_POR_PAGINA) {
+            return Math.max(1, Math.ceil(totalItens / porPagina));
+        }
+
+        function renderControlesPaginacao(containerId, paginaAtual, totalItens, nomeFuncaoIrPara, porPagina = ITENS_POR_PAGINA) {
+            const el = document.getElementById(containerId);
+            if (!el) return;
+            const totalPag = totalPaginas(totalItens, porPagina);
+            if (totalPag <= 1) { el.innerHTML = ''; return; }
+
+            el.innerHTML = `
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding-top: 0.75rem; margin-top: 0.5rem; border-top: 1px solid var(--border-subtle);">
+                    <span class="text-xs" style="color: var(--text-muted);">Página ${paginaAtual} de ${totalPag} (${totalItens} registro${totalItens === 1 ? '' : 's'})</span>
+                    <div style="display: flex; gap: 0.4rem;">
+                        <button class="btn btn-secondary" style="padding: 0.3rem 0.6rem; font-size: 0.75rem;" ${paginaAtual <= 1 ? 'disabled' : ''} onclick="${nomeFuncaoIrPara}(${paginaAtual - 1})">Anterior</button>
+                        <button class="btn btn-secondary" style="padding: 0.3rem 0.6rem; font-size: 0.75rem;" ${paginaAtual >= totalPag ? 'disabled' : ''} onclick="${nomeFuncaoIrPara}(${paginaAtual + 1})">Próxima</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        let orgs = [];
+        let orgsFiltro = '';
+        let orgsPagina = 1;
+        let orgSelecionadaId = null;
+        let projetoSelecionadoId = null;
+        // Marca, por aba, qual projeto foi carregado por último — evita refetch
+        // ao trocar de aba no mesmo projeto, mas refaz a busca ao trocar de projeto.
+        const cacheAbaProjeto = { contratos: null, guias: null, auditoria: null };
+
+        // Dataset completo + página atual de cada aba do projeto.
+        let documentosData = [];
+        let documentosPagina = 1;
+        let contratosData = [];
+        let contratosPagina = 1;
+        let guiasData = [];
+        let guiasPagina = 1;
+        let auditoriaData = [];
+        let auditoriaMaps = { mapRotulos: {}, mapUsuarios: {}, mapMotivos: {} };
+        let auditoriaPagina = 1;
+
+        async function authFetch(url) {
+            const sb = await initSupabase();
+            const { data: { session } } = await sb.auth.getSession();
+            const resp = await fetch(url, { headers: { Authorization: `Bearer ${session.access_token}` } });
+            const json = await resp.json().catch(() => ({}));
+            if (!resp.ok) throw new Error(json.error || 'Falha na requisição.');
+            return json;
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            if (window.lucide) window.lucide.createIcons();
+
+            const sb = await initSupabase();
+            const { data: { session } } = await sb.auth.getSession();
+            if (!session) { window.location.href = 'index.html#login'; return; }
+
+            // CRÍTICO: mesmo guard de plataforma.html, mas aceitando is_suporte
+            // também — sem o claim, sai daqui antes de qualquer fetch (o backend
+            // ainda revalida em cada endpoint via requireSuporte).
+            const meta = session.user?.app_metadata || {};
+            if (meta.is_suporte !== true && meta.is_platform_admin !== true) {
+                window.location.href = 'module-selector.html';
+                return;
+            }
+
+            await Promise.all([fetchOrgs(), fetchCrons()]);
+        });
+
+        // ── Busca global ──────────────────────────────────────────────
+
+        let buscaDebounce = null;
+        function handleBuscaInput(valor) {
+            clearTimeout(buscaDebounce);
+            const termo = valor.trim();
+            if (termo.length < 3) {
+                document.getElementById('busca-resultados').innerHTML = '';
+                return;
+            }
+            buscaDebounce = setTimeout(() => executarBusca(termo), 350);
+        }
+
+        async function executarBusca(termo) {
+            const wrap = document.getElementById('busca-resultados');
+            wrap.innerHTML = `<p class="text-sm" style="color: var(--text-muted);">Buscando…</p>`;
+            try {
+                const json = await authFetch(`/api/suporte/buscar?q=${encodeURIComponent(termo)}`);
+                renderBuscaResultados(json.projetos || [], json.fornecedores || []);
+            } catch (err) {
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error);">Erro na busca: ${esc(err.message)}</p>`;
+            }
+        }
+
+        function renderBuscaResultados(projetos, fornecedores) {
+            const wrap = document.getElementById('busca-resultados');
+            if (!projetos.length && !fornecedores.length) {
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--text-muted);">Nenhum resultado.</p>`;
+                return;
+            }
+
+            wrap.innerHTML = `
+                ${projetos.map(p => `
+                    <div class="busca-resultado-item" onclick="irParaProjetoBusca('${p.organization_id}', '${p.id}', '${esc(p.nome || '')}')">
+                        <div style="font-weight: 600;">${esc(p.nome)} <span class="text-xs" style="color: var(--text-muted); font-weight: 400;">— PRONAC ${esc(p.pronac || '—')}</span></div>
+                        <div class="text-xs" style="color: var(--text-muted);">Projeto · ${esc(p.organizacao || 'organização desconhecida')}</div>
+                    </div>
+                `).join('')}
+                ${fornecedores.map(f => `
+                    <div class="busca-resultado-item" onclick="irParaOrgBusca('${f.organization_id}')">
+                        <div style="font-weight: 600;">${esc(f.razao_social)} <span class="text-xs" style="color: var(--text-muted); font-weight: 400;">— ${esc(f.cnpj || '')}</span></div>
+                        <div class="text-xs" style="color: var(--text-muted);">Fornecedor · ${esc(f.organizacao || 'organização desconhecida')}</div>
+                    </div>
+                `).join('')}
+            `;
+        }
+
+        async function irParaProjetoBusca(orgId, projetoId, nomeProjeto) {
+            document.getElementById('busca-resultados').innerHTML = '';
+            document.getElementById('busca-input').value = '';
+            await selecionarOrg(orgId);
+            await selecionarProjeto(projetoId, nomeProjeto);
+        }
+
+        async function irParaOrgBusca(orgId) {
+            document.getElementById('busca-resultados').innerHTML = '';
+            document.getElementById('busca-input').value = '';
+            await selecionarOrg(orgId);
+            showToast('Fornecedor pertence a esta organização — projetos e usuários carregados.', 'success');
+        }
+
+        // ── Organizações ──────────────────────────────────────────────
+
+        async function fetchOrgs() {
+            const wrap = document.getElementById('orgs-tabela-wrap');
+            try {
+                const json = await authFetch('/api/plataforma/organizacoes');
+                orgs = json.organizacoes || [];
+                renderOrgs();
+            } catch (err) {
+                console.error('fetchOrgs:', err);
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(err.message)}</p>`;
+            }
+        }
+
+        function handleFiltrarOrgs(valor) {
+            orgsFiltro = valor.trim().toLowerCase();
+            orgsPagina = 1;
+            renderOrgs();
+        }
+
+        function irParaPaginaOrgs(pagina) {
+            orgsPagina = pagina;
+            renderOrgs();
+        }
+
+        function renderOrgs() {
+            const wrap = document.getElementById('orgs-tabela-wrap');
+            const filtradas = orgsFiltro
+                ? orgs.filter(o => (o.nome || '').toLowerCase().includes(orgsFiltro) || (o.slug || '').toLowerCase().includes(orgsFiltro))
+                : orgs;
+            document.getElementById('orgs-count').textContent = `(${filtradas.length}${orgsFiltro ? ` de ${orgs.length}` : ''})`;
+
+            if (!filtradas.length) {
+                wrap.innerHTML = `<p class="empty-state-inline">${orgsFiltro ? 'Nenhuma organização encontrada para esse filtro.' : 'Nenhuma organização cadastrada.'}</p>`;
+                document.getElementById('orgs-paginacao').innerHTML = '';
+                return;
+            }
+
+            const pagina = paginar(filtradas, orgsPagina);
+            wrap.innerHTML = `
+                <table class="data-table" style="width: 100%;">
+                    <thead>
+                        <tr>
+                            <th>Organização</th>
+                            <th>Módulos</th>
+                            <th>Projetos</th>
+                            <th>Usuários</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${pagina.map(o => `
+                            <tr class="clickable-row ${o.id === orgSelecionadaId ? 'selecionada' : ''}" onclick="selecionarOrg('${o.id}')">
+                                <td>
+                                    <div style="font-weight: 600;">${esc(o.nome)}</div>
+                                    <div class="text-xs" style="color: var(--text-muted);">${esc(o.slug || '')}</div>
+                                </td>
+                                <td>${(o.modulos || []).map(m => `<span class="badge-mod">${esc(MOD_LABELS[m] || m)}</span>`).join('') || '—'}</td>
+                                <td>${o.num_projetos}</td>
+                                <td>${o.num_usuarios}</td>
+                                <td><span class="badge ${o.ativo ? 'status-completed' : 'status-error'}"><span class="badge-dot"></span>${o.ativo ? 'Ativa' : 'Inativa'}</span></td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            renderControlesPaginacao('orgs-paginacao', orgsPagina, filtradas.length, 'irParaPaginaOrgs');
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        async function selecionarOrg(orgId) {
+            orgSelecionadaId = orgId;
+            projetoSelecionadoId = null;
+            renderOrgs();
+            document.getElementById('secao-org-selecionada').style.display = 'block';
+            document.getElementById('secao-projeto-detalhe').style.display = 'none';
+
+            document.getElementById('projetos-tabela-wrap').innerHTML = `<p class="text-sm" style="color: var(--text-muted); padding: 1rem;">Carregando…</p>`;
+            document.getElementById('usuarios-tabela-wrap').innerHTML = `<p class="text-sm" style="color: var(--text-muted); padding: 1rem;">Carregando…</p>`;
+
+            await Promise.all([fetchProjetos(orgId), fetchUsuarios(orgId)]);
+        }
+
+        // ── Projetos ──────────────────────────────────────────────────
+
+        async function fetchProjetos(orgId) {
+            const wrap = document.getElementById('projetos-tabela-wrap');
+            try {
+                const json = await authFetch(`/api/suporte/organizacoes/${orgId}/projetos`);
+                renderProjetos(json.projetos || []);
+            } catch (err) {
+                console.error('fetchProjetos:', err);
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(err.message)}</p>`;
+            }
+        }
+
+        function renderProjetos(projetos) {
+            const wrap = document.getElementById('projetos-tabela-wrap');
+            document.getElementById('projetos-count').textContent = `(${projetos.length})`;
+
+            if (!projetos.length) {
+                wrap.innerHTML = `<p class="empty-state-inline">Nenhum projeto nesta organização.</p>`;
+                return;
+            }
+
+            wrap.innerHTML = `
+                <table class="data-table" style="width: 100%;">
+                    <thead>
+                        <tr><th>Projeto</th><th>PRONAC</th><th>Criado em</th></tr>
+                    </thead>
+                    <tbody>
+                        ${projetos.map(p => `
+                            <tr class="clickable-row ${p.id === projetoSelecionadoId ? 'selecionada' : ''}" onclick="selecionarProjeto('${p.id}', '${esc(p.nome || '').replace(/'/g, "\\'")}')">
+                                <td style="font-weight: 600;">${esc(p.nome || '—')}</td>
+                                <td class="text-sm">${esc(p.pronac || '—')}</td>
+                                <td class="text-sm">${fmtDate(p.created_at)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        // Só re-renderiza a tabela de projetos já carregada, pra marcar a linha
+        // selecionada sem refazer a requisição.
+        function renderProjetosSelecionado() {
+            document.querySelectorAll('#projetos-tabela-wrap .clickable-row').forEach(tr => {
+                tr.classList.toggle('selecionada', tr.getAttribute('onclick')?.includes(`'${projetoSelecionadoId}'`));
+            });
+        }
+
+        async function selecionarProjeto(projetoId, nomeProjeto) {
+            projetoSelecionadoId = projetoId;
+            renderProjetosSelecionado();
+
+            const secao = document.getElementById('secao-projeto-detalhe');
+            secao.style.display = 'block';
+            document.getElementById('projeto-detalhe-nome').textContent = nomeProjeto || '—';
+            trocarAbaProjeto('documentos');
+            document.getElementById('documentos-tabela-wrap').innerHTML = `<p class="text-sm" style="color: var(--text-muted); padding: 1rem;">Carregando…</p>`;
+            secao.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+            await fetchDocumentos(projetoId);
+        }
+
+        // ── Abas do projeto: Documentos / Contratos / Guias / Auditoria ─
+
+        function trocarAbaProjeto(aba) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === aba));
+            document.querySelectorAll('.aba-projeto').forEach(el => el.style.display = 'none');
+            document.getElementById('aba-' + aba).style.display = 'block';
+
+            if (aba === 'contratos' && cacheAbaProjeto.contratos !== projetoSelecionadoId) fetchContratos(projetoSelecionadoId);
+            if (aba === 'guias' && cacheAbaProjeto.guias !== projetoSelecionadoId) fetchGuias(projetoSelecionadoId);
+            if (aba === 'auditoria' && cacheAbaProjeto.auditoria !== projetoSelecionadoId) fetchAuditoria(projetoSelecionadoId);
+        }
+
+        // ── Usuários ──────────────────────────────────────────────────
+
+        async function fetchUsuarios(orgId) {
+            const wrap = document.getElementById('usuarios-tabela-wrap');
+            try {
+                const json = await authFetch(`/api/suporte/organizacoes/${orgId}/usuarios`);
+                renderUsuarios(json.users || []);
+            } catch (err) {
+                console.error('fetchUsuarios:', err);
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(err.message)}</p>`;
+            }
+        }
+
+        function renderUsuarios(users) {
+            const wrap = document.getElementById('usuarios-tabela-wrap');
+            document.getElementById('usuarios-count').textContent = `(${users.length})`;
+
+            if (!users.length) {
+                wrap.innerHTML = `<p class="empty-state-inline">Nenhum usuário nesta organização.</p>`;
+                return;
+            }
+
+            wrap.innerHTML = `
+                <table class="data-table" style="width: 100%;">
+                    <thead>
+                        <tr><th>E-mail</th><th>Perfil</th><th>Desde</th><th style="text-align: right;">Ações</th></tr>
+                    </thead>
+                    <tbody>
+                        ${users.map(u => `
+                            <tr>
+                                <td class="text-sm">${esc(u.email || '—')}</td>
+                                <td class="text-sm">${esc(ROLE_LABELS[u.role] || u.role || '—')}</td>
+                                <td class="text-sm">${fmtDate(u.created_at)}</td>
+                                <td style="text-align: right;">
+                                    <button class="btn btn-secondary" style="padding: 0.35rem 0.7rem; font-size: 0.75rem;" onclick="abrirModalResetarSenha('${u.id}', '${esc(u.email || '').replace(/'/g, "\\'")}')">Resetar acesso</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        // ── Documentos ────────────────────────────────────────────────
+
+        async function fetchDocumentos(projetoId) {
+            const wrap = document.getElementById('documentos-tabela-wrap');
+            try {
+                const json = await authFetch(`/api/suporte/projetos/${projetoId}/documentos`);
+                documentosData = json.documentos || [];
+                documentosPagina = 1;
+                renderDocumentos();
+            } catch (err) {
+                console.error('fetchDocumentos:', err);
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(err.message)}</p>`;
+            }
+        }
+
+        function irParaPaginaDocumentos(pagina) {
+            documentosPagina = pagina;
+            renderDocumentos();
+        }
+
+        function renderDocumentos() {
+            const wrap = document.getElementById('documentos-tabela-wrap');
+
+            if (!documentosData.length) {
+                wrap.innerHTML = `<p class="empty-state-inline">Nenhum documento neste projeto.</p>`;
+                document.getElementById('documentos-paginacao').innerHTML = '';
+                return;
+            }
+
+            const documentos = paginar(documentosData, documentosPagina);
+            wrap.innerHTML = `
+                <table class="data-table" style="width: 100%;">
+                    <thead>
+                        <tr>
+                            <th>Nome</th>
+                            <th>Tipo</th>
+                            <th>Emissor</th>
+                            <th>Valor</th>
+                            <th>Status</th>
+                            <th>Criado em</th>
+                            <th style="text-align: right;">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${documentos.map(d => {
+                            const precisaAtencao = d.status === 'bloqueado_conformidade' || !!d.just_erro;
+                            return `
+                            <tr class="${precisaAtencao ? 'doc-row-atencao' : ''}">
+                                <td style="font-weight: 600;">${esc(d.name || '—')}</td>
+                                <td class="text-sm">${esc(d.tipo_documento || '—')}</td>
+                                <td class="text-sm">
+                                    <div>${esc(d.nome_emissor || '—')}</div>
+                                    <div class="text-xs" style="color: var(--text-muted);">${esc(d.cnpj_emissor || '')}</div>
+                                </td>
+                                <td class="text-sm">${fmtMoney(d.valor)}</td>
+                                <td class="text-sm">
+                                    ${esc(d.status || '—')}
+                                    ${precisaAtencao ? '<span class="badge status-error" style="margin-left: 4px;"><span class="badge-dot"></span>Atenção</span>' : ''}
+                                    ${d.just_erro ? `<div class="text-xs" style="color: var(--error); margin-top: 0.25rem;">${esc(d.just_erro)}</div>` : ''}
+                                </td>
+                                <td class="text-sm">${fmtDate(d.created_at)}</td>
+                                <td style="text-align: right; white-space: nowrap;">
+                                    ${d.status === 'revisao_manual' ? `<button class="btn btn-secondary" style="padding: 0.35rem 0.7rem; font-size: 0.75rem;" onclick="handleReprocessarOcr('${d.id}', this)">Reprocessar OCR</button>` : ''}
+                                </td>
+                            </tr>
+                        `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            `;
+            renderControlesPaginacao('documentos-paginacao', documentosPagina, documentosData.length, 'irParaPaginaDocumentos');
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        // SPEC-SUPORTE-02 (6) — ESCRITA, auditada em audit_log pelo endpoint.
+        async function handleReprocessarOcr(documentId, btnEl) {
+            if (!confirm('Forçar o reprocessamento de OCR deste documento? O status volta para "processing_ocr" e ele entra de novo na esteira.')) return;
+
+            btnEl.disabled = true;
+            btnEl.textContent = 'Reprocessando…';
+
+            try {
+                const sb = await initSupabase();
+                const { data: { session } } = await sb.auth.getSession();
+                const resp = await fetch(`/api/suporte/documentos/${documentId}/reprocessar-ocr`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${session.access_token}` }
+                });
+                const json = await resp.json().catch(() => ({}));
+                if (!resp.ok) throw new Error(json.error || 'Falha ao reprocessar.');
+
+                showToast('Reprocessamento disparado.', 'success');
+                await fetchDocumentos(projetoSelecionadoId);
+            } catch (err) {
+                showToast(err.message, 'error');
+                btnEl.disabled = false;
+                btnEl.textContent = 'Reprocessar OCR';
+            }
+        }
+
+        // ── Contratos ─────────────────────────────────────────────────
+
+        async function fetchContratos(projetoId) {
+            const wrap = document.getElementById('contratos-tabela-wrap');
+            wrap.innerHTML = `<p class="text-sm" style="color: var(--text-muted); padding: 1rem;">Carregando…</p>`;
+            try {
+                const json = await authFetch(`/api/suporte/projetos/${projetoId}/contratos`);
+                cacheAbaProjeto.contratos = projetoId;
+                contratosData = json.contratos || [];
+                contratosPagina = 1;
+                renderContratos();
+            } catch (err) {
+                console.error('fetchContratos:', err);
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(err.message)}</p>`;
+            }
+        }
+
+        function irParaPaginaContratos(pagina) {
+            contratosPagina = pagina;
+            renderContratos();
+        }
+
+        function renderContratos() {
+            const wrap = document.getElementById('contratos-tabela-wrap');
+            if (!contratosData.length) {
+                wrap.innerHTML = `<p class="empty-state-inline">Nenhum contrato neste projeto.</p>`;
+                document.getElementById('contratos-paginacao').innerHTML = '';
+                return;
+            }
+            const contratos = paginar(contratosData, contratosPagina);
+            wrap.innerHTML = `
+                <table class="data-table" style="width: 100%;">
+                    <thead><tr><th>Número</th><th>Objeto</th><th>Valor</th><th>Período</th><th>Status</th></tr></thead>
+                    <tbody>
+                        ${contratos.map(c => `
+                            <tr>
+                                <td style="font-weight: 600;">${esc(c.numero || '—')}</td>
+                                <td class="text-sm">${esc(c.objeto || '—')}</td>
+                                <td class="text-sm">${fmtMoney(c.valor_total)}</td>
+                                <td class="text-sm">${fmtDate(c.data_inicio)} → ${fmtDate(c.data_fim)}</td>
+                                <td class="text-sm">${esc(c.status || '—')}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            renderControlesPaginacao('contratos-paginacao', contratosPagina, contratosData.length, 'irParaPaginaContratos');
+        }
+
+        // ── Guias ─────────────────────────────────────────────────────
+
+        async function fetchGuias(projetoId) {
+            const wrap = document.getElementById('guias-tabela-wrap');
+            wrap.innerHTML = `<p class="text-sm" style="color: var(--text-muted); padding: 1rem;">Carregando…</p>`;
+            try {
+                const json = await authFetch(`/api/suporte/projetos/${projetoId}/guias`);
+                cacheAbaProjeto.guias = projetoId;
+                guiasData = json.guias || [];
+                guiasPagina = 1;
+                renderGuias();
+            } catch (err) {
+                console.error('fetchGuias:', err);
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(err.message)}</p>`;
+            }
+        }
+
+        function irParaPaginaGuias(pagina) {
+            guiasPagina = pagina;
+            renderGuias();
+        }
+
+        function renderGuias() {
+            const wrap = document.getElementById('guias-tabela-wrap');
+            if (!guiasData.length) {
+                wrap.innerHTML = `<p class="empty-state-inline">Nenhuma guia neste projeto.</p>`;
+                document.getElementById('guias-paginacao').innerHTML = '';
+                return;
+            }
+            const guias = paginar(guiasData, guiasPagina);
+            wrap.innerHTML = `
+                <table class="data-table" style="width: 100%;">
+                    <thead><tr><th>Tipo</th><th>Competência</th><th>Valor</th><th>Vencimento</th><th>Pagamento</th><th>Status</th></tr></thead>
+                    <tbody>
+                        ${guias.map(g => `
+                            <tr>
+                                <td style="font-weight: 600;">${esc(g.tipo_imposto || '—')}</td>
+                                <td class="text-sm">${esc(g.competencia || '—')}</td>
+                                <td class="text-sm">${fmtMoney(g.valor)}</td>
+                                <td class="text-sm">${fmtDate(g.data_vencimento)}</td>
+                                <td class="text-sm">${fmtDate(g.data_pagamento)}</td>
+                                <td class="text-sm">${esc(g.status || '—')}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            renderControlesPaginacao('guias-paginacao', guiasPagina, guiasData.length, 'irParaPaginaGuias');
+        }
+
+        // ── Auditoria ─────────────────────────────────────────────────
+        // Mesma lógica de rótulo/ação/detalhe que exportarAuditoria já usa em
+        // modulo2/exportacoes.html (PDF) — reaproveitada aqui, não reinventada.
+
+        const TIPO_TABELA_LABELS = {
+            documents: 'Nota Fiscal/Recibo',
+            contracts: 'Contrato',
+            physical_evidences: 'Evidência',
+            tax_guides: 'Guia de Imposto',
+            extratos: 'Extrato Bancário',
+            despesas: 'Despesa'
+        };
+        const CAMPO_LABELS_PT = { status: 'Status', valor: 'Valor' };
+
+        function acaoDaAuditoria(a) {
+            if (a.campo === '__insert') return 'Criado';
+            if (a.campo === 'status' && a.valor_novo === 'cancelada') return 'Excluído';
+            return 'Alterado';
+        }
+
+        async function fetchAuditoria(projetoId) {
+            const wrap = document.getElementById('auditoria-tabela-wrap');
+            wrap.innerHTML = `<p class="text-sm" style="color: var(--text-muted); padding: 1rem;">Carregando…</p>`;
+            try {
+                const json = await authFetch(`/api/suporte/projetos/${projetoId}/audit-log`);
+                cacheAbaProjeto.auditoria = projetoId;
+                auditoriaData = json.auditLog || [];
+                auditoriaMaps = { mapRotulos: json.mapRotulos || {}, mapUsuarios: json.mapUsuarios || {}, mapMotivos: json.mapMotivos || {} };
+                auditoriaPagina = 1;
+                renderAuditoria();
+            } catch (err) {
+                console.error('fetchAuditoria:', err);
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(err.message)}</p>`;
+            }
+        }
+
+        function irParaPaginaAuditoria(pagina) {
+            auditoriaPagina = pagina;
+            renderAuditoria();
+        }
+
+        function renderAuditoria() {
+            const wrap = document.getElementById('auditoria-tabela-wrap');
+            if (!auditoriaData.length) {
+                wrap.innerHTML = `<p class="empty-state-inline">Nenhum registro de auditoria para este projeto.</p>`;
+                document.getElementById('auditoria-paginacao').innerHTML = '';
+                return;
+            }
+
+            const { mapRotulos, mapUsuarios, mapMotivos } = auditoriaMaps;
+            const auditLog = paginar(auditoriaData, auditoriaPagina);
+            wrap.innerHTML = `
+                <table class="data-table" style="width: 100%;">
+                    <thead>
+                        <tr><th>Data/Hora</th><th>Usuário</th><th>Tipo</th><th>Documento</th><th>Ação</th><th>Detalhe</th></tr>
+                    </thead>
+                    <tbody>
+                        ${auditLog.map(a => {
+                            const acao = acaoDaAuditoria(a);
+                            let detalhe = '';
+                            if (acao === 'Excluído') {
+                                detalhe = mapMotivos[a.registro_id] || '';
+                            } else if (acao === 'Alterado') {
+                                const campoLabel = CAMPO_LABELS_PT[a.campo] || a.campo;
+                                detalhe = `${campoLabel}: ${a.valor_anterior ?? '—'} → ${a.valor_novo ?? '—'}`;
+                            }
+                            return `
+                                <tr>
+                                    <td class="text-sm">${new Date(a.created_at).toLocaleString('pt-BR')}</td>
+                                    <td class="text-sm">${esc(mapUsuarios[a.alterado_por] || 'Sistema (automação)')}</td>
+                                    <td class="text-sm">${esc(TIPO_TABELA_LABELS[a.tabela] || a.tabela)}</td>
+                                    <td class="text-sm">${esc(mapRotulos[a.registro_id] || '—')}</td>
+                                    <td class="text-sm">${esc(acao)}</td>
+                                    <td class="text-sm">${esc(detalhe)}</td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            `;
+            renderControlesPaginacao('auditoria-paginacao', auditoriaPagina, auditoriaData.length, 'irParaPaginaAuditoria');
+        }
+
+        // ── Resetar acesso (ESCRITA — auditada em audit_log) ─────────
+
+        function abrirModalResetarSenha(userId, email) {
+            document.getElementById('resetar-senha-user-id').value = userId;
+            document.getElementById('resetar-senha-email').textContent = email;
+            document.getElementById('resetar-senha-valor').value = '';
+            document.getElementById('resetar-senha-resultado-email').textContent = '';
+            document.getElementById('resetar-senha-resultado-senha').textContent = '';
+            document.getElementById('resetar-senha-form-wrap').style.display = 'block';
+            document.getElementById('resetar-senha-sucesso-wrap').style.display = 'none';
+            document.getElementById('modal-resetar-senha').style.display = 'flex';
+        }
+
+        function fecharModalResetarSenha() {
+            document.getElementById('modal-resetar-senha').style.display = 'none';
+            // A senha não deve sobreviver ao fechamento do modal em lugar nenhum da tela.
+            document.getElementById('resetar-senha-valor').value = '';
+            document.getElementById('resetar-senha-resultado-senha').textContent = '';
+        }
+
+        async function handleResetarSenha() {
+            const userId = document.getElementById('resetar-senha-user-id').value;
+            const email = document.getElementById('resetar-senha-email').textContent;
+            const password = document.getElementById('resetar-senha-valor').value;
+            if (!password || password.length < 6) return showToast('Senha precisa ter pelo menos 6 caracteres.', 'error');
+
+            const btn = document.getElementById('btn-resetar-senha-submit');
+            btn.disabled = true;
+            btn.textContent = 'Resetando…';
+
+            try {
+                const sb = await initSupabase();
+                const { data: { session } } = await sb.auth.getSession();
+                const resp = await fetch(`/api/suporte/usuarios/${userId}/resetar-senha`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${session.access_token}`
+                    },
+                    body: JSON.stringify({ password })
+                });
+                const json = await resp.json().catch(() => ({}));
+                if (!resp.ok) throw new Error(json.error || 'Falha ao resetar acesso.');
+
+                document.getElementById('resetar-senha-resultado-email').textContent = email;
+                document.getElementById('resetar-senha-resultado-senha').textContent = password;
+                document.getElementById('resetar-senha-form-wrap').style.display = 'none';
+                document.getElementById('resetar-senha-sucesso-wrap').style.display = 'block';
+            } catch (err) {
+                showToast(err.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Resetar acesso';
+            }
+        }
+
+        function copiarCredenciaisReset() {
+            const email = document.getElementById('resetar-senha-resultado-email').textContent;
+            const senha = document.getElementById('resetar-senha-resultado-senha').textContent;
+            navigator.clipboard.writeText(`E-mail: ${email}\nSenha: ${senha}`);
+            showToast('Credenciais copiadas.', 'success');
+        }
+
+        // ── Status do Sistema (crons/RPA) ────────────────────────────
+
+        // Intervalo máximo esperado entre execuções, por job — só pra destacar
+        // visualmente quando algo pode estar parado. Os *-vencidas/vencendo
+        // rodam 1x/dia (11h); a folga de 30min é margem de execução atrasada.
+        const CRON_INTERVALO_MAX_MIN = {
+            'retry-ocr-stuck': 5,
+            'revisao-ocr-travado': 2,
+            'cron-guias-vencidas': 24 * 60 + 30,
+            'cron-parcelas-vencidas': 24 * 60 + 30,
+            'cron-alerta-guias-vencendo': 24 * 60 + 30
+        };
+
+        async function fetchCrons() {
+            const wrap = document.getElementById('crons-tabela-wrap');
+            try {
+                const json = await authFetch('/api/suporte/sistema/crons');
+                renderCrons(json.crons || []);
+            } catch (err) {
+                console.error('fetchCrons:', err);
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(err.message)}</p>`;
+            }
+        }
+
+        function renderCrons(crons) {
+            const wrap = document.getElementById('crons-tabela-wrap');
+            if (!crons.length) {
+                wrap.innerHTML = `<p class="empty-state-inline">Nenhum cron encontrado.</p>`;
+                return;
+            }
+
+            wrap.innerHTML = `
+                <table class="data-table" style="width: 100%;">
+                    <thead><tr><th>Job</th><th>Última execução</th><th>Status</th><th>Agenda (cron)</th></tr></thead>
+                    <tbody>
+                        ${crons.map(c => {
+                            const limiteMin = CRON_INTERVALO_MAX_MIN[c.jobname];
+                            let atrasado = false;
+                            if (limiteMin) {
+                                atrasado = !c.ultima_execucao || (Date.now() - new Date(c.ultima_execucao).getTime()) / 60000 > limiteMin;
+                            }
+                            return `
+                                <tr class="${atrasado ? 'doc-row-atencao' : ''}">
+                                    <td style="font-weight: 600;">${esc(c.jobname)}</td>
+                                    <td class="text-sm">${c.ultima_execucao ? new Date(c.ultima_execucao).toLocaleString('pt-BR') : 'Nunca rodou'}</td>
+                                    <td class="text-sm">
+                                        ${esc(c.status || '—')}
+                                        ${atrasado ? '<span class="badge status-error" style="margin-left: 4px;"><span class="badge-dot"></span>Atrasado</span>' : ''}
+                                    </td>
+                                    <td class="text-sm" style="font-family: monospace;">${esc(c.proxima_estimada || '—')}</td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+    </script>
+</body>
+</html>

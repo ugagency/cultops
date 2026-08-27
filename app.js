@@ -602,6 +602,8 @@ const state = {
     currentDocument: null,
     // Documento apontado por currentDocument.duplicata_de_id, para o comparativo.
     currentDuplicata: null,
+    // SPEC-GUIA-01 Caso D: guia pendente/atrasada no M2 que bate com esta pela chave.
+    guiaDuplicataM2: null,
     // { extrato, lancamentoDaNota, lancamentos, notasPorId } — seção de extrato.
     currentExtrato: null,
     extratoLancamentosExpandido: false,
@@ -2324,6 +2326,120 @@ function renderCampoOuFaltando(valorFormatado, faltando) {
         : valorFormatado;
 }
 
+// SPEC-GUIA-01, Caso D — chave primária: numero_guia + project_id (OCR
+// entrega numero_guia de forma confiável, bate com numero_nf). Fallback
+// (numero_guia nulo nesta guia): tipo_imposto + competencia + valor +
+// project_id — existe por causa de guias antigas com numero_nf incorreto
+// (BL-03, número do comprovante do BB em vez do número oficial da guia).
+async function buscarGuiaDuplicadaM2(doc) {
+    const guia = doc.json_extraido?.guia;
+    if (!guia) return null;
+
+    try {
+        const { data: minhaGuia } = await supabaseClient
+            .from('tax_guides')
+            .select('id')
+            .eq('document_id', doc.id)
+            .maybeSingle();
+
+        let query = supabaseClient
+            .from('tax_guides')
+            .select('id, tipo_imposto, competencia, data_vencimento, valor, numero_guia')
+            .eq('project_id', doc.project_id)
+            .in('status', ['pendente', 'atrasada']);
+
+        if (minhaGuia?.id) query = query.neq('id', minhaGuia.id);
+
+        if (guia.numero_guia) {
+            query = query.eq('numero_guia', guia.numero_guia);
+        } else {
+            query = query
+                .eq('tipo_imposto', guia.tributo)
+                .eq('competencia', guia.competencia)
+                .eq('valor', guia.valor_tributo);
+        }
+
+        const { data, error } = await query.limit(1).maybeSingle();
+        if (error) { console.error('[buscarGuiaDuplicadaM2]', error); return null; }
+        if (!data) return null;
+
+        // Gestor já decidiu antes que essa combinação específica não é
+        // duplicata (registrado via /api/m2/impostos/ignorar-duplicata) —
+        // decisão definitiva, não pergunta de novo.
+        const { data: decisaoAnterior } = await supabaseClient
+            .from('audit_log')
+            .select('id')
+            .eq('tabela', 'documents')
+            .eq('registro_id', doc.id)
+            .eq('campo', 'guia_duplicata_decisao')
+            .eq('valor_novo', `nao_e_duplicata:${data.id}`)
+            .maybeSingle();
+        if (decisaoAnterior) return null;
+
+        return data;
+    } catch (err) {
+        console.error('[buscarGuiaDuplicadaM2]', err);
+        return null;
+    }
+}
+
+window.handleConsolidarGuiaM2 = async function (tabGuiaAntigaId) {
+    const doc = state.currentDocument;
+    if (!doc) return;
+
+    state.loading = true;
+    render();
+
+    try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        const resp = await fetch('/api/m2/impostos/consolidar-duplicata', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${session.access_token}`
+            },
+            body: JSON.stringify({ tax_guide_id_antiga: tabGuiaAntigaId, document_id: doc.id })
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json.error || 'Falha ao consolidar guias.');
+
+        showToast('Guias consolidadas: a guia do Módulo II foi marcada como paga.', 'success');
+        state.guiaDuplicataM2 = null;
+    } catch (err) {
+        showToast('Erro ao consolidar: ' + err.message, 'error');
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
+
+window.handleIgnorarGuiaDuplicadaM2 = async function (taxGuideId) {
+    const doc = state.currentDocument;
+    state.guiaDuplicataM2 = null;
+    render();
+
+    if (!doc) return;
+
+    try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        const resp = await fetch('/api/m2/impostos/ignorar-duplicata', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${session.access_token}`
+            },
+            body: JSON.stringify({ document_id: doc.id, tax_guide_id: taxGuideId })
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json.error || 'Falha ao registrar decisão.');
+    } catch (err) {
+        // Não bloqueia a UI (o banner já sumiu) — só avisa que a decisão pode
+        // não ter sido registrada e a pergunta pode voltar ao reabrir.
+        console.error('[handleIgnorarGuiaDuplicadaM2]', err);
+        showToast('Decisão registrada localmente, mas houve um erro ao salvar: ' + err.message, 'warning');
+    }
+};
+
 function renderDadosGuia(doc, esc) {
     const guia = doc?.json_extraido?.guia;
     if (!guia || typeof guia !== 'object') return '';
@@ -2790,6 +2906,26 @@ ${Sidebar()}
                             </div>` : ''}
                             <button class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 12px; margin-top: 0.25rem;" onclick="window.salvarCamposManuais('${doc.id}')">
                                 Salvar campos
+                            </button>
+                        </div>
+                    </div>` : ''}
+
+                    ${state.guiaDuplicataM2 ? `
+                    <div style="margin-top: 1.5rem; padding: 1rem; background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: var(--radius-sm);">
+                        <p style="font-size: 12px; font-weight: 700; color: #1D4ED8; margin-bottom: 0.5rem;">
+                            <i data-lucide="link-2" style="width: 14px; vertical-align: -2px;"></i>
+                            Esta guia já está cadastrada no Módulo II como não paga
+                        </p>
+                        <p class="text-xs" style="color: var(--text-secondary); margin-bottom: 0.875rem; line-height: 1.5;">
+                            Competência ${esc(state.guiaDuplicataM2.competencia)}, vencimento ${state.guiaDuplicataM2.data_vencimento ? _laudoFmtDate(state.guiaDuplicataM2.data_vencimento) : '—'}.
+                            Deseja marcar essa guia do Módulo II como paga (e apagar o registro duplicado criado agora), ou são guias diferentes mesmo?
+                        </p>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 12px;" onclick="window.handleConsolidarGuiaM2('${state.guiaDuplicataM2.id}')" ${state.loading ? 'disabled' : ''}>
+                                Sim, consolidar
+                            </button>
+                            <button class="btn btn-secondary" style="padding: 0.5rem 1rem; font-size: 12px;" onclick="window.handleIgnorarGuiaDuplicadaM2('${state.guiaDuplicataM2.id}')">
+                                Não, são guias diferentes
                             </button>
                         </div>
                     </div>` : ''}
@@ -5108,10 +5244,25 @@ async function fetchDocumentDetails(id, silent = false) {
             state.currentDuplicata = dupData || null;
         }
 
+        // SPEC-GUIA-01, Caso D: reconciliação retroativa. O Caso A já criou a
+        // guia no M2 automaticamente (trigger) assim que o OCR reconheceu este
+        // documento como guia — sem checar se já existia uma pendente igual,
+        // porque o trigger não pode perguntar nada a ninguém. Aqui, ao abrir a
+        // tela do documento, verificamos se sobrou uma guia pendente/atrasada
+        // no M2 que bate pela mesma chave, para oferecer consolidar as duas.
+        // Sinal é json_extraido.guia, não subtipo_documento — confirmado contra
+        // produção que a esteira do n8n nunca escreve essa coluna (mesmo
+        // critério já usado por renderDadosGuia e pela trigger do Caso A).
+        state.guiaDuplicataM2 = null;
+        if (data && data.json_extraido?.guia) {
+            state.guiaDuplicataM2 = await buscarGuiaDuplicadaM2(data);
+        }
+
     } catch (err) {
         console.error("Erro ao buscar detalhes:", err);
         state.currentDocument = null;
         state.currentDuplicata = null;
+        state.guiaDuplicataM2 = null;
         state.currentExtrato = null;
         if (!silent) {
             showToast("Erro ao carregar detalhes do documento: " + err.message, 'error');

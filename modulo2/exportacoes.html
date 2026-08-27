@@ -1405,16 +1405,35 @@
                     ...extratos.map(x => x.id)
                 ];
 
+                // .in() com centenas de UUIDs estoura o limite de tamanho de URL
+                // que o Postgrest aceita (achado ao portar essa mesma lógica pro
+                // /api/suporte/projetos/:id/audit-log: o projeto da Animus soma
+                // 662 ids entre as 6 tabelas e a request quebrava com 400 "Bad
+                // Request"). Em lotes de 150 (~5,5 KB de ids por request) fica
+                // bem abaixo de qualquer limite.
                 let auditoria = [];
                 if (idsAuditaveis.length > 0) {
-                    const { data: auditData, error: auditErr } = await sbClient
-                        .from('audit_log')
-                        .select('tabela, registro_id, campo, valor_anterior, valor_novo, alterado_por, origem, created_at')
-                        .in('registro_id', idsAuditaveis)
-                        .order('created_at', { ascending: false })
-                        .limit(500);
-                    if (auditErr) throw auditErr;
-                    auditoria = auditData || [];
+                    const TAMANHO_LOTE = 150;
+                    const lotes = [];
+                    for (let i = 0; i < idsAuditaveis.length; i += TAMANHO_LOTE) {
+                        lotes.push(idsAuditaveis.slice(i, i + TAMANHO_LOTE));
+                    }
+
+                    const resultadosLotes = await Promise.all(lotes.map(lote =>
+                        sbClient
+                            .from('audit_log')
+                            .select('tabela, registro_id, campo, valor_anterior, valor_novo, alterado_por, origem, created_at')
+                            .in('registro_id', lote)
+                            .order('created_at', { ascending: false })
+                            .limit(500)
+                    ));
+                    const erroLote = resultadosLotes.find(r => r.error);
+                    if (erroLote) throw erroLote.error;
+
+                    auditoria = resultadosLotes
+                        .flatMap(r => r.data || [])
+                        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+                        .slice(0, 500);
                 }
 
                 // PASSO 2 — montar PDF

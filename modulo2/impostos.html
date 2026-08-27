@@ -218,13 +218,6 @@
                 </div>
 
                 <div class="form-group mb-3">
-                    <label>Nota Fiscal vinculada (opcional)</label>
-                    <select id="document_id" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm);">
-                        <option value="">— Nenhuma —</option>
-                    </select>
-                </div>
-
-                <div class="form-group mb-3">
                     <label>Arquivo da guia (PDF) <span style="color: var(--text-muted); font-weight: 400; font-size: 0.8rem;">— opcional</span></label>
                     <input type="file" id="arquivo_guia" accept="application/pdf" onchange="handleImpostoOcr(this)" style="width: 100%; padding: 0.4rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: white;">
                     <span id="ocr-status-imposto" style="display:none; margin-top:0.35rem; font-size:0.8rem; color:var(--text-secondary); align-items:center; gap:0.4rem;">
@@ -488,17 +481,29 @@
             `;
         }
 
+        // SPEC-GUIA-01, Caso C: marcar como paga não é mais um simples UPDATE —
+        // o servidor também cria o documento correspondente no M1 (copiando o
+        // arquivo já no Storage, sem exigir novo upload). Por isso passa a ser
+        // via endpoint (precisa de service_role pra Storage entre buckets).
         async function handleMarkAsPaid(taxId) {
             if (!confirm("Confirmar que esta guia foi paga? Esta ação é irreversível via sistema.")) return;
 
             const sb = await initSupabase();
-            const { error } = await sb
-                .from('tax_guides')
-                .update({ status: 'paga', data_pagamento: new Date().toISOString() })
-                .eq('id', taxId);
+            const { data: { session } } = await sb.auth.getSession();
 
-            if (error) {
-                showToast("Erro ao atualizar status: " + error.message, 'error');
+            try {
+                const resp = await fetch('/api/m2/impostos/marcar-paga', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${session.access_token}`
+                    },
+                    body: JSON.stringify({ tax_guide_id: taxId })
+                });
+                const json = await resp.json().catch(() => ({}));
+                if (!resp.ok) throw new Error(json.error || 'Erro ao marcar guia como paga.');
+            } catch (err) {
+                showToast('Erro ao atualizar status: ' + err.message, 'error');
                 return;
             }
 
@@ -589,7 +594,6 @@
                     return;
                 }
 
-                const documentIdRaw = document.getElementById('document_id').value;
                 const fileInput = document.getElementById('arquivo_guia');
                 const arquivo = fileInput.files[0] || null;
 
@@ -606,7 +610,6 @@
                     competencia: document.getElementById('competencia').value,
                     valor: parseFloat(document.getElementById('valor').value),
                     data_vencimento: document.getElementById('data_vencimento').value,
-                    document_id: documentIdRaw || null,
                     status: 'pendente'
                 };
 
@@ -665,38 +668,12 @@
             }
         }
 
-        async function loadDocumentosForSelect() {
-            const select = document.getElementById('document_id');
-            select.innerHTML = '<option value="">— Nenhuma —</option>';
-            if (!currentProjectId) return;
-            const sb = await initSupabase();
-            const { data, error } = await sb
-                .from('documents')
-                .select('id, name, valor')
-                .eq('project_id', currentProjectId)
-                .neq('status', 'deleted')
-                .order('created_at', { ascending: false })
-                .limit(100);
-            if (error || !data) {
-                console.error('[loadDocumentosForSelect]', error);
-                return;
-            }
-            data.forEach(d => {
-                const opt = document.createElement('option');
-                opt.value = d.id;
-                const label = d.valor != null ? `${d.name} — ${formatCurrency(d.valor)}` : d.name;
-                opt.textContent = label;
-                select.appendChild(opt);
-            });
-        }
-
         async function openModal() {
             if (!currentProjectId) {
                 showToast('Selecione um projeto primeiro!', 'error');
                 return;
             }
             document.getElementById('tax-form').reset();
-            await loadDocumentosForSelect();
             document.getElementById('modal-tax').style.display = 'flex';
         }
         function closeModal() {

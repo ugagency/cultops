@@ -401,14 +401,19 @@
                 // organização nenhuma).
                 const isPlatformAdmin =
                     session.data.session.user?.app_metadata?.is_platform_admin === true;
+                // Mesma regra do requireSuporte no backend (is_suporte OR
+                // is_platform_admin) — quem só tem is_suporte também precisa
+                // conseguir chegar ao seletor mesmo sem organização/módulo.
+                const isSuporte =
+                    session.data.session.user?.app_metadata?.is_suporte === true || isPlatformAdmin;
 
                 const orgData = await getUserModules();
                 document.getElementById('loading-state').style.display = 'none';
 
                 if (!orgData || !orgData.params.modulos || orgData.params.modulos.length === 0) {
-                    if (isPlatformAdmin) {
+                    if (isPlatformAdmin || isSuporte) {
                         renderUserInfo(session.data.session.user, { nome: 'SSYS — Plataforma' });
-                        renderModules([], true);
+                        renderModules([], isPlatformAdmin, isSuporte);
                         document.getElementById('content-state').style.display = 'block';
                         return;
                     }
@@ -430,7 +435,7 @@
                     return;
                 }
 
-                renderModules(activeModules, isPlatformAdmin);
+                renderModules(activeModules, isPlatformAdmin, isSuporte);
                 document.getElementById('content-state').style.display = 'block';
 
             } catch (err) {
@@ -446,7 +451,7 @@
             document.getElementById('org-name').textContent = org.nome;
         }
 
-        function renderModules(userModules, isPlatformAdmin = false) {
+        function renderModules(userModules, isPlatformAdmin = false, isSuporte = false) {
             const grid = document.getElementById('modules-grid');
             grid.innerHTML = '';
 
@@ -490,6 +495,24 @@
                     <div class="module-desc">Interno SSYS — organizações clientes, módulos assinados e visão consolidada</div>
                 `;
                 grid.appendChild(card);
+            }
+
+            // Card interno SSYS de suporte — condicionado a isSuporte (não a
+            // isPlatformAdmin), porque precisa aparecer também pra uma conta
+            // futura que só tenha is_suporte, sem is_platform_admin.
+            if (isSuporte) {
+                const cardSuporte = document.createElement('div');
+                cardSuporte.className = 'module-card';
+                cardSuporte.style.borderColor = 'var(--color-primary)';
+                cardSuporte.onclick = () => { window.location.href = 'suporte.html'; };
+                cardSuporte.innerHTML = `
+                    <div class="module-icon">
+                        <i data-lucide="life-buoy" style="width: 32px; height: 32px;"></i>
+                    </div>
+                    <div class="module-title">Suporte</div>
+                    <div class="module-desc">Visão somente-leitura de qualquer organização — diagnóstico e apoio ao cliente</div>
+                `;
+                grid.appendChild(cardSuporte);
             }
 
             if (window.lucide) window.lucide.createIcons();

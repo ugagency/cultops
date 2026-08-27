@@ -163,6 +163,21 @@ function requirePlatformAdmin(req, res, next) {
     next();
 }
 
+// Separa "ver qualquer organização pra diagnóstico" de "criar/editar
+// organização" — is_platform_admin continua passando aqui (não perde acesso
+// de leitura por não ter a flag nova), mas o inverso não vale: is_suporte
+// sozinho não dá acesso de escrita (requirePlatformAdmin continua exigindo
+// especificamente is_platform_admin).
+function requireSuporte(req, res, next) {
+    const autorizado =
+        req.user?.app_metadata?.is_suporte === true ||
+        req.user?.app_metadata?.is_platform_admin === true;
+    if (!autorizado) {
+        return res.status(403).json({ error: 'Acesso restrito à equipe de suporte/plataforma SSYS.' });
+    }
+    next();
+}
+
 // Rota para servir o config.js dinamicamente ao navegador
 app.get('/config.js', (req, res) => {
     const publicConfig = {
@@ -1605,6 +1620,254 @@ app.post('/api/m2/impostos/ocr', requireAuth, async (req, res) => {
 });
 
 /**
+ * SPEC-GUIA-01, Caso C — marca uma guia do M2 como paga e cria automaticamente
+ * o documento correspondente no M1 (documents), copiando o arquivo já presente
+ * no bucket tax-guides para o bucket documentos (sem exigir novo upload).
+ *
+ * O documento nasce sem rubrica (tax_guides não tem esse dado) — cai em
+ * 'bloqueado_conformidade' pelo trg_documents_cria_despesa, que é o mesmo
+ * estado (e a mesma tela de "Corrigir Vínculo") que qualquer documento sem
+ * rubrica reconhecida já usa hoje. Não é um caso de erro novo, é o fluxo
+ * normal de conformidade pedindo confirmação humana de qual rubrica esse
+ * gasto consome — o mesmo vale para cnpj_emissor/fornecedor_id, que tax_guides
+ * também não tem como informar (fica null; documents_vincula_fornecedor só
+ * roda quando cnpj_emissor está preenchido).
+ *
+ * POST /api/m2/impostos/marcar-paga
+ * Body: { tax_guide_id }
+ */
+app.post('/api/m2/impostos/marcar-paga', requireAuth, async (req, res) => {
+    const { tax_guide_id } = req.body || {};
+    if (!tax_guide_id) return res.status(400).json({ error: 'tax_guide_id é obrigatório.' });
+
+    try {
+        const { data: guia, error: guiaErr } = await supabase
+            .from('tax_guides')
+            .select('*')
+            .eq('id', tax_guide_id)
+            .single();
+        if (guiaErr || !guia) return res.status(404).json({ error: 'Guia não encontrada.' });
+
+        if (!(await userCanAccessProject(req.user.id, guia.project_id))) {
+            return res.status(403).json({ error: 'Acesso negado ao projeto desta guia.' });
+        }
+
+        const agora = new Date().toISOString();
+
+        // Já tem documento vinculado (ex.: veio do Caso D) — só sincroniza o
+        // status, sem duplicar o documento no M1.
+        if (guia.document_id) {
+            const { error: updErr } = await supabase
+                .from('tax_guides')
+                .update({ status: 'paga', data_pagamento: agora.slice(0, 10), atualizado_em: agora })
+                .eq('id', tax_guide_id);
+            if (updErr) throw updErr;
+            return res.json({ success: true, document_id: guia.document_id });
+        }
+
+        let novoDocumentId = null;
+
+        // Sem arquivo anexado na guia, não há o que copiar pro M1 — só marca
+        // paga no M2 mesmo, como o fluxo fazia antes desta spec.
+        if (guia.arquivo_guia_path) {
+            const { data: fileBlob, error: dlErr } = await supabase.storage
+                .from('tax-guides')
+                .download(guia.arquivo_guia_path);
+            if (dlErr) throw new Error('Falha ao baixar arquivo da guia: ' + dlErr.message);
+
+            const buffer = Buffer.from(await fileBlob.arrayBuffer());
+            const uuid = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            const nomeOriginal = guia.arquivo_guia_path.split('/').pop() || 'guia.pdf';
+            const novoPath = `${guia.project_id}/${uuid}/${nomeOriginal}`;
+
+            const { error: upErr } = await supabase.storage
+                .from('documentos')
+                .upload(novoPath, buffer, { contentType: 'application/pdf', upsert: false });
+            if (upErr) throw new Error('Falha ao copiar arquivo para o M1: ' + upErr.message);
+
+            const jsonGuia = {
+                guia: {
+                    tributo: guia.tipo_imposto,
+                    competencia: guia.competencia,
+                    vencimento: guia.data_vencimento,
+                    valor_tributo: guia.valor,
+                    codigo_receita: guia.codigo_receita,
+                    numero_guia: guia.numero_guia
+                }
+            };
+
+            const { data: novoDoc, error: docErr } = await supabase
+                .from('documents')
+                .insert({
+                    user_id: req.user.id,
+                    project_id: guia.project_id,
+                    organization_id: guia.organization_id,
+                    name: `Guia ${guia.tipo_imposto} — ${guia.competencia}`,
+                    file_path: novoPath,
+                    valor: guia.valor,
+                    valor_pago: guia.valor,
+                    numero_nf: guia.numero_guia,
+                    data_pagamento: agora.slice(0, 10),
+                    tipo_documento: 'guia',
+                    subtipo_documento: 'guia',
+                    json_extraido: jsonGuia,
+                    status: 'aguardando_conformidade'
+                })
+                .select('id')
+                .single();
+            if (docErr) {
+                // Best-effort: não deixa o arquivo órfão no Storage se o INSERT falhar.
+                await supabase.storage.from('documentos').remove([novoPath]).catch(() => {});
+                throw new Error('Falha ao criar documento no M1: ' + docErr.message);
+            }
+            novoDocumentId = novoDoc.id;
+
+            await supabase.from('audit_log').insert({
+                tabela: 'tax_guides', registro_id: tax_guide_id, campo: 'document_id',
+                valor_anterior: null, valor_novo: novoDocumentId,
+                alterado_por: req.user.id, origem: 'guia_marcar_paga'
+            });
+        }
+
+        const { error: updErr } = await supabase
+            .from('tax_guides')
+            .update({
+                status: 'paga',
+                data_pagamento: agora.slice(0, 10),
+                document_id: novoDocumentId,
+                atualizado_em: agora
+            })
+            .eq('id', tax_guide_id);
+        if (updErr) throw updErr;
+
+        res.json({ success: true, document_id: novoDocumentId });
+    } catch (err) {
+        console.error('[IMPOSTO-MARCAR-PAGA]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * SPEC-GUIA-01, Caso D — reconciliação retroativa. O trigger do Caso A já
+ * criou uma guia nova em tax_guides (vinculada a `document_id`) sem checar se
+ * já existia uma pendente igual, porque um trigger não pode perguntar nada a
+ * ninguém. Este endpoint roda quando o usuário confirma, na tela de detalhe
+ * do M1, que as duas são a mesma guia: marca a guia ANTIGA (do M2) como paga
+ * e apaga a NOVA (criada automaticamente), pra não sobrar duplicata.
+ *
+ * POST /api/m2/impostos/consolidar-duplicata
+ * Body: { tax_guide_id_antiga, document_id }
+ */
+app.post('/api/m2/impostos/consolidar-duplicata', requireAuth, async (req, res) => {
+    const { tax_guide_id_antiga, document_id } = req.body || {};
+    if (!tax_guide_id_antiga || !document_id) {
+        return res.status(400).json({ error: 'tax_guide_id_antiga e document_id são obrigatórios.' });
+    }
+
+    try {
+        const { data: guiaAntiga, error: antigaErr } = await supabase
+            .from('tax_guides')
+            .select('id, project_id')
+            .eq('id', tax_guide_id_antiga)
+            .single();
+        if (antigaErr || !guiaAntiga) return res.status(404).json({ error: 'Guia (M2) não encontrada.' });
+
+        if (!(await userCanAccessProject(req.user.id, guiaAntiga.project_id))) {
+            return res.status(403).json({ error: 'Acesso negado ao projeto desta guia.' });
+        }
+
+        const { data: guiaNova, error: novaErr } = await supabase
+            .from('tax_guides')
+            .select('id')
+            .eq('document_id', document_id)
+            .neq('id', tax_guide_id_antiga)
+            .maybeSingle();
+        if (novaErr) throw novaErr;
+
+        const { data: doc, error: docErr } = await supabase
+            .from('documents')
+            .select('data_pagamento')
+            .eq('id', document_id)
+            .single();
+        if (docErr || !doc) return res.status(404).json({ error: 'Documento (M1) não encontrado.' });
+
+        const agora = new Date().toISOString();
+        const { error: updErr } = await supabase
+            .from('tax_guides')
+            .update({
+                status: 'paga',
+                document_id,
+                data_pagamento: doc.data_pagamento || agora.slice(0, 10),
+                atualizado_em: agora
+            })
+            .eq('id', tax_guide_id_antiga);
+        if (updErr) throw updErr;
+
+        if (guiaNova?.id) {
+            const { error: delErr } = await supabase.from('tax_guides').delete().eq('id', guiaNova.id);
+            if (delErr) throw delErr;
+        }
+
+        await supabase.from('audit_log').insert({
+            tabela: 'tax_guides', registro_id: tax_guide_id_antiga, campo: 'status',
+            valor_anterior: 'pendente/atrasada', valor_novo: 'paga (consolidada com duplicata do M1)',
+            alterado_por: req.user.id, origem: 'consolidar_duplicata_guia'
+        });
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error('[IMPOSTO-CONSOLIDAR-DUPLICATA]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * SPEC-GUIA-01, Caso D — registra a decisão "não, são guias diferentes" em
+ * audit_log (não há policy de INSERT em audit_log pro client, por isso passa
+ * por aqui e não por um supabaseClient.insert direto no browser). Fica
+ * rastreável (aparece no PDF de Auditoria) e faz buscarGuiaDuplicadaM2 (app.js)
+ * parar de perguntar de novo pra essa combinação específica de documento+guia.
+ *
+ * POST /api/m2/impostos/ignorar-duplicata
+ * Body: { document_id, tax_guide_id }
+ */
+app.post('/api/m2/impostos/ignorar-duplicata', requireAuth, async (req, res) => {
+    const { document_id, tax_guide_id } = req.body || {};
+    if (!document_id || !tax_guide_id) {
+        return res.status(400).json({ error: 'document_id e tax_guide_id são obrigatórios.' });
+    }
+
+    try {
+        const { data: doc, error: docErr } = await supabase
+            .from('documents')
+            .select('organization_id')
+            .eq('id', document_id)
+            .single();
+        if (docErr || !doc) return res.status(404).json({ error: 'Documento não encontrado.' });
+
+        const orgId = req.user.app_metadata?.org_id;
+        if (orgId && doc.organization_id && doc.organization_id !== orgId) {
+            return res.status(403).json({ error: 'Documento não pertence à sua organização.' });
+        }
+
+        await supabase.from('audit_log').insert({
+            tabela: 'documents',
+            registro_id: document_id,
+            campo: 'guia_duplicata_decisao',
+            valor_anterior: null,
+            valor_novo: `nao_e_duplicata:${tax_guide_id}`,
+            alterado_por: req.user.id,
+            origem: 'gestor_ui'
+        });
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error('[IMPOSTO-IGNORAR-DUPLICATA]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
  * Cria (ou recupera) um fornecedor e vincula ao projeto.
  * POST /api/m2/fornecedores/criar-vincular
  * Body: { cnpj, razao_social, project_id }
@@ -2776,7 +3039,7 @@ app.post('/api/admin/usuarios/operador', requireAuth, async (req, res) => {
 // endpoints usam a service role e enxergam TODAS as organizações.
 // ─────────────────────────────────────────────────────────────────────────────
 
-app.get('/api/plataforma/organizacoes', requireAuth, requirePlatformAdmin, async (req, res) => {
+app.get('/api/plataforma/organizacoes', requireAuth, requireSuporte, async (req, res) => {
     try {
         const { data: orgs, error } = await supabase
             .from('organizations')
@@ -2917,6 +3180,332 @@ app.patch('/api/plataforma/organizacoes/:id/modulos', requireAuth, requirePlatfo
     } catch (e) {
         console.error('[PLATAFORMA] atualizar modulos:', e);
         res.status(500).json({ error: e.message });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUPORTE (interno SSYS) — visão cross-tenant só de leitura, pra diagnóstico.
+// requireSuporte (não requirePlatformAdmin): quem só tem is_suporte enxerga
+// isto, mas não tem acesso a nenhum endpoint de escrita de /api/plataforma/*.
+// Mesma service role de /api/plataforma/* — ignora RLS de propósito.
+// ─────────────────────────────────────────────────────────────────────────────
+
+app.get('/api/suporte/organizacoes/:id/projetos', requireAuth, requireSuporte, async (req, res) => {
+    const { data, error } = await supabase
+        .from('projects')
+        .select('id, pronac, nome, created_at')
+        .eq('organization_id', req.params.id)
+        .order('created_at', { ascending: false });
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ projetos: data || [] });
+});
+
+// Documentos de um projeto — com o que mais importa pra diagnóstico
+// (status/just_erro), sem os campos financeiros/OCR completos que a tela de
+// gestor mostra.
+app.get('/api/suporte/projetos/:id/documentos', requireAuth, requireSuporte, async (req, res) => {
+    const { data, error } = await supabase
+        .from('documents')
+        .select('id, name, status, valor, tipo_documento, cnpj_emissor, nome_emissor, created_at, just_erro')
+        .eq('project_id', req.params.id)
+        .order('created_at', { ascending: false })
+        .limit(200);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ documentos: data || [] });
+});
+
+// Usuários de uma organização (mesma lógica de /api/gestor/usuarios, mas
+// parametrizada por :id em vez de usar o org_id de quem chama).
+app.get('/api/suporte/organizacoes/:id/usuarios', requireAuth, requireSuporte, async (req, res) => {
+    const { data: orgUsers, error } = await supabase
+        .from('organization_users')
+        .select('user_id, role, created_at')
+        .eq('organization_id', req.params.id);
+    if (error) return res.status(500).json({ error: error.message });
+
+    const users = await Promise.all((orgUsers || []).map(async (ou) => {
+        const { data } = await supabase.auth.admin.getUserById(ou.user_id);
+        return {
+            id: ou.user_id,
+            email: data?.user?.email || null,
+            role: data?.user?.app_metadata?.role || null,
+            created_at: ou.created_at
+        };
+    }));
+    res.json({ users });
+});
+
+// SPEC-SUPORTE-02 (1) — mesma lógica de rótulo/usuário que exportarAuditoria
+// (modulo2/exportacoes.html) já usa pro PDF, rodando no servidor via
+// service_role: suporte não tem org_id e não pode depender de RLS.
+app.get('/api/suporte/projetos/:id/audit-log', requireAuth, requireSuporte, async (req, res) => {
+    const projectId = req.params.id;
+    try {
+        const { data: projeto, error: projErr } = await supabase
+            .from('projects')
+            .select('id, organization_id')
+            .eq('id', projectId)
+            .single();
+        if (projErr || !projeto) return res.status(404).json({ error: 'Projeto não encontrado.' });
+
+        // Projetos legados podem ter organization_id nulo (confirmado em
+        // produção) — .eq('organization_id', null) o Postgrest rejeita com
+        // 400, então busca usuários só quando há organização de fato.
+        const [documentosRes, contratosRes, evidenciasRes, guiasRes, despesasRes, extratosRes, orgUsersRes] = await Promise.all([
+            supabase.from('documents').select('id, name, tipo_documento').eq('project_id', projectId),
+            supabase.from('contracts').select('id, numero, objeto').eq('project_id', projectId),
+            supabase.from('physical_evidences').select('id, tipo_evidencia, file_name').eq('project_id', projectId),
+            supabase.from('tax_guides').select('id, tipo_imposto, competencia, motivo_cancelamento').eq('project_id', projectId),
+            supabase.from('despesas').select('id, document_id, fornecedor_nome').eq('project_id', projectId),
+            supabase.from('extratos').select('id, periodo_inicio, periodo_fim').eq('project_id', projectId),
+            projeto.organization_id
+                ? supabase.from('organization_users').select('user_id').eq('organization_id', projeto.organization_id)
+                : Promise.resolve({ data: [] })
+        ]);
+
+        const documentos = documentosRes.data || [];
+        const contratos = contratosRes.data || [];
+        const evidencias = evidenciasRes.data || [];
+        const guias = guiasRes.data || [];
+        const despesas = despesasRes.data || [];
+        const extratos = extratosRes.data || [];
+        const orgUsers = orgUsersRes.data || [];
+
+        const mapUsuarios = {};
+        await Promise.all(orgUsers.map(async (ou) => {
+            const { data } = await supabase.auth.admin.getUserById(ou.user_id);
+            if (data?.user?.email) mapUsuarios[ou.user_id] = data.user.email;
+        }));
+
+        const truncar = (s, n) => {
+            const str = String(s == null ? '—' : s);
+            return str.length > n ? str.slice(0, n - 1) + '…' : str;
+        };
+
+        const mapRotulos = {};
+        const mapMotivos = {};
+        documentos.forEach(d => { mapRotulos[d.id] = `${d.tipo_documento || 'Documento'} — ${d.name}`; });
+        contratos.forEach(c => { mapRotulos[c.id] = `Contrato ${c.numero} — ${truncar(c.objeto, 60)}`; });
+        evidencias.forEach(e => { mapRotulos[e.id] = `${e.tipo_evidencia} — ${e.file_name}`; });
+        guias.forEach(g => {
+            mapRotulos[g.id] = `Guia ${g.tipo_imposto} — competência ${g.competencia}`;
+            if (g.motivo_cancelamento) mapMotivos[g.id] = g.motivo_cancelamento;
+        });
+        extratos.forEach(x => {
+            const periodo = (x.periodo_inicio || x.periodo_fim)
+                ? `${x.periodo_inicio || '?'} a ${x.periodo_fim || '?'}`
+                : 'período não informado';
+            mapRotulos[x.id] = `Extrato bancário — ${periodo}`;
+        });
+        despesas.forEach(d => {
+            let label = 'Despesa (lançamento financeiro)';
+            if (d.document_id && mapRotulos[d.document_id]) label = `Despesa — ${mapRotulos[d.document_id]}`;
+            else if (d.fornecedor_nome) label = `Despesa — ${d.fornecedor_nome}`;
+            mapRotulos[d.id] = label;
+        });
+
+        const todosIds = [
+            ...documentos.map(d => d.id), ...contratos.map(c => c.id),
+            ...evidencias.map(e => e.id), ...guias.map(g => g.id),
+            ...despesas.map(d => d.id), ...extratos.map(x => x.id)
+        ];
+
+        // .in() com centenas de UUIDs estoura o limite de tamanho de URL que o
+        // Postgrest aceita (confirmado: projeto da Animus soma 662 ids entre as
+        // 6 tabelas e o Postgrest rejeita com 400 "Bad Request"). Em lotes de
+        // 150 (~5,5 KB de ids por request) fica bem abaixo de qualquer limite.
+        let auditLog = [];
+        if (todosIds.length > 0) {
+            const TAMANHO_LOTE = 150;
+            const lotes = [];
+            for (let i = 0; i < todosIds.length; i += TAMANHO_LOTE) {
+                lotes.push(todosIds.slice(i, i + TAMANHO_LOTE));
+            }
+
+            const resultadosLotes = await Promise.all(lotes.map(lote =>
+                supabase
+                    .from('audit_log')
+                    .select('tabela, registro_id, campo, valor_anterior, valor_novo, alterado_por, origem, created_at')
+                    .in('registro_id', lote)
+                    .order('created_at', { ascending: false })
+                    .limit(500)
+            ));
+            const erroLote = resultadosLotes.find(r => r.error);
+            if (erroLote) throw erroLote.error;
+
+            auditLog = resultadosLotes
+                .flatMap(r => r.data || [])
+                .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+                .slice(0, 500);
+        }
+
+        res.json({ auditLog, mapRotulos, mapUsuarios, mapMotivos });
+    } catch (err) {
+        console.error('[SUPORTE] audit-log:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// SPEC-SUPORTE-02 (2) — mesmo padrão dos endpoints de suporte já existentes.
+app.get('/api/suporte/projetos/:id/contratos', requireAuth, requireSuporte, async (req, res) => {
+    const { data, error } = await supabase
+        .from('contracts')
+        .select('id, numero, objeto, valor_total, status, data_inicio, data_fim')
+        .eq('project_id', req.params.id)
+        // contracts usa criado_em, não created_at (confirmado contra o schema
+        // real — o nome dado na spec original não existe nesta tabela).
+        .order('criado_em', { ascending: false });
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ contratos: data || [] });
+});
+
+app.get('/api/suporte/projetos/:id/guias', requireAuth, requireSuporte, async (req, res) => {
+    const { data, error } = await supabase
+        .from('tax_guides')
+        .select('id, tipo_imposto, competencia, valor, status, data_vencimento, data_pagamento')
+        .eq('project_id', req.params.id)
+        .order('data_vencimento', { ascending: false });
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ guias: data || [] });
+});
+
+// SPEC-SUPORTE-02 (3) — busca global. organization_id costuma ser não-nulo,
+// mas o .filter(Boolean) evita passar null pro .in() se algum registro
+// legado não tiver.
+app.get('/api/suporte/buscar', requireAuth, requireSuporte, async (req, res) => {
+    const q = (req.query.q || '').trim();
+    if (q.length < 3) return res.json({ resultados: [] });
+
+    const soDigitos = q.replace(/\D/g, '');
+
+    try {
+        // .not('organization_id', 'is', null): existem projetos legados órfãos
+        // em produção (organization_id nulo) — sem esse filtro, um resultado
+        // clicável levaria pra uma organização inexistente e quebraria a
+        // navegação (mesmo problema resolvido no endpoint de audit-log).
+        const [projetosPorNome, projetosPorPronac, fornecedoresPorCnpj, fornecedoresPorNome] = await Promise.all([
+            supabase.from('projects').select('id, pronac, nome, organization_id').not('organization_id', 'is', null).ilike('nome', `%${q}%`).limit(10),
+            soDigitos ? supabase.from('projects').select('id, pronac, nome, organization_id').not('organization_id', 'is', null).ilike('pronac', `%${soDigitos}%`).limit(10) : Promise.resolve({ data: [] }),
+            soDigitos.length >= 11 ? supabase.from('fornecedores').select('id, cnpj, razao_social, organization_id').not('organization_id', 'is', null).eq('cnpj', soDigitos).limit(10) : Promise.resolve({ data: [] }),
+            supabase.from('fornecedores').select('id, cnpj, razao_social, organization_id').not('organization_id', 'is', null).ilike('razao_social', `%${q}%`).limit(10),
+        ]);
+
+        // Resolver organization_id -> nome da organização pra cada resultado,
+        // buscando as organizações envolvidas de uma vez (evitar N+1).
+        const orgIds = [...new Set([
+            ...(projetosPorNome.data || []), ...(projetosPorPronac.data || []),
+            ...(fornecedoresPorCnpj.data || []), ...(fornecedoresPorNome.data || [])
+        ].map(r => r.organization_id).filter(Boolean))];
+        const { data: orgs } = orgIds.length
+            ? await supabase.from('organizations').select('id, nome').in('id', orgIds)
+            : { data: [] };
+        const nomeOrg = Object.fromEntries((orgs || []).map(o => [o.id, o.nome]));
+
+        res.json({
+            projetos: [...(projetosPorNome.data || []), ...(projetosPorPronac.data || [])].map(p => ({ ...p, organizacao: nomeOrg[p.organization_id] })),
+            fornecedores: [...(fornecedoresPorCnpj.data || []), ...(fornecedoresPorNome.data || [])].map(f => ({ ...f, organizacao: nomeOrg[f.organization_id] })),
+        });
+    } catch (err) {
+        console.error('[SUPORTE] buscar:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// SPEC-SUPORTE-02 (4) — status dos crons/RPA. cron.job_run_details vive fora
+// do schema public; suporte_status_crons() é a ponte (SQL aplicado à parte,
+// não por este servidor — ver migration_suporte_status_crons.sql).
+app.get('/api/suporte/sistema/crons', requireAuth, requireSuporte, async (req, res) => {
+    const { data, error } = await supabase.rpc('suporte_status_crons');
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ crons: data || [] });
+});
+
+// SPEC-SUPORTE-02 (5) — ESCRITA, exceção à regra de "suporte é só leitura".
+// Só é aceitável porque grava em audit_log quem fez, quando, em qual conta —
+// isso é o que torna a exceção aceitável. Mesmo padrão de
+// criar-analista/criar-acesso-fornecedor: senha temporária + must_change_password.
+app.post('/api/suporte/usuarios/:id/resetar-senha', requireAuth, requireSuporte, async (req, res) => {
+    const { password } = req.body || {};
+    if (!password || password.length < 6) {
+        return res.status(400).json({ error: 'Senha precisa ter pelo menos 6 caracteres.' });
+    }
+
+    const userId = req.params.id;
+
+    try {
+        const { data: userData, error: getErr } = await supabase.auth.admin.getUserById(userId);
+        if (getErr || !userData?.user) return res.status(404).json({ error: 'Usuário não encontrado.' });
+
+        const { error: updateErr } = await supabase.auth.admin.updateUserById(userId, {
+            password,
+            app_metadata: { ...userData.user.app_metadata, must_change_password: true }
+        });
+        if (updateErr) throw updateErr;
+
+        // Obrigatório — é isso que torna essa exceção de escrita aceitável.
+        await supabase.from('audit_log').insert({
+            tabela: 'auth.users',
+            registro_id: userId,
+            campo: 'senha_resetada_por_suporte',
+            valor_anterior: null,
+            valor_novo: userData.user.email,
+            alterado_por: req.user.id,
+            origem: 'suporte_ui'
+        });
+
+        res.json({ ok: true, email: userData.user.email });
+    } catch (err) {
+        console.error('[SUPORTE] resetar-senha:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// SPEC-SUPORTE-02 (6) — ESCRITA, mesma exceção auditada do item 5. Mesmo
+// payload que retry_ocr_stuck_documents() usa pro mesmo webhook (confirmado
+// contra a função no banco), sem o limite de 3 tentativas — disparo manual
+// do suporte é decisão consciente de uma pessoa, não precisa da mesma trava
+// que existe pra o cron automático não martelar o mesmo documento pra sempre.
+app.post('/api/suporte/documentos/:id/reprocessar-ocr', requireAuth, requireSuporte, async (req, res) => {
+    const documentId = req.params.id;
+
+    try {
+        const { data: doc, error: getErr } = await supabase
+            .from('documents')
+            .select('id, file_path, user_id, status')
+            .eq('id', documentId)
+            .single();
+        if (getErr || !doc) return res.status(404).json({ error: 'Documento não encontrado.' });
+
+        await supabase.from('documents').update({
+            status: 'processing_ocr',
+            ocr_retry_count: 0,
+            just_erro: null
+        }).eq('id', documentId);
+
+        await fetch('https://automacoes-n8n.infrassys.com/webhook/cultops-ocr', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                document_id: doc.id, file_path: doc.file_path,
+                user_id: doc.user_id, bucket: 'documentos'
+            })
+        });
+
+        // Obrigatório — mesma regra do item 5.
+        await supabase.from('audit_log').insert({
+            tabela: 'documents',
+            registro_id: documentId,
+            campo: 'ocr_reprocessado_por_suporte',
+            valor_anterior: doc.status,
+            valor_novo: 'processing_ocr',
+            alterado_por: req.user.id,
+            origem: 'suporte_ui'
+        });
+
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('[SUPORTE] reprocessar-ocr:', err);
+        res.status(500).json({ error: err.message });
     }
 });
 
