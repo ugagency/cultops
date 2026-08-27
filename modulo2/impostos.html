@@ -430,7 +430,7 @@
             const sb = await initSupabase();
             const { error } = await sb
                 .from('tax_guides')
-                .update({ status: 'cancelada', motivo_cancelamento: 'Excluída pelo gestor.' })
+                .update({ status: 'cancelada', motivo_cancelamento: 'Excluída pelo gestor.', atualizado_em: new Date().toISOString() })
                 .eq('id', taxId);
 
             if (error) {

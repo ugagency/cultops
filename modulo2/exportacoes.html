@@ -1292,6 +1292,7 @@
             const pid = currentProjectId;
             const { data: { user } } = await sbClient.auth.getUser();
             const orgId = await getCurrentOrgId(pid);
+            const { data: { session } } = await sbClient.auth.getSession();
 
             const restaurarBotao = () => {
                 btn.innerHTML = btnOriginal;
@@ -1307,8 +1308,9 @@
                     evidenciasRes,
                     contratosRes,
                     impostosRes,
-                    despesasIdsRes,
-                    extratosIdsRes
+                    despesasRes,
+                    extratosRes,
+                    usuariosRes
                 ] = await Promise.all([
                     sbClient.from('projects').select('*').eq('id', pid).maybeSingle(),
                     sbClient.from('documents')
@@ -1326,15 +1328,30 @@
                         .eq('project_id', pid)
                         .is('excluido_em', null)
                         .order('data_inicio', { ascending: true }),
+                    // id é obrigatório aqui: sem ele as guias nunca entravam no
+                    // filtro de auditoria (idsAuditaveis), mesmo tendo trilha.
                     sbClient.from('tax_guides')
-                        .select('tipo_imposto, competencia, valor, status, data_vencimento, data_pagamento')
+                        .select('id, tipo_imposto, competencia, valor, status, data_vencimento, data_pagamento, motivo_cancelamento')
                         .eq('project_id', pid)
                         .order('data_vencimento', { ascending: true }),
-                    sbClient.from('despesas').select('id').eq('project_id', pid),
-                    sbClient.from('extratos').select('id').eq('project_id', pid)
+                    // fornecedor_nome/document_id viram o rótulo legível da despesa
+                    // na coluna "Documento" da auditoria (ver mapRotulos abaixo).
+                    sbClient.from('despesas').select('id, document_id, fornecedor_nome, valor').eq('project_id', pid),
+                    // período identifica o extrato na auditoria — extratos não tem
+                    // um "nome" próprio como as outras tabelas.
+                    sbClient.from('extratos').select('id, periodo_inicio, periodo_fim, formato').eq('project_id', pid),
+                    // Nomes de usuário pra coluna "Usuário" — UUID cru não diz nada
+                    // pro gestor lendo o relatório. Endpoint já resolve via
+                    // service_role; se falhar (ex.: sessão de analista, sem
+                    // permissão), degrada pra "Sistema (automação)" em tudo.
+                    session
+                        ? fetch('/api/gestor/usuarios', { headers: { Authorization: `Bearer ${session.access_token}` } })
+                            .then(r => r.ok ? r.json() : { users: [] })
+                            .catch(() => ({ users: [] }))
+                        : Promise.resolve({ users: [] })
                 ]);
 
-                const erros = [projetoRes, documentosRes, evidenciasRes, contratosRes, impostosRes, despesasIdsRes, extratosIdsRes]
+                const erros = [projetoRes, documentosRes, evidenciasRes, contratosRes, impostosRes, despesasRes, extratosRes]
                     .map(r => r.error).filter(Boolean);
                 if (erros.length) throw erros[0];
 
@@ -1343,26 +1360,56 @@
                 const evidencias = evidenciasRes.data || [];
                 const contratos = contratosRes.data || [];
                 const impostos = impostosRes.data || [];
-                const despesasIds = (despesasIdsRes.data || []).map(d => d.id);
-                const extratosIds = (extratosIdsRes.data || []).map(e => e.id);
+                const despesas = despesasRes.data || [];
+                const extratos = extratosRes.data || [];
+                const mapUsuarios = new Map((usuariosRes.users || []).map(u => [u.id, u.email]));
+
+                // Rótulo legível por registro (registro_id -> texto), usado na
+                // coluna "Documento" do log de auditoria — sem isso a auditoria só
+                // mostrava o UUID cru, que não identifica nada pra quem lê o PDF.
+                const mapRotulos = new Map();
+                const mapMotivos = new Map();
+
+                documentos.forEach(d => mapRotulos.set(d.id, `${d.tipo_documento || 'Documento'} — ${d.name}`));
+                contratos.forEach(c => mapRotulos.set(c.id, `Contrato ${c.numero} — ${pdfTruncate(c.objeto, 60)}`));
+                evidencias.forEach(e => mapRotulos.set(e.id, `${e.tipo_evidencia} — ${e.file_name}`));
+                impostos.forEach(i => {
+                    mapRotulos.set(i.id, `Guia ${i.tipo_imposto} — competência ${i.competencia}`);
+                    if (i.motivo_cancelamento) mapMotivos.set(i.id, i.motivo_cancelamento);
+                });
+                extratos.forEach(x => {
+                    const periodo = (x.periodo_inicio || x.periodo_fim)
+                        ? `${pdfFormatDate(x.periodo_inicio)} a ${pdfFormatDate(x.periodo_fim)}`
+                        : 'período não informado';
+                    mapRotulos.set(x.id, `Extrato bancário — ${periodo}`);
+                });
+                despesas.forEach(d => {
+                    let label = 'Despesa (lançamento financeiro)';
+                    if (d.document_id && mapRotulos.has(d.document_id)) {
+                        label = `Despesa — ${mapRotulos.get(d.document_id)}`;
+                    } else if (d.fornecedor_nome) {
+                        label = `Despesa — ${d.fornecedor_nome}`;
+                    }
+                    mapRotulos.set(d.id, label);
+                });
 
                 // BL-20: audit_log também cobre documents, contracts,
                 // physical_evidences e extratos — não só despesas. Sem juntar
                 // esses IDs, o relatório de auditoria nunca mostrava alterações
                 // dessas 4 tabelas, mesmo tendo trilha registrada para elas.
                 const idsAuditaveis = [
-                    ...despesasIds,
+                    ...despesas.map(d => d.id),
                     ...documentos.map(d => d.id),
                     ...contratos.map(c => c.id),
                     ...evidencias.map(e => e.id),
-                    ...extratosIds
+                    ...extratos.map(x => x.id)
                 ];
 
                 let auditoria = [];
                 if (idsAuditaveis.length > 0) {
                     const { data: auditData, error: auditErr } = await sbClient
                         .from('audit_log')
-                        .select('tabela, campo, valor_anterior, valor_novo, origem, created_at')
+                        .select('tabela, registro_id, campo, valor_anterior, valor_novo, alterado_por, origem, created_at')
                         .in('registro_id', idsAuditaveis)
                         .order('created_at', { ascending: false })
                         .limit(500);
@@ -1576,17 +1623,47 @@
                     doc.text('Nenhum registro de auditoria.', margin, y + 4);
                     y += 12;
                 } else {
+                    const TIPO_TABELA_LABELS = {
+                        documents: 'Nota Fiscal/Recibo',
+                        contracts: 'Contrato',
+                        physical_evidences: 'Evidência',
+                        tax_guides: 'Guia de Imposto',
+                        extratos: 'Extrato Bancário',
+                        despesas: 'Despesa'
+                    };
+                    const CAMPO_LABELS_PT = { status: 'Status', valor: 'Valor' };
+
+                    const acaoDaAuditoria = (a) => {
+                        if (a.campo === '__insert') return 'Criado';
+                        // contracts usa excluido_em (não rastreado pelo trigger de
+                        // auditoria) pra soft delete, então só tax_guides chega
+                        // aqui com status='cancelada' hoje — ver nota no relato.
+                        if (a.campo === 'status' && a.valor_novo === 'cancelada') return 'Excluído';
+                        return 'Alterado';
+                    };
+
                     doc.autoTable({
                         ...tableTheme,
                         startY: y,
-                        head: [['Data/Hora', 'Tabela', 'Campo', 'Valor Anterior', 'Valor Novo']],
-                        body: auditoria.map(a => [
-                            pdfFormatDateTime(a.created_at),
-                            pdfTruncate(a.tabela, 16),
-                            pdfTruncate(a.campo, 18),
-                            pdfTruncate(a.valor_anterior, 30),
-                            pdfTruncate(a.valor_novo, 30)
-                        ])
+                        head: [['Data/Hora', 'Usuário', 'Tipo', 'Documento', 'Ação', 'Detalhe']],
+                        body: auditoria.map(a => {
+                            const acao = acaoDaAuditoria(a);
+                            let detalhe = '';
+                            if (acao === 'Excluído') {
+                                detalhe = mapMotivos.get(a.registro_id) || '';
+                            } else if (acao === 'Alterado') {
+                                const campoLabel = CAMPO_LABELS_PT[a.campo] || a.campo;
+                                detalhe = `${campoLabel}: ${a.valor_anterior ?? '—'} → ${a.valor_novo ?? '—'}`;
+                            }
+                            return [
+                                pdfFormatDateTime(a.created_at),
+                                pdfTruncate(mapUsuarios.get(a.alterado_por) || 'Sistema (automação)', 28),
+                                pdfTruncate(TIPO_TABELA_LABELS[a.tabela] || a.tabela, 20),
+                                pdfTruncate(mapRotulos.get(a.registro_id) || '—', 45),
+                                acao,
+                                pdfTruncate(detalhe, 45)
+                            ];
+                        })
                     });
                     y = doc.lastAutoTable.finalY + 8;
                 }
