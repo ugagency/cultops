@@ -1684,7 +1684,7 @@ ${Sidebar()}
                 <div class="upload-area" onclick="if(document.getElementById('project-selector').value && document.getElementById('rubrica-input').value) document.getElementById('file-input').click(); else alert('Selecione projeto e rubrica primeiro!');">
                     <input type="file" id="file-input" style="display: none;" onchange="window.handleUpload(this.files[0], 'nf')" accept=".pdf">
                         <i data-lucide="file-text" style="width: 32px; color: var(--primary); margin-bottom: 1rem;"></i>
-                        <p class="text-sm" style="font-weight: 600;">Arraste a NF (PDF) ou clique para selecionar</p>
+                        <p class="text-sm" style="font-weight: 600;">Arraste o PDF de comprovação (nota, recibo ou guia) ou clique para selecionar</p>
                         <p class="text-xs" style="color: var(--text-muted); margin-top: 0.5rem;">Apenas arquivos PDF são aceitos.</p>
                 </div>
 
@@ -2535,6 +2535,20 @@ ${Sidebar()}
         if (activeIndex > 5) activeIndex = 5;
     }
 
+    // Posição real (sem clamp) do status atual no fluxo — usada para
+    // comparações "já passou daqui", em vez de listas fixas que ficam
+    // desatualizadas a cada novo status intermediário (BL fix status/cor).
+    const posStatusAtual = statusOrder.indexOf(doc.status);
+    const jaPassouDaConciliacao = posStatusAtual !== -1 && posStatusAtual >= statusOrder.indexOf('aguardando_conciliacao_bancaria');
+    // Cor distinta por etapa pós-conciliação — evita tratar
+    // liberado_rpa_airtop/enviado_salic/concluido como uma cor só.
+    const corPosConciliacao = doc.status === 'concluido' ? 'var(--success)'
+        : doc.status === 'liberado_rpa_airtop' ? '#D97706'
+            : 'var(--primary)';
+    const bgPosConciliacao = doc.status === 'concluido' ? 'rgba(22, 163, 74, 0.05)'
+        : doc.status === 'liberado_rpa_airtop' ? 'rgba(217, 119, 6, 0.05)'
+            : 'rgba(37, 99, 235, 0.05)';
+
     const camposPendentes = {
         cnpj:   !doc.cnpj_emissor,
         nome:   !doc.nome_emissor,
@@ -2600,9 +2614,12 @@ ${Sidebar()}
                                      ${extratoDoLote ? `<p class="text-xs" style="color: var(--text-muted); font-style: italic; margin-top: 0.5rem; text-align: center; cursor: pointer;" onclick="window.toggleUploadManualExtrato()">Cancelar e usar o extrato do lote</p>` : ''}`;
     }
 
+    const flashClass = state.flashDocumentSwitch ? ' details-flash' : '';
+    state.flashDocumentSwitch = false;
+
     return `
 ${Sidebar()}
-    <main class="main-content view-content">
+    <main class="main-content view-content${flashClass}">
         <header class="content-header" style="display: flex; justify-content: space-between; align-items: flex-start;">
             <div style="display: flex; align-items: center; gap: 1rem;">
                 <button class="btn btn-secondary" onclick="window.navigate('dashboard')" style="padding: 0.5rem;">
@@ -2665,7 +2682,10 @@ ${Sidebar()}
 
         <div class="card mb-4" style="padding: 2rem;">
             <div style="display: flex; justify-content: space-between; position: relative;">
-                <div style="position: absolute; top: 15px; left: 40px; right: 40px; height: 2px; background: var(--border-subtle); z-index: 1;"></div>
+                ${(() => {
+        const progressPercent = steps.length > 1 ? (activeIndex / (steps.length - 1)) * 100 : 0;
+        return `<div style="position: absolute; top: 15px; left: 40px; right: 40px; height: 2px; background: linear-gradient(to right, var(--success) ${progressPercent}%, var(--border-subtle) ${progressPercent}%); z-index: 1;"></div>`;
+    })()}
                 ${steps.map((step, index) => {
         let statusClass = '';
         if (errorAtStep !== -1) {
@@ -2765,7 +2785,7 @@ ${Sidebar()}
                     </thead>
                     <tbody>
                         ${linha('Arquivo', doc.name || '---', outro?.name || '---', false)}
-                        ${linha('Nº da nota', doc.numero_nf || '---', outro?.numero_nf || '---')}
+                        ${linha('Nº do documento', doc.numero_nf || '---', outro?.numero_nf || '---')}
                         ${linha('CNPJ', doc.cnpj_emissor || '---', outro?.cnpj_emissor || '---')}
                         ${linha('Valor', fmtV(doc.valor), fmtV(outro?.valor))}
                         ${linha('Emissão', fmtD(doc.data_emissao), fmtD(outro?.data_emissao))}
@@ -2774,7 +2794,7 @@ ${Sidebar()}
                 ${outro ? `
                     <div style="margin-top:0.75rem; text-align:right;">
                         <button class="btn btn-secondary" style="padding:0.4rem 0.75rem; font-size:12px;"
-                            onclick="window.navigate('details', '${outro.id}')">
+                            onclick="window.handleAbrirDocumentoRelacionado('${outro.id}')">
                             <i data-lucide="external-link" style="width:14px;"></i> Abrir o documento relacionado
                         </button>
                     </div>` : `
@@ -2958,11 +2978,11 @@ ${Sidebar()}
 
                 <div class="card">
                     <h3 class="h2 mb-4">Análise de Conformidade</h3>
-                    <div style="padding: 1rem; background: ${doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') ? 'rgba(239, 68, 68, 0.05)' : 'var(--bg-sidebar)'}; border-radius: var(--radius-sm); border-left: 3px solid ${doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') ? 'var(--error)' : 'var(--primary)'};">
+                    <div style="padding: 1rem; background: ${doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') ? 'rgba(239, 68, 68, 0.05)' : 'var(--bg-sidebar)'}; border-radius: var(--radius-sm); border-left: 3px solid ${doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') ? 'var(--error)' : (doc.justification ? 'var(--success)' : 'var(--primary)')};">
                         <p class="text-sm" style="line-height: 1.6; color: var(--text-primary);">
                             ${doc.status.includes('bloqueado') || doc.status.includes('divergencia') || doc.status === 'revisao_manual' ?
-            `<strong>Atenção:</strong><br>${doc.justification || doc.just_erro || 'Documento requer análise manual devido a divergências ou baixa confiança no OCR.'}` :
-            (doc.justification || 'Aguardando processamento da IA para gerar a análise de conformidade...')
+            `<strong style="color: var(--error);">Atenção:</strong><br>${doc.justification || doc.just_erro || 'Documento requer análise manual devido a divergências ou baixa confiança no OCR.'}` :
+            (doc.justification ? `<strong style="color: var(--success);">✓ Aprovado</strong><br>${doc.justification}` : 'Aguardando processamento da IA para gerar a análise de conformidade...')
         }
                         </p>
                     </div>
@@ -2992,12 +3012,12 @@ ${Sidebar()}
                         
                         
                         <!-- Box do Comprovante -->
-                        <div style="padding: 1rem; border: 1px dashed var(--border-light); border-radius: var(--radius-sm); background: ${doc.data_pagamento || doc.status === 'aguardando_conciliacao_bancaria' || state.currentComprovante ? 'rgba(16, 185, 129, 0.05)' : 'transparent'};">
+                        <div style="padding: 1rem; border: 1px dashed var(--border-light); border-radius: var(--radius-sm); background: ${doc.data_pagamento || jaPassouDaConciliacao || state.currentComprovante ? 'rgba(16, 185, 129, 0.05)' : 'transparent'};">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                                 <span class="text-xs" style="font-weight: 600; text-transform: uppercase;">1. Comprovante (Opcional)</span>
-                                ${doc.data_pagamento || doc.status === 'aguardando_conciliacao_bancaria' || state.currentComprovante ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : (state.isUploadingComprovante ? '<i data-lucide="loader" class="spin" style="width: 16px; color: var(--primary);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>')}
+                                ${doc.data_pagamento || jaPassouDaConciliacao || state.currentComprovante ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : (state.isUploadingComprovante ? '<i data-lucide="loader" class="spin" style="width: 16px; color: var(--primary);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>')}
                             </div>
-                            ${(doc.data_pagamento || doc.status === 'aguardando_conciliacao_bancaria' || state.currentComprovante) ?
+                            ${(doc.data_pagamento || jaPassouDaConciliacao || state.currentComprovante) ?
             `<div style="display: flex; flex-direction: column; gap: 0.25rem;">
                                     <p class="text-xs" style="color: var(--text-secondary); font-weight: 500;">Comprovante recebido:</p>
                                     ${state.currentComprovante ? `<a href="${CONFIG.SUPABASE_URL}/storage/v1/object/public/documentos/${state.currentComprovante.file_path}" target="_blank" class="text-xs" style="color: var(--primary); text-decoration: none;">📄 ${state.currentComprovante.name}</a>` : '<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Nenhum comprovante enviado.</p>'}
@@ -3021,10 +3041,10 @@ ${Sidebar()}
                         </div>
 
                         <!-- Box do Extrato -->
-                        <div style="padding: 1rem; border: 1px dashed ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'var(--error)' : 'var(--border-light)'}; border-radius: var(--radius-sm); background: ${['aguardando_d3', 'liberado_rpa_airtop', 'enviado_salic', 'concluido'].includes(doc.status) ? 'rgba(37, 99, 235, 0.05)' : (doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'rgba(239, 68, 68, 0.05)' : (doc.extrato_origem_id && ['aguardando_comprovante', 'aguardando_conciliacao_bancaria'].includes(doc.status)) ? 'rgba(16, 185, 129, 0.05)' : 'transparent'};">
+                        <div style="padding: 1rem; border: 1px dashed ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'var(--error)' : 'var(--border-light)'}; border-radius: var(--radius-sm); background: ${jaPassouDaConciliacao ? bgPosConciliacao : (doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'rgba(239, 68, 68, 0.05)' : (doc.extrato_origem_id && ['aguardando_comprovante', 'aguardando_conciliacao_bancaria'].includes(doc.status)) ? 'rgba(16, 185, 129, 0.05)' : 'transparent'};">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                                 <span class="text-xs" style="font-weight: 600; text-transform: uppercase; color: ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'var(--error)' : 'inherit'};">2. Extrato Bancário</span>
-                                ${['aguardando_d3', 'enviado_salic', 'concluido'].includes(doc.status) ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--primary);"></i>' : (doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? '<i data-lucide="x-circle" style="width: 16px; color: var(--error);"></i>' : (doc.extrato_origem_id && ['aguardando_comprovante', 'aguardando_conciliacao_bancaria'].includes(doc.status)) ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>'}
+                                ${jaPassouDaConciliacao ? `<i data-lucide="check-circle-2" style="width: 16px; color: ${corPosConciliacao};"></i>` : (doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? '<i data-lucide="x-circle" style="width: 16px; color: var(--error);"></i>' : (doc.extrato_origem_id && ['aguardando_comprovante', 'aguardando_conciliacao_bancaria'].includes(doc.status)) ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>'}
                             </div>
                             ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? `
                             <div style="display: flex; flex-direction: column; gap: 0.5rem;">
@@ -3050,9 +3070,9 @@ ${Sidebar()}
                                  <input type="file" id="substituir-extrato-input" style="display: none;" onchange="window.handleUploadExtrato(this.files[0], '${doc.project_id}', '${doc.id}', '${state.currentComprovante?.id || ''}', true)" accept=".ofx,.csv,.pdf">`
             }
                             </div>` :
-            ((['aguardando_d3', 'liberado_rpa_airtop', 'enviado_salic', 'concluido'].includes(doc.status)) ?
+            (jaPassouDaConciliacao ?
                 `<p class="text-xs" style="color: var(--text-secondary);">Conciliado e validado em D-3</p>
-             <p class="text-xs mt-2" style="color: var(--success); font-weight: bold;">✓ Upload do extrato já foi realizado.</p>` :
+             <p class="text-xs mt-2" style="color: ${corPosConciliacao}; font-weight: bold;">✓ Upload do extrato já foi realizado.</p>` :
                 (extratoStatusPendente ?
                     extratoBoxHtml :
                     `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando liberação...</p>`))
@@ -3120,7 +3140,7 @@ ${Sidebar()}
                 </div>
 
                 <div class="card">
-                    <h3 class="h2 mb-4">Arquivo Original (NF)</h3>
+                    <h3 class="h2 mb-4">Arquivo Original</h3>
                     <div style="aspect-ratio: 3/4; background: var(--bg-sidebar); border-radius: var(--radius-sm); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; border: 1px solid var(--border-light);">
                         <i data-lucide="file-text" style="width: 48px; color: var(--text-muted);"></i>
                         <p class="text-xs" style="color: var(--text-muted);">${doc.name}</p>
@@ -4689,6 +4709,12 @@ const CapturedProjectModal = () => {
     `;
 };
 
+
+window.handleAbrirDocumentoRelacionado = async function (id) {
+    state.flashDocumentSwitch = true;
+    await window.navigate('details', id);
+    window.scrollTo(0, 0);
+};
 
 window.navigate = async function (view, id = null) {
     state.currentView = view;

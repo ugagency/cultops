@@ -211,8 +211,30 @@
             document.getElementById('salic-form').onsubmit = handleSaveSalic;
             document.getElementById('bb-form').onsubmit = handleSaveBB;
 
+            const formSalic = document.getElementById('salic-form');
+            formSalic.addEventListener('input', checkSalicFormDirty);
+            formSalic.addEventListener('change', checkSalicFormDirty);
+
             if (window.lucide) window.lucide.createIcons();
         });
+
+        const SALIC_FORM_FIELD_IDS = ['salic-user', 'salic-pass'];
+        let _salicFormSnapshot = null;
+        function getSalicFormSnapshot() {
+            const values = {};
+            SALIC_FORM_FIELD_IDS.forEach(id => {
+                const el = document.getElementById(id);
+                values[id] = el ? el.value : '';
+            });
+            return JSON.stringify(values);
+        }
+        function markSalicFormClean() {
+            _salicFormSnapshot = getSalicFormSnapshot();
+            document.getElementById('btn-save-salic').disabled = true;
+        }
+        function checkSalicFormDirty() {
+            document.getElementById('btn-save-salic').disabled = (getSalicFormSnapshot() === _salicFormSnapshot);
+        }
 
         async function loadCredentials() {
             const sb = await initSupabase();
@@ -234,6 +256,7 @@
                 });
                 if (window.lucide) window.lucide.createIcons();
             }
+            markSalicFormClean();
         }
 
         async function handleSaveSalic(e) {
@@ -259,8 +282,8 @@
             } catch (err) {
                 showToast('Erro: ' + err.message, 'error');
             } finally {
-                btn.disabled = false;
                 btn.innerText = 'Salvar Credenciais SALIC';
+                checkSalicFormDirty();
             }
         }
 

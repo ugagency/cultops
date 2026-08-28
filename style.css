@@ -32,7 +32,7 @@
     --border-subtle: var(--color-blue-15);
     --border-light: var(--color-blue-30);
 
-    --success: var(--color-primary);
+    --success: #16A34A;
     --warning: var(--color-alert);
     --error: var(--color-alert);
 
@@ -1000,6 +1000,14 @@ textarea:focus {
 @keyframes spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
+}
+
+@keyframes flash-highlight {
+    0% { opacity: 0.4; }
+    100% { opacity: 1; }
+}
+.details-flash {
+    animation: flash-highlight 200ms ease-out;
 }
 
 .spin {
