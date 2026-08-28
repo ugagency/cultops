@@ -2620,17 +2620,17 @@ ${Sidebar()}
     return `
 ${Sidebar()}
     <main class="main-content view-content${flashClass}">
-        <header class="content-header" style="display: flex; justify-content: space-between; align-items: flex-start;">
-            <div style="display: flex; align-items: center; gap: 1rem;">
-                <button class="btn btn-secondary" onclick="window.navigate('dashboard')" style="padding: 0.5rem;">
+        <header class="content-header" style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 1rem;">
+            <div style="display: flex; align-items: center; gap: 1rem; min-width: 0;">
+                <button class="btn btn-secondary" onclick="window.navigate('dashboard')" style="padding: 0.5rem; flex-shrink: 0;">
                     <i data-lucide="arrow-left" style="width: 18px;"></i>
                 </button>
-                <div>
+                <div style="min-width: 0;">
                     <h1>Detalhes da Nota</h1>
-                    <p class="page-subtitle">${doc.name}</p>
+                    <p class="page-subtitle" style="overflow-wrap: anywhere;">${doc.name}</p>
                 </div>
             </div>
-            <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; flex-shrink: 0;">
                 <div class="badge ${(STATUS_MAP[doc.status] || {}).class || 'status-pending'}">
                     <span class="badge-dot"></span>
                     ${(STATUS_MAP[doc.status] || {}).label || doc.status}

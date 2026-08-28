@@ -215,6 +215,12 @@ h1, h2, h3, h4, h5, h6,
 
 .content-header {
     margin-bottom: 2.5rem;
+    /* Cada tela define display:flex/justify-content inline, mas nenhuma
+       define flex-wrap — sem isso, título longo + badge/botão à direita
+       empurram o conteúdo pra fora da viewport em telas menores em vez de
+       quebrar linha (mesma causa do corte reportado no DetailsView). */
+    flex-wrap: wrap;
+    row-gap: 0.75rem;
 }
 
 h1 {

@@ -142,7 +142,7 @@
                 <input type="text" id="orgs-filtro-input" placeholder="Filtrar por nome ou slug..." oninput="handleFiltrarOrgs(this.value)" style="max-width: 260px; padding: 0.5rem 0.75rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm); font-size: 0.85rem;">
             </div>
             <div class="data-table-container">
-                <div id="orgs-tabela-wrap" style="min-width: 0;">
+                <div id="orgs-tabela-wrap" style="min-width: 0; overflow-x: auto;">
                     <p class="text-sm" style="color: var(--text-muted); padding: 1rem;">Carregando…</p>
                 </div>
             </div>
@@ -157,7 +157,7 @@
                         <h3 class="h2">Projetos <span id="projetos-count" style="color: var(--text-muted); font-weight: 500;"></span></h3>
                     </div>
                     <div class="data-table-container">
-                        <div id="projetos-tabela-wrap" style="min-width: 0;"></div>
+                        <div id="projetos-tabela-wrap" style="min-width: 0; overflow-x: auto;"></div>
                     </div>
                 </div>
 
@@ -167,7 +167,7 @@
                         <h3 class="h2">Usuários <span id="usuarios-count" style="color: var(--text-muted); font-weight: 500;"></span></h3>
                     </div>
                     <div class="data-table-container">
-                        <div id="usuarios-tabela-wrap" style="min-width: 0;"></div>
+                        <div id="usuarios-tabela-wrap" style="min-width: 0; overflow-x: auto;"></div>
                     </div>
                 </div>
             </div>
@@ -188,26 +188,26 @@
                 <div id="aba-documentos" class="aba-projeto">
                     <p class="text-xs" style="color: var(--text-muted); margin-bottom: 1rem;">Linhas em destaque estão bloqueadas por conformidade ou têm erro registrado — cenário mais comum de precisar de suporte.</p>
                     <div class="data-table-container">
-                        <div id="documentos-tabela-wrap" style="min-width: 0;"></div>
+                        <div id="documentos-tabela-wrap" style="min-width: 0; overflow-x: auto;"></div>
                     </div>
                     <div id="documentos-paginacao"></div>
                 </div>
                 <div id="aba-contratos" class="aba-projeto" style="display: none;">
                     <div class="data-table-container">
-                        <div id="contratos-tabela-wrap" style="min-width: 0;"></div>
+                        <div id="contratos-tabela-wrap" style="min-width: 0; overflow-x: auto;"></div>
                     </div>
                     <div id="contratos-paginacao"></div>
                 </div>
                 <div id="aba-guias" class="aba-projeto" style="display: none;">
                     <div class="data-table-container">
-                        <div id="guias-tabela-wrap" style="min-width: 0;"></div>
+                        <div id="guias-tabela-wrap" style="min-width: 0; overflow-x: auto;"></div>
                     </div>
                     <div id="guias-paginacao"></div>
                 </div>
                 <div id="aba-auditoria" class="aba-projeto" style="display: none;">
                     <p class="text-xs" style="color: var(--text-muted); margin-bottom: 1rem;">Mesma lógica de rótulo usada no PDF de Auditoria (Exportações do Módulo II), renderizada em tela.</p>
                     <div class="data-table-container">
-                        <div id="auditoria-tabela-wrap" style="min-width: 0;"></div>
+                        <div id="auditoria-tabela-wrap" style="min-width: 0; overflow-x: auto;"></div>
                     </div>
                     <div id="auditoria-paginacao"></div>
                 </div>
@@ -220,7 +220,7 @@
                 <h3 class="h2">Status do Sistema (crons/RPA)</h3>
             </div>
             <div class="data-table-container">
-                <div id="crons-tabela-wrap" style="min-width: 0;">
+                <div id="crons-tabela-wrap" style="min-width: 0; overflow-x: auto;">
                     <p class="text-sm" style="color: var(--text-muted); padding: 1rem;">Carregando…</p>
                 </div>
             </div>
