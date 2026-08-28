@@ -132,35 +132,6 @@
                     </button>
                 </form>
             </section>
-
-            <!-- Credenciais BB -->
-            <section class="settings-card" style="border-top: 5px solid var(--color-alert);">
-                <div class="card-header">
-                    <img src="https://upload.wikimedia.org/wikipedia/pt/thumb/3/3b/Logo_Banco_do_Brasil.png/300px-Logo_Banco_do_Brasil.png" style="width: 28px;">
-                    <h3>Integração Banco do Brasil (API)</h3>
-                    <div class="status-badge disconnected" id="bb-status">Desconectado</div>
-                </div>
-
-                <form id="bb-form">
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
-                        <div class="form-group">
-                            <label>Client ID</label>
-                            <input type="text" id="bb-client-id" required>
-                        </div>
-                        <div class="form-group">
-                            <label>Client Secret</label>
-                            <input type="password" id="bb-client-secret" required>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label>Developer Application Key (X-Developer-Key)</label>
-                        <input type="text" id="bb-developer-key" required>
-                    </div>
-                    <button type="submit" class="btn btn-primary" id="btn-save-bb" style="width: 100%; justify-content: center; height: 50px;">
-                        Salvar Credenciais BB
-                    </button>
-                </form>
-            </section>
         </div>
     </div>
 
@@ -209,7 +180,6 @@
             }
 
             document.getElementById('salic-form').onsubmit = handleSaveSalic;
-            document.getElementById('bb-form').onsubmit = handleSaveBB;
 
             const formSalic = document.getElementById('salic-form');
             formSalic.addEventListener('input', checkSalicFormDirty);
@@ -238,7 +208,7 @@
 
         async function loadCredentials() {
             const sb = await initSupabase();
-            const { data, error } = await sb.from('external_credentials').select('*').in('service_name', ['salic', 'bb_api']);
+            const { data, error } = await sb.from('external_credentials').select('*').eq('service_name', 'salic');
             if (data) {
                 data.forEach(cred => {
                     if (cred.service_name === 'salic') {
@@ -246,12 +216,6 @@
                         document.getElementById('salic-pass').value = '********';
                         document.getElementById('salic-status').className = 'status-badge connected';
                         document.getElementById('salic-status').innerText = 'Conectado';
-                    } else if (cred.service_name === 'bb_api') {
-                        document.getElementById('bb-client-id').value = cred.identifier || '';
-                        document.getElementById('bb-client-secret').value = '********';
-                        document.getElementById('bb-developer-key').value = cred.metadata?.developer_key || '';
-                        document.getElementById('bb-status').className = 'status-badge connected';
-                        document.getElementById('bb-status').innerText = 'Conectado';
                     }
                 });
                 if (window.lucide) window.lucide.createIcons();
@@ -284,36 +248,6 @@
             } finally {
                 btn.innerText = 'Salvar Credenciais SALIC';
                 checkSalicFormDirty();
-            }
-        }
-
-        async function handleSaveBB(e) {
-            e.preventDefault();
-            const sb = await initSupabase();
-            const btn = document.getElementById('btn-save-bb');
-            btn.disabled = true;
-            btn.innerText = 'SALVANDO...';
-
-            try {
-                const clientId = document.getElementById('bb-client-id').value.trim();
-                const secret = document.getElementById('bb-client-secret').value.trim();
-                const devKey = document.getElementById('bb-developer-key').value.trim();
-
-                const { error } = await sb.rpc('upsert_external_credential', {
-                    p_service_name: 'bb_api',
-                    p_identifier: clientId,
-                    p_secret: secret === '********' ? null : secret,
-                    p_metadata: { developer_key: devKey }
-                });
-
-                if (error) throw error;
-                showToast('Credenciais BB salvas!', 'success');
-                await loadCredentials();
-            } catch (err) {
-                showToast('Erro: ' + err.message, 'error');
-            } finally {
-                btn.disabled = false;
-                btn.innerText = 'Salvar Credenciais BB';
             }
         }
     </script>

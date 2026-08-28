@@ -2094,7 +2094,7 @@ window.handleIniciarEnvioLote = async function () {
         if (credError) throw credError;
         if (!temCredencial) {
             alert("Você precisa configurar suas credenciais SALIC em 'Configurações' antes de enviar em lote.");
-            window.navigate('configuracoes');
+            window.location.href = 'configuracoes.html';
             return;
         }
     } catch (err) {
@@ -7067,7 +7067,7 @@ window.handleEnviarSalic = async function (documentId) {
         if (credError) throw credError;
         if (!temCredencial) {
             alert("Você precisa configurar suas credenciais SALIC em 'Configurações' antes de enviar.");
-            window.navigate('configuracoes');
+            window.location.href = 'configuracoes.html';
             return;
         }
 
