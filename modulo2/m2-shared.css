@@ -54,6 +54,14 @@ h1, h2, h3, h4, h5, h6 {
     }
 }
 
+/* Mesma proteção acima, mas sem encolher o padding — cobre notebooks
+   (1280–1366px) onde a sidebar ainda está expandida. Ver style.css. */
+@media (max-width: 1400px) {
+    .glass-card {
+        overflow-x: auto;
+    }
+}
+
 /* Glassmorphism Cards */
 .glass-card {
     background: var(--glass-bg);

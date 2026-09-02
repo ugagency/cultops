@@ -548,15 +548,26 @@ textarea:focus {
         overflow-wrap: anywhere;
     }
 
-    .data-table th:last-child,
-    .data-table td:last-child {
+    .data-table th:last-child, .data-table td:last-child,
+    .m2-table th:last-child, .m2-table td:last-child,
+    .inner-table th:last-child, .inner-table td:last-child,
+    .solic-table th:last-child, .solic-table td:last-child,
+    .edit-table th:last-child, .edit-table td:last-child,
+    .hist-table th:last-child, .hist-table td:last-child,
+    .history-table th:last-child, .history-table td:last-child {
         position: sticky;
         right: 0;
         background: #FFFFFF;
         box-shadow: -8px 0 8px -8px rgba(0, 0, 0, 0.18);
     }
 
-    .data-table th:last-child {
+    .data-table th:last-child,
+    .m2-table th:last-child,
+    .inner-table th:last-child,
+    .solic-table th:last-child,
+    .edit-table th:last-child,
+    .hist-table th:last-child,
+    .history-table th:last-child {
         background: var(--bg-sidebar);
     }
 
@@ -595,6 +606,46 @@ textarea:focus {
 
     .hamburger-btn {
         display: flex !important;
+    }
+}
+
+/* Entre 1024px (onde só a sidebar encolhe) e 768px (mobile) não havia
+   proteção nenhuma: em notebook comum (1280–1366px) tabelas largas
+   (contratos, despesas, evidências) estouram a área útil e a coluna de
+   Ações sai da tela. Mesmo tratamento do breakpoint mobile — coluna de
+   Ações fixa na borda direita — sem mexer no espaçamento das células. */
+@media (max-width: 1400px) {
+    /* Mesma garantia do breakpoint mobile: a página nunca rola na
+       horizontal, conteúdo largo rola dentro do próprio container. */
+    html, body {
+        overflow-x: hidden;
+    }
+
+    .glass-card {
+        overflow-x: auto;
+    }
+
+    .data-table th:last-child, .data-table td:last-child,
+    .m2-table th:last-child, .m2-table td:last-child,
+    .inner-table th:last-child, .inner-table td:last-child,
+    .solic-table th:last-child, .solic-table td:last-child,
+    .edit-table th:last-child, .edit-table td:last-child,
+    .hist-table th:last-child, .hist-table td:last-child,
+    .history-table th:last-child, .history-table td:last-child {
+        position: sticky;
+        right: 0;
+        background: #FFFFFF;
+        box-shadow: -8px 0 8px -8px rgba(0, 0, 0, 0.18);
+    }
+
+    .data-table th:last-child,
+    .m2-table th:last-child,
+    .inner-table th:last-child,
+    .solic-table th:last-child,
+    .edit-table th:last-child,
+    .hist-table th:last-child,
+    .history-table th:last-child {
+        background: var(--bg-sidebar);
     }
 }
 
