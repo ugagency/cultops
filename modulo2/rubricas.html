@@ -446,9 +446,9 @@
 
                 return `
                     <tr>
-                        <td>${new Date(doc.created_at).toLocaleString('pt-BR')}</td>
-                        <td style="font-weight: 500;">${doc.name}</td>
-                        <td><span class="status-badge ${badgeClass}">${statusLabel}</span></td>
+                        <td data-label="Data">${new Date(doc.created_at).toLocaleString('pt-BR')}</td>
+                        <td style="font-weight: 500;" data-label="Arquivo">${doc.name}</td>
+                        <td data-label="Status"><span class="status-badge ${badgeClass}">${statusLabel}</span></td>
                     </tr>
                 `;
             }).join('');
@@ -679,11 +679,11 @@
 
             const rows = data.map(h => `
                 <tr>
-                    <td><strong>v${h.versao}</strong></td>
-                    <td>${formatCurrency(Number(h.valor_anterior || 0))}</td>
-                    <td>${formatCurrency(Number(h.valor_novo || 0))}</td>
-                    <td style="font-size: 0.82rem; color: var(--text-secondary);">${escapeHtml(h.motivo || '—')}</td>
-                    <td>${formatHistDate(h.aprovado_em || h.criado_em)}</td>
+                    <td data-label="Versão"><strong>v${h.versao}</strong></td>
+                    <td data-label="De">${formatCurrency(Number(h.valor_anterior || 0))}</td>
+                    <td data-label="Para">${formatCurrency(Number(h.valor_novo || 0))}</td>
+                    <td style="font-size: 0.82rem; color: var(--text-secondary);" data-label="Motivo">${escapeHtml(h.motivo || '—')}</td>
+                    <td data-label="Data">${formatHistDate(h.aprovado_em || h.criado_em)}</td>
                 </tr>
             `).join('');
 

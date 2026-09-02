@@ -548,26 +548,19 @@ textarea:focus {
         overflow-wrap: anywhere;
     }
 
-    .data-table th:last-child, .data-table td:last-child,
-    .m2-table th:last-child, .m2-table td:last-child,
-    .inner-table th:last-child, .inner-table td:last-child,
-    .solic-table th:last-child, .solic-table td:last-child,
-    .edit-table th:last-child, .edit-table td:last-child,
-    .hist-table th:last-child, .hist-table td:last-child,
-    .history-table th:last-child, .history-table td:last-child {
+    /* .m2-table/.inner-table/.solic-table/.edit-table/.hist-table/.history-table
+       ficam de fora daqui — a partir de 900px (mais largo que este
+       breakpoint, então sempre ativo junto) elas viram cartões empilhados
+       (ver @media 900px), o que torna o sticky de última coluna redundante
+       pra essas classes. */
+    .data-table th:last-child, .data-table td:last-child {
         position: sticky;
         right: 0;
         background: #FFFFFF;
         box-shadow: -8px 0 8px -8px rgba(0, 0, 0, 0.18);
     }
 
-    .data-table th:last-child,
-    .m2-table th:last-child,
-    .inner-table th:last-child,
-    .solic-table th:last-child,
-    .edit-table th:last-child,
-    .hist-table th:last-child,
-    .history-table th:last-child {
+    .data-table th:last-child {
         background: var(--bg-sidebar);
     }
 
@@ -683,6 +676,67 @@ textarea:focus {
 @media (max-width: 1200px) {
     .contracts-table th:nth-child(4), .contracts-table td:nth-child(4) {
         display: none;
+    }
+}
+
+/* Abaixo de 900px (tablet/celular), truncar colunas não resolve mais —
+   viram cartões empilhados, um por linha, com rótulo (data-label de cada
+   <td>) à esquerda e valor à direita. Cobre .m2-table/.inner-table/
+   .solic-table/.edit-table/.hist-table/.history-table; .data-table (M1)
+   mantém a coluna de Ações fixa (ver @media 768px). */
+@media (max-width: 900px) {
+    .m2-table, .inner-table, .solic-table, .edit-table, .hist-table, .history-table,
+    .m2-table thead, .inner-table thead, .solic-table thead, .edit-table thead, .hist-table thead, .history-table thead,
+    .m2-table tbody, .inner-table tbody, .solic-table tbody, .edit-table tbody, .hist-table tbody, .history-table tbody,
+    .m2-table th, .inner-table th, .solic-table th, .edit-table th, .hist-table th, .history-table th,
+    .m2-table td, .inner-table td, .solic-table td, .edit-table td, .hist-table td, .history-table td,
+    .m2-table tr, .inner-table tr, .solic-table tr, .edit-table tr, .hist-table tr, .history-table tr {
+        display: block;
+    }
+
+    /* Cabeçalho original escondido -- o rótulo vem do data-label em cada célula */
+    .m2-table thead tr, .inner-table thead tr, .solic-table thead tr,
+    .edit-table thead tr, .hist-table thead tr, .history-table thead tr {
+        position: absolute;
+        left: -9999px;
+    }
+
+    .m2-table tr, .inner-table tr, .solic-table tr, .edit-table tr, .hist-table tr, .history-table tr {
+        border: 1px solid var(--border-light);
+        border-radius: var(--radius-md);
+        margin-bottom: 0.75rem;
+        padding: 0.5rem 0;
+        background: #FFFFFF;
+    }
+
+    .m2-table td, .inner-table td, .solic-table td, .edit-table td, .hist-table td, .history-table td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+        padding: 0.5rem 0.85rem;
+        border: none;
+        text-align: right;
+        white-space: normal;
+        max-width: none;
+    }
+
+    .m2-table td::before, .inner-table td::before, .solic-table td::before,
+    .edit-table td::before, .hist-table td::before, .history-table td::before {
+        content: attr(data-label);
+        font-weight: 700;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        text-align: left;
+        flex-shrink: 0;
+    }
+
+    /* Célula de ações não precisa de rótulo repetido, e os botões ficam
+       lado a lado à direita, cabendo naturalmente na largura do cartão */
+    .m2-table td[data-label="Ações"]::before,
+    .inner-table td[data-label="Ações"]::before {
+        content: "";
     }
 }
 

@@ -583,12 +583,12 @@
                     <tbody>
                         ${lista.map(f => `
                             <tr>
-                                <td>
+                                <td data-label="Fornecedor">
                                     <div style="font-weight: 600;">${f.razao_social}</div>
                                     <div style="font-size: 0.8rem; color: var(--text-muted);">${f.cnpj}</div>
                                 </td>
-                                <td style="text-align: center;">${f.doc_count}</td>
-                                <td>
+                                <td style="text-align: center;" data-label="Documentos">${f.doc_count}</td>
+                                <td data-label="Projetos">
                                     ${f.projetos.length === 0
                     ? '<span class="text-xs" style="color: var(--text-muted); font-style: italic;">Nenhum projeto vinculado</span>'
                     : f.projetos.map(p => `<span class="badge status-completed" style="margin: 2px;">
@@ -598,15 +598,15 @@
                                             </button>
                                         </span>`).join('')}
                                 </td>
-                                <td>
+                                <td data-label="Dados">
                                     ${f.cnpj_invalido
                     ? '<span class="badge" style="background: var(--color-alert); color: #fff; font-weight: 700;"><span class="badge-dot"></span>CNPJ inválido</span>'
                     : (f.dados_completos === false ? '<span class="badge status-pending"><span class="badge-dot"></span>Dados incompletos</span>' : '')}
                                 </td>
-                                <td>
+                                <td data-label="Acesso">
                                     <span class="badge ${f.auth_user_id ? 'status-completed' : 'status-pending'}"><span class="badge-dot"></span>${f.auth_user_id ? 'Acesso ativo' : 'Sem acesso'}</span>
                                 </td>
-                                <td style="text-align: center; white-space: nowrap;">
+                                <td style="text-align: center; white-space: nowrap;" data-label="Ações">
                                     <button class="btn btn-secondary" style="padding: 0.4rem 0.6rem; margin: 2px;" onclick="abrirModalFornecedor('${f.id}')">Completar dados</button>
                                     ${!f.auth_user_id ? `<button class="btn btn-secondary" style="padding: 0.4rem 0.6rem; margin: 2px;" onclick="abrirModalCriarAcesso('${f.id}', '${(f.razao_social || '').replace(/'/g, "\\'")}')">Criar acesso</button>` : ''}
                                     <button class="btn btn-secondary" style="padding: 0.4rem 0.6rem; margin: 2px;" onclick="selecionarFornecedorParaVincular('${f.id}')">Vincular a projeto</button>

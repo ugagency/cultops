@@ -788,9 +788,9 @@
         function _appendLocalRow(l) {
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td><input class="cell-input" value="${escapeHtml(l.pais || 'Brasil')}"></td>
-                <td><input class="cell-input" style="width:60px;" value="${escapeHtml(l.uf || '')}"></td>
-                <td><input class="cell-input" value="${escapeHtml(l.cidade || '')}"></td>
+                <td data-label="País"><input class="cell-input" value="${escapeHtml(l.pais || 'Brasil')}"></td>
+                <td data-label="UF"><input class="cell-input" style="width:60px;" value="${escapeHtml(l.uf || '')}"></td>
+                <td data-label="Cidade"><input class="cell-input" value="${escapeHtml(l.cidade || '')}"></td>
                 <td><button class="btn-remove-row" onclick="this.closest('tr').remove()"><i data-lucide="x" style="width:14px;"></i></button></td>`;
             document.getElementById('locais-tbody').appendChild(tr);
             if (window.lucide) window.lucide.createIcons();
@@ -814,11 +814,11 @@
         function _appendDeslocamentoRow(d) {
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td><input class="cell-input" style="width:60px;" value="${escapeHtml(d.origem_uf || '')}"></td>
-                <td><input class="cell-input" value="${escapeHtml(d.origem_cidade || '')}"></td>
-                <td><input class="cell-input" style="width:60px;" value="${escapeHtml(d.destino_uf || '')}"></td>
-                <td><input class="cell-input" value="${escapeHtml(d.destino_cidade || '')}"></td>
-                <td><input class="cell-input" type="number" style="width:70px;" value="${escapeHtml(d.quantidade ?? 1)}"></td>
+                <td data-label="Origem UF"><input class="cell-input" style="width:60px;" value="${escapeHtml(d.origem_uf || '')}"></td>
+                <td data-label="Origem Cidade"><input class="cell-input" value="${escapeHtml(d.origem_cidade || '')}"></td>
+                <td data-label="Destino UF"><input class="cell-input" style="width:60px;" value="${escapeHtml(d.destino_uf || '')}"></td>
+                <td data-label="Destino Cidade"><input class="cell-input" value="${escapeHtml(d.destino_cidade || '')}"></td>
+                <td data-label="Qtd"><input class="cell-input" type="number" style="width:70px;" value="${escapeHtml(d.quantidade ?? 1)}"></td>
                 <td><button class="btn-remove-row" onclick="this.closest('tr').remove()"><i data-lucide="x" style="width:14px;"></i></button></td>`;
             document.getElementById('deslocamentos-tbody').appendChild(tr);
             if (window.lucide) window.lucide.createIcons();
@@ -853,10 +853,10 @@
             ).join('');
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td><select class="cell-select"><option value="">Selecione…</option>${opts}</select></td>
-                <td><input class="cell-input" value="${escapeHtml(item.descricao || '')}"></td>
-                <td><input class="cell-input" value="${escapeHtml(item.veiculo || '')}"></td>
-                <td><input class="cell-input" type="number" style="width:70px;" value="${escapeHtml(item.quantidade ?? '')}"></td>
+                <td data-label="Tipo de Mídia"><select class="cell-select"><option value="">Selecione…</option>${opts}</select></td>
+                <td data-label="Descrição"><input class="cell-input" value="${escapeHtml(item.descricao || '')}"></td>
+                <td data-label="Veículo"><input class="cell-input" value="${escapeHtml(item.veiculo || '')}"></td>
+                <td data-label="Qtd"><input class="cell-input" type="number" style="width:70px;" value="${escapeHtml(item.quantidade ?? '')}"></td>
                 <td><button class="btn-remove-row" onclick="this.closest('tr').remove()"><i data-lucide="x" style="width:14px;"></i></button></td>`;
             document.getElementById('divulgacao-tbody').appendChild(tr);
             if (window.lucide) window.lucide.createIcons();

@@ -1107,7 +1107,7 @@
                                 }
                             </div>
                         </td>
-                        <td>
+                        <td data-label="Evidência">
                             <div style="font-weight: 600; font-size: 0.85rem; color: var(--text-primary);">
                                 ${escapeHtml(ev.file_name || 'Evidência')}
                                 ${ev.ia_score ? `<span class="${scoreClass}" style="font-size:0.72rem;font-weight:700;margin-left:0.4rem;">IA: ${ev.ia_score}%</span>` : ''}
@@ -1123,8 +1123,8 @@
                                 }
                             </div>
                         </td>
-                        <td><span class="meta-tag">${escapeHtml(tipoLabel(ev.tipo_evidencia))}</span></td>
-                        <td style="font-size:0.82rem; white-space:nowrap;">
+                        <td data-label="Tipo"><span class="meta-tag">${escapeHtml(tipoLabel(ev.tipo_evidencia))}</span></td>
+                        <td style="font-size:0.82rem; white-space:nowrap;" data-label="Evento">
                             ${ev.distribution_event_id
                                 ? `<span style="display:inline-flex;align-items:center;gap:0.3rem;color:#1547FF;font-weight:600;">
                                        <i data-lucide="ticket" style="width:12px;height:12px;"></i>
@@ -1133,10 +1133,10 @@
                                 : '<span style="color:var(--text-muted);">—</span>'
                             }
                         </td>
-                        <td style="font-size:0.82rem; white-space:nowrap; color:var(--text-secondary);">
+                        <td style="font-size:0.82rem; white-space:nowrap; color:var(--text-secondary);" data-label="Captura">
                             ${ev.data_captura ? formatDataCaptura(ev.data_captura) : '—'}
                         </td>
-                        <td style="white-space:nowrap;">
+                        <td style="white-space:nowrap;" data-label="Status">
                             <span class="status-badge status-${ev.status_validacao || 'pendente'}">${statusLabel}</span>
                             <div style="font-size:0.68rem; color:var(--text-muted); margin-top:0.2rem;">${formatDate(ev.criado_em)}</div>
                             ${showMotivo ? `
@@ -1145,7 +1145,7 @@
                                 </div>
                             ` : ''}
                         </td>
-                        <td onclick="event.stopPropagation()" style="white-space:nowrap;">
+                        <td onclick="event.stopPropagation()" style="white-space:nowrap;" data-label="Ações">
                             ${isReviewable ? `
                                 <div class="card-actions" style="border-top:none; margin-top:0; padding-top:0; flex-wrap:wrap; min-width:190px;">
                                     <button class="btn-approve" onclick="approveEvidence('${ev.id}')">
