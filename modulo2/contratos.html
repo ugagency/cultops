@@ -1559,7 +1559,7 @@
             const toolbar = `
                 <div class="toolbar-row">
                     <div style="font-weight: 600; color: var(--text-secondary); font-size: 0.85rem;">${(data || []).length} parcela(s)</div>
-                    <button class="btn-inline primary" onclick="openParcelaModal('${contractId}')"><i data-lucide="plus" style="width:14px;"></i> Adicionar parcela</button>
+                    <button class="btn-inline primary" title="Adicionar parcela" onclick="openParcelaModal('${contractId}')"><i data-lucide="plus" style="width:14px;"></i> <span>Adicionar parcela</span></button>
                 </div>
             `;
 
@@ -1584,7 +1584,7 @@
                         </td>
                         <td>
                             ${isOpen
-                                ? `<button class="btn-inline" onclick="markParcelaPaga('${p.id}', '${contractId}')"><i data-lucide="check" style="width:14px;"></i> Marcar paga</button>`
+                                ? `<button class="btn-inline" title="Marcar paga" onclick="markParcelaPaga('${p.id}', '${contractId}')"><i data-lucide="check" style="width:14px;"></i> <span>Marcar paga</span></button>`
                                 : '—'}
                         </td>
                     </tr>
@@ -1722,7 +1722,7 @@
             const toolbar = `
                 <div class="toolbar-row">
                     <div style="font-weight: 600; color: var(--text-secondary); font-size: 0.85rem;">${(data || []).length} aditivo(s)</div>
-                    <button class="btn-inline primary" onclick="openAditivoModal('${contractId}')"><i data-lucide="plus" style="width:14px;"></i> Registrar aditivo</button>
+                    <button class="btn-inline primary" title="Registrar aditivo" onclick="openAditivoModal('${contractId}')"><i data-lucide="plus" style="width:14px;"></i> <span>Registrar aditivo</span></button>
                 </div>
             `;
 
@@ -1797,7 +1797,7 @@
             const toolbar = `
                 <div class="toolbar-row">
                     <div style="font-weight: 600; color: var(--text-secondary); font-size: 0.85rem;">${anexos.length} anexo(s)</div>
-                    <button class="btn-inline primary" onclick="openContratoModal('${contractId}')"><i data-lucide="plus" style="width:14px;"></i> Adicionar anexo</button>
+                    <button class="btn-inline primary" title="Adicionar anexo" onclick="openContratoModal('${contractId}')"><i data-lucide="plus" style="width:14px;"></i> <span>Adicionar anexo</span></button>
                 </div>
             `;
 
@@ -1818,11 +1818,11 @@
                         <td class="num" style="font-weight: 700; color: var(--m2-accent);">${formatCurrency(a.valor_total)}</td>
                         <td onclick="event.stopPropagation()">
                             <span class="badge-m2 badge-${a.status || 'ativo'}">${a.status || 'ativo'}</span>
-                            <button class="btn-inline" style="margin-left:6px;" onclick="event.stopPropagation(); openEditContrato('${a.id}')">
-                                <i data-lucide="pencil" style="width:12px;"></i> Editar
+                            <button class="btn-inline" style="margin-left:6px;" title="Editar" onclick="event.stopPropagation(); openEditContrato('${a.id}')">
+                                <i data-lucide="pencil" style="width:12px;"></i> <span>Editar</span>
                             </button>
-                            <button class="btn-inline" style="margin-left:6px;" onclick="event.stopPropagation(); removerVinculoAnexo('${a.id}','${contractId}')">
-                                <i data-lucide="unlink" style="width:12px;"></i> Remover vínculo
+                            <button class="btn-inline" style="margin-left:6px;" title="Remover vínculo" onclick="event.stopPropagation(); removerVinculoAnexo('${a.id}','${contractId}')">
+                                <i data-lucide="unlink" style="width:12px;"></i> <span>Remover vínculo</span>
                             </button>
                         </td>
                     </tr>

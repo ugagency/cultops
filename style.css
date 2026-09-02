@@ -625,9 +625,11 @@ textarea:focus {
         overflow-x: auto;
     }
 
+    /* .m2-table e .inner-table ficam de fora: usam border-collapse: separate
+       (.m2-table) e o sticky em th/td simplesmente não gruda nesse caso —
+       limitação do navegador, não bug de CSS. Essas duas usam a abordagem
+       de ícone-só logo abaixo. */
     .data-table th:last-child, .data-table td:last-child,
-    .m2-table th:last-child, .m2-table td:last-child,
-    .inner-table th:last-child, .inner-table td:last-child,
     .solic-table th:last-child, .solic-table td:last-child,
     .edit-table th:last-child, .edit-table td:last-child,
     .hist-table th:last-child, .hist-table td:last-child,
@@ -639,13 +641,36 @@ textarea:focus {
     }
 
     .data-table th:last-child,
-    .m2-table th:last-child,
-    .inner-table th:last-child,
     .solic-table th:last-child,
     .edit-table th:last-child,
     .hist-table th:last-child,
     .history-table th:last-child {
         background: var(--bg-sidebar);
+    }
+
+    /* .m2-table / .inner-table: sticky não funciona (ver acima), então a
+       coluna de Ações some por falta de espaço em vez de ficar cortada.
+       Botões de ação viram ícone-só (texto em title=) e a coluna de
+       identificação (número/nome) trunca com ellipsis em vez de quebrar
+       em várias linhas e esticar a linha inteira. */
+    .m2-table .btn-inline span,
+    .inner-table .btn-inline span {
+        display: none;
+    }
+
+    .m2-table .btn-inline,
+    .inner-table .btn-inline {
+        padding: 0.4rem;
+    }
+
+    .m2-table td, .inner-table td {
+        max-width: 200px;
+    }
+
+    .m2-table td:first-child, .inner-table td:nth-child(2) {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 }
 
