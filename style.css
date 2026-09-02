@@ -628,7 +628,7 @@ textarea:focus {
     /* .m2-table e .inner-table ficam de fora: usam border-collapse: separate
        (.m2-table) e o sticky em th/td simplesmente não gruda nesse caso —
        limitação do navegador, não bug de CSS. Essas duas usam a abordagem
-       de ícone-só logo abaixo. */
+       de caber-na-tela abaixo (ver @media 1500px / 1200px). */
     .data-table th:last-child, .data-table td:last-child,
     .solic-table th:last-child, .solic-table td:last-child,
     .edit-table th:last-child, .edit-table td:last-child,
@@ -647,30 +647,42 @@ textarea:focus {
     .history-table th:last-child {
         background: var(--bg-sidebar);
     }
+}
 
-    /* .m2-table / .inner-table: sticky não funciona (ver acima), então a
-       coluna de Ações some por falta de espaço em vez de ficar cortada.
-       Botões de ação viram ícone-só (texto em title=) e a coluna de
-       identificação (número/nome) trunca com ellipsis em vez de quebrar
-       em várias linhas e esticar a linha inteira. */
-    .m2-table .btn-inline span,
-    .inner-table .btn-inline span {
+/* .contracts-table / .inner-table (tabelas de contratos.html — a segunda
+   não é usada em mais nenhuma página, mas .m2-table sim, daí a classe extra
+   pra não truncar/esconder colunas de outras tabelas que usam layout
+   diferente): sticky não funciona nelas (ver acima), e a página não pode
+   rolar na horizontal — a tabela precisa caber na largura da tela, não
+   conviver com o estouro. Botões de ação viram ícone-só (texto em title=,
+   .btn-label escondido) e as colunas de texto livre truncam com ellipsis em
+   vez de quebrar em várias linhas e esticar a linha inteira. */
+@media (max-width: 1500px) {
+    .btn-inline .btn-label {
         display: none;
     }
 
-    .m2-table .btn-inline,
-    .inner-table .btn-inline {
+    .btn-inline {
         padding: 0.4rem;
     }
 
-    .m2-table td, .inner-table td {
-        max-width: 200px;
-    }
-
-    .m2-table td:first-child, .inner-table td:nth-child(2) {
+    .contracts-table td, .inner-table td {
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        max-width: 160px;
+    }
+
+    .contracts-table td:nth-child(2) { max-width: 130px; } /* Nº */
+    .contracts-table td:nth-child(4) { max-width: 180px; } /* Objeto */
+}
+
+/* Mesmo com o truncamento acima, 8 colunas ainda não cabem abaixo de
+   1200px — Objeto é a candidata natural: o conteúdo completo já está no
+   card expandido do contrato. */
+@media (max-width: 1200px) {
+    .contracts-table th:nth-child(4), .contracts-table td:nth-child(4) {
+        display: none;
     }
 }
 
