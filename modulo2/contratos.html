@@ -357,26 +357,31 @@
                         <input type="text" id="c-numero" required maxlength="50" placeholder="Ex: 2026/001">
                     </label>
                     <label>
-                        Valor total (R$) <span style="color:#FF5807;">*</span>
+                        Valor total (R$) <span id="c-valor-req" style="color:#FF5807;">*</span>
                         <input type="number" step="0.01" min="0" id="c-valor" required>
                     </label>
                 </div>
 
                 <label>
-                    Objeto <span style="color:#FF5807;">*</span>
+                    Objeto <span id="c-objeto-req" style="color:#FF5807;">*</span>
                     <textarea id="c-objeto" rows="3" required maxlength="500" placeholder="Descreva o objeto do contrato..."></textarea>
                 </label>
 
                 <div class="row-2">
                     <label>
-                        Início <span style="color:#FF5807;">*</span>
+                        Início <span id="c-inicio-req" style="color:#FF5807;">*</span>
                         <input type="date" id="c-inicio" required>
                     </label>
                     <label>
-                        Fim <span style="color:#FF5807;">*</span>
+                        Fim <span id="c-fim-req" style="color:#FF5807;">*</span>
                         <input type="date" id="c-fim" required>
                     </label>
                 </div>
+
+                <label id="c-distrato-wrap" style="display:none; flex-direction:row; align-items:center; gap:0.5rem;">
+                    <input type="checkbox" id="c-distrato" onchange="updateContratoRequiredFields()" style="width:auto;">
+                    É um distrato (encerramento antecipado)?
+                </label>
 
                 <label id="c-fornecedor-wrap">
                     Fornecedor <span style="color: var(--text-muted); font-weight: 400; font-size: 0.75rem; text-transform: none; letter-spacing: normal;">— opcional</span>
@@ -865,6 +870,7 @@
             await loadFornecedoresSelect();
             await loadRubricasSelect();
             atualizarFornecedorAnexo(parentContractId);
+            updateContratoRequiredFields();
             markContratoFormClean();
             document.getElementById('modal-contrato').hidden = false;
             if (window.lucide) window.lucide.createIcons();
@@ -909,6 +915,11 @@
             document.getElementById('c-fornecedor').value = contrato.fornecedor_id || '';
             document.getElementById('c-rubrica').value = contrato.rubrica_id || '';
             atualizarFornecedorAnexo(contrato.contrato_pai_id || null);
+            // Não há coluna própria pra "é distrato" — infere a partir do
+            // anexo já ter sido salvo sem valor (só possível se a checkbox
+            // esteve marcada na criação), pra não travar a edição.
+            document.getElementById('c-distrato').checked = !!(contrato.contrato_pai_id && contrato.valor_total == null);
+            updateContratoRequiredFields();
 
             // Arquivo é opcional na edição — se nenhum novo for selecionado,
             // mantém o arquivo_path já existente.
@@ -949,6 +960,30 @@
             wrapSelect.style.display = 'none';
             wrapHerdado.style.display = '';
             nomeEl.textContent = pai?.fornecedores?.razao_social || 'Não informado (contrato pai sem fornecedor)';
+        }
+
+        // Anexo: objeto próprio nem sempre existe (aditivo simples) e, se for
+        // um distrato, valor/início/fim também não se aplicam necessariamente
+        // — a checkbox só aparece pra anexo e alterna o "obrigatório" desses
+        // campos em tempo real (o navegador bloqueia o submit via HTML5
+        // `required` antes do nosso JS rodar, então precisa remover o
+        // atributo, não só validar em submitContrato()).
+        function updateContratoRequiredFields() {
+            const contratoPaiId = document.getElementById('c-contrato-pai-id').value || null;
+            const distratoWrap = document.getElementById('c-distrato-wrap');
+            const distratoCheckbox = document.getElementById('c-distrato');
+
+            distratoWrap.style.display = contratoPaiId ? 'flex' : 'none';
+            if (!contratoPaiId) distratoCheckbox.checked = false;
+            const distrato = !!contratoPaiId && distratoCheckbox.checked;
+
+            document.getElementById('c-objeto').required = !contratoPaiId;
+            document.getElementById('c-objeto-req').style.display = contratoPaiId ? 'none' : '';
+
+            ['c-inicio', 'c-fim', 'c-valor'].forEach(id => {
+                document.getElementById(id).required = !distrato;
+                document.getElementById(id + '-req').style.display = distrato ? 'none' : '';
+            });
         }
 
         // ── OCR de Contratos ──────────────────────────────────────────────────
@@ -1079,7 +1114,9 @@
             if (!forn) {
                 // Fornecedor não cadastrado — exibir banner para criação via servidor
                 _ocrFornecedorPendente = { cnpj, nome: nomeExtracted };
-                const cnpjFmt = cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+                const cnpjFmt = cnpj.length === 11
+                    ? cnpj.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4')
+                    : cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
                 document.getElementById('fornecedor-ocr-msg').textContent =
                     `"${nomeExtracted}" (${cnpjFmt}) não está cadastrado.`;
                 document.getElementById('fornecedor-ocr-banner').style.display = 'flex';
@@ -1230,21 +1267,34 @@
         async function submitContrato() {
             const numero = document.getElementById('c-numero').value.trim();
             const objeto = document.getElementById('c-objeto').value.trim();
-            const valorTotal = parseFloat(document.getElementById('c-valor').value);
-            const inicio = document.getElementById('c-inicio').value;
-            const fim = document.getElementById('c-fim').value;
+            const valorRaw = document.getElementById('c-valor').value;
+            const valorTotal = valorRaw === '' ? null : parseFloat(valorRaw);
+            let inicio = document.getElementById('c-inicio').value || null;
+            const fim = document.getElementById('c-fim').value || null;
             let fornecedorId = document.getElementById('c-fornecedor').value || null;
             const rubricaId = document.getElementById('c-rubrica').value || null;
             const arquivo = document.getElementById('c-arquivo').files[0] || null;
             const contratoPaiId = document.getElementById('c-contrato-pai-id').value || null;
+            const isDistrato = !!contratoPaiId && document.getElementById('c-distrato').checked;
 
             // Fornecedor não é mais obrigatório (nem no contrato raiz, nem no
             // anexo — que nunca pede seleção, sempre herda do pai abaixo).
-            if (!numero || !objeto || !Number.isFinite(valorTotal) || valorTotal < 0 || !inicio || !fim || !rubricaId) {
+            // Objeto não é obrigatório em anexo (a IA nem sempre identifica um
+            // objeto próprio pro aditivo). Distrato dispensa valor/início/fim,
+            // que podem não fazer sentido pra um encerramento antecipado.
+            if (!numero || (!objeto && !contratoPaiId) || !rubricaId) {
                 showToast('Preencha todos os campos obrigatórios.', 'error');
                 return;
             }
-            if (fim < inicio) {
+            if (!isDistrato && (valorTotal === null || !Number.isFinite(valorTotal) || valorTotal < 0 || !inicio || !fim)) {
+                showToast('Preencha todos os campos obrigatórios.', 'error');
+                return;
+            }
+            if (valorTotal !== null && (!Number.isFinite(valorTotal) || valorTotal < 0)) {
+                showToast('O valor total não pode ser negativo.', 'error');
+                return;
+            }
+            if (inicio && fim && fim < inicio) {
                 showToast('A data fim deve ser igual ou posterior à data início.', 'error');
                 return;
             }
@@ -1264,7 +1314,7 @@
             if (contratoPaiId) {
                 const { data: parentCheck, error: parentErr } = await sb
                     .from('contracts')
-                    .select('contrato_pai_id, fornecedor_id')
+                    .select('contrato_pai_id, fornecedor_id, data_inicio')
                     .eq('id', contratoPaiId)
                     .maybeSingle();
                 if (parentErr) {
@@ -1278,6 +1328,10 @@
                 // Anexo sempre herda o fornecedor do pai — o campo nem aparece
                 // na tela para ele (ver atualizarFornecedorAnexo()).
                 fornecedorId = parentCheck ? (parentCheck.fornecedor_id || null) : null;
+                // Distrato sem data própria herda o início do contrato pai.
+                if (isDistrato && !inicio) {
+                    inicio = parentCheck ? (parentCheck.data_inicio || null) : null;
+                }
             }
 
             const btn = document.getElementById('btn-salvar-contrato');
@@ -1764,6 +1818,9 @@
                         <td class="num" style="font-weight: 700; color: var(--m2-accent);">${formatCurrency(a.valor_total)}</td>
                         <td onclick="event.stopPropagation()">
                             <span class="badge-m2 badge-${a.status || 'ativo'}">${a.status || 'ativo'}</span>
+                            <button class="btn-inline" style="margin-left:6px;" onclick="event.stopPropagation(); openEditContrato('${a.id}')">
+                                <i data-lucide="pencil" style="width:12px;"></i> Editar
+                            </button>
                             <button class="btn-inline" style="margin-left:6px;" onclick="event.stopPropagation(); removerVinculoAnexo('${a.id}','${contractId}')">
                                 <i data-lucide="unlink" style="width:12px;"></i> Remover vínculo
                             </button>

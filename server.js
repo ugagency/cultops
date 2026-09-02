@@ -1218,7 +1218,7 @@ async function estruturarContratoJson(textoOcr, apiKey) {
   "numero": "identificação do contrato ou anexo",
   "objeto": "descrição do que foi contratado (máx 500 chars)",
   "fornecedor_nome": "nome ou razão social de quem RECEBE o pagamento",
-  "fornecedor_cnpj": "CNPJ de quem RECEBE o pagamento, 14 dígitos",
+  "fornecedor_cnpj": "CNPJ (14 dígitos) ou CPF (11 dígitos) de quem RECEBE o pagamento",
   "data_inicio": "AAAA-MM-DD",
   "data_fim": "AAAA-MM-DD",
   "valor_total": 0.00
@@ -1262,7 +1262,9 @@ O texto conterá dois ou mais CNPJs. Além das duas partes, podem aparecer CNPJs
 
 O fornecedor pode ser pessoa física com CNPJ de MEI ou empresário individual. Nesse caso fornecedor_nome será um nome de pessoa, sem LTDA ou ME. Isso é válido: extraia o nome como aparece.
 
-Se houver apenas CPF e nenhum CNPJ para o fornecedor, retorne fornecedor_cnpj vazio e preencha fornecedor_nome normalmente.
+Se a parte que recebe o pagamento for pessoa física (assina com CPF, não CNPJ),
+extraia o CPF (11 dígitos) no mesmo campo fornecedor_cnpj — CPF e CNPJ têm o
+mesmo papel no sistema.
 
 === VALOR ===
 
