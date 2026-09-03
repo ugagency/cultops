@@ -687,9 +687,19 @@ optgroup option { font-weight: 400; color: var(--text-primary); }
 
 /* Abaixo de 900px (tablet/celular), truncar colunas não resolve mais —
    viram cartões empilhados, um por linha, com rótulo (data-label de cada
-   <td>) à esquerda e valor à direita. Cobre .m2-table/.inner-table/
-   .solic-table/.edit-table/.hist-table/.history-table; .data-table (M1)
-   mantém a coluna de Ações fixa (ver @media 768px). */
+   <td>) acima do valor. Cobre .m2-table/.inner-table/.solic-table/
+   .edit-table/.hist-table/.history-table; .data-table (M1) mantém a coluna
+   de Ações fixa (ver @media 768px).
+
+   Label-ao-lado-do-valor (justify-content: space-between numa linha só)
+   quebrava sempre que uma célula tinha mais de um filho direto (badge de
+   status + botões de ação, por exemplo — comum em Status/Ações): o
+   space-between distribui TODOS os itens da linha, não só label+valor,
+   e os botões/ícones ficavam espalhados e cortados pela largura do
+   cartão. Rótulo empilhado ACIMA do valor evita esse problema pra
+   qualquer quantidade de filhos, sem precisar mexer no HTML de cada
+   tabela — só a célula de Ações mantém os botões em linha (mais natural
+   pra um grupo de botões). */
 @media (max-width: 900px) {
     .m2-table, .inner-table, .solic-table, .edit-table, .hist-table, .history-table,
     .m2-table thead, .inner-table thead, .solic-table thead, .edit-table thead, .hist-table thead, .history-table thead,
@@ -717,14 +727,27 @@ optgroup option { font-weight: 400; color: var(--text-primary); }
 
     .m2-table td, .inner-table td, .solic-table td, .edit-table td, .hist-table td, .history-table td {
         display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 1rem;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.3rem;
         padding: 0.5rem 0.85rem;
         border: none;
-        text-align: right;
+        text-align: left;
         white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
         max-width: none;
+    }
+
+    /* .contracts-table td:nth-child(2)/(4) (@media 1500px) trava max-width
+       em 130/180px com especificidade maior que a regra acima — sem isso
+       o cartão herdava esse limite e o valor (ex.: número do contrato)
+       vinha cortado/espremido junto com o rótulo. */
+    .contracts-table td:nth-child(2), .contracts-table td:nth-child(4) {
+        max-width: none;
+        overflow: visible;
+        text-overflow: clip;
+        white-space: normal;
     }
 
     .m2-table td::before, .inner-table td::before, .solic-table td::before,
@@ -734,15 +757,30 @@ optgroup option { font-weight: 400; color: var(--text-primary); }
         font-size: 0.75rem;
         color: var(--text-secondary);
         text-transform: uppercase;
-        text-align: left;
-        flex-shrink: 0;
     }
 
-    /* Célula de ações não precisa de rótulo repetido, e os botões ficam
-       lado a lado à direita, cabendo naturalmente na largura do cartão */
+    /* Célula de ações não precisa repetir o rótulo, e os botões ficam em
+       linha (não empilhados um por um), quebrando pra próxima linha se
+       precisar. */
+    .m2-table td[data-label="Ações"], .inner-table td[data-label="Ações"] {
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        align-items: center;
+        width: 100%;
+    }
+
     .m2-table td[data-label="Ações"]::before,
     .inner-table td[data-label="Ações"]::before {
         content: "";
+    }
+
+    /* Ícone-só (ver @media 1500px, .btn-inline .btn-label) só faz sentido
+       quando falta espaço horizontal — em cartão sobra largura de sobra,
+       e sem o texto visível (e sem hover em touch) o botão vira um ícone
+       sem identificação nenhuma. */
+    .btn-inline .btn-label {
+        display: inline;
     }
 }
 
