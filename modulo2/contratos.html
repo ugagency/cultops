@@ -451,6 +451,20 @@
         </div>
     </div>
 
+    <!-- ============= MODAL: CONFIRMAR PARCELA PAGA ============= -->
+    <div id="modal-confirm-parcela-paga" class="modal-backdrop" hidden onclick="if(event.target===this) fecharModalConfirmParcelaPaga()">
+        <div class="modal-dialog" style="max-width: 420px;">
+            <h3><i data-lucide="check-circle" style="width:18px; vertical-align:-3px; color:var(--m2-accent);"></i> Confirmar pagamento</h3>
+            <p style="font-size:0.9rem; color:var(--text-secondary); line-height:1.5;">
+                Confirma que esta parcela foi paga? A data de pagamento será registrada como hoje.
+            </p>
+            <div class="modal-actions">
+                <button type="button" class="btn-modal btn-modal-cancel" onclick="fecharModalConfirmParcelaPaga()">Cancelar</button>
+                <button type="button" class="btn-modal btn-modal-primary" onclick="confirmarParcelaPaga()">Confirmar pagamento</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ============= MODAL: NOVA PARCELA ============= -->
     <div id="modal-parcela" class="modal-backdrop" hidden onclick="if(event.target===this) closeParcelaModal()">
         <div class="modal-dialog" style="max-width: 460px;">
@@ -1812,8 +1826,24 @@
             }
         }
 
-        async function markParcelaPaga(parcelaId, contractId) {
-            if (!confirm('Confirmar que esta parcela foi paga?')) return;
+        let _pendingParcelaPaga = null;
+
+        function markParcelaPaga(parcelaId, contractId) {
+            _pendingParcelaPaga = { parcelaId, contractId };
+            document.getElementById('modal-confirm-parcela-paga').hidden = false;
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        function fecharModalConfirmParcelaPaga() {
+            _pendingParcelaPaga = null;
+            document.getElementById('modal-confirm-parcela-paga').hidden = true;
+        }
+
+        async function confirmarParcelaPaga() {
+            if (!_pendingParcelaPaga) return;
+            const { parcelaId, contractId } = _pendingParcelaPaga;
+            fecharModalConfirmParcelaPaga();
+
             const hoje = new Date().toISOString().split('T')[0]; // data_pagamento é DATE
             const { error } = await sb.from('contract_parcelas')
                 .update({ status: 'paga', data_pagamento: hoje })
@@ -2207,6 +2237,7 @@
                 // Fornecedor pode abrir por cima do modal de contrato — fecha só
                 // o de cima primeiro, senão os dois some juntos num Esc só.
                 if (!document.getElementById('modal-novo-fornecedor-contrato').hidden) { fecharModalNovoFornecedorContrato(); return; }
+                if (!document.getElementById('modal-confirm-parcela-paga').hidden) { fecharModalConfirmParcelaPaga(); return; }
                 if (!document.getElementById('modal-contrato').hidden) closeContratoModal();
                 if (!document.getElementById('modal-parcela').hidden) closeParcelaModal();
                 if (!document.getElementById('modal-aditivo').hidden) closeAditivoModal();

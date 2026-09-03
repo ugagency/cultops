@@ -3605,7 +3605,7 @@ window.handleSolicitanteLogin = async function () {
 
         window.navigate('solicitante_dashboard');
     } catch (error) {
-        alert("Erro no login Solicitante: " + error.message);
+        window.showToast("Erro no login Solicitante: " + error.message, 'error');
     } finally {
         state.loading = false;
         render();

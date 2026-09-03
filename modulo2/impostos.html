@@ -233,6 +233,20 @@
         </div>
     </div>
 
+    <!-- Modal Confirmar Guia Paga -->
+    <div id="modal-confirm-guia-paga" class="modal">
+        <div class="modal-content" style="max-width: 420px;">
+            <h2 class="h2 mb-2">Confirmar pagamento</h2>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; line-height: 1.5;">
+                Confirmar que esta guia foi paga? Esta ação é irreversível via sistema.
+            </p>
+            <div class="tax-actions" style="justify-content: flex-end; margin-top: 1.5rem;">
+                <button type="button" class="btn-m2" onclick="fecharModalConfirmGuiaPaga()">Cancelar</button>
+                <button type="button" class="btn-m2 btn-m2-primary" onclick="confirmarGuiaPaga()">Confirmar pagamento</button>
+            </div>
+        </div>
+    </div>
+
     <script src="../config.js"></script>
     <script src="../auth-logout.js"></script>
     <script src="supabase-helper.js"></script>
@@ -485,8 +499,22 @@
         // o servidor também cria o documento correspondente no M1 (copiando o
         // arquivo já no Storage, sem exigir novo upload). Por isso passa a ser
         // via endpoint (precisa de service_role pra Storage entre buckets).
-        async function handleMarkAsPaid(taxId) {
-            if (!confirm("Confirmar que esta guia foi paga? Esta ação é irreversível via sistema.")) return;
+        let _pendingGuiaPagaId = null;
+
+        function handleMarkAsPaid(taxId) {
+            _pendingGuiaPagaId = taxId;
+            document.getElementById('modal-confirm-guia-paga').style.display = 'flex';
+        }
+
+        function fecharModalConfirmGuiaPaga() {
+            _pendingGuiaPagaId = null;
+            document.getElementById('modal-confirm-guia-paga').style.display = 'none';
+        }
+
+        async function confirmarGuiaPaga() {
+            if (!_pendingGuiaPagaId) return;
+            const taxId = _pendingGuiaPagaId;
+            fecharModalConfirmGuiaPaga();
 
             const sb = await initSupabase();
             const { data: { session } } = await sb.auth.getSession();

@@ -756,7 +756,7 @@
                     contratosRes,
                     parcelasRes,
                     impostosRes,
-                    despesasIdsRes
+                    dadosAuditoria
                 ] = await Promise.all([
                     sbClient.from('projects').select('*').eq('id', pid).maybeSingle(),
                     sbClient.from('rubricas')
@@ -779,10 +779,13 @@
                         .select('tipo_imposto, codigo_receita, competencia, valor, data_vencimento, data_pagamento, status')
                         .eq('project_id', pid)
                         .order('data_vencimento', { ascending: true }),
-                    sbClient.from('despesas').select('id').eq('project_id', pid)
+                    // Mesma lógica de exportarAuditoria() (PDF) — junta documents,
+                    // contracts, physical_evidences, extratos e tax_guides, não só
+                    // despesas, e resolve nome de usuário e rótulo por registro.
+                    montarDadosAuditoria(pid)
                 ]);
 
-                const erros = [projetoRes, rubricasRes, despesasRes, contratosRes, parcelasRes, impostosRes, despesasIdsRes]
+                const erros = [projetoRes, rubricasRes, despesasRes, contratosRes, parcelasRes, impostosRes]
                     .map(r => r.error).filter(Boolean);
                 if (erros.length) throw erros[0];
 
@@ -792,20 +795,10 @@
                 const contratos = contratosRes.data || [];
                 const parcelas = parcelasRes.data || [];
                 const impostos = impostosRes.data || [];
-                const despesasIds = (despesasIdsRes.data || []).map(d => d.id);
-
-                // Auditoria — só busca se houver despesas
-                let auditoria = [];
-                if (despesasIds.length > 0) {
-                    const { data: auditData, error: auditErr } = await sbClient
-                        .from('audit_log')
-                        .select('tabela, campo, valor_anterior, valor_novo, origem, created_at')
-                        .in('registro_id', despesasIds)
-                        .order('created_at', { ascending: false })
-                        .limit(200);
-                    if (auditErr) throw auditErr;
-                    auditoria = auditData || [];
-                }
+                const {
+                    auditoria, mapUsuarios, mapRotulos, mapMotivos,
+                    TIPO_TABELA_LABELS, CAMPO_LABELS_PT, acaoDaAuditoria
+                } = dadosAuditoria;
 
                 // Agrupar parcelas por contract_id
                 const parcelasPorContrato = {};
@@ -912,17 +905,28 @@
                 ]);
                 XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headerImpostos, ...dadosImpostos]), 'Impostos');
 
-                // ABA 6 — Auditoria
-                const headerAuditoria = ['Data/Hora', 'Tabela', 'Campo', 'Valor Anterior', 'Valor Novo', 'Origem'];
-                const dadosAuditoria = auditoria.map(a => [
-                    a.created_at ? new Date(a.created_at).toLocaleString('pt-BR') : '—',
-                    a.tabela || '—',
-                    a.campo || '—',
-                    a.valor_anterior || '—',
-                    a.valor_novo || '—',
-                    a.origem || '—'
-                ]);
-                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headerAuditoria, ...dadosAuditoria]), 'Auditoria');
+                // ABA 6 — Auditoria (mesma estrutura da versão em PDF: nome de
+                // usuário e documento identificado, não tabela/campo crus)
+                const headerAuditoria = ['Data/Hora', 'Usuário', 'Tipo', 'Documento', 'Ação', 'Detalhe'];
+                const linhasAuditoria = auditoria.map(a => {
+                    const acao = acaoDaAuditoria(a);
+                    let detalhe = '';
+                    if (acao === 'Excluído') {
+                        detalhe = mapMotivos.get(a.registro_id) || '';
+                    } else if (acao === 'Alterado') {
+                        const campoLabel = CAMPO_LABELS_PT[a.campo] || a.campo;
+                        detalhe = `${campoLabel}: ${a.valor_anterior ?? '—'} → ${a.valor_novo ?? '—'}`;
+                    }
+                    return [
+                        a.created_at ? new Date(a.created_at).toLocaleString('pt-BR') : '—',
+                        mapUsuarios.get(a.alterado_por) || 'Sistema (automação)',
+                        TIPO_TABELA_LABELS[a.tabela] || a.tabela || '—',
+                        mapRotulos.get(a.registro_id) || '—',
+                        acao,
+                        detalhe
+                    ];
+                });
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headerAuditoria, ...linhasAuditoria]), 'Auditoria');
 
                 // PASSO 3 — Disparar download
                 const pronac = projeto.pronac || 'projeto';
@@ -1273,6 +1277,173 @@
             return str.length > n ? str.slice(0, n - 1) + '…' : str;
         }
 
+        // Monta o log de auditoria de um projeto: junta os IDs de documents,
+        // contracts, physical_evidences, extratos e tax_guides (não só
+        // despesas — BL-20/BL-57), resolve nomes de usuário via
+        // /api/gestor/usuarios e monta os mapas de rótulo legível por tabela
+        // (mapRotulos/mapMotivos). Compartilhada entre exportarExcel() e
+        // exportarAuditoria() (PDF) — extraída pra corrigir num lugar só em
+        // vez de manter duas implementações da mesma lógica (BL-57).
+        async function montarDadosAuditoria(pid) {
+            const { data: { session } } = await sbClient.auth.getSession();
+
+            const [
+                documentosRes,
+                evidenciasRes,
+                contratosRes,
+                impostosRes,
+                despesasRes,
+                extratosRes,
+                usuariosRes
+            ] = await Promise.all([
+                sbClient.from('documents')
+                    .select('id, name, status, valor, tipo_documento, created_at')
+                    .eq('project_id', pid)
+                    .order('created_at', { ascending: false })
+                    .limit(200),
+                sbClient.from('physical_evidences')
+                    .select('id, file_name, tipo_evidencia, status_validacao, criado_em, validado_em')
+                    .eq('project_id', pid)
+                    .order('criado_em', { ascending: false })
+                    .limit(100),
+                sbClient.from('contracts')
+                    .select('id, numero, objeto, valor_total, status, data_inicio, data_fim')
+                    .eq('project_id', pid)
+                    .is('excluido_em', null)
+                    .order('data_inicio', { ascending: true }),
+                // id é obrigatório aqui: sem ele as guias nunca entravam no
+                // filtro de auditoria (idsAuditaveis), mesmo tendo trilha.
+                sbClient.from('tax_guides')
+                    .select('id, tipo_imposto, competencia, valor, status, data_vencimento, data_pagamento, motivo_cancelamento')
+                    .eq('project_id', pid)
+                    .order('data_vencimento', { ascending: true }),
+                // fornecedor_nome/document_id viram o rótulo legível da despesa
+                // na coluna "Documento" da auditoria (ver mapRotulos abaixo).
+                sbClient.from('despesas').select('id, document_id, fornecedor_nome, valor').eq('project_id', pid),
+                // período identifica o extrato na auditoria — extratos não tem
+                // um "nome" próprio como as outras tabelas.
+                sbClient.from('extratos').select('id, periodo_inicio, periodo_fim, formato').eq('project_id', pid),
+                // Nomes de usuário pra coluna "Usuário" — UUID cru não diz nada
+                // pro gestor lendo o relatório. Endpoint já resolve via
+                // service_role; se falhar (ex.: sessão de analista, sem
+                // permissão), degrada pra "Sistema (automação)" em tudo.
+                session
+                    ? fetch('/api/gestor/usuarios', { headers: { Authorization: `Bearer ${session.access_token}` } })
+                        .then(r => r.ok ? r.json() : { users: [] })
+                        .catch(() => ({ users: [] }))
+                    : Promise.resolve({ users: [] })
+            ]);
+
+            const erros = [documentosRes, evidenciasRes, contratosRes, impostosRes, despesasRes, extratosRes]
+                .map(r => r.error).filter(Boolean);
+            if (erros.length) throw erros[0];
+
+            const documentos = documentosRes.data || [];
+            const evidencias = evidenciasRes.data || [];
+            const contratos = contratosRes.data || [];
+            const impostos = impostosRes.data || [];
+            const despesas = despesasRes.data || [];
+            const extratos = extratosRes.data || [];
+            const mapUsuarios = new Map((usuariosRes.users || []).map(u => [u.id, u.email]));
+
+            // Rótulo legível por registro (registro_id -> texto), usado na
+            // coluna "Documento" do log de auditoria — sem isso a auditoria só
+            // mostrava o UUID cru, que não identifica nada pra quem lê o relatório.
+            const mapRotulos = new Map();
+            const mapMotivos = new Map();
+
+            documentos.forEach(d => mapRotulos.set(d.id, `${d.tipo_documento || 'Documento'} — ${d.name}`));
+            contratos.forEach(c => mapRotulos.set(c.id, `Contrato ${c.numero} — ${pdfTruncate(c.objeto, 60)}`));
+            evidencias.forEach(e => mapRotulos.set(e.id, `${e.tipo_evidencia} — ${e.file_name}`));
+            impostos.forEach(i => {
+                mapRotulos.set(i.id, `Guia ${i.tipo_imposto} — competência ${i.competencia}`);
+                if (i.motivo_cancelamento) mapMotivos.set(i.id, i.motivo_cancelamento);
+            });
+            extratos.forEach(x => {
+                const periodo = (x.periodo_inicio || x.periodo_fim)
+                    ? `${pdfFormatDate(x.periodo_inicio)} a ${pdfFormatDate(x.periodo_fim)}`
+                    : 'período não informado';
+                mapRotulos.set(x.id, `Extrato bancário — ${periodo}`);
+            });
+            despesas.forEach(d => {
+                let label = 'Despesa (lançamento financeiro)';
+                if (d.document_id && mapRotulos.has(d.document_id)) {
+                    label = `Despesa — ${mapRotulos.get(d.document_id)}`;
+                } else if (d.fornecedor_nome) {
+                    label = `Despesa — ${d.fornecedor_nome}`;
+                }
+                mapRotulos.set(d.id, label);
+            });
+
+            // BL-20: audit_log também cobre documents, contracts,
+            // physical_evidences e extratos — não só despesas. Sem juntar
+            // esses IDs, o relatório de auditoria nunca mostrava alterações
+            // dessas 4 tabelas, mesmo tendo trilha registrada para elas.
+            const idsAuditaveis = [
+                ...despesas.map(d => d.id),
+                ...documentos.map(d => d.id),
+                ...contratos.map(c => c.id),
+                ...evidencias.map(e => e.id),
+                ...extratos.map(x => x.id)
+            ];
+
+            // .in() com centenas de UUIDs estoura o limite de tamanho de URL
+            // que o Postgrest aceita (achado ao portar essa mesma lógica pro
+            // /api/suporte/projetos/:id/audit-log: o projeto da Animus soma
+            // 662 ids entre as 6 tabelas e a request quebrava com 400 "Bad
+            // Request"). Em lotes de 150 (~5,5 KB de ids por request) fica
+            // bem abaixo de qualquer limite.
+            let auditoria = [];
+            if (idsAuditaveis.length > 0) {
+                const TAMANHO_LOTE = 150;
+                const lotes = [];
+                for (let i = 0; i < idsAuditaveis.length; i += TAMANHO_LOTE) {
+                    lotes.push(idsAuditaveis.slice(i, i + TAMANHO_LOTE));
+                }
+
+                const resultadosLotes = await Promise.all(lotes.map(lote =>
+                    sbClient
+                        .from('audit_log')
+                        .select('tabela, registro_id, campo, valor_anterior, valor_novo, alterado_por, origem, created_at')
+                        .in('registro_id', lote)
+                        .order('created_at', { ascending: false })
+                        .limit(500)
+                ));
+                const erroLote = resultadosLotes.find(r => r.error);
+                if (erroLote) throw erroLote.error;
+
+                auditoria = resultadosLotes
+                    .flatMap(r => r.data || [])
+                    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+                    .slice(0, 500);
+            }
+
+            const TIPO_TABELA_LABELS = {
+                documents: 'Nota Fiscal/Recibo',
+                contracts: 'Contrato',
+                physical_evidences: 'Evidência',
+                tax_guides: 'Guia de Imposto',
+                extratos: 'Extrato Bancário',
+                despesas: 'Despesa'
+            };
+            const CAMPO_LABELS_PT = { status: 'Status', valor: 'Valor' };
+
+            const acaoDaAuditoria = (a) => {
+                if (a.campo === '__insert') return 'Criado';
+                // contracts usa excluido_em (não rastreado pelo trigger de
+                // auditoria) pra soft delete, então só tax_guides chega
+                // aqui com status='cancelada' hoje — ver nota no relato.
+                if (a.campo === 'status' && a.valor_novo === 'cancelada') return 'Excluído';
+                return 'Alterado';
+            };
+
+            return {
+                auditoria, mapUsuarios, mapRotulos, mapMotivos,
+                TIPO_TABELA_LABELS, CAMPO_LABELS_PT, acaoDaAuditoria,
+                documentos, evidencias, contratos, impostos
+            };
+        }
+
         async function exportarAuditoria() {
             if (!currentProjectId) return;
             if (!window.jspdf || !window.jspdf.jsPDF) {
@@ -1292,7 +1463,6 @@
             const pid = currentProjectId;
             const { data: { user } } = await sbClient.auth.getUser();
             const orgId = await getCurrentOrgId(pid);
-            const { data: { session } } = await sbClient.auth.getSession();
 
             const restaurarBotao = () => {
                 btn.innerHTML = btnOriginal;
@@ -1301,140 +1471,20 @@
             };
 
             try {
-                // PASSO 1 — buscar dados em paralelo
-                const [
-                    projetoRes,
-                    documentosRes,
-                    evidenciasRes,
-                    contratosRes,
-                    impostosRes,
-                    despesasRes,
-                    extratosRes,
-                    usuariosRes
-                ] = await Promise.all([
+                // PASSO 1 — buscar dados em paralelo (projeto + log de auditoria,
+                // este via montarDadosAuditoria — compartilhada com exportarExcel())
+                const [projetoRes, dadosAuditoria] = await Promise.all([
                     sbClient.from('projects').select('*').eq('id', pid).maybeSingle(),
-                    sbClient.from('documents')
-                        .select('id, name, status, valor, tipo_documento, created_at')
-                        .eq('project_id', pid)
-                        .order('created_at', { ascending: false })
-                        .limit(200),
-                    sbClient.from('physical_evidences')
-                        .select('id, file_name, tipo_evidencia, status_validacao, criado_em, validado_em')
-                        .eq('project_id', pid)
-                        .order('criado_em', { ascending: false })
-                        .limit(100),
-                    sbClient.from('contracts')
-                        .select('id, numero, objeto, valor_total, status, data_inicio, data_fim')
-                        .eq('project_id', pid)
-                        .is('excluido_em', null)
-                        .order('data_inicio', { ascending: true }),
-                    // id é obrigatório aqui: sem ele as guias nunca entravam no
-                    // filtro de auditoria (idsAuditaveis), mesmo tendo trilha.
-                    sbClient.from('tax_guides')
-                        .select('id, tipo_imposto, competencia, valor, status, data_vencimento, data_pagamento, motivo_cancelamento')
-                        .eq('project_id', pid)
-                        .order('data_vencimento', { ascending: true }),
-                    // fornecedor_nome/document_id viram o rótulo legível da despesa
-                    // na coluna "Documento" da auditoria (ver mapRotulos abaixo).
-                    sbClient.from('despesas').select('id, document_id, fornecedor_nome, valor').eq('project_id', pid),
-                    // período identifica o extrato na auditoria — extratos não tem
-                    // um "nome" próprio como as outras tabelas.
-                    sbClient.from('extratos').select('id, periodo_inicio, periodo_fim, formato').eq('project_id', pid),
-                    // Nomes de usuário pra coluna "Usuário" — UUID cru não diz nada
-                    // pro gestor lendo o relatório. Endpoint já resolve via
-                    // service_role; se falhar (ex.: sessão de analista, sem
-                    // permissão), degrada pra "Sistema (automação)" em tudo.
-                    session
-                        ? fetch('/api/gestor/usuarios', { headers: { Authorization: `Bearer ${session.access_token}` } })
-                            .then(r => r.ok ? r.json() : { users: [] })
-                            .catch(() => ({ users: [] }))
-                        : Promise.resolve({ users: [] })
+                    montarDadosAuditoria(pid)
                 ]);
-
-                const erros = [projetoRes, documentosRes, evidenciasRes, contratosRes, impostosRes, despesasRes, extratosRes]
-                    .map(r => r.error).filter(Boolean);
-                if (erros.length) throw erros[0];
+                if (projetoRes.error) throw projetoRes.error;
 
                 const projeto = projetoRes.data || {};
-                const documentos = documentosRes.data || [];
-                const evidencias = evidenciasRes.data || [];
-                const contratos = contratosRes.data || [];
-                const impostos = impostosRes.data || [];
-                const despesas = despesasRes.data || [];
-                const extratos = extratosRes.data || [];
-                const mapUsuarios = new Map((usuariosRes.users || []).map(u => [u.id, u.email]));
-
-                // Rótulo legível por registro (registro_id -> texto), usado na
-                // coluna "Documento" do log de auditoria — sem isso a auditoria só
-                // mostrava o UUID cru, que não identifica nada pra quem lê o PDF.
-                const mapRotulos = new Map();
-                const mapMotivos = new Map();
-
-                documentos.forEach(d => mapRotulos.set(d.id, `${d.tipo_documento || 'Documento'} — ${d.name}`));
-                contratos.forEach(c => mapRotulos.set(c.id, `Contrato ${c.numero} — ${pdfTruncate(c.objeto, 60)}`));
-                evidencias.forEach(e => mapRotulos.set(e.id, `${e.tipo_evidencia} — ${e.file_name}`));
-                impostos.forEach(i => {
-                    mapRotulos.set(i.id, `Guia ${i.tipo_imposto} — competência ${i.competencia}`);
-                    if (i.motivo_cancelamento) mapMotivos.set(i.id, i.motivo_cancelamento);
-                });
-                extratos.forEach(x => {
-                    const periodo = (x.periodo_inicio || x.periodo_fim)
-                        ? `${pdfFormatDate(x.periodo_inicio)} a ${pdfFormatDate(x.periodo_fim)}`
-                        : 'período não informado';
-                    mapRotulos.set(x.id, `Extrato bancário — ${periodo}`);
-                });
-                despesas.forEach(d => {
-                    let label = 'Despesa (lançamento financeiro)';
-                    if (d.document_id && mapRotulos.has(d.document_id)) {
-                        label = `Despesa — ${mapRotulos.get(d.document_id)}`;
-                    } else if (d.fornecedor_nome) {
-                        label = `Despesa — ${d.fornecedor_nome}`;
-                    }
-                    mapRotulos.set(d.id, label);
-                });
-
-                // BL-20: audit_log também cobre documents, contracts,
-                // physical_evidences e extratos — não só despesas. Sem juntar
-                // esses IDs, o relatório de auditoria nunca mostrava alterações
-                // dessas 4 tabelas, mesmo tendo trilha registrada para elas.
-                const idsAuditaveis = [
-                    ...despesas.map(d => d.id),
-                    ...documentos.map(d => d.id),
-                    ...contratos.map(c => c.id),
-                    ...evidencias.map(e => e.id),
-                    ...extratos.map(x => x.id)
-                ];
-
-                // .in() com centenas de UUIDs estoura o limite de tamanho de URL
-                // que o Postgrest aceita (achado ao portar essa mesma lógica pro
-                // /api/suporte/projetos/:id/audit-log: o projeto da Animus soma
-                // 662 ids entre as 6 tabelas e a request quebrava com 400 "Bad
-                // Request"). Em lotes de 150 (~5,5 KB de ids por request) fica
-                // bem abaixo de qualquer limite.
-                let auditoria = [];
-                if (idsAuditaveis.length > 0) {
-                    const TAMANHO_LOTE = 150;
-                    const lotes = [];
-                    for (let i = 0; i < idsAuditaveis.length; i += TAMANHO_LOTE) {
-                        lotes.push(idsAuditaveis.slice(i, i + TAMANHO_LOTE));
-                    }
-
-                    const resultadosLotes = await Promise.all(lotes.map(lote =>
-                        sbClient
-                            .from('audit_log')
-                            .select('tabela, registro_id, campo, valor_anterior, valor_novo, alterado_por, origem, created_at')
-                            .in('registro_id', lote)
-                            .order('created_at', { ascending: false })
-                            .limit(500)
-                    ));
-                    const erroLote = resultadosLotes.find(r => r.error);
-                    if (erroLote) throw erroLote.error;
-
-                    auditoria = resultadosLotes
-                        .flatMap(r => r.data || [])
-                        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-                        .slice(0, 500);
-                }
+                const {
+                    auditoria, mapUsuarios, mapRotulos, mapMotivos,
+                    TIPO_TABELA_LABELS, CAMPO_LABELS_PT, acaoDaAuditoria,
+                    documentos, evidencias, contratos, impostos
+                } = dadosAuditoria;
 
                 // PASSO 2 — montar PDF
                 const { jsPDF } = window.jspdf;
@@ -1642,25 +1692,6 @@
                     doc.text('Nenhum registro de auditoria.', margin, y + 4);
                     y += 12;
                 } else {
-                    const TIPO_TABELA_LABELS = {
-                        documents: 'Nota Fiscal/Recibo',
-                        contracts: 'Contrato',
-                        physical_evidences: 'Evidência',
-                        tax_guides: 'Guia de Imposto',
-                        extratos: 'Extrato Bancário',
-                        despesas: 'Despesa'
-                    };
-                    const CAMPO_LABELS_PT = { status: 'Status', valor: 'Valor' };
-
-                    const acaoDaAuditoria = (a) => {
-                        if (a.campo === '__insert') return 'Criado';
-                        // contracts usa excluido_em (não rastreado pelo trigger de
-                        // auditoria) pra soft delete, então só tax_guides chega
-                        // aqui com status='cancelada' hoje — ver nota no relato.
-                        if (a.campo === 'status' && a.valor_novo === 'cancelada') return 'Excluído';
-                        return 'Alterado';
-                    };
-
                     doc.autoTable({
                         ...tableTheme,
                         startY: y,
