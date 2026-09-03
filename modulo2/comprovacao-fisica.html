@@ -443,9 +443,9 @@
                 <label style="font-weight: 600; font-size: 0.9rem; white-space: nowrap;">Tipo:</label>
                 <select id="gestor-tipo-evidencia" onchange="handleProdutoChange()" style="flex: 1; padding: 0.6rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem; background: white;">
                     <option value="">Selecione…</option>
-                    <option value="foto_evento">Foto de execução</option>
-                    <option value="acessibilidade">Foto de acessibilidade</option>
-                    <option value="peca_marketing">Material de comunicação</option>
+                    <option value="foto_evento">Comprovação de execução</option>
+                    <option value="acessibilidade">Comprovação de acessibilidade</option>
+                    <option value="peca_marketing">Comprovação de material de comunicação</option>
                 </select>
             </div>
             <p style="font-size: 0.78rem; color: var(--text-muted); margin: -0.5rem 0 1rem;">
@@ -518,9 +518,9 @@
                 <select id="filter-tipo" onchange="aplicarFiltrosEOrdenacao()"
                     style="min-width:160px; padding:0.5rem 0.8rem; border:1px solid var(--border-light); border-radius:var(--radius-md); background:white;">
                     <option value="">Todos os tipos</option>
-                    <option value="foto_evento">Foto de execução</option>
-                    <option value="acessibilidade">Foto de acessibilidade</option>
-                    <option value="peca_marketing">Material de comunicação</option>
+                    <option value="foto_evento">Comprovação de execução</option>
+                    <option value="acessibilidade">Comprovação de acessibilidade</option>
+                    <option value="peca_marketing">Comprovação de material de comunicação</option>
                 </select>
 
                 <select id="sort-evidencias" onchange="aplicarFiltrosEOrdenacao()"
@@ -638,9 +638,9 @@
         // mas seguem válidos na constraint do banco. Registros legados ou criados
         // por outra via precisam continuar exibindo rótulo legível.
         const TIPO_LABELS = {
-            foto_evento: 'Foto de execução',
-            acessibilidade: 'Foto de acessibilidade',
-            peca_marketing: 'Material de comunicação',
+            foto_evento: 'Comprovação de execução',
+            acessibilidade: 'Comprovação de acessibilidade',
+            peca_marketing: 'Comprovação de material de comunicação',
             relatorio_objeto: 'Relatório do Objeto',
             outros: 'Outros',
         };

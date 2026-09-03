@@ -806,36 +806,36 @@ const Sidebar = () => `
     </div>
     
     <nav class="sidebar-nav">
-        <a class="nav-item ${state.currentView === 'dashboard' ? 'active' : ''}" onclick="window.navigate('dashboard')">
+        <a class="nav-item ${state.currentView === 'dashboard' ? 'active' : ''}" title="Dashboard" onclick="window.navigate('dashboard')">
             <i data-lucide="layout-dashboard"></i>
             <span>Dashboard</span>
         </a>
-        <a class="nav-item ${state.currentView === 'projects' ? 'active' : ''}" onclick="window.navigate('projects')">
+        <a class="nav-item ${state.currentView === 'projects' ? 'active' : ''}" title="Projetos" onclick="window.navigate('projects')">
             <i data-lucide="briefcase"></i>
             <span>Projetos</span>
         </a>
-        <a class="nav-item ${['orcamento', 'rubricas'].includes(state.currentView) ? 'active' : ''}" onclick="window.navigate('orcamento')">
+        <a class="nav-item ${['orcamento', 'rubricas'].includes(state.currentView) ? 'active' : ''}" title="Rubricas" onclick="window.navigate('orcamento')">
             <i data-lucide="list-checks"></i>
             <span>Rubricas</span>
         </a>
-        <a class="nav-item ${['upload', 'details'].includes(state.currentView) ? 'active' : ''}" onclick="window.navigate('upload')">
+        <a class="nav-item ${['upload', 'details'].includes(state.currentView) ? 'active' : ''}" title="Documentos" onclick="window.navigate('upload')">
             <i data-lucide="file-text"></i>
             <span>Documentos</span>
         </a>
-        <a class="nav-item ${state.currentView === 'upload_lote' ? 'active' : ''}" onclick="window.navigate('upload_lote')">
+        <a class="nav-item ${state.currentView === 'upload_lote' ? 'active' : ''}" title="Documentos em Lote" onclick="window.navigate('upload_lote')">
             <i data-lucide="layers"></i>
             <span>Documentos em Lote</span>
         </a>
-        <a class="nav-item ${state.currentView === 'envio_lote_salic' ? 'active' : ''}" onclick="window.navigate('envio_lote_salic')">
+        <a class="nav-item ${state.currentView === 'envio_lote_salic' ? 'active' : ''}" title="Envio SALIC" onclick="window.navigate('envio_lote_salic')">
             <i data-lucide="send"></i>
             <span>Envio SALIC</span>
         </a>
-        <a class="nav-item ${state.currentView === 'financeiro' ? 'active' : ''}" onclick="window.navigate('financeiro')">
+        <a class="nav-item ${state.currentView === 'financeiro' ? 'active' : ''}" title="Relatórios" onclick="window.navigate('financeiro')">
             <i data-lucide="bar-chart-3"></i>
             <span>Relatórios</span>
         </a>
         ${userIsGestorOrAbove() ? `
-        <a class="nav-item ${['ferramentas', 'ferramentas_juntar_pdf'].includes(state.currentView) ? 'active' : ''}" onclick="window.navigate('ferramentas')">
+        <a class="nav-item ${['ferramentas', 'ferramentas_juntar_pdf'].includes(state.currentView) ? 'active' : ''}" title="Ferramentas" onclick="window.navigate('ferramentas')">
             <i data-lucide="wrench"></i>
             <span>Ferramentas</span>
         </a>
@@ -847,15 +847,15 @@ const Sidebar = () => `
              "sem dono" aplicado a outra área. Restritas a admin/gestor nos
              3 módulos (mesma filtragem usada para esconder itens sensíveis
              do operador). -->
-        <a class="nav-item" href="solicitantes.html">
+        <a class="nav-item" title="Solicitantes" href="solicitantes.html">
             <i data-lucide="users"></i>
             <span>Solicitantes</span>
         </a>
-        <a class="nav-item" href="configuracoes.html">
+        <a class="nav-item" title="Configurações" href="configuracoes.html">
             <i data-lucide="settings"></i>
             <span>Configurações</span>
         </a>
-        <a class="nav-item" href="equipe.html">
+        <a class="nav-item" title="Equipe" href="equipe.html">
             <i data-lucide="user-cog"></i>
             <span>Equipe</span>
         </a>
@@ -874,11 +874,11 @@ const Sidebar = () => `
                 <p style="font-size: 11px; color: var(--text-secondary);">${ROLE_LABELS[getUserRole()] || 'Gestor'}</p>
             </div>
         </div>
-        <a class="nav-item" href="/module-selector.html" style="color: var(--primary);">
+        <a class="nav-item" title="Trocar Módulo" href="/module-selector.html" style="color: var(--primary);">
             <i data-lucide="grid-2x2"></i>
             <span>Trocar Módulo</span>
         </a>
-        <a class="nav-item" onclick="window.handleLogout()" style="color: var(--error);">
+        <a class="nav-item" title="Sair" onclick="window.handleLogout()" style="color: var(--error);">
             <i data-lucide="log-out"></i>
             <span>Sair</span>
         </a>
@@ -1495,6 +1495,7 @@ ${Sidebar()}
                         </th>
                         <th>Arquivo</th>
                         <th>Projeto</th>
+                        <th style="text-align: right;">Valor</th>
                         <th>Status</th>
                         <th>Data</th>
                         <th style="text-align: right;">Ações</th>
@@ -1509,7 +1510,7 @@ ${Sidebar()}
                             <td style="text-align: center;">
                                 <input type="checkbox" class="chk-doc-dashboard" data-id="${doc.id}" data-file-path="${doc.file_path}" onchange="window.handleDashboardDocCheckboxChange()">
                             </td>
-                            <td>
+                            <td data-label="Arquivo">
                                 <div style="font-weight: 500;">${doc.name}</div>
                                 <div class="text-xs">${doc.size || '---'}</div>
                                 ${(() => {
@@ -1524,10 +1525,11 @@ ${Sidebar()}
                                 </button>`;
         })()}
                             </td>
-                            <td>
+                            <td data-label="Projeto">
                                 <div class="text-sm">${project ? project.pronac : '---'}</div>
                             </td>
-                            <td>
+                            <td data-label="Valor" style="text-align: right;">${doc.valor != null ? 'R$ ' + parseValorBR(doc.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '---'}</td>
+                            <td data-label="Status">
                                 <span class="badge ${status.class}">
                                     <span class="badge-dot"></span>
                                     ${status.label}
@@ -1540,10 +1542,10 @@ ${Sidebar()}
                                         Parado há ${formatarTempoTravado(minutosParadoDoc(doc))} — reprocessar
                                     </button>` : ''}
                             </td>
-                            <td>
+                            <td data-label="Data">
                                 <div class="text-sm">${new Date(doc.created_at).toLocaleDateString('pt-BR')}</div>
                             </td>
-                            <td style="text-align: right;">
+                            <td data-label="Ações" style="text-align: right;">
                                 <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
                                     <button class="btn btn-secondary" style="padding: 0.4rem;" title="Ver detalhes" onclick="window.navigate('details', '${doc.id}')">
                                         <i data-lucide="eye" style="width: 16px;"></i>
@@ -3011,39 +3013,10 @@ ${Sidebar()}
                     <div style="display: flex; flex-direction: column; gap: 1rem;">
                         
                         
-                        <!-- Box do Comprovante -->
-                        <div style="padding: 1rem; border: 1px dashed var(--border-light); border-radius: var(--radius-sm); background: ${doc.data_pagamento || jaPassouDaConciliacao || state.currentComprovante ? 'rgba(16, 185, 129, 0.05)' : 'transparent'};">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                                <span class="text-xs" style="font-weight: 600; text-transform: uppercase;">1. Comprovante (Opcional)</span>
-                                ${doc.data_pagamento || jaPassouDaConciliacao || state.currentComprovante ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : (state.isUploadingComprovante ? '<i data-lucide="loader" class="spin" style="width: 16px; color: var(--primary);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>')}
-                            </div>
-                            ${(doc.data_pagamento || jaPassouDaConciliacao || state.currentComprovante) ?
-            `<div style="display: flex; flex-direction: column; gap: 0.25rem;">
-                                    <p class="text-xs" style="color: var(--text-secondary); font-weight: 500;">Comprovante recebido:</p>
-                                    ${state.currentComprovante ? `<a href="${CONFIG.SUPABASE_URL}/storage/v1/object/public/documentos/${state.currentComprovante.file_path}" target="_blank" class="text-xs" style="color: var(--primary); text-decoration: none;">📄 ${state.currentComprovante.name}</a>` : '<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Nenhum comprovante enviado.</p>'}
-                                    <div class="badge status-completed" style="margin-top: 0.5rem; width: fit-content; font-size: 10px;">Etapa Opcional</div>
-                                 </div>` :
-            (state.isUploadingComprovante ?
-                `<div style="padding: 0.5rem; text-align: center;">
-                                    <div style="width: 100%; height: 6px; background: var(--bg-sidebar); border-radius: 3px; overflow: hidden; margin-bottom: 0.5rem;">
-                                        <div style="width: 60%; height: 100%; background: var(--primary); animation: loading 2s infinite ease-in-out;"></div>
-                                    </div>
-                                    <p class="text-xs" style="color: var(--primary); font-weight: 600;">Enviando comprovante...</p>
-                                 </div>` :
-                (doc.status === 'aguardando_comprovante' ?
-                    (state.uploadConcluidoComprovante ?
-                        `<p class="text-xs mt-2" style="color: var(--success); font-weight: bold; text-align: center;">✓ Upload do comprovante já foi realizado.</p>` :
-                        `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem;" onclick="document.getElementById('vincular-comprovante-input').click()">Anexar Comprovante</button>
-                                 <input type="file" id="vincular-comprovante-input" style="display: none;" onchange="window.handleVincularDocumento('${doc.id}', this.files[0], 'comprovante', { id: '${doc.id}', nome: '${doc.name.replace(/'/g, "\\'")}', valor: ${doc.valor || 0}, cnpj: '${doc.cnpj_emissor || ''}' })" accept=".pdf,image/*">
-                                 <p class="text-xs" style="color: var(--text-muted); font-style: italic; margin-top: 0.5rem; text-align: center;">Você pode pular direto para o Extrato</p>`) :
-                    `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando etapa anterior para liberar upload...</p>`))
-        }
-                        </div>
-
                         <!-- Box do Extrato -->
                         <div style="padding: 1rem; border: 1px dashed ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'var(--error)' : 'var(--border-light)'}; border-radius: var(--radius-sm); background: ${jaPassouDaConciliacao ? bgPosConciliacao : (doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'rgba(239, 68, 68, 0.05)' : (doc.extrato_origem_id && ['aguardando_comprovante', 'aguardando_conciliacao_bancaria'].includes(doc.status)) ? 'rgba(16, 185, 129, 0.05)' : 'transparent'};">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                                <span class="text-xs" style="font-weight: 600; text-transform: uppercase; color: ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'var(--error)' : 'inherit'};">2. Extrato Bancário</span>
+                                <span class="text-xs" style="font-weight: 600; text-transform: uppercase; color: ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'var(--error)' : 'inherit'};">1. Extrato Bancário</span>
                                 ${jaPassouDaConciliacao ? `<i data-lucide="check-circle-2" style="width: 16px; color: ${corPosConciliacao};"></i>` : (doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? '<i data-lucide="x-circle" style="width: 16px; color: var(--error);"></i>' : (doc.extrato_origem_id && ['aguardando_comprovante', 'aguardando_conciliacao_bancaria'].includes(doc.status)) ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>'}
                             </div>
                             ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? `
@@ -3078,6 +3051,35 @@ ${Sidebar()}
                     `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando liberação...</p>`))
         }
                             ${btnVerExtrato}
+                        </div>
+
+                        <!-- Box do Comprovante -->
+                        <div style="padding: 1rem; border: 1px dashed var(--border-light); border-radius: var(--radius-sm); background: ${doc.data_pagamento || jaPassouDaConciliacao || state.currentComprovante ? 'rgba(16, 185, 129, 0.05)' : 'transparent'};">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                <span class="text-xs" style="font-weight: 600; text-transform: uppercase;">2. Comprovante (Opcional)</span>
+                                ${doc.data_pagamento || jaPassouDaConciliacao || state.currentComprovante ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : (state.isUploadingComprovante ? '<i data-lucide="loader" class="spin" style="width: 16px; color: var(--primary);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>')}
+                            </div>
+                            ${(doc.data_pagamento || jaPassouDaConciliacao || state.currentComprovante) ?
+            `<div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                                    <p class="text-xs" style="color: var(--text-secondary); font-weight: 500;">Comprovante recebido:</p>
+                                    ${state.currentComprovante ? `<a href="${CONFIG.SUPABASE_URL}/storage/v1/object/public/documentos/${state.currentComprovante.file_path}" target="_blank" class="text-xs" style="color: var(--primary); text-decoration: none;">📄 ${state.currentComprovante.name}</a>` : '<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Nenhum comprovante enviado.</p>'}
+                                    <div class="badge status-completed" style="margin-top: 0.5rem; width: fit-content; font-size: 10px;">Etapa Opcional</div>
+                                 </div>` :
+            (state.isUploadingComprovante ?
+                `<div style="padding: 0.5rem; text-align: center;">
+                                    <div style="width: 100%; height: 6px; background: var(--bg-sidebar); border-radius: 3px; overflow: hidden; margin-bottom: 0.5rem;">
+                                        <div style="width: 60%; height: 100%; background: var(--primary); animation: loading 2s infinite ease-in-out;"></div>
+                                    </div>
+                                    <p class="text-xs" style="color: var(--primary); font-weight: 600;">Enviando comprovante...</p>
+                                 </div>` :
+                (doc.status === 'aguardando_comprovante' ?
+                    (state.uploadConcluidoComprovante ?
+                        `<p class="text-xs mt-2" style="color: var(--success); font-weight: bold; text-align: center;">✓ Upload do comprovante já foi realizado.</p>` :
+                        `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem;" onclick="document.getElementById('vincular-comprovante-input').click()">Anexar Comprovante</button>
+                                 <input type="file" id="vincular-comprovante-input" style="display: none;" onchange="window.handleVincularDocumento('${doc.id}', this.files[0], 'comprovante', { id: '${doc.id}', nome: '${doc.name.replace(/'/g, "\\'")}', valor: ${doc.valor || 0}, cnpj: '${doc.cnpj_emissor || ''}' })" accept=".pdf,image/*">
+                                 <p class="text-xs" style="color: var(--text-muted); font-style: italic; margin-top: 0.5rem; text-align: center;">Você pode pular direto para o Extrato</p>`) :
+                    `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando etapa anterior para liberar upload...</p>`))
+        }
                         </div>
 
                         <!-- Box do SALIC -->

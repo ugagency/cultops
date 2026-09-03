@@ -73,7 +73,7 @@ async function renderPageSidebar(role) {
         const active = itemFile === currentFile;
         const attrs = item.blank ? 'target="_blank" rel="noopener"' : '';
         return `
-            <a href="${item.path}" ${attrs} class="nav-item ${active ? 'active' : ''}">
+            <a href="${item.path}" ${attrs} class="nav-item ${active ? 'active' : ''}" title="${item.label}">
                 <i data-lucide="${item.icon}"></i>
                 <span>${item.label}</span>
             </a>
@@ -97,11 +97,11 @@ async function renderPageSidebar(role) {
                     <p class="sidebar-user-role" style="font-size: 11px; color: var(--text-secondary);"></p>
                 </div>
             </div>
-            <a href="module-selector.html" class="nav-item" style="color: var(--primary);">
+            <a href="module-selector.html" class="nav-item" title="Trocar Módulo" style="color: var(--primary);">
                 <i data-lucide="grid-2x2"></i>
                 <span>Trocar Módulo</span>
             </a>
-            <a href="index.html?logout=1#login" onclick="window.handleLogout(event)" class="nav-item" style="color: var(--error);">
+            <a href="index.html?logout=1#login" onclick="window.handleLogout(event)" class="nav-item" title="Sair" style="color: var(--error);">
                 <i data-lucide="log-out"></i>
                 <span>Sair</span>
             </a>
