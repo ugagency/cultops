@@ -247,6 +247,18 @@
         </div>
     </div>
 
+    <!-- Modal Confirmar Exclusão de Guia -->
+    <div id="modal-confirm-exclusao-guia" class="modal">
+        <div class="modal-content" style="max-width: 420px;">
+            <h2 class="h2 mb-2">Excluir guia</h2>
+            <p id="exclusao-guia-mensagem" style="color: var(--text-secondary); font-size: 0.9rem; line-height: 1.5; white-space: pre-line;"></p>
+            <div class="tax-actions" style="justify-content: flex-end; margin-top: 1.5rem;">
+                <button type="button" class="btn-m2" onclick="fecharModalConfirmExclusaoGuia()">Cancelar</button>
+                <button type="button" class="btn-m2 btn-m2-primary" onclick="confirmarExecutarExclusaoGuia()">Excluir guia</button>
+            </div>
+        </div>
+    </div>
+
     <script src="../config.js"></script>
     <script src="../auth-logout.js"></script>
     <script src="supabase-helper.js"></script>
@@ -427,9 +439,25 @@
         // DELETE em tax_guides (nem policy de RLS pra isso), a guia só some
         // da listagem quando status = 'cancelada' (loadTaxes já filtra isso).
         // ─────────────────────────────────────────────────────────────
+        let _pendingExclusaoGuiaId = null;
+
         function confirmarExclusaoGuia(taxId, tipoImposto, competencia) {
             const label = competencia ? `${tipoImposto} (competência ${competencia})` : tipoImposto;
-            if (!confirm(`Confirma a exclusão da guia de ${label}?\n\nEssa ação não pode ser desfeita.`)) return;
+            _pendingExclusaoGuiaId = taxId;
+            document.getElementById('exclusao-guia-mensagem').textContent =
+                `Confirma a exclusão da guia de ${label}?\n\nEssa ação não pode ser desfeita.`;
+            document.getElementById('modal-confirm-exclusao-guia').style.display = 'flex';
+        }
+
+        function fecharModalConfirmExclusaoGuia() {
+            _pendingExclusaoGuiaId = null;
+            document.getElementById('modal-confirm-exclusao-guia').style.display = 'none';
+        }
+
+        function confirmarExecutarExclusaoGuia() {
+            if (!_pendingExclusaoGuiaId) return;
+            const taxId = _pendingExclusaoGuiaId;
+            fecharModalConfirmExclusaoGuia();
             executarExclusaoGuia(taxId);
         }
 

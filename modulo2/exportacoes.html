@@ -2219,7 +2219,7 @@
             const { data, error } = await sbClient.storage.from('reports').createSignedUrl(cleanPath, 3600);
 
             if (error) {
-                alert('Erro ao gerar link de download: ' + (error.message || 'verifique o console'));
+                showToast('Erro ao gerar link de download: ' + (error.message || 'verifique o console'), 'error');
                 console.error('[STORAGE]', error);
                 return;
             }
