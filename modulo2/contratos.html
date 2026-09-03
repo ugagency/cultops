@@ -465,6 +465,32 @@
         </div>
     </div>
 
+    <!-- ============= MODAL: CONFIRMAÇÃO GENÉRICA (reaproveitado por ações
+         simples de confirmar/cancelar que não justificam um modal próprio —
+         ver abrirModalConfirmGenerico()) ============= -->
+    <div id="modal-confirm-generico" class="modal-backdrop" hidden onclick="if(event.target===this) fecharModalConfirmGenerico()">
+        <div class="modal-dialog" style="max-width: 440px;">
+            <h3 id="confirm-generico-titulo"><i data-lucide="help-circle" style="width:18px; vertical-align:-3px;"></i> Confirmar ação</h3>
+            <p id="confirm-generico-mensagem" style="font-size:0.9rem; color:var(--text-secondary); line-height:1.5; white-space:pre-line;"></p>
+            <div class="modal-actions">
+                <button type="button" class="btn-modal btn-modal-cancel" onclick="fecharModalConfirmGenerico()">Cancelar</button>
+                <button type="button" class="btn-modal btn-modal-primary" id="btn-confirm-generico" onclick="_execConfirmGenerico()">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============= MODAL: CONFIRMAR EXCLUSÃO DE CONTRATO ============= -->
+    <div id="modal-confirm-exclusao-contrato" class="modal-backdrop" hidden onclick="if(event.target===this) fecharModalConfirmExclusaoContrato()">
+        <div class="modal-dialog" style="max-width: 440px;">
+            <h3><i data-lucide="trash-2" style="width:18px; vertical-align:-3px; color:var(--color-alert);"></i> Excluir contrato</h3>
+            <p id="exclusao-contrato-mensagem" style="font-size:0.9rem; color:var(--text-secondary); line-height:1.5; white-space:pre-line;"></p>
+            <div class="modal-actions">
+                <button type="button" class="btn-modal btn-modal-cancel" onclick="fecharModalConfirmExclusaoContrato()">Cancelar</button>
+                <button type="button" class="btn-modal btn-modal-primary" onclick="confirmarExecutarExclusaoContrato()">Excluir contrato</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ============= MODAL: NOVA PARCELA ============= -->
     <div id="modal-parcela" class="modal-backdrop" hidden onclick="if(event.target===this) closeParcelaModal()">
         <div class="modal-dialog" style="max-width: 460px;">
@@ -1216,16 +1242,24 @@
                     .eq('contrato_pai_id', contractId);
                 if (count && count > 0) {
                     const acao = newStatus === 'encerrado' ? 'encerrar' : 'cancelar';
-                    const ok = confirm(
-                        `Este contrato possui ${count} anexo(s) vinculado(s).\n\n` +
-                        `Ao ${acao} o contrato pai, os anexos NÃO serão automaticamente alterados — ` +
-                        `eles continuarão com seus status atuais e vinculados a este contrato.\n\n` +
-                        `Deseja continuar mesmo assim?`
-                    );
-                    if (!ok) return;
+                    abrirModalConfirmGenerico({
+                        titulo: acao === 'encerrar' ? 'Encerrar contrato' : 'Cancelar contrato',
+                        icone: 'alert-triangle',
+                        mensagem: `Este contrato possui ${count} anexo(s) vinculado(s).\n\n` +
+                            `Ao ${acao} o contrato pai, os anexos NÃO serão automaticamente alterados — ` +
+                            `eles continuarão com seus status atuais e vinculados a este contrato.\n\n` +
+                            `Deseja continuar mesmo assim?`,
+                        textoConfirmar: 'Continuar',
+                        onConfirm: () => executarChangeContratoStatus(contractId, newStatus)
+                    });
+                    return;
                 }
             }
 
+            await executarChangeContratoStatus(contractId, newStatus);
+        }
+
+        async function executarChangeContratoStatus(contractId, newStatus) {
             const session = await sb.auth.getSession();
             const token = session?.data?.session?.access_token;
             const resp = await fetch(`/api/m2/contracts/${contractId}/status`, {
@@ -1625,6 +1659,33 @@
         // ─────────────────────────────────────────────────────────────
         // EXCLUSÃO (soft delete) — cascata para anexos vinculados
         // ─────────────────────────────────────────────────────────────
+        // Modal de confirmação genérico — evita criar um #modal-backdrop
+        // dedicado pra cada ação simples de "tem certeza?" do arquivo.
+        let _confirmGenericoCallback = null;
+
+        function abrirModalConfirmGenerico({ titulo = 'Confirmar ação', icone = 'help-circle', mensagem, textoConfirmar = 'Confirmar', onConfirm }) {
+            document.getElementById('confirm-generico-titulo').innerHTML =
+                `<i data-lucide="${icone}" style="width:18px; vertical-align:-3px;"></i> ${escapeHtml(titulo)}`;
+            document.getElementById('confirm-generico-mensagem').textContent = mensagem;
+            document.getElementById('btn-confirm-generico').textContent = textoConfirmar;
+            _confirmGenericoCallback = onConfirm;
+            document.getElementById('modal-confirm-generico').hidden = false;
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        function fecharModalConfirmGenerico() {
+            _confirmGenericoCallback = null;
+            document.getElementById('modal-confirm-generico').hidden = true;
+        }
+
+        async function _execConfirmGenerico() {
+            const callback = _confirmGenericoCallback;
+            fecharModalConfirmGenerico();
+            if (callback) await callback();
+        }
+
+        let _pendingExclusaoContrato = null;
+
         async function confirmarExclusaoContrato(contractId, numeroContrato) {
             const { count } = await sb.from('contracts')
                 .select('id', { count: 'exact', head: true })
@@ -1644,9 +1705,22 @@
                     + `ser desfeita.`;
             }
 
-            if (!confirm(mensagem)) return;
+            _pendingExclusaoContrato = { contractId, temAnexos: count > 0 };
+            document.getElementById('exclusao-contrato-mensagem').textContent = mensagem;
+            document.getElementById('modal-confirm-exclusao-contrato').hidden = false;
+            if (window.lucide) window.lucide.createIcons();
+        }
 
-            await executarExclusaoContrato(contractId, count > 0);
+        function fecharModalConfirmExclusaoContrato() {
+            _pendingExclusaoContrato = null;
+            document.getElementById('modal-confirm-exclusao-contrato').hidden = true;
+        }
+
+        async function confirmarExecutarExclusaoContrato() {
+            if (!_pendingExclusaoContrato) return;
+            const { contractId, temAnexos } = _pendingExclusaoContrato;
+            fecharModalConfirmExclusaoContrato();
+            await executarExclusaoContrato(contractId, temAnexos);
         }
 
         async function executarExclusaoContrato(contractId, temAnexos) {
@@ -2040,17 +2114,23 @@
             renderAnexos(parentContractId);
         }
 
-        async function removerVinculoAnexo(anexoId, parentContractId) {
-            if (!confirm('Remover o vínculo deste anexo com o contrato pai? Ele passará a aparecer como contrato independente na listagem principal.')) return;
-            const { error } = await sb.from('contracts').update({ contrato_pai_id: null }).eq('id', anexoId);
-            if (error) {
-                showToast('Erro ao remover vínculo: ' + error.message, 'error');
-                return;
-            }
-            showToast('Anexo desvinculado — agora aparece como contrato avulso na listagem principal.', 'success');
-            if (expandedAnexoId === anexoId) expandedAnexoId = null;
-            await loadAnexos(parentContractId);
-            await loadContracts();
+        function removerVinculoAnexo(anexoId, parentContractId) {
+            abrirModalConfirmGenerico({
+                titulo: 'Remover vínculo',
+                mensagem: 'Remover o vínculo deste anexo com o contrato pai? Ele passará a aparecer como contrato independente na listagem principal.',
+                textoConfirmar: 'Remover vínculo',
+                onConfirm: async () => {
+                    const { error } = await sb.from('contracts').update({ contrato_pai_id: null }).eq('id', anexoId);
+                    if (error) {
+                        showToast('Erro ao remover vínculo: ' + error.message, 'error');
+                        return;
+                    }
+                    showToast('Anexo desvinculado — agora aparece como contrato avulso na listagem principal.', 'success');
+                    if (expandedAnexoId === anexoId) expandedAnexoId = null;
+                    await loadAnexos(parentContractId);
+                    await loadContracts();
+                }
+            });
         }
 
         function openAditivoModal(contractId) {
@@ -2238,6 +2318,8 @@
                 // o de cima primeiro, senão os dois some juntos num Esc só.
                 if (!document.getElementById('modal-novo-fornecedor-contrato').hidden) { fecharModalNovoFornecedorContrato(); return; }
                 if (!document.getElementById('modal-confirm-parcela-paga').hidden) { fecharModalConfirmParcelaPaga(); return; }
+                if (!document.getElementById('modal-confirm-exclusao-contrato').hidden) { fecharModalConfirmExclusaoContrato(); return; }
+                if (!document.getElementById('modal-confirm-generico').hidden) { fecharModalConfirmGenerico(); return; }
                 if (!document.getElementById('modal-contrato').hidden) closeContratoModal();
                 if (!document.getElementById('modal-parcela').hidden) closeParcelaModal();
                 if (!document.getElementById('modal-aditivo').hidden) closeAditivoModal();
