@@ -601,6 +601,25 @@
         </div>
     </div>
 
+    <!-- Modal Editar Descrição -->
+    <div class="modal-reject-overlay" id="modal-edit-descricao">
+        <div class="modal-reject-content">
+            <h3 style="margin-bottom: 0.5rem; color: #FFFFFF;">
+                <i data-lucide="pencil" style="width: 20px; height: 20px; vertical-align: middle;"></i>
+                Editar Descrição
+            </h3>
+            <p style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                Altere a descrição desta evidência.
+            </p>
+            <textarea id="edit-descricao-texto" rows="3" placeholder="Descreva a evidência..."
+                style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-family: inherit; resize: vertical; margin-bottom: 1rem;"></textarea>
+            <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+                <button onclick="closeEditDescricaoModal()" style="padding: 0.5rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: white; cursor: pointer; font-weight: 500;">Cancelar</button>
+                <button onclick="confirmEditDescricao()" style="padding: 0.5rem 1rem; border: none; border-radius: var(--radius-sm); background: #FF5807; color: white; cursor: pointer; font-weight: 600;">Salvar</button>
+            </div>
+        </div>
+    </div>
+
     <script src="../config.js"></script>
     <script src="../auth-logout.js"></script>
     <script src="supabase-helper.js"></script>
@@ -648,6 +667,7 @@
         let signedUrls = {};
         let pendingRejectId = null;
         let pendingComplementId = null;
+        let pendingEditDescricaoId = null;
         let evidencesChannel = null;
 
         function hojeLocalISO() {
@@ -1113,8 +1133,11 @@
                                 ${ev.ia_score ? `<span class="${scoreClass}" style="font-size:0.72rem;font-weight:700;margin-left:0.4rem;">IA: ${ev.ia_score}%</span>` : ''}
                             </div>
                             ${descTrunc ? `
-                            <div style="font-size: 0.76rem; color: var(--text-secondary); font-style: italic; margin-top:0.15rem;" title="${escapeHtml(ev.descricao)}">
-                                ${escapeHtml(descTrunc)}
+                            <div style="display:flex; align-items:center; gap:0.4rem; margin-top:0.15rem;">
+                                <span style="font-size: 0.76rem; color: var(--text-secondary); font-style: italic;" title="${escapeHtml(ev.descricao)}">${escapeHtml(descTrunc)}</span>
+                                <button class="btn-icon" style="padding:2px;" title="Editar descrição" onclick="event.stopPropagation(); editarDescricaoEvidencia('${ev.id}', ${JSON.stringify(ev.descricao || '').replace(/"/g, '&quot;')})">
+                                    <i data-lucide="pencil" style="width:12px;height:12px;"></i>
+                                </button>
                             </div>` : ''}
                             <div style="margin-top: 0.35rem;">
                                 ${ev.produto_evidencia
@@ -1396,6 +1419,44 @@
 
             closeComplementModal();
             showToast('Complemento solicitado.', 'success');
+        }
+
+        function editarDescricaoEvidencia(evidenceId, descricaoAtual) {
+            pendingEditDescricaoId = evidenceId;
+            document.getElementById('edit-descricao-texto').value = descricaoAtual || '';
+            document.getElementById('modal-edit-descricao').classList.add('active');
+            setTimeout(() => document.getElementById('edit-descricao-texto').focus(), 50);
+        }
+
+        function closeEditDescricaoModal() {
+            pendingEditDescricaoId = null;
+            document.getElementById('modal-edit-descricao').classList.remove('active');
+        }
+
+        async function confirmEditDescricao() {
+            if (!pendingEditDescricaoId) return;
+            const descricao = document.getElementById('edit-descricao-texto').value.trim();
+
+            const sb = await initSupabase();
+            const { error } = await sb.from('physical_evidences')
+                .update({ descricao: descricao || null })
+                .eq('id', pendingEditDescricaoId);
+
+            if (error) {
+                showToast('Erro ao salvar descrição: ' + error.message, 'error');
+                return;
+            }
+
+            // Não depender só do Realtime — atualiza o estado local e re-renderiza na hora
+            // (antes de fechar o modal, que zera pendingEditDescricaoId).
+            const idx = allEvidences.findIndex(e => e.id === pendingEditDescricaoId);
+            if (idx !== -1) {
+                allEvidences[idx].descricao = descricao || null;
+            }
+            aplicarFiltrosEOrdenacao();
+
+            closeEditDescricaoModal();
+            showToast('Descrição atualizada.', 'success');
         }
 
         // ============ FILE UPLOAD ============

@@ -368,6 +368,12 @@ textarea:focus {
     box-shadow: 0 0 0 2px rgba(21, 71, 255, 0.1);
 }
 
+/* <select> nativo com <optgroup> (ex.: rubricas agrupadas por produto) —
+   cabeçalho do grupo em negrito, opções normais e indentadas por padrão
+   do navegador. */
+optgroup { font-weight: 700; font-style: normal; color: var(--text-secondary); }
+optgroup option { font-weight: 400; color: var(--text-primary); }
+
 /* Status Badges - SaaS Style */
 .badge {
     display: inline-flex;

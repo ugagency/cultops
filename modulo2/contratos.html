@@ -329,6 +329,7 @@
                         <th>Nº</th>
                         <th>Fornecedor</th>
                         <th>Objeto</th>
+                        <th>Rubrica</th>
                         <th>Vigência</th>
                         <th>Valor</th>
                         <th>Status</th>
@@ -337,7 +338,7 @@
                 </thead>
                 <tbody id="contracts-list">
                     <tr>
-                        <td colspan="8" style="text-align: center; padding: 3rem; color: var(--text-muted);">
+                        <td colspan="9" style="text-align: center; padding: 3rem; color: var(--text-muted);">
                             Selecione um projeto para listar os contratos.
                         </td>
                     </tr>
@@ -705,7 +706,7 @@
             if (!contracts || contracts.length === 0) {
                 container.innerHTML = `
                     <tr>
-                        <td colspan="8" style="text-align: center; padding: 3rem; color: var(--text-muted);">
+                        <td colspan="9" style="text-align: center; padding: 3rem; color: var(--text-muted);">
                             Nenhum contrato encontrado para este projeto.
                         </td>
                     </tr>
@@ -737,6 +738,7 @@
                         <td style="font-weight: 700;" title="${escapeHtml(c.numero || 'S/N')}" data-label="Nº">${escapeHtml(c.numero || 'S/N')}</td>
                         <td title="${escapeHtml(c.fornecedores ? c.fornecedores.razao_social : 'Não informado')}" data-label="Fornecedor">${escapeHtml(c.fornecedores ? c.fornecedores.razao_social : 'Não informado')}</td>
                         <td title="${escapeHtml(c.objeto)}" data-label="Objeto">${escapeHtml(c.objeto)}</td>
+                        <td title="${c.rubricas?.rubrica_id ? escapeHtml(c.rubricas.rubrica_id + ' — ' + c.rubricas.nome) : ''}" data-label="Rubrica">${c.rubricas?.rubrica_id ? escapeHtml(c.rubricas.rubrica_id + ' — ' + c.rubricas.nome) : '—'}</td>
                         <td style="white-space: nowrap;" data-label="Vigência">${formatDate(c.data_inicio)} → ${formatDate(c.data_fim)}</td>
                         <td style="font-weight: 700; color: var(--m2-accent); white-space: nowrap;" data-label="Valor">${valorCel}</td>
                         <td onclick="event.stopPropagation()" data-label="Status">
@@ -763,7 +765,7 @@
                     </tr>
                     ${isExpanded ? `
                         <tr class="accordion-row">
-                            <td colspan="8">
+                            <td colspan="9">
                                 <div class="accordion-content">
                                     <div class="accordion-tabs">
                                         <button class="accordion-tab active" data-tab="parcelas" onclick="switchTab(event, 'parcelas')">
@@ -1240,7 +1242,7 @@
 
             const { data, error } = await sb
                 .from('rubricas')
-                .select('id, nome, rubrica_id, valor_aprovado, valor_utilizado')
+                .select('id, nome, rubrica_id, produto, valor_aprovado, valor_utilizado')
                 .eq('project_id', currentProjectId)
                 .order('nome', { ascending: true });
             if (error) {
@@ -1253,15 +1255,26 @@
                 return;
             }
 
-            select.innerHTML = '<option value="">Selecione…</option>';
+            // <select> nativo aceita <optgroup> (ao contrário do <datalist> do
+            // painel de combobox do M1) — agrupar por produto direto no HTML,
+            // sem precisar replicar aquele painel customizado aqui.
+            const porProduto = {};
             data.forEach(r => {
-                const saldo = Number(r.valor_aprovado || 0) - Number(r.valor_utilizado || 0);
-                const opt = document.createElement('option');
-                opt.value = r.id;
-                const codigo = r.rubrica_id ? `${r.rubrica_id} — ` : '';
-                opt.textContent = `${codigo}${r.nome} (saldo ${formatCurrency(saldo)})`;
-                select.appendChild(opt);
+                const produto = r.produto?.trim() || 'Sem produto definido';
+                (porProduto[produto] ??= []).push(r);
             });
+
+            let html = '<option value="">Selecione…</option>';
+            Object.keys(porProduto).sort().forEach(produto => {
+                html += `<optgroup label="${escapeHtml(produto)}">`;
+                porProduto[produto].forEach(r => {
+                    const saldo = Number(r.valor_aprovado || 0) - Number(r.valor_utilizado || 0);
+                    const codigo = r.rubrica_id ? `${r.rubrica_id} — ` : '';
+                    html += `<option value="${r.id}">${escapeHtml(codigo + r.nome)} (saldo ${formatCurrency(saldo)})</option>`;
+                });
+                html += '</optgroup>';
+            });
+            select.innerHTML = html;
         }
 
         async function submitContrato() {
