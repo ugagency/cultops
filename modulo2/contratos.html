@@ -428,6 +428,29 @@
         </div>
     </div>
 
+    <!-- ============= MODAL: NOVO FORNECEDOR (cadastro rápido) ============= -->
+    <div id="modal-novo-fornecedor-contrato" class="modal-backdrop" hidden onclick="if(event.target===this) fecharModalNovoFornecedorContrato()">
+        <div class="modal-dialog" style="max-width: 460px;">
+            <h3><i data-lucide="user-plus" style="width:18px; vertical-align:-3px;"></i> Cadastrar novo fornecedor</h3>
+            <div class="form-grid">
+                <div class="row-2">
+                    <label>CNPJ ou CPF
+                        <input type="text" id="nf-cnpj" placeholder="CNPJ (14 dígitos) ou CPF (11 dígitos)">
+                    </label>
+                    <button type="button" class="btn-inline" style="align-self:flex-end;" id="nf-btn-buscar" onclick="buscarCnpjNovoFornecedorContrato()">Buscar dados</button>
+                </div>
+                <p id="nf-status" style="font-size:0.8rem; margin:0;"></p>
+                <label>Razão social <span style="color:#FF5807;">*</span>
+                    <input type="text" id="nf-razao" required>
+                </label>
+                <div class="modal-actions">
+                    <button type="button" class="btn-modal btn-modal-cancel" onclick="fecharModalNovoFornecedorContrato()">Cancelar</button>
+                    <button type="button" class="btn-modal btn-modal-primary" id="btn-salvar-novo-fornecedor" onclick="salvarNovoFornecedorContrato()">Salvar e usar neste contrato</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- ============= MODAL: NOVA PARCELA ============= -->
     <div id="modal-parcela" class="modal-backdrop" hidden onclick="if(event.target===this) closeParcelaModal()">
         <div class="modal-dialog" style="max-width: 460px;">
@@ -544,6 +567,13 @@
             const formContrato = document.getElementById('form-contrato');
             formContrato.addEventListener('input', checkContratoFormDirty);
             formContrato.addEventListener('change', checkContratoFormDirty);
+
+            document.getElementById('c-fornecedor').addEventListener('change', function() {
+                if (this.value === '__novo__') {
+                    this.value = '';
+                    abrirModalNovoFornecedorContrato();
+                }
+            });
 
             if (window.lucide) window.lucide.createIcons();
         });
@@ -1201,39 +1231,122 @@
             const select = document.getElementById('c-fornecedor');
             select.innerHTML = '<option value="">Carregando…</option>';
 
-            const { data: vinculos, error: linkErr } = await sb
-                .from('projeto_fornecedores')
-                .select('fornecedor_id')
-                .eq('project_id', currentProjectId);
-            if (linkErr) {
-                console.error('[loadFornecedoresSelect:vinculos]', linkErr);
-                select.innerHTML = '<option value="">Erro ao carregar</option>';
-                return;
-            }
-            const ids = (vinculos || []).map(v => v.fornecedor_id).filter(Boolean);
-            if (ids.length === 0) {
-                select.innerHTML = '<option value="">Nenhum fornecedor vinculado ao projeto</option>';
-                return;
-            }
-
-            const { data: fornecedores, error: fErr } = await sb
+            // Busca por organização, não por vínculo prévio com este projeto
+            // (projeto_fornecedores só registra "já mandou documento pra cá" —
+            // deixava de fora fornecedores reais da organização que nunca
+            // tiveram documento vinculado a este projeto específico).
+            const orgId = await getCurrentOrgId(currentProjectId);
+            const { data: fornecedores, error } = await sb
                 .from('fornecedores')
                 .select('id, razao_social, cnpj')
-                .in('id', ids)
+                .eq('organization_id', orgId)
                 .order('razao_social', { ascending: true });
-            if (fErr) {
-                console.error('[loadFornecedoresSelect:fornecedores]', fErr);
+            if (error) {
+                console.error('[loadFornecedoresSelect]', error);
                 select.innerHTML = '<option value="">Erro ao carregar fornecedores</option>';
                 return;
             }
 
-            select.innerHTML = '<option value="">Selecione…</option>';
+            select.innerHTML = '<option value="">Selecione…</option><option value="__novo__">+ Cadastrar novo fornecedor</option>';
             (fornecedores || []).forEach(f => {
                 const opt = document.createElement('option');
                 opt.value = f.id;
                 opt.textContent = `${f.razao_social} — ${formatCNPJ(f.cnpj)}`;
                 select.appendChild(opt);
             });
+        }
+
+        // ─── Cadastro rápido de fornecedor (a partir do form de contrato) ─────
+
+        function abrirModalNovoFornecedorContrato() {
+            document.getElementById('nf-cnpj').value = '';
+            document.getElementById('nf-razao').value = '';
+            document.getElementById('nf-status').textContent = '';
+            document.getElementById('modal-novo-fornecedor-contrato').hidden = false;
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        function fecharModalNovoFornecedorContrato() {
+            document.getElementById('modal-novo-fornecedor-contrato').hidden = true;
+        }
+
+        async function buscarCnpjNovoFornecedorContrato() {
+            const doc = (document.getElementById('nf-cnpj').value || '').replace(/\D/g, '');
+            const statusEl = document.getElementById('nf-status');
+
+            if (doc.length === 11) {
+                // CPF — não existe busca pública, o nome vem só de quem está digitando.
+                statusEl.textContent = 'CPF de pessoa física — preencha o nome manualmente, não há busca automática.';
+                statusEl.style.color = 'var(--text-secondary)';
+                document.getElementById('nf-razao').focus();
+                return;
+            }
+
+            if (doc.length !== 14) {
+                statusEl.textContent = 'Digite um CNPJ (14 dígitos) ou CPF (11 dígitos) válido.';
+                statusEl.style.color = 'var(--error)';
+                return;
+            }
+
+            const btn = document.getElementById('nf-btn-buscar');
+            btn.disabled = true;
+            btn.textContent = 'Buscando…';
+            statusEl.textContent = '';
+
+            try {
+                const resp = await fetch(`https://open.cnpja.com/office/${doc}`);
+                if (resp.status === 429) {
+                    statusEl.textContent = 'Limite de consultas atingido, tente novamente em instantes. Preencha manualmente se preferir.';
+                    statusEl.style.color = 'var(--error)';
+                    return;
+                }
+                if (!resp.ok) {
+                    statusEl.textContent = 'Não encontrado. Preencha a razão social manualmente.';
+                    statusEl.style.color = 'var(--error)';
+                    return;
+                }
+                const d = await resp.json();
+                document.getElementById('nf-razao').value = d.company?.name || '';
+                statusEl.textContent = 'Dados encontrados.';
+                statusEl.style.color = 'var(--success)';
+            } catch (err) {
+                console.error('[buscarCnpjNovoFornecedorContrato]', err);
+                statusEl.textContent = 'Erro na busca. Preencha manualmente.';
+                statusEl.style.color = 'var(--error)';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Buscar dados';
+            }
+        }
+
+        async function salvarNovoFornecedorContrato() {
+            const doc = (document.getElementById('nf-cnpj').value || '').replace(/\D/g, '');
+            const razaoSocial = document.getElementById('nf-razao').value.trim();
+            if (!razaoSocial) { showToast('Razão social é obrigatória.', 'error'); return; }
+            if (!doc) { showToast('Informe o CNPJ ou CPF do fornecedor.', 'error'); return; }
+
+            const btn = document.getElementById('btn-salvar-novo-fornecedor');
+            btn.disabled = true;
+
+            try {
+                // INSERT direto em "fornecedores" cai em RLS pro client (só
+                // service_role escreve nessa tabela) — reaproveita a mesma rota
+                // servidor que criarFornecedorOcr() já usa pra criar+vincular.
+                const fornecedorId = await _vincularFornecedorServidor(doc, razaoSocial);
+
+                fecharModalNovoFornecedorContrato();
+                await loadFornecedoresSelect();
+                document.getElementById('c-fornecedor').value = fornecedorId;
+                // Setar .value via JS não dispara 'change' — o botão Salvar só
+                // habilita reagindo a esse evento (ver checkContratoFormDirty).
+                checkContratoFormDirty();
+                showToast('Fornecedor cadastrado.', 'success');
+            } catch (err) {
+                console.error('[salvarNovoFornecedorContrato]', err);
+                showToast('Erro ao criar fornecedor: ' + err.message, 'error');
+            } finally {
+                btn.disabled = false;
+            }
         }
 
         async function loadRubricasSelect() {
@@ -2066,6 +2179,7 @@
         function formatCNPJ(cnpj) {
             if (!cnpj) return '—';
             const c = String(cnpj).replace(/\D/g, '');
+            if (c.length === 11) return c.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
             if (c.length !== 14) return cnpj;
             return c.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
         }
@@ -2090,6 +2204,9 @@
 
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
+                // Fornecedor pode abrir por cima do modal de contrato — fecha só
+                // o de cima primeiro, senão os dois some juntos num Esc só.
+                if (!document.getElementById('modal-novo-fornecedor-contrato').hidden) { fecharModalNovoFornecedorContrato(); return; }
                 if (!document.getElementById('modal-contrato').hidden) closeContratoModal();
                 if (!document.getElementById('modal-parcela').hidden) closeParcelaModal();
                 if (!document.getElementById('modal-aditivo').hidden) closeAditivoModal();
