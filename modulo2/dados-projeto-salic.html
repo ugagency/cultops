@@ -211,6 +211,34 @@
         @media (max-width: 640px) {
             .grid-2, .grid-date { grid-template-columns: 1fr; }
         }
+
+        /* Modal de confirmação (substitui window.confirm nativo) */
+        .confirm-modal-backdrop {
+            position: fixed; inset: 0;
+            background: rgba(15, 23, 42, 0.5);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 9998; padding: 1rem;
+        }
+        .confirm-modal-backdrop[hidden] { display: none; }
+        .confirm-modal-dialog {
+            background: white;
+            border-radius: var(--radius-lg, 16px);
+            padding: 1.75rem;
+            max-width: 440px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+        }
+        .confirm-modal-dialog h3 {
+            margin: 0 0 0.75rem; font-size: 1.1rem; font-weight: 700;
+            color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;
+        }
+        .confirm-modal-dialog p {
+            font-size: 0.9rem; color: var(--text-secondary, #64748b);
+            line-height: 1.5; white-space: pre-line; margin: 0;
+        }
+        .confirm-modal-actions {
+            display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.5rem;
+        }
     </style>
 </head>
 <body>
@@ -404,6 +432,18 @@
     </div>
 
     <div id="toast-container"></div>
+
+    <!-- ============= MODAL: CONFIRMAR REIMPORTAÇÃO ============= -->
+    <div id="modal-confirm-reimportar" class="confirm-modal-backdrop" hidden onclick="if(event.target===this) fecharModalConfirmReimportar()">
+        <div class="confirm-modal-dialog">
+            <h3><i data-lucide="alert-triangle" style="width:18px;color:var(--m2-accent,#6366f1);"></i> Reimportar PDF</h3>
+            <p>Isso substituirá os dados atuais importados. Deseja continuar?</p>
+            <div class="confirm-modal-actions">
+                <button type="button" class="btn-m2 btn-m2-outline" onclick="fecharModalConfirmReimportar()">Cancelar</button>
+                <button type="button" class="btn-m2" onclick="confirmarReimportarPdf()">Continuar</button>
+            </div>
+        </div>
+    </div>
 
     <script src="../config.js"></script>
     <script src="../auth-logout.js"></script>
@@ -967,7 +1007,16 @@
         // Não precisa de DB call: o servidor marca o import anterior como
         // 'substituido' automaticamente ao criar um novo em processar-pdf-salic.
         function reimportarPdf() {
-            if (!confirm('Isso substituirá os dados atuais importados. Deseja continuar?')) return;
+            document.getElementById('modal-confirm-reimportar').hidden = false;
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        function fecharModalConfirmReimportar() {
+            document.getElementById('modal-confirm-reimportar').hidden = true;
+        }
+
+        function confirmarReimportarPdf() {
+            fecharModalConfirmReimportar();
             currentImportId   = null;
             currentImportMeta = null;
             selectedFile      = null;
@@ -984,6 +1033,12 @@
             document.querySelector('.tab-btn').classList.add('active');
             showState('state-upload');
         }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !document.getElementById('modal-confirm-reimportar').hidden) {
+                fecharModalConfirmReimportar();
+            }
+        });
     </script>
 </body>
 </html>

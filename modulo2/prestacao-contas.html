@@ -574,7 +574,7 @@
             const { error } = await sbClient.from('project_checklist').update({ liberado_envio_minc: checked }).eq('project_id', currentProjectId);
             
             if (error) {
-                alert("Erro ao salvar: " + error.message);
+                showToast("Erro ao salvar: " + error.message, 'error');
                 document.getElementById('toggle-liberado').checked = !checked;
             } else {
                 await rodarChecklist();
@@ -774,7 +774,7 @@
                 .single();
 
             if (insErr) {
-                alert("Erro ao criar registro: " + insErr.message);
+                showToast("Erro ao criar registro: " + insErr.message, 'error');
                 btn.disabled = false;
                 return;
             }
@@ -901,7 +901,7 @@
             
             if (error) {
                 console.error("[STORAGE ERROR]", error);
-                alert("Erro ao gerar link de download: " + (error.message || "Verifique o console"));
+                showToast("Erro ao gerar link de download: " + (error.message || "Verifique o console"), 'error');
                 return;
             }
             window.open(data.signedUrl, '_blank');
@@ -939,7 +939,7 @@
                 data_autorizacao: new Date().toISOString()
             }).eq('id', latestReadyReportId);
 
-            if (err1) { alert("Erro ao atualizar relatório: " + err1.message); return; }
+            if (err1) { showToast("Erro ao atualizar relatório: " + err1.message, 'error'); return; }
 
             // 2. Update project
             const { error: err2 } = await sbClient.from('projects').update({
@@ -947,10 +947,10 @@
                 checklist_liberado: true
             }).eq('id', currentProjectId);
 
-            if (err2) { alert("Erro ao atualizar projeto: " + err2.message); return; }
+            if (err2) { showToast("Erro ao atualizar projeto: " + err2.message, 'error'); return; }
 
             closeAuthModal();
-            alert("Prestação de contas marcada como fechada com sucesso!");
+            showToast("Prestação de contas marcada como fechada com sucesso!", 'success');
             
             await checkProjectSetup();
         }

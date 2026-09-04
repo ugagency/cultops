@@ -263,6 +263,28 @@
         </div>
     </div>
 
+    <!-- Modal: Confirmação genérica (reaproveitado por ações simples de
+         confirmar/cancelar que não justificam um modal próprio) -->
+    <div id="modal-confirm-generico" class="modal-backdrop" style="display:none;">
+        <div class="modal-card" style="max-width:440px;">
+            <div class="modal-header">
+                <h2 id="confirm-generico-titulo">Confirmar ação</h2>
+                <button class="btn-icon" onclick="fecharModalConfirmGenerico()">
+                    <i data-lucide="x" style="width:22px;"></i>
+                </button>
+            </div>
+
+            <p id="confirm-generico-mensagem" style="white-space:pre-line;"></p>
+
+            <div class="modal-footer">
+                <div class="actions-right">
+                    <button class="btn-secondary" onclick="fecharModalConfirmGenerico()">Cancelar</button>
+                    <button class="btn-danger" id="btn-confirm-generico" onclick="_execConfirmGenerico()">Confirmar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="toast-container" class="toast-container"></div>
 
     <script src="../config.js"></script>
@@ -608,19 +630,49 @@
 
         // ── Confirmar Encerramento ────────────────────────────
         async function confirmarEncerrar() {
-            if (!confirm('Confirmar encerramento do evento? Esta ação não pode ser desfeita.')) return;
-            const btn = document.getElementById('btn-encerrar');
-            btn.disabled = true;
-            btn.textContent = 'Encerrando…';
-            try {
-                const result = await encerrarEvento(eventId);
-                showToast(result.mensagem, 'success');
-                await loadData();
-            } catch (e) {
-                showToast(e.message || 'Erro ao encerrar evento', 'error');
-                btn.disabled = false;
-                renderEncerrar();
-            }
+            abrirModalConfirmGenerico({
+                titulo: 'Encerrar evento',
+                mensagem: 'Confirmar encerramento do evento? Esta ação não pode ser desfeita.',
+                textoConfirmar: 'Encerrar evento',
+                onConfirm: async () => {
+                    const btn = document.getElementById('btn-encerrar');
+                    btn.disabled = true;
+                    btn.textContent = 'Encerrando…';
+                    try {
+                        const result = await encerrarEvento(eventId);
+                        showToast(result.mensagem, 'success');
+                        await loadData();
+                    } catch (e) {
+                        showToast(e.message || 'Erro ao encerrar evento', 'error');
+                        btn.disabled = false;
+                        renderEncerrar();
+                    }
+                }
+            });
+        }
+
+        // Modal de confirmação genérico — evita criar um .modal-backdrop
+        // dedicado pra cada ação simples de "tem certeza?" do arquivo.
+        let _confirmGenericoCallback = null;
+
+        function abrirModalConfirmGenerico({ titulo = 'Confirmar ação', mensagem, textoConfirmar = 'Confirmar', onConfirm }) {
+            document.getElementById('confirm-generico-titulo').textContent = titulo;
+            document.getElementById('confirm-generico-mensagem').textContent = mensagem;
+            document.getElementById('btn-confirm-generico').textContent = textoConfirmar;
+            _confirmGenericoCallback = onConfirm;
+            document.getElementById('modal-confirm-generico').style.display = 'flex';
+            reIcons();
+        }
+
+        function fecharModalConfirmGenerico() {
+            _confirmGenericoCallback = null;
+            document.getElementById('modal-confirm-generico').style.display = 'none';
+        }
+
+        async function _execConfirmGenerico() {
+            const callback = _confirmGenericoCallback;
+            fecharModalConfirmGenerico();
+            if (callback) await callback();
         }
 
         // ── Modal Attendance ──────────────────────────────────

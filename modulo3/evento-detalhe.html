@@ -582,6 +582,28 @@
         </div>
     </div>
 
+    <!-- Modal: Confirmação genérica (reaproveitado por ações simples de
+         confirmar/cancelar que não justificam um modal próprio) -->
+    <div id="modal-confirm-generico" class="modal-backdrop" style="display:none;">
+        <div class="modal-card" style="max-width:440px;">
+            <div class="modal-header">
+                <h2 id="confirm-generico-titulo">Confirmar ação</h2>
+                <button class="btn-icon" onclick="fecharModalConfirmGenerico()">
+                    <i data-lucide="x" style="width:22px;"></i>
+                </button>
+            </div>
+
+            <p id="confirm-generico-mensagem" style="white-space:pre-line;"></p>
+
+            <div class="modal-footer">
+                <div class="actions-right">
+                    <button class="btn-secondary" onclick="fecharModalConfirmGenerico()">Cancelar</button>
+                    <button class="btn-danger" id="btn-confirm-generico" onclick="_execConfirmGenerico()">Confirmar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="toast-container" class="toast-container"></div>
 
     <script src="../config.js"></script>
@@ -997,25 +1019,61 @@
 
         // ── Remove ────────────────────────────────────────────
         async function removeOs(osId) {
-            if (!confirm('Remover esta OS do evento?')) return;
-            try {
-                await desvincularOs(eventId, osId);
-                showToast('OS removida do evento.');
-                await reloadEvento();
-            } catch (err) {
-                showToast('Erro: ' + (err.message || ''), 'error');
-            }
+            abrirModalConfirmGenerico({
+                titulo: 'Remover OS',
+                mensagem: 'Remover esta OS do evento?',
+                textoConfirmar: 'Remover',
+                onConfirm: async () => {
+                    try {
+                        await desvincularOs(eventId, osId);
+                        showToast('OS removida do evento.');
+                        await reloadEvento();
+                    } catch (err) {
+                        showToast('Erro: ' + (err.message || ''), 'error');
+                    }
+                }
+            });
         }
 
         async function removePa(paId) {
-            if (!confirm('Remover este PA do evento?')) return;
-            try {
-                await desvincularPa(eventId, paId);
-                showToast('PA removido do evento.');
-                await reloadEvento();
-            } catch (err) {
-                showToast('Erro: ' + (err.message || ''), 'error');
-            }
+            abrirModalConfirmGenerico({
+                titulo: 'Remover PA',
+                mensagem: 'Remover este PA do evento?',
+                textoConfirmar: 'Remover',
+                onConfirm: async () => {
+                    try {
+                        await desvincularPa(eventId, paId);
+                        showToast('PA removido do evento.');
+                        await reloadEvento();
+                    } catch (err) {
+                        showToast('Erro: ' + (err.message || ''), 'error');
+                    }
+                }
+            });
+        }
+
+        // Modal de confirmação genérico — evita criar um .modal-backdrop
+        // dedicado pra cada ação simples de "tem certeza?" do arquivo.
+        let _confirmGenericoCallback = null;
+
+        function abrirModalConfirmGenerico({ titulo = 'Confirmar ação', mensagem, textoConfirmar = 'Confirmar', onConfirm }) {
+            document.getElementById('confirm-generico-titulo').textContent = titulo;
+            document.getElementById('confirm-generico-mensagem').textContent = mensagem;
+            document.getElementById('btn-confirm-generico').textContent = textoConfirmar;
+            _confirmGenericoCallback = onConfirm;
+            document.getElementById('modal-confirm-generico').style.display = 'flex';
+            reIcons();
+        }
+
+        function fecharModalConfirmGenerico() {
+            _confirmGenericoCallback = null;
+            document.getElementById('modal-confirm-generico').style.display = 'none';
+        }
+
+        async function _execConfirmGenerico() {
+            const callback = _confirmGenericoCallback;
+            fecharModalConfirmGenerico();
+            if (callback) await callback();
         }
 
         async function reloadEvento() {
@@ -1137,15 +1195,21 @@
         }
 
         async function removeAtividade(id, nome) {
-            if (!confirm(`Excluir a atividade "${nome}"?\n\nOs convidados vinculados NÃO são apagados — apenas voltam ao estado "sem atividade".`)) return;
-            try {
-                await deleteAtividade(id);
-                showToast('Atividade excluída.');
-                _guests = null; // atividade_id dos convidados mudou (SET NULL)
-                await reloadEvento();
-            } catch (err) {
-                showToast('Erro: ' + (err.message || ''), 'error');
-            }
+            abrirModalConfirmGenerico({
+                titulo: 'Excluir atividade',
+                mensagem: `Excluir a atividade "${nome}"?\n\nOs convidados vinculados NÃO são apagados — apenas voltam ao estado "sem atividade".`,
+                textoConfirmar: 'Excluir',
+                onConfirm: async () => {
+                    try {
+                        await deleteAtividade(id);
+                        showToast('Atividade excluída.');
+                        _guests = null; // atividade_id dos convidados mudou (SET NULL)
+                        await reloadEvento();
+                    } catch (err) {
+                        showToast('Erro: ' + (err.message || ''), 'error');
+                    }
+                }
+            });
         }
 
         // ── Check-ins tab ─────────────────────────────────────

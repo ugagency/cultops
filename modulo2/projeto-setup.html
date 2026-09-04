@@ -245,6 +245,8 @@
     </style>
 </head>
 <body>
+    <div class="toast-notification" id="toast" style="position: fixed; bottom: 2.5rem; right: 2.5rem; padding: 1.25rem 2rem; border-radius: var(--radius-md); color: white; font-weight: 700; font-size: 0.95rem; z-index: 10000; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); transform: translateY(150%); transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);"></div>
+
     <main class="main-content">
         <div class="setup-container">
             <div class="setup-header">
@@ -297,6 +299,20 @@
         </div>
     </div>
 
+    <!-- Modal Confirmar Credenciais SALIC -->
+    <div class="modal-overlay" id="modalConfirmSalicCreds">
+        <div class="modal-content glass-card">
+            <i data-lucide="key-round" style="width: 48px; height: 48px; color: var(--m2-accent); margin: 0 auto 1rem;"></i>
+            <h3>Credenciais SALIC necessárias</h3>
+            <p class="text-secondary" style="margin-top: 0.5rem; white-space: pre-line;">Você precisa configurar suas credenciais SALIC antes de importar. Deseja ir para as configurações agora?</p>
+
+            <div style="display: flex; gap: 1rem; justify-content: center; margin-top: 1.5rem;">
+                <button class="btn-m2 btn-m2-outline" onclick="fecharModalConfirmSalicCreds()">Cancelar</button>
+                <button class="btn-m2" onclick="confirmarIrParaConfiguracoesSalic()">Ir para configurações</button>
+            </div>
+        </div>
+    </div>
+
     <script src="../config.js"></script>
     <script src="../auth-logout.js"></script>
     <script src="supabase-helper.js"></script>
@@ -313,8 +329,10 @@
             currentUserContext = await getUserModules();
             
             if (!currentUserContext) {
-                alert("Sessão inválida. Redirecionando para login.");
-                window.location.href = '../index.html#login';
+                showToast("Sessão inválida. Redirecionando para login.", 'error');
+                // Delay para dar tempo do usuário ler o toast antes do redirect
+                // (alert() nativo bloqueava até o OK; toast não bloqueia).
+                setTimeout(() => { window.location.href = '../index.html#login'; }, 1500);
                 return;
             }
 
@@ -327,6 +345,36 @@
                 '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
             })[c]);
         }
+
+        function showToast(msg, type = 'success') {
+            const t = document.getElementById('toast');
+            if (!t) return;
+            t.innerText = msg;
+            t.style.background = type === 'success' ? '#1547FF' : (type === 'error' ? '#FF5807' : '#1547FF');
+            t.style.transform = 'translateY(0)';
+            setTimeout(() => t.style.transform = 'translateY(150%)', 4000);
+        }
+
+        // Modal de confirmação de credenciais SALIC (substitui window.confirm nativo)
+        function abrirModalConfirmSalicCreds() {
+            document.getElementById('modalConfirmSalicCreds').style.display = 'flex';
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        function fecharModalConfirmSalicCreds() {
+            document.getElementById('modalConfirmSalicCreds').style.display = 'none';
+        }
+
+        function confirmarIrParaConfiguracoesSalic() {
+            fecharModalConfirmSalicCreds();
+            window.location.href = '../configuracoes.html';
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && document.getElementById('modalConfirmSalicCreds').style.display === 'flex') {
+                fecharModalConfirmSalicCreds();
+            }
+        });
 
         function statusBadgeClass(status) {
             switch (String(status || '')) {
@@ -539,7 +587,7 @@
                 window.location.href = 'financeiro.html';
                 
             } catch (err) {
-                alert("Falha ao importar: " + err.message);
+                showToast("Falha ao importar: " + err.message, 'error');
             }
         }
 
@@ -616,11 +664,9 @@
 
             } catch (err) {
                 if (err.message.includes("Crendenciais do salic não encontradas") || err.message.includes("credenciais SALIC")) {
-                    if (confirm("Você precisa configurar suas credenciais SALIC antes de importar. Deseja ir para as configurações agora?")) {
-                        window.location.href = '../configuracoes.html';
-                    }
+                    abrirModalConfirmSalicCreds();
                 } else {
-                    alert("Erro: " + err.message);
+                    showToast("Erro: " + err.message, 'error');
                 }
             } finally {
                 btn.innerHTML = oldText;
@@ -650,7 +696,7 @@
                     const rows = XLSX.utils.sheet_to_json(firstSheet, {header: 1});
 
                     if (rows.length < 2) {
-                        alert("Planilha vazia ou em formato desconhecido.");
+                        showToast("Planilha vazia ou em formato desconhecido.", 'error');
                         statusEl.style.display = 'none';
                         return;
                     }
@@ -683,20 +729,22 @@
                     if (rubricasParaInserir.length > 0) {
                         const { error } = await sb.from('rubricas').insert(rubricasParaInserir);
                         if (error) {
-                            alert("Erro ao salvar rubricas no banco: " + error.message);
+                            showToast("Erro ao salvar rubricas no banco: " + error.message, 'error');
                         } else {
-                            alert(rubricasParaInserir.length + " rubricas importadas com sucesso!");
-                            goToFinanceiro();
+                            showToast(rubricasParaInserir.length + " rubricas importadas com sucesso!", 'success');
+                            // Delay para dar tempo do usuário ler o toast antes do redirect
+                            // (alert() nativo bloqueava até o OK; toast não bloqueia).
+                            setTimeout(() => goToFinanceiro(), 1200);
                         }
                     } else {
-                        alert("Nenhuma rubrica válida encontrada.");
+                        showToast("Nenhuma rubrica válida encontrada.", 'error');
                         statusEl.style.display = 'none';
                     }
                 };
                 reader.readAsArrayBuffer(file);
             } catch (err) {
                 console.error(err);
-                alert("Erro ao processar planilha.");
+                showToast("Erro ao processar planilha.", 'error');
                 statusEl.style.display = 'none';
             }
         }

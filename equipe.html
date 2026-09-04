@@ -158,6 +158,24 @@
         </div>
     </div>
 
+    <!-- Modal: Confirmação genérica (reaproveitado por ações simples de
+         confirmar/cancelar que não justificam um modal próprio) -->
+    <div id="modal-confirm-generico" class="modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+        <div class="card" style="width: 100%; max-width: 480px; margin: 1rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+                <h3 class="h2" id="confirm-generico-titulo">Confirmar ação</h3>
+                <button class="btn btn-ghost" onclick="fecharModalConfirmGenerico()">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+            <p id="confirm-generico-mensagem" class="text-sm" style="white-space: pre-line; margin-bottom: 1.5rem;"></p>
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                <button class="btn btn-secondary" onclick="fecharModalConfirmGenerico()">Cancelar</button>
+                <button class="btn btn-primary" id="btn-confirm-generico" onclick="_execConfirmGenerico()">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
     <div id="toast-container" class="toast-container"></div>
 
     <script src="config.js"></script>
@@ -383,40 +401,72 @@
         };
 
         async function handleExcluirUsuario(userId, email) {
-            if (!confirm(`Confirma a exclusão do acesso de ${email}? Essa ação não pode ser desfeita.`)) return;
+            abrirModalConfirmGenerico({
+                titulo: 'Excluir usuário',
+                mensagem: `Confirma a exclusão do acesso de ${email}? Essa ação não pode ser desfeita.`,
+                textoConfirmar: 'Excluir',
+                onConfirm: async () => {
+                    try {
+                        const sb = await initSupabase();
+                        const { data: { session } } = await sb.auth.getSession();
+                        const resp = await fetch('/api/gestor/usuarios/' + userId, {
+                            method: 'DELETE',
+                            headers: { Authorization: `Bearer ${session.access_token}` }
+                        });
+                        const json = await resp.json().catch(() => ({}));
 
-            try {
-                const sb = await initSupabase();
-                const { data: { session } } = await sb.auth.getSession();
-                const resp = await fetch('/api/gestor/usuarios/' + userId, {
-                    method: 'DELETE',
-                    headers: { Authorization: `Bearer ${session.access_token}` }
-                });
-                const json = await resp.json().catch(() => ({}));
+                        // 409 = a conta tem dados. Excluir apagaria notas/projetos por
+                        // cascata, então o servidor recusa e oferecemos revogar acesso.
+                        if (resp.status === 409 && json.vinculos) {
+                            const lista = Object.entries(json.vinculos)
+                                .map(([chave, qtd]) => `• ${qtd}${qtd > 500 ? '+' : ''} ${VINCULO_LABELS[chave] || chave}`)
+                                .join('\n');
+                            abrirModalConfirmGenerico({
+                                titulo: 'Revogar acesso',
+                                mensagem: `${email} não pode ser excluído porque tem dados vinculados:\n\n${lista}\n\n` +
+                                    `Excluir apagaria esses registros da prestação de contas.\n\n` +
+                                    `Deseja REVOGAR O ACESSO? A pessoa deixa de entrar no sistema, ` +
+                                    `mas tudo que ela lançou continua no lugar.`,
+                                textoConfirmar: 'Revogar acesso',
+                                onConfirm: async () => {
+                                    await revogarAcessoUsuario(userId, email);
+                                }
+                            });
+                            return;
+                        }
 
-                // 409 = a conta tem dados. Excluir apagaria notas/projetos por
-                // cascata, então o servidor recusa e oferecemos revogar acesso.
-                if (resp.status === 409 && json.vinculos) {
-                    const lista = Object.entries(json.vinculos)
-                        .map(([chave, qtd]) => `• ${qtd}${qtd > 500 ? '+' : ''} ${VINCULO_LABELS[chave] || chave}`)
-                        .join('\n');
-                    const revogar = confirm(
-                        `${email} não pode ser excluído porque tem dados vinculados:\n\n${lista}\n\n` +
-                        `Excluir apagaria esses registros da prestação de contas.\n\n` +
-                        `Deseja REVOGAR O ACESSO? A pessoa deixa de entrar no sistema, ` +
-                        `mas tudo que ela lançou continua no lugar.`
-                    );
-                    if (revogar) await revogarAcessoUsuario(userId, email);
-                    return;
+                        if (!resp.ok) throw new Error(json.error || 'Erro desconhecido');
+
+                        showToast('Usuário excluído.', 'success');
+                        await fetchEquipe();
+                    } catch (err) {
+                        showToast('Erro ao excluir: ' + err.message, 'error');
+                    }
                 }
+            });
+        }
 
-                if (!resp.ok) throw new Error(json.error || 'Erro desconhecido');
+        // Modal de confirmação genérico — evita criar um .modal dedicado pra
+        // cada ação simples de "tem certeza?" do arquivo.
+        let _confirmGenericoCallback = null;
 
-                showToast('Usuário excluído.', 'success');
-                await fetchEquipe();
-            } catch (err) {
-                showToast('Erro ao excluir: ' + err.message, 'error');
-            }
+        function abrirModalConfirmGenerico({ titulo = 'Confirmar ação', mensagem, textoConfirmar = 'Confirmar', onConfirm }) {
+            document.getElementById('confirm-generico-titulo').textContent = titulo;
+            document.getElementById('confirm-generico-mensagem').textContent = mensagem;
+            document.getElementById('btn-confirm-generico').textContent = textoConfirmar;
+            _confirmGenericoCallback = onConfirm;
+            document.getElementById('modal-confirm-generico').style.display = 'flex';
+        }
+
+        function fecharModalConfirmGenerico() {
+            _confirmGenericoCallback = null;
+            document.getElementById('modal-confirm-generico').style.display = 'none';
+        }
+
+        async function _execConfirmGenerico() {
+            const callback = _confirmGenericoCallback;
+            fecharModalConfirmGenerico();
+            if (callback) await callback();
         }
 
         async function revogarAcessoUsuario(userId, email) {

@@ -302,6 +302,29 @@
         </div>
     </main>
 
+    <!-- Modal: Confirmação genérica (reaproveitado por ações simples de
+         confirmar/cancelar que não justificam um modal próprio — inclusive
+         por relatorio-evento.js, compartilhado com evento-detalhe.html) -->
+    <div id="modal-confirm-generico" class="modal-backdrop" style="display:none;">
+        <div class="modal-card" style="max-width:440px;">
+            <div class="modal-header">
+                <h2 id="confirm-generico-titulo">Confirmar ação</h2>
+                <button class="btn-icon" onclick="fecharModalConfirmGenerico()">
+                    <i data-lucide="x" style="width:22px;"></i>
+                </button>
+            </div>
+
+            <p id="confirm-generico-mensagem" style="white-space:pre-line;"></p>
+
+            <div class="modal-footer">
+                <div class="actions-right">
+                    <button class="btn-secondary" onclick="fecharModalConfirmGenerico()">Cancelar</button>
+                    <button class="btn-primary" id="btn-confirm-generico" onclick="_execConfirmGenerico()">Confirmar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="toast-container" class="toast-container"></div>
 
     <script src="../config.js"></script>
@@ -336,6 +359,33 @@
             setTimeout(() => t.remove(), 4500);
         }
         function reIcons() { if (window.lucide) window.lucide.createIcons(); }
+
+        // Modal de confirmação genérico — evita criar um .modal-backdrop
+        // dedicado pra cada ação simples de "tem certeza?" do arquivo.
+        // Também usado por relatorio-evento.js (compartilhado com
+        // evento-detalhe.html, que define a mesma função).
+        let _confirmGenericoCallback = null;
+
+        function abrirModalConfirmGenerico({ titulo = 'Confirmar ação', mensagem, textoConfirmar = 'Confirmar', onConfirm }) {
+            document.getElementById('confirm-generico-titulo').textContent = titulo;
+            document.getElementById('confirm-generico-mensagem').textContent = mensagem;
+            document.getElementById('btn-confirm-generico').textContent = textoConfirmar;
+            _confirmGenericoCallback = onConfirm;
+            document.getElementById('modal-confirm-generico').style.display = 'flex';
+            reIcons();
+        }
+
+        function fecharModalConfirmGenerico() {
+            _confirmGenericoCallback = null;
+            document.getElementById('modal-confirm-generico').style.display = 'none';
+        }
+
+        async function _execConfirmGenerico() {
+            const callback = _confirmGenericoCallback;
+            fecharModalConfirmGenerico();
+            if (callback) await callback();
+        }
+
         function fmtDate(d) {
             if (!d) return '—';
             try { return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR'); } catch { return d; }

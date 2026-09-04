@@ -266,6 +266,24 @@
         </div>
     </div>
 
+    <!-- Modal: Confirmação genérica (reaproveitado por ações simples de
+         confirmar/cancelar que não justificam um modal próprio) -->
+    <div id="modal-confirm-generico" class="modal">
+        <div class="modal-content" style="max-width: 440px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem;">
+                <h3 id="confirm-generico-titulo" style="font-size: 1.25rem; font-weight: 700;">Confirmar ação</h3>
+                <button type="button" class="btn btn-ghost" onclick="fecharModalConfirmGenerico()">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+            <p id="confirm-generico-mensagem" style="color: var(--text-secondary); white-space: pre-line;"></p>
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1.5rem;">
+                <button type="button" class="btn btn-secondary" onclick="fecharModalConfirmGenerico()">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="btn-confirm-generico" onclick="_execConfirmGenerico()">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
     <div id="toast-container" class="toast-container"></div>
 
     <script src="config.js"></script>
@@ -729,28 +747,56 @@
 
         // SPEC-SUPORTE-02 (6) — ESCRITA, auditada em audit_log pelo endpoint.
         async function handleReprocessarOcr(documentId, btnEl) {
-            if (!confirm('Forçar o reprocessamento de OCR deste documento? O status volta para "processing_ocr" e ele entra de novo na esteira.')) return;
+            abrirModalConfirmGenerico({
+                titulo: 'Reprocessar OCR',
+                mensagem: 'Forçar o reprocessamento de OCR deste documento? O status volta para "processing_ocr" e ele entra de novo na esteira.',
+                textoConfirmar: 'Reprocessar',
+                onConfirm: async () => {
+                    btnEl.disabled = true;
+                    btnEl.textContent = 'Reprocessando…';
 
-            btnEl.disabled = true;
-            btnEl.textContent = 'Reprocessando…';
+                    try {
+                        const sb = await initSupabase();
+                        const { data: { session } } = await sb.auth.getSession();
+                        const resp = await fetch(`/api/suporte/documentos/${documentId}/reprocessar-ocr`, {
+                            method: 'POST',
+                            headers: { Authorization: `Bearer ${session.access_token}` }
+                        });
+                        const json = await resp.json().catch(() => ({}));
+                        if (!resp.ok) throw new Error(json.error || 'Falha ao reprocessar.');
 
-            try {
-                const sb = await initSupabase();
-                const { data: { session } } = await sb.auth.getSession();
-                const resp = await fetch(`/api/suporte/documentos/${documentId}/reprocessar-ocr`, {
-                    method: 'POST',
-                    headers: { Authorization: `Bearer ${session.access_token}` }
-                });
-                const json = await resp.json().catch(() => ({}));
-                if (!resp.ok) throw new Error(json.error || 'Falha ao reprocessar.');
+                        showToast('Reprocessamento disparado.', 'success');
+                        await fetchDocumentos(projetoSelecionadoId);
+                    } catch (err) {
+                        showToast(err.message, 'error');
+                        btnEl.disabled = false;
+                        btnEl.textContent = 'Reprocessar OCR';
+                    }
+                }
+            });
+        }
 
-                showToast('Reprocessamento disparado.', 'success');
-                await fetchDocumentos(projetoSelecionadoId);
-            } catch (err) {
-                showToast(err.message, 'error');
-                btnEl.disabled = false;
-                btnEl.textContent = 'Reprocessar OCR';
-            }
+        // Modal de confirmação genérico — evita criar um .modal dedicado pra
+        // cada ação simples de "tem certeza?" do arquivo.
+        let _confirmGenericoCallback = null;
+
+        function abrirModalConfirmGenerico({ titulo = 'Confirmar ação', mensagem, textoConfirmar = 'Confirmar', onConfirm }) {
+            document.getElementById('confirm-generico-titulo').textContent = titulo;
+            document.getElementById('confirm-generico-mensagem').textContent = mensagem;
+            document.getElementById('btn-confirm-generico').textContent = textoConfirmar;
+            _confirmGenericoCallback = onConfirm;
+            document.getElementById('modal-confirm-generico').style.display = 'flex';
+        }
+
+        function fecharModalConfirmGenerico() {
+            _confirmGenericoCallback = null;
+            document.getElementById('modal-confirm-generico').style.display = 'none';
+        }
+
+        async function _execConfirmGenerico() {
+            const callback = _confirmGenericoCallback;
+            fecharModalConfirmGenerico();
+            if (callback) await callback();
         }
 
         // ── Contratos ─────────────────────────────────────────────────

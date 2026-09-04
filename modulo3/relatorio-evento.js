@@ -98,45 +98,81 @@ function updateGerarBtnState() {
 // exatamente como sempre foi.
 async function preencherAtividadesComDadosReais() {
     const btn = document.getElementById('rel-preencher-atividades-btn');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:14px;"></i> Buscando…'; reIcons(); }
+    const setLoading = (loading) => {
+        if (!btn) return;
+        btn.disabled = loading;
+        btn.innerHTML = loading
+            ? '<i data-lucide="loader" class="spin" style="width:14px;"></i> Buscando…'
+            : '<i data-lucide="refresh-cw" style="width:14px;"></i> Preencher com dados reais';
+        reIcons();
+    };
 
+    setLoading(true);
+
+    let atividades;
     try {
-        const atividades = await getAtividadesByEvento(eventId);
-        if (!atividades.length) {
-            showToast('Nenhuma atividade cadastrada para este evento — cadastre na aba "Atividades" antes de preencher automaticamente.', 'error');
-            return;
-        }
-
-        if (atividadesLines.some(l => l.trim()) &&
-            !confirm('Isso substitui as linhas atuais pelos dados reais das atividades cadastradas. Continuar?')) {
-            return;
-        }
-
-        const guests = await getConvidadosByEvento(eventId);
-        const ordenadas = [...atividades].sort((a, b) =>
-            (a.data_hora || '9999') < (b.data_hora || '9999') ? -1 : 1);
-
-        const linhas = ordenadas.map(a => {
-            const doGrupo   = guests.filter(g => g.atividade_id === a.id);
-            const presentes = doGrupo.filter(g => g.checkin_em).length;
-            const quando    = a.data_hora ? ' (' + fmtDataHoraAtividade(a.data_hora) + ')' : '';
-            return `${a.nome}${quando} — ${presentes} presente(s) de ${doGrupo.length} convidado(s)`;
-        });
-
-        const semAtividade = guests.filter(g => !g.atividade_id);
-        if (semAtividade.length) {
-            const presentes = semAtividade.filter(g => g.checkin_em).length;
-            linhas.push(`Sem atividade definida — ${presentes} presente(s) de ${semAtividade.length} convidado(s)`);
-        }
-
-        atividadesLines = linhas;
-        renderAtividadesList();
-        showToast('Quantitativo preenchido com os dados reais das atividades.');
+        atividades = await getAtividadesByEvento(eventId);
     } catch (err) {
         console.error(err);
         showToast('Erro ao buscar dados das atividades: ' + (err.message || ''), 'error');
-    } finally {
-        if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="refresh-cw" style="width:14px;"></i> Preencher com dados reais'; reIcons(); }
+        setLoading(false);
+        return;
+    }
+
+    if (!atividades.length) {
+        showToast('Nenhuma atividade cadastrada para este evento — cadastre na aba "Atividades" antes de preencher automaticamente.', 'error');
+        setLoading(false);
+        return;
+    }
+
+    // Executa a substituição de fato — extraído porque, quando já há linhas
+    // preenchidas, só roda depois de confirmação no modal (ver abaixo).
+    const prosseguir = async () => {
+        setLoading(true);
+        try {
+            const guests = await getConvidadosByEvento(eventId);
+            const ordenadas = [...atividades].sort((a, b) =>
+                (a.data_hora || '9999') < (b.data_hora || '9999') ? -1 : 1);
+
+            const linhas = ordenadas.map(a => {
+                const doGrupo   = guests.filter(g => g.atividade_id === a.id);
+                const presentes = doGrupo.filter(g => g.checkin_em).length;
+                const quando    = a.data_hora ? ' (' + fmtDataHoraAtividade(a.data_hora) + ')' : '';
+                return `${a.nome}${quando} — ${presentes} presente(s) de ${doGrupo.length} convidado(s)`;
+            });
+
+            const semAtividade = guests.filter(g => !g.atividade_id);
+            if (semAtividade.length) {
+                const presentes = semAtividade.filter(g => g.checkin_em).length;
+                linhas.push(`Sem atividade definida — ${presentes} presente(s) de ${semAtividade.length} convidado(s)`);
+            }
+
+            atividadesLines = linhas;
+            renderAtividadesList();
+            showToast('Quantitativo preenchido com os dados reais das atividades.');
+        } catch (err) {
+            console.error(err);
+            showToast('Erro ao buscar dados das atividades: ' + (err.message || ''), 'error');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    if (atividadesLines.some(l => l.trim())) {
+        // Aguardando decisão do usuário no modal — não deixa o botão travado
+        // em "Buscando…" enquanto ele decide; volta a desabilitar dentro de
+        // prosseguir() se ele confirmar. abrirModalConfirmGenerico() é
+        // definida tanto em evento-detalhe.html quanto em relatorios.html
+        // (as duas páginas que carregam este arquivo).
+        setLoading(false);
+        abrirModalConfirmGenerico({
+            titulo: 'Substituir quantitativo',
+            mensagem: 'Isso substitui as linhas atuais pelos dados reais das atividades cadastradas. Continuar?',
+            textoConfirmar: 'Continuar',
+            onConfirm: prosseguir
+        });
+    } else {
+        await prosseguir();
     }
 }
 

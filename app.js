@@ -66,6 +66,29 @@ window.showToast = function (message, type = 'info') {
     }, 4000);
 };
 
+// --- Modal de confirmação (substitui window.confirm nativo) ---
+// Uso: window.showConfirmModal({ title, message, confirmLabel, cancelLabel, variant, onConfirm })
+// no lugar de `if (!confirm(msg)) return; ...resto...` — mover o "...resto..."
+// para dentro de onConfirm (chamado só quando o usuário confirma).
+window.showConfirmModal = function ({ title = 'Confirmar ação', message = '', confirmLabel = 'Confirmar', cancelLabel = 'Cancelar', variant = 'primary', onConfirm } = {}) {
+    state.confirmModal = { title, message, confirmLabel, cancelLabel, variant, onConfirm };
+    render();
+};
+
+window.closeConfirmModal = function () {
+    state.confirmModal = null;
+    render();
+};
+
+// Executa a ação confirmada: fecha o modal e só então chama o callback
+// (equivalente ao "return" logo após o `if (confirm(...))` nativo).
+window.__execConfirmModal = function () {
+    const modal = state.confirmModal;
+    state.confirmModal = null;
+    render();
+    if (modal && typeof modal.onConfirm === 'function') modal.onConfirm();
+};
+
 // Redireciona alerts para o toast por padrão
 const nativeAlert = window.alert;
 window.alert = (message) => {
@@ -630,6 +653,9 @@ const state = {
     showRubricaInstructions: false,
     capturedProject: null,
     showCapturedProjectModal: false,
+    // Modal de confirmação genérico (substitui window.confirm nativo) — ver
+    // window.showConfirmModal / ConfirmModal(). null = fechado.
+    confirmModal: null,
     isUploadingComprovante: false,
     rubrica_versions: [],
     equipe: [],
@@ -1683,7 +1709,7 @@ ${Sidebar()}
                     }, 100);
                 </script>
 
-                <div class="upload-area" onclick="if(document.getElementById('project-selector').value && document.getElementById('rubrica-input').value) document.getElementById('file-input').click(); else alert('Selecione projeto e rubrica primeiro!');">
+                <div class="upload-area" onclick="if(document.getElementById('project-selector').value && document.getElementById('rubrica-input').value) document.getElementById('file-input').click(); else window.showToast('Selecione projeto e rubrica primeiro!', 'error');">
                     <input type="file" id="file-input" style="display: none;" onchange="window.handleUpload(this.files[0], 'nf')" accept=".pdf">
                         <i data-lucide="file-text" style="width: 32px; color: var(--primary); margin-bottom: 1rem;"></i>
                         <p class="text-sm" style="font-weight: 600;">Arraste o PDF de comprovação (nota, recibo ou guia) ou clique para selecionar</p>
@@ -1766,7 +1792,7 @@ ${Sidebar()}
                 </div>
                 ` : ''}
 
-                <div class="upload-area" onclick="if(document.getElementById('lote-project-selector').value) document.getElementById('lote-file-input').click(); else alert('Selecione um projeto primeiro!');">
+                <div class="upload-area" onclick="if(document.getElementById('lote-project-selector').value) document.getElementById('lote-file-input').click(); else window.showToast('Selecione um projeto primeiro!', 'error');">
                     <input type="file" id="lote-file-input" multiple accept=".pdf" style="display: none;" onchange="window.handleLoteFilesSelected(this.files)">
                     <i data-lucide="layers" style="width: 32px; color: var(--primary); margin-bottom: 1rem;"></i>
                     <p class="text-sm" style="font-weight: 600;">Selecione vários PDFs ou clique para escolher</p>
@@ -2095,7 +2121,7 @@ window.handleIniciarEnvioLote = async function () {
 
         if (credError) throw credError;
         if (!temCredencial) {
-            alert("Você precisa configurar suas credenciais SALIC em 'Configurações' antes de enviar em lote.");
+            window.showToast("Você precisa configurar suas credenciais SALIC em 'Configurações' antes de enviar em lote.", 'error');
             window.location.href = 'configuracoes.html';
             return;
         }
@@ -2109,7 +2135,7 @@ window.handleIniciarEnvioLote = async function () {
 
     const checkboxes = document.querySelectorAll('.chk-salic-doc:checked');
     if (checkboxes.length === 0) {
-        alert("Por favor, selecione pelo menos um documento para enviar.");
+        window.showToast("Por favor, selecione pelo menos um documento para enviar.", 'error');
         return;
     }
 
@@ -2156,13 +2182,19 @@ window.handleRetomarLoteSalic = function () {
 
 window.handleLimparFilaSalic = function () {
     if (state.salicLoteRunning) {
-        alert("Não é possível limpar a fila enquanto ela está rodando.");
+        window.showToast("Não é possível limpar a fila enquanto ela está rodando.", 'error');
         return;
     }
-    if (confirm("Tem certeza que deseja descartar a fila atual?")) {
-        limparFilaSalic();
-        fetchDocuments().then(render);
-    }
+    window.showConfirmModal({
+        title: 'Descartar fila',
+        message: 'Tem certeza que deseja descartar a fila atual?',
+        confirmLabel: 'Descartar',
+        variant: 'danger',
+        onConfirm: () => {
+            limparFilaSalic();
+            fetchDocuments().then(render);
+        }
+    });
 };
 
 async function processarFilaSalic() {
@@ -3444,64 +3476,65 @@ window.handleForcarAvanco = async function (docId, currentStatus) {
         'erro_rpa': 'liberado_rpa_airtop'
     }[currentStatus];
 
-    if (!nextStatus) return alert('Não é possível forçar avanço para este status.');
+    if (!nextStatus) return window.showToast('Não é possível forçar avanço para este status.', 'error');
 
-    const confirmed = window.confirm(
-        '⚠️ ATENÇÃO — Continuar por Conta e Risco\n\n' +
-        'Ao confirmar, você assume total responsabilidade pela conformidade deste documento perante o SALIC e a prestação de contas.\n\n' +
-        'Deseja prosseguir mesmo assim?'
-    );
-    if (!confirmed) return;
+    window.showConfirmModal({
+        title: '⚠️ Atenção — Continuar por conta e risco',
+        message: 'Ao confirmar, você assume total responsabilidade pela conformidade deste documento perante o SALIC e a prestação de contas.\n\nDeseja prosseguir mesmo assim?',
+        confirmLabel: 'Prosseguir',
+        variant: 'danger',
+        onConfirm: async () => {
+            // Captura antes do UPDATE — fetchDocumentDetails() reescreve state.currentDocument.
+            const docAntes = state.currentDocument;
 
-    // Captura antes do UPDATE — fetchDocumentDetails() reescreve state.currentDocument.
-    const docAntes = state.currentDocument;
+            state.loading = true;
+            render();
 
-    state.loading = true;
-    render();
+            try {
+                const { error } = await supabaseClient
+                    .from('documents')
+                    .update({
+                        status: nextStatus,
+                        just_erro: `[OVERRIDE] Gestor forçou avanço manualmente a partir do status "${currentStatus}" em ${new Date().toLocaleString('pt-BR')}.`
+                    })
+                    .eq('id', docId);
 
-    try {
-        const { error } = await supabaseClient
-            .from('documents')
-            .update({
-                status: nextStatus,
-                just_erro: `[OVERRIDE] Gestor forçou avanço manualmente a partir do status "${currentStatus}" em ${new Date().toLocaleString('pt-BR')}.`
-            })
-            .eq('id', docId);
+                if (error) throw error;
 
-        if (error) throw error;
+                // Ao pular a revisão manual do OCR direto para a Auditoria IA, o n8n precisa
+                // ser notificado para rodar a validação de conformidade (CNAE vs. rubrica);
+                // sem isso o documento fica "em auditoria" mas nunca é de fato auditado.
+                if (currentStatus === 'revisao_manual' && CONFIG.N8N_WEBHOOK_VALIDATION_URL) {
+                    fetch(CONFIG.N8N_WEBHOOK_VALIDATION_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        mode: 'cors',
+                        body: JSON.stringify({
+                            document_id: docId,
+                            cnpj_fornecedor: state.currentDocument?.cnpj_emissor
+                        })
+                    }).then(r => console.log("n8n Validation Triggered (forçar avanço):", r.status))
+                        .catch(e => console.error("Erro ao notificar n8n:", e.message));
+                }
 
-        // Ao pular a revisão manual do OCR direto para a Auditoria IA, o n8n precisa
-        // ser notificado para rodar a validação de conformidade (CNAE vs. rubrica);
-        // sem isso o documento fica "em auditoria" mas nunca é de fato auditado.
-        if (currentStatus === 'revisao_manual' && CONFIG.N8N_WEBHOOK_VALIDATION_URL) {
-            fetch(CONFIG.N8N_WEBHOOK_VALIDATION_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                mode: 'cors',
-                body: JSON.stringify({
-                    document_id: docId,
-                    cnpj_fornecedor: state.currentDocument?.cnpj_emissor
-                })
-            }).then(r => console.log("n8n Validation Triggered (forçar avanço):", r.status))
-                .catch(e => console.error("Erro ao notificar n8n:", e.message));
+                // Avanço manual (bloqueado_conformidade -> aguardando_comprovante) também
+                // deve reaproveitar o extrato do lote, igual à varredura do Dashboard —
+                // sem isso a nota fica "presa" pedindo upload de extrato de novo.
+                if (nextStatus === 'aguardando_comprovante' && docAntes?.id === docId) {
+                    dispararConciliacaoAutoLote({ ...docAntes, status: nextStatus })
+                        .then(ok => { if (ok) window.showToast('Nota também enviada para conciliação automática com o extrato do lote.', 'success'); });
+                }
+
+                window.showToast('Documento avançado manualmente com sucesso.', 'warning');
+                await fetchDocumentDetails(docId);
+            } catch (err) {
+                window.showToast('Erro ao forçar avanço: ' + err.message, 'error');
+            } finally {
+                state.loading = false;
+                render();
+            }
         }
-
-        // Avanço manual (bloqueado_conformidade -> aguardando_comprovante) também
-        // deve reaproveitar o extrato do lote, igual à varredura do Dashboard —
-        // sem isso a nota fica "presa" pedindo upload de extrato de novo.
-        if (nextStatus === 'aguardando_comprovante' && docAntes?.id === docId) {
-            dispararConciliacaoAutoLote({ ...docAntes, status: nextStatus })
-                .then(ok => { if (ok) window.showToast('Nota também enviada para conciliação automática com o extrato do lote.', 'success'); });
-        }
-
-        window.showToast('Documento avançado manualmente com sucesso.', 'warning');
-        await fetchDocumentDetails(docId);
-    } catch (err) {
-        window.showToast('Erro ao forçar avanço: ' + err.message, 'error');
-    } finally {
-        state.loading = false;
-        render();
-    }
+    });
 };
 
 // Reprocessa um documento travado numa etapa intermediária (ver estaTravado,
@@ -3512,67 +3545,72 @@ window.handleReprocessarDocumentoTravado = async function (documentId) {
     const doc = state.documents.find(d => d.id === documentId) || state.currentDocument;
     if (!doc) return;
 
-    if (!confirm('Reenviar este documento para processamento?')) return;
+    window.showConfirmModal({
+        title: 'Reprocessar documento',
+        message: 'Reenviar este documento para processamento?',
+        confirmLabel: 'Reenviar',
+        onConfirm: async () => {
+            state.loading = true;
+            render();
 
-    state.loading = true;
-    render();
+            try {
+                if (doc.status === 'aguardando_conformidade') {
+                    // OCR já rodou (json_extraido preenchido) — reprocessar aqui é
+                    // re-disparar a VALIDAÇÃO, não o OCR de novo. Mesmo mecanismo já
+                    // usado quando o gestor edita a rubrica manualmente
+                    // (handleVincularRubrica) — reaproveitado, não duplicado.
+                    const { error } = await supabaseClient.from('documents')
+                        .update({ status: 'processing_ocr', just_erro: null })
+                        .eq('id', documentId);
+                    if (error) throw error;
 
-    try {
-        if (doc.status === 'aguardando_conformidade') {
-            // OCR já rodou (json_extraido preenchido) — reprocessar aqui é
-            // re-disparar a VALIDAÇÃO, não o OCR de novo. Mesmo mecanismo já
-            // usado quando o gestor edita a rubrica manualmente
-            // (handleVincularRubrica) — reaproveitado, não duplicado.
-            const { error } = await supabaseClient.from('documents')
-                .update({ status: 'processing_ocr', just_erro: null })
-                .eq('id', documentId);
-            if (error) throw error;
+                    if (CONFIG.N8N_WEBHOOK_VALIDATION_URL) {
+                        fetch(CONFIG.N8N_WEBHOOK_VALIDATION_URL, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            mode: 'cors',
+                            body: JSON.stringify({
+                                document_id: documentId,
+                                cnpj_fornecedor: doc.cnpj_emissor,
+                                rubrica_id: doc.rubrica_id_fk,
+                                rubrica_nome: doc.rubrica
+                            })
+                        }).then(r => console.log("n8n Validation Triggered (reprocessar travado):", r.status))
+                            .catch(e => console.error("Erro ao notificar n8n:", e.message));
+                    }
+                } else {
+                    // processing_ocr ou validating travados: o OCR em si não completou.
+                    // Reaproveita o mesmo caminho do upload original (dispararOcr).
+                    const { error } = await supabaseClient.from('documents')
+                        .update({ status: 'processing_ocr', just_erro: null })
+                        .eq('id', documentId);
+                    if (error) throw error;
 
-            if (CONFIG.N8N_WEBHOOK_VALIDATION_URL) {
-                fetch(CONFIG.N8N_WEBHOOK_VALIDATION_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    mode: 'cors',
-                    body: JSON.stringify({
-                        document_id: documentId,
-                        cnpj_fornecedor: doc.cnpj_emissor,
-                        rubrica_id: doc.rubrica_id_fk,
-                        rubrica_nome: doc.rubrica
-                    })
-                }).then(r => console.log("n8n Validation Triggered (reprocessar travado):", r.status))
-                    .catch(e => console.error("Erro ao notificar n8n:", e.message));
+                    await dispararOcr(documentId, doc.file_path);
+                }
+
+                window.showToast('Documento reenviado para processamento.', 'success');
+
+                if (state.currentDocument?.id === documentId) {
+                    await fetchDocumentDetails(documentId);
+                } else {
+                    const idx = state.documents.findIndex(d => d.id === documentId);
+                    if (idx !== -1) {
+                        state.documents[idx] = { ...state.documents[idx], status: 'processing_ocr', updated_at: new Date().toISOString(), just_erro: null };
+                    }
+                }
+            } catch (err) {
+                window.showToast('Erro ao reprocessar: ' + err.message, 'error');
+            } finally {
+                state.loading = false;
+                render();
             }
-        } else {
-            // processing_ocr ou validating travados: o OCR em si não completou.
-            // Reaproveita o mesmo caminho do upload original (dispararOcr).
-            const { error } = await supabaseClient.from('documents')
-                .update({ status: 'processing_ocr', just_erro: null })
-                .eq('id', documentId);
-            if (error) throw error;
-
-            await dispararOcr(documentId, doc.file_path);
         }
-
-        window.showToast('Documento reenviado para processamento.', 'success');
-
-        if (state.currentDocument?.id === documentId) {
-            await fetchDocumentDetails(documentId);
-        } else {
-            const idx = state.documents.findIndex(d => d.id === documentId);
-            if (idx !== -1) {
-                state.documents[idx] = { ...state.documents[idx], status: 'processing_ocr', updated_at: new Date().toISOString(), just_erro: null };
-            }
-        }
-    } catch (err) {
-        window.showToast('Erro ao reprocessar: ' + err.message, 'error');
-    } finally {
-        state.loading = false;
-        render();
-    }
+    });
 };
 
 window.handleSolicitanteLogin = async function () {
-    if (!supabaseClient) return alert("Erro ao carregar o Supabase Client.");
+    if (!supabaseClient) return window.showToast("Erro ao carregar o Supabase Client.", 'error');
 
     const email = document.getElementById('f-login-email').value;
     const password = document.getElementById('f-login-password').value;
@@ -3613,7 +3651,7 @@ window.handleSolicitanteLogin = async function () {
 };
 
 window.handleSolicitanteRegister = async function () {
-    if (!supabaseClient) return alert("Erro ao carregar o Supabase Client.");
+    if (!supabaseClient) return window.showToast("Erro ao carregar o Supabase Client.", 'error');
 
     const email = document.getElementById('f-reg-email').value;
     const password = document.getElementById('f-reg-password').value;
@@ -3623,7 +3661,7 @@ window.handleSolicitanteRegister = async function () {
     const telefone = document.getElementById('f-reg-telefone').value;
 
     if (password !== confirmPassword) {
-        return alert("As senhas não coincidem!");
+        return window.showToast("As senhas não coincidem!", 'error');
     }
 
     state.loading = true;
@@ -3654,17 +3692,17 @@ window.handleSolicitanteRegister = async function () {
 
             if (profileError) {
                 console.error("Erro ao salvar perfil de fornecedor:", profileError);
-                alert("Erro ao salvar dados da empresa. Entre em contato com o suporte.");
+                window.showToast("Erro ao salvar dados da empresa. Entre em contato com o suporte.", 'error');
             }
 
             // 3. Importante: Limpar estado e navegar para o login do solicitante para garantir a validação do perfil
-            alert("Conta de solicitante criada com sucesso! Faça login para acessar o portal.");
+            window.showToast("Conta de solicitante criada com sucesso! Faça login para acessar o portal.", 'success');
             await supabaseClient.auth.signOut();
             state.user = null;
             window.navigate('solicitante_login');
         }
     } catch (error) {
-        alert("Erro ao cadastrar: " + error.message);
+        window.showToast("Erro ao cadastrar: " + error.message, 'error');
     } finally {
         state.loading = false;
         render();
@@ -3688,7 +3726,7 @@ window.updateSolicitanteUploadButtons = function () {
 
 window.openUnifiedUploadModal = function () {
     const projectId = document.getElementById('f-upload-project').value;
-    if (!projectId) return alert("Selecione um projeto primeiro!");
+    if (!projectId) return window.showToast("Selecione um projeto primeiro!", 'error');
 
     // Reset modal state
     document.getElementById('f-upload-nf').value = '';
@@ -3712,11 +3750,11 @@ window.submitUnifiedFile = async function () {
     // CRÍTICO: Captura o projectId ANTES de fechar o modal ou chamar render(),
     // pois o render() reconstrói o DOM e o select perde o valor selecionado.
     const projectId = document.getElementById('f-upload-project').value;
-    if (!projectId) return alert("Selecione um projeto primeiro!");
+    if (!projectId) return window.showToast("Selecione um projeto primeiro!", 'error');
 
     if (type === 'nf') {
         const fileInput = document.getElementById('f-upload-nf');
-        if (!fileInput.files || fileInput.files.length === 0) return alert("Selecione o arquivo da Nota Fiscal.");
+        if (!fileInput.files || fileInput.files.length === 0) return window.showToast("Selecione o arquivo da Nota Fiscal.", 'error');
         document.getElementById('modal-upload-unified').style.display = 'none';
         await handleSolicitanteUpload(fileInput.files[0], projectId);
     }
@@ -3724,7 +3762,7 @@ window.submitUnifiedFile = async function () {
 
 window.handleSolicitanteUpload = async function (file, projectId) {
     // projectId é passado como parâmetro por submitUnifiedFile (capturado antes do render)
-    if (!file || !projectId) return alert("Selecione um projeto e um arquivo!");
+    if (!file || !projectId) return window.showToast("Selecione um projeto e um arquivo!", 'error');
 
     state.loading = true;
     render();
@@ -3774,10 +3812,10 @@ window.handleSolicitanteUpload = async function (file, projectId) {
                 .catch(err => console.error("Erro Webhook n8n:", err));
         }
 
-        alert("Upload concluído! Gestor notificado.");
+        window.showToast("Upload concluído! Gestor notificado.", 'success');
         await fetchSolicitanteDashboard(); // recarrega a grid
     } catch (error) {
-        alert("Erro no upload: " + error.message);
+        window.showToast("Erro no upload: " + error.message, 'error');
     } finally {
         state.loading = false;
         render();
@@ -3885,7 +3923,7 @@ async function syncOrgMetadata() {
 }
 
 window.handleLogin = async function () {
-    if (!supabaseClient) return alert("Erro ao carregar o Supabase Client.");
+    if (!supabaseClient) return window.showToast("Erro ao carregar o Supabase Client.", 'error');
 
     const email = document.getElementById('login-email').value;
     const password = document.getElementById('login-password').value;
@@ -3923,7 +3961,7 @@ window.handleLogin = async function () {
         window.location.href = 'module-selector.html';
         return;
     } catch (error) {
-        alert("Erro no login: " + error.message);
+        window.showToast("Erro no login: " + error.message, 'error');
     } finally {
         state.loading = false;
         render();
@@ -3931,7 +3969,7 @@ window.handleLogin = async function () {
 };
 
 window.handleRegister = async function () {
-    if (!supabaseClient) return alert("Erro ao carregar o Supabase Client.");
+    if (!supabaseClient) return window.showToast("Erro ao carregar o Supabase Client.", 'error');
 
     const email = document.getElementById('reg-email').value;
     const password = document.getElementById('reg-password').value;
@@ -3942,15 +3980,15 @@ window.handleRegister = async function () {
     const selectedModules = Array.from(checkboxes).map(cb => cb.value);
 
     if (password !== confirmPassword) {
-        return alert("As senhas não coincidem!");
+        return window.showToast("As senhas não coincidem!", 'error');
     }
 
     if (!orgName) {
-        return alert("O nome da organização é obrigatório!");
+        return window.showToast("O nome da organização é obrigatório!", 'error');
     }
 
     if (selectedModules.length === 0) {
-        return alert("Selecione pelo menos um módulo de interesse!");
+        return window.showToast("Selecione pelo menos um módulo de interesse!", 'error');
     }
 
     state.loading = true;
@@ -4006,15 +4044,15 @@ window.handleRegister = async function () {
 
         if (data.user && data.session) {
             state.user = data.user;
-            alert("Conta criada com sucesso!");
+            window.showToast("Conta criada com sucesso!", 'success');
             window.location.href = 'module-selector.html';
             return;
         } else {
-            alert("Conta criada! Verifique seu e-mail para confirmar o cadastro.");
+            window.showToast("Conta criada! Verifique seu e-mail para confirmar o cadastro.", 'success');
             window.navigate('login');
         }
     } catch (error) {
-        alert("Erro ao cadastrar: " + error.message);
+        window.showToast("Erro ao cadastrar: " + error.message, 'error');
     } finally {
         state.loading = false;
         render();
@@ -4065,22 +4103,27 @@ window.handleAprovarNotaFornecedor = async function (documentId) {
         showToast('Sem permissão para aprovar notas do fornecedor.', 'error');
         return;
     }
-    if (!confirm('Aprovar esta nota e liberá-la para o fluxo de conformidade?')) return;
+    window.showConfirmModal({
+        title: 'Aprovar nota',
+        message: 'Aprovar esta nota e liberá-la para o fluxo de conformidade?',
+        confirmLabel: 'Aprovar',
+        onConfirm: async () => {
+            const { error } = await supabaseClient
+                .from('documents')
+                .update({
+                    status: 'aguardando_conformidade',
+                    aprovado_por: state.user?.id || null,
+                    aprovado_em: new Date().toISOString(),
+                    motivo_rejeicao_fornecedor: null,
+                })
+                .eq('id', documentId);
 
-    const { error } = await supabaseClient
-        .from('documents')
-        .update({
-            status: 'aguardando_conformidade',
-            aprovado_por: state.user?.id || null,
-            aprovado_em: new Date().toISOString(),
-            motivo_rejeicao_fornecedor: null,
-        })
-        .eq('id', documentId);
+            if (error) { showToast('Erro ao aprovar: ' + error.message, 'error'); return; }
 
-    if (error) { showToast('Erro ao aprovar: ' + error.message, 'error'); return; }
-
-    showToast('Nota aprovada e liberada para conformidade.', 'success');
-    await fetchDocumentDetails(documentId);
+            showToast('Nota aprovada e liberada para conformidade.', 'success');
+            await fetchDocumentDetails(documentId);
+        }
+    });
 };
 
 window.handleRejeitarNotaFornecedor = async function (documentId) {
@@ -4445,6 +4488,32 @@ const RubricaInstructionsModal = () => `
     </div>
 </div>
 `;
+
+// Modal de confirmação genérico — reaproveitado por toda ação simples de
+// "tem certeza?" do app, no lugar do window.confirm nativo (ver
+// window.showConfirmModal / state.confirmModal).
+const ConfirmModal = () => {
+    const cm = state.confirmModal;
+    if (!cm) return '';
+    const confirmBtnStyle = cm.variant === 'danger'
+        ? 'background-color: var(--error); border-color: var(--error); color: #FFFFFF;'
+        : '';
+    return `
+<div class="modal-overlay" onclick="window.closeConfirmModal()">
+    <div class="modal-content" style="max-width: 440px;" onclick="event.stopPropagation()">
+        <button class="modal-close" onclick="window.closeConfirmModal()">
+            <i data-lucide="x" style="width: 18px;"></i>
+        </button>
+        <h3 class="h2 mb-4">${escAttr(cm.title)}</h3>
+        <p class="text-sm text-secondary mb-6" style="white-space: pre-line;">${escAttr(cm.message)}</p>
+        <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+            <button class="btn btn-secondary" onclick="window.closeConfirmModal()">${escAttr(cm.cancelLabel)}</button>
+            <button class="btn btn-primary" style="${confirmBtnStyle}" onclick="window.__execConfirmModal()">${escAttr(cm.confirmLabel)}</button>
+        </div>
+    </div>
+</div>
+`;
+};
 
 const OrcamentoView = () => {
     const activeProject = state.projects.find(p => p.id === state.filters.project);
@@ -4836,7 +4905,7 @@ window.handleInviteSolicitante = async function () {
     const fornecedorId = document.getElementById('invite-solicitante-id').value;
     const projectId = document.getElementById('invite-project-id').value;
 
-    if (!fornecedorId || !projectId) return alert('Selecione solicitante e projeto!');
+    if (!fornecedorId || !projectId) return window.showToast('Selecione solicitante e projeto!', 'error');
 
     state.loading = true;
     render();
@@ -4851,10 +4920,10 @@ window.handleInviteSolicitante = async function () {
             });
 
         if (error) throw error;
-        alert("Solicitante vinculado com sucesso!");
+        window.showToast("Solicitante vinculado com sucesso!", 'success');
         await fetchSolicitantesAdmin();
     } catch (err) {
-        alert("Erro ao vincular: " + (err.code === '23505' ? "Este solicitante já está vinculado a este projeto." : err.message));
+        window.showToast("Erro ao vincular: " + (err.code === '23505' ? "Este solicitante já está vinculado a este projeto." : err.message), 'error');
     } finally {
         state.loading = false;
         render();
@@ -4862,20 +4931,26 @@ window.handleInviteSolicitante = async function () {
 };
 
 window.handleRemoveVinculo = async function (vinculoId) {
-    if (!confirm("Tem certeza que deseja remover este acesso?")) return;
+    window.showConfirmModal({
+        title: 'Remover acesso',
+        message: 'Tem certeza que deseja remover este acesso?',
+        confirmLabel: 'Remover',
+        variant: 'danger',
+        onConfirm: async () => {
+            try {
+                const { error } = await supabaseClient
+                    .from('projeto_fornecedores')
+                    .delete()
+                    .eq('id', vinculoId);
 
-    try {
-        const { error } = await supabaseClient
-            .from('projeto_fornecedores')
-            .delete()
-            .eq('id', vinculoId);
-
-        if (error) throw error;
-        await fetchSolicitantesAdmin();
-        render();
-    } catch (err) {
-        alert("Erro ao remover: " + err.message);
-    }
+                if (error) throw error;
+                await fetchSolicitantesAdmin();
+                render();
+            } catch (err) {
+                window.showToast("Erro ao remover: " + err.message, 'error');
+            }
+        }
+    });
 };
 
 async function fetchRubricas(projectId) {
@@ -4936,10 +5011,10 @@ window.handleCreateRubrica = async function () {
             });
 
         if (error) throw error;
-        alert("Rubrica cadastrada com sucesso!");
+        window.showToast("Rubrica cadastrada com sucesso!", 'success');
         await fetchRubricas(state.filters.project);
     } catch (err) {
-        alert("Erro ao criar rubrica: " + err.message);
+        window.showToast("Erro ao criar rubrica: " + err.message, 'error');
     } finally {
         state.loading = false;
         render();
@@ -5081,31 +5156,32 @@ window.salvarEdicaoCampos = async function (documentId) {
         return;
     }
 
-    const ok = confirm(
-        'Confirmação de responsabilidade\n\n' +
-        'Você está substituindo dados extraídos automaticamente pela IA.\n' +
-        'Ao confirmar, declara que as informações conferem com o documento ' +
-        'fiscal original e assume a responsabilidade pelos dados prestados ' +
-        'ao MinC/SALIC.\n\nDeseja salvar as correções?'
-    );
-    if (!ok) return;
+    window.showConfirmModal({
+        title: 'Confirmação de responsabilidade',
+        message: 'Você está substituindo dados extraídos automaticamente pela IA.\n' +
+            'Ao confirmar, declara que as informações conferem com o documento ' +
+            'fiscal original e assume a responsabilidade pelos dados prestados ' +
+            'ao MinC/SALIC.\n\nDeseja salvar as correções?',
+        confirmLabel: 'Salvar correções',
+        onConfirm: async () => {
+            const { error } = await supabaseClient
+                .from('documents')
+                .update({
+                    cnpj_emissor: cnpj,
+                    nome_emissor: nome,
+                    valor: valor,
+                    data_emissao: dataEmissao,
+                    numero_nf: numeroNf
+                })
+                .eq('id', documentId);
 
-    const { error } = await supabaseClient
-        .from('documents')
-        .update({
-            cnpj_emissor: cnpj,
-            nome_emissor: nome,
-            valor: valor,
-            data_emissao: dataEmissao,
-            numero_nf: numeroNf
-        })
-        .eq('id', documentId);
+            if (error) { showToast('Erro ao salvar: ' + error.message, 'error'); return; }
 
-    if (error) { showToast('Erro ao salvar: ' + error.message, 'error'); return; }
-
-    state.editingDocFields = false;
-    showToast('Dados corrigidos com sucesso.', 'success');
-    fetchDocumentDetails(documentId);
+            state.editingDocFields = false;
+            showToast('Dados corrigidos com sucesso.', 'success');
+            fetchDocumentDetails(documentId);
+        }
+    });
 };
 
 // Carrega o extrato vinculado à nota e seus lançamentos, para a seção de leitura
@@ -5310,7 +5386,7 @@ window.handleVincularRubrica = async function (documentId, projectId, valorDespe
     // para a rubrica do state (ver resolverRubricaPorRotulo).
     const inputEl = document.getElementById('vincular-rubrica-input');
     const inputText = (inputEl?.value || '').trim();
-    if (!inputText) return alert('Digite ou selecione uma rubrica!');
+    if (!inputText) return window.showToast('Digite ou selecione uma rubrica!', 'error');
 
     const rubricasDisp = state.rubricas_disponiveis || [];
     const rubricaSelecionada = resolverRubricaPorRotulo(inputText, rubricasDisp);
@@ -5318,7 +5394,7 @@ window.handleVincularRubrica = async function (documentId, projectId, valorDespe
     if (!rubricaSelecionada) {
         // Nome puro com homônimos cai aqui de propósito: sem o produto não dá para
         // saber qual das rubricas é a certa, e vincular a primeira seria um chute.
-        return alert('Rubrica não encontrada ou ambígua. Selecione uma opção da lista (o produto aparece no início de cada item).');
+        return window.showToast('Rubrica não encontrada ou ambígua. Selecione uma opção da lista (o produto aparece no início de cada item).', 'error');
     }
 
     const rubricaId = rubricaSelecionada.id;
@@ -5579,37 +5655,43 @@ window.handleDeleteDocument = async function (id, filePath) {
         showToast('Apenas administradores podem excluir documentos.', 'error');
         return;
     }
-    if (!confirm("Tem certeza que deseja excluir este documento? Esta ação não pode ser desfeita.")) return;
+    window.showConfirmModal({
+        title: 'Excluir documento',
+        message: 'Tem certeza que deseja excluir este documento? Esta ação não pode ser desfeita.',
+        confirmLabel: 'Excluir',
+        variant: 'danger',
+        onConfirm: async () => {
+            state.loading = true;
+            render();
 
-    state.loading = true;
-    render();
+            try {
+                // 1. Excluir do Storage
+                const { error: storageError } = await supabaseClient.storage
+                    .from('documentos')
+                    .remove([filePath]);
 
-    try {
-        // 1. Excluir do Storage
-        const { error: storageError } = await supabaseClient.storage
-            .from('documentos')
-            .remove([filePath]);
+                // Ignoramos erro de "não encontrado" no storage para permitir limpar o banco
+                if (storageError && storageError.message !== 'Object not found') throw storageError;
 
-        // Ignoramos erro de "não encontrado" no storage para permitir limpar o banco
-        if (storageError && storageError.message !== 'Object not found') throw storageError;
+                // 2. Excluir do Banco
+                const { error: dbError } = await supabaseClient
+                    .from('documents')
+                    .delete()
+                    .eq('id', id);
 
-        // 2. Excluir do Banco
-        const { error: dbError } = await supabaseClient
-            .from('documents')
-            .delete()
-            .eq('id', id);
+                if (dbError) throw dbError;
 
-        if (dbError) throw dbError;
-
-        showToast("Documento excluído com sucesso.", 'success');
-        await fetchDocuments();
-        render();
-    } catch (error) {
-        showToast("Erro ao excluir: " + error.message, 'error');
-    } finally {
-        state.loading = false;
-        render();
-    }
+                showToast("Documento excluído com sucesso.", 'success');
+                await fetchDocuments();
+                render();
+            } catch (error) {
+                showToast("Erro ao excluir: " + error.message, 'error');
+            } finally {
+                state.loading = false;
+                render();
+            }
+        }
+    });
 };
 
 window.handleSelectAllDashboardDocs = function (checked) {
@@ -5647,11 +5729,6 @@ window.handleDeleteSelectedDocuments = async function () {
     const checkboxes = document.querySelectorAll('.chk-doc-dashboard:checked');
     if (checkboxes.length === 0) return;
 
-    if (!confirm(`Tem certeza que deseja excluir os ${checkboxes.length} documentos selecionados? Esta ação não pode ser desfeita.`)) return;
-
-    state.loading = true;
-    render();
-
     const ids = [];
     const filePaths = [];
 
@@ -5661,35 +5738,46 @@ window.handleDeleteSelectedDocuments = async function () {
         if (fp && fp !== 'null' && fp !== 'undefined') filePaths.push(fp);
     });
 
-    try {
-        // 1. Excluir do Storage
-        if (filePaths.length > 0) {
-            const { error: storageError } = await supabaseClient.storage
-                .from('documentos')
-                .remove(filePaths);
+    window.showConfirmModal({
+        title: 'Excluir documentos selecionados',
+        message: `Tem certeza que deseja excluir os ${checkboxes.length} documentos selecionados? Esta ação não pode ser desfeita.`,
+        confirmLabel: 'Excluir',
+        variant: 'danger',
+        onConfirm: async () => {
+            state.loading = true;
+            render();
 
-            if (storageError) {
-                console.warn("Alguns arquivos podem não ter sido limpos do storage:", storageError.message);
+            try {
+                // 1. Excluir do Storage
+                if (filePaths.length > 0) {
+                    const { error: storageError } = await supabaseClient.storage
+                        .from('documentos')
+                        .remove(filePaths);
+
+                    if (storageError) {
+                        console.warn("Alguns arquivos podem não ter sido limpos do storage:", storageError.message);
+                    }
+                }
+
+                // 2. Excluir do Banco
+                const { error: dbError } = await supabaseClient
+                    .from('documents')
+                    .delete()
+                    .in('id', ids);
+
+                if (dbError) throw dbError;
+
+                showToast(`${ids.length} documentos excluídos com sucesso.`, 'success');
+                await fetchDocuments();
+                render();
+            } catch (error) {
+                showToast("Erro ao excluir documentos em lote: " + error.message, 'error');
+            } finally {
+                state.loading = false;
+                render();
             }
         }
-
-        // 2. Excluir do Banco
-        const { error: dbError } = await supabaseClient
-            .from('documents')
-            .delete()
-            .in('id', ids);
-
-        if (dbError) throw dbError;
-
-        showToast(`${ids.length} documentos excluídos com sucesso.`, 'success');
-        await fetchDocuments();
-        render();
-    } catch (error) {
-        showToast("Erro ao excluir documentos em lote: " + error.message, 'error');
-    } finally {
-        state.loading = false;
-        render();
-    }
+    });
 };
 
 window.handleFetchSalicProject = async function () {
@@ -5792,7 +5880,7 @@ window.showProjectDetails = function (projectId) {
 window.handleRubricaUpload = async function (file) {
     if (!file) return;
     const project = state.projects.find(p => p.id === state.filters.project);
-    if (!project) return alert("Selecione um projeto primeiro!");
+    if (!project) return window.showToast("Selecione um projeto primeiro!", 'error');
 
     state.importState = 'uploading';
     state.importProgress = 10;
@@ -5902,30 +5990,36 @@ window.handleDeleteProject = async function (id, nome) {
         return;
     }
 
-    if (!confirm(`Tem certeza que deseja excluir o projeto "${nome}"? Esta ação excluirá todos os documentos, rubricas e despesas vinculadas a ele.`)) return;
+    window.showConfirmModal({
+        title: 'Excluir projeto',
+        message: `Tem certeza que deseja excluir o projeto "${nome}"? Esta ação excluirá todos os documentos, rubricas e despesas vinculadas a ele.`,
+        confirmLabel: 'Excluir',
+        variant: 'danger',
+        onConfirm: async () => {
+            state.loading = true;
+            render();
 
-    state.loading = true;
-    render();
+            try {
+                const { error } = await supabaseClient
+                    .from('projects')
+                    .delete()
+                    .eq('id', id);
 
-    try {
-        const { error } = await supabaseClient
-            .from('projects')
-            .delete()
-            .eq('id', id);
+                if (error) throw error;
 
-        if (error) throw error;
+                showToast("Projeto excluído com sucesso.", 'success');
+                if (state.filters.project === id) state.filters.project = '';
 
-        showToast("Projeto excluído com sucesso.", 'success');
-        if (state.filters.project === id) state.filters.project = '';
-
-        await fetchProjects();
-        render();
-    } catch (error) {
-        showToast("Erro ao excluir projeto: " + error.message, 'error');
-    } finally {
-        state.loading = false;
-        render();
-    }
+                await fetchProjects();
+                render();
+            } catch (error) {
+                showToast("Erro ao excluir projeto: " + error.message, 'error');
+            } finally {
+                state.loading = false;
+                render();
+            }
+        }
+    });
 };
 
 // --- Settings & Credentials ---
@@ -5997,7 +6091,7 @@ ${Sidebar()}
             <h3 class="h2 mb-2">Zona de perigo</h3>
             <p class="text-sm mb-4">Ações irreversíveis que podem apagar seus dados permanentemente.</p>
 
-            <button class="btn btn-secondary" style="color: var(--error); border-color: var(--error);" onclick="alert('Funcionalidade em desenvolvimento')">
+            <button class="btn btn-secondary" style="color: var(--error); border-color: var(--error);" onclick="window.showToast('Funcionalidade em desenvolvimento', 'info')">
                 Excluir conta e dados
             </button>
         </div>
@@ -6630,7 +6724,7 @@ function dispararOcr(documentId, filePath) {
         .then(response => console.log("Resposta n8n:", response.status))
         .catch(err => {
             console.error("ERRO CRÍTICO n8n:", err);
-            alert("O arquivo foi enviado, mas o processamento automático falhou. Verifique a URL do n8n.");
+            window.showToast("O arquivo foi enviado, mas o processamento automático falhou. Verifique a URL do n8n.", 'warning');
         });
 }
 
@@ -6638,7 +6732,7 @@ window.handleUpload = async function (file) {
     const projectId = document.getElementById('project-selector').value;
     const rubricaInput = document.getElementById('rubrica-input') ? document.getElementById('rubrica-input').value : null;
 
-    if (!file || !projectId) return alert("Selecione um projeto e um arquivo PDF!");
+    if (!file || !projectId) return window.showToast("Selecione um projeto e um arquivo PDF!", 'error');
 
     let rubricaIdFk = null;
     let rubricaTexto = rubricaInput;
@@ -6647,7 +6741,7 @@ window.handleUpload = async function (file) {
         if (!r) {
             // Falhar aqui em vez de subir a nota sem rubrica_id_fk: sem o vínculo a
             // nota entra no fluxo apontando para lugar nenhum, e isso passa em silêncio.
-            return alert('Rubrica não encontrada ou ambígua. Selecione uma opção da lista (o produto aparece no início de cada item).');
+            return window.showToast('Rubrica não encontrada ou ambígua. Selecione uma opção da lista (o produto aparece no início de cada item).', 'error');
         }
         rubricaIdFk = r.id;
         rubricaTexto = r.nome;
@@ -6665,10 +6759,10 @@ window.handleUpload = async function (file) {
         });
         dispararOcr(dbData.id, dbData.file_path);
 
-        alert("Upload concluído! A IA está processando seu documento...");
+        window.showToast("Upload concluído! A IA está processando seu documento...", 'success');
         window.navigate('dashboard');
     } catch (error) {
-        alert("Erro no upload: " + error.message);
+        window.showToast("Erro no upload: " + error.message, 'error');
     } finally {
         state.loading = false;
         render();
@@ -6769,11 +6863,11 @@ async function fetchExtratoLoteVinculado(projectId) {
 window.handleUploadExtratoParaLote = async function (file) {
     if (!file) return;
     const projectId = document.getElementById('lote-project-selector')?.value;
-    if (!projectId) return alert('Selecione um projeto primeiro.');
+    if (!projectId) return window.showToast('Selecione um projeto primeiro.', 'error');
 
     const formato = file.name.split('.').pop().toLowerCase();
     if (!['ofx', 'csv', 'pdf'].includes(formato)) {
-        return alert('Extrato deve ser OFX, CSV ou PDF.');
+        return window.showToast('Extrato deve ser OFX, CSV ou PDF.', 'error');
     }
 
     state.loading = true;
@@ -6864,7 +6958,7 @@ function extratoOrigemPara(doc) {
 
 window.handleLoteFilesSelected = async function (fileList) {
     const projectId = document.getElementById('lote-project-selector').value;
-    if (!projectId) return alert("Selecione um projeto primeiro!");
+    if (!projectId) return window.showToast("Selecione um projeto primeiro!", 'error');
     if (!fileList || fileList.length === 0) return;
 
     const arquivos = Array.from(fileList);
@@ -6896,11 +6990,11 @@ window.handleLoteFilesSelected = async function (fileList) {
 window.handleProcessarLoteItem = async function (documentId) {
     const input = document.getElementById(`lote-rubrica-${documentId}`);
     const rubricaInput = input ? input.value.trim() : '';
-    if (!rubricaInput) return alert("Escolha a rubrica antes de processar.");
+    if (!rubricaInput) return window.showToast("Escolha a rubrica antes de processar.", 'error');
 
     const rubricaResolvida = resolverRubricaPorRotulo(rubricaInput, state.rubricas_disponiveis);
     if (!rubricaResolvida) {
-        return alert('Rubrica não encontrada ou ambígua. Selecione uma opção da lista (o produto aparece no início de cada item).');
+        return window.showToast('Rubrica não encontrada ou ambígua. Selecione uma opção da lista (o produto aparece no início de cada item).', 'error');
     }
     const rubricaIdFk = rubricaResolvida.id;
     const rubricaTexto = rubricaResolvida.nome;
@@ -6953,85 +7047,96 @@ window.handleProcessarTodosLote = async function () {
         .filter(x => x.hasInput);
 
     if (itensComRubrica.length === 0) {
-        return alert("Preencha a rubrica em pelo menos um arquivo.");
+        return window.showToast("Preencha a rubrica em pelo menos um arquivo.", 'error');
     }
 
     // Nenhum item sobe sem rubrica_id_fk — um vínculo nulo aqui só apareceria muito
     // depois, na conciliação, sem pista de onde veio.
     const naoResolvidos = itensComRubrica.filter(x => !x.resolvida);
     if (naoResolvidos.length > 0) {
-        return alert(
+        return window.showToast(
             'Rubrica não encontrada ou ambígua em:\n\n' +
             naoResolvidos.map(x => `• ${x.doc.name}`).join('\n') +
             '\n\nSelecione uma opção da lista (o produto aparece no início de cada item).'
-        );
+        , 'error');
     }
 
-    if (!confirm(`Processar ${itensComRubrica.length} documento(s)?`)) return;
+    window.showConfirmModal({
+        title: 'Processar documentos',
+        message: `Processar ${itensComRubrica.length} documento(s)?`,
+        confirmLabel: 'Processar',
+        onConfirm: async () => {
+            state.loading = true;
+            render();
 
-    state.loading = true;
-    render();
+            // Sequencial, não Promise.allSettled: documentos do mesmo lote (mesmo extrato)
+            // disparados em paralelo corriam risco de corrida na conciliação — o n8n busca
+            // "candidatos pendentes" contra o mesmo extrato, e dois documentos concluindo
+            // ao mesmo tempo podiam competir pelo mesmo lançamento. Um por vez, aguardando
+            // o disparo ao n8n antes do próximo, elimina a corrida.
+            let sucessos = 0, falhas = 0;
+            for (const { doc, rubricaTexto, rubricaIdFk } of itensComRubrica) {
+                try {
+                    const { error } = await supabaseClient
+                        .from('documents')
+                        .update({
+                            rubrica: rubricaTexto,
+                            rubrica_id_fk: rubricaIdFk,
+                            status: 'processing_ocr',
+                            extrato_origem_id: extratoOrigemPara(doc)
+                        })
+                        .eq('id', doc.id);
+                    if (error) throw error;
+                    await dispararOcr(doc.id, doc.file_path);
+                    sucessos++;
+                } catch (err) {
+                    console.error('[handleProcessarTodosLote]', doc.id, err);
+                    falhas++;
+                }
+            }
 
-    // Sequencial, não Promise.allSettled: documentos do mesmo lote (mesmo extrato)
-    // disparados em paralelo corriam risco de corrida na conciliação — o n8n busca
-    // "candidatos pendentes" contra o mesmo extrato, e dois documentos concluindo
-    // ao mesmo tempo podiam competir pelo mesmo lançamento. Um por vez, aguardando
-    // o disparo ao n8n antes do próximo, elimina a corrida.
-    let sucessos = 0, falhas = 0;
-    for (const { doc, rubricaTexto, rubricaIdFk } of itensComRubrica) {
-        try {
-            const { error } = await supabaseClient
-                .from('documents')
-                .update({
-                    rubrica: rubricaTexto,
-                    rubrica_id_fk: rubricaIdFk,
-                    status: 'processing_ocr',
-                    extrato_origem_id: extratoOrigemPara(doc)
-                })
-                .eq('id', doc.id);
-            if (error) throw error;
-            await dispararOcr(doc.id, doc.file_path);
-            sucessos++;
-        } catch (err) {
-            console.error('[handleProcessarTodosLote]', doc.id, err);
-            falhas++;
+            if (sucessos > 0) showToast(`${sucessos} documento(s) enviados para processamento.`, 'success');
+            if (falhas > 0) showToast(`${falhas} falharam.`, 'error');
+
+            await fetchUploadLoteQueue();
+            state.loading = false;
+            render();
         }
-    }
-
-    if (sucessos > 0) showToast(`${sucessos} documento(s) enviados para processamento.`, 'success');
-    if (falhas > 0) showToast(`${falhas} falharam.`, 'error');
-
-    await fetchUploadLoteQueue();
-    state.loading = false;
-    render();
+    });
 };
 
 window.handleExcluirLoteItem = async function (documentId, filePath) {
-    if (!confirm("Excluir este arquivo da fila? Esta ação não pode ser desfeita.")) return;
+    window.showConfirmModal({
+        title: 'Excluir arquivo da fila',
+        message: 'Excluir este arquivo da fila? Esta ação não pode ser desfeita.',
+        confirmLabel: 'Excluir',
+        variant: 'danger',
+        onConfirm: async () => {
+            state.loading = true;
+            render();
 
-    state.loading = true;
-    render();
+            try {
+                const { error: storageError } = await supabaseClient.storage
+                    .from('documentos')
+                    .remove([filePath]);
+                if (storageError && storageError.message !== 'Object not found') throw storageError;
 
-    try {
-        const { error: storageError } = await supabaseClient.storage
-            .from('documentos')
-            .remove([filePath]);
-        if (storageError && storageError.message !== 'Object not found') throw storageError;
+                const { error: dbError } = await supabaseClient
+                    .from('documents')
+                    .delete()
+                    .eq('id', documentId);
+                if (dbError) throw dbError;
 
-        const { error: dbError } = await supabaseClient
-            .from('documents')
-            .delete()
-            .eq('id', documentId);
-        if (dbError) throw dbError;
-
-        showToast("Arquivo removido da fila.", 'success');
-        await fetchUploadLoteQueue();
-    } catch (err) {
-        showToast("Erro ao excluir: " + err.message, 'error');
-    } finally {
-        state.loading = false;
-        render();
-    }
+                showToast("Arquivo removido da fila.", 'success');
+                await fetchUploadLoteQueue();
+            } catch (err) {
+                showToast("Erro ao excluir: " + err.message, 'error');
+            } finally {
+                state.loading = false;
+                render();
+            }
+        }
+    });
 };
 
 window.handleEnviarSalic = async function (documentId) {
@@ -7068,7 +7173,7 @@ window.handleEnviarSalic = async function (documentId) {
 
         if (credError) throw credError;
         if (!temCredencial) {
-            alert("Você precisa configurar suas credenciais SALIC em 'Configurações' antes de enviar.");
+            window.showToast("Você precisa configurar suas credenciais SALIC em 'Configurações' antes de enviar.", 'error');
             window.location.href = 'configuracoes.html';
             return;
         }
@@ -7117,7 +7222,7 @@ window.handleEnviarSalic = async function (documentId) {
             // SPEC-SEC-01 Fix 2: idem processarFilaSalic — backend agora
             // deriva o userId do token verificado, não confia no body.
             const { data: { session } } = await supabaseClient.auth.getSession();
-            if (!session) { alert("Sessão expirada. Faça login novamente."); return; }
+            if (!session) { window.showToast("Sessão expirada. Faça login novamente.", 'error'); return; }
 
             const response = await fetch(fullUrl, {
                 method: 'POST',
@@ -7223,12 +7328,12 @@ window.handleVincularDocumento = async function (parentDocumentId, file, tipo, l
             }
         }
 
-        alert(`${tipo.charAt(0).toUpperCase() + tipo.slice(1)} enviado com sucesso! O processamento da IA foi iniciado.`);
+        window.showToast(`${tipo.charAt(0).toUpperCase() + tipo.slice(1)} enviado com sucesso! O processamento da IA foi iniciado.`, 'success');
 
         // Recarrega os detalhes para mostrar o status atualizado
         await fetchDocumentDetails(parentDocumentId);
     } catch (error) {
-        alert(`Erro ao vincular ${tipo}: ` + error.message);
+        window.showToast(`Erro ao vincular ${tipo}: ` + error.message, 'error');
     } finally {
         state.isUploadingComprovante = false;
         render();
@@ -7266,7 +7371,7 @@ ${Sidebar()}
             <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-subtle);">
                 <p class="text-xs mb-2" style="font-weight: 600;">O solicitante não aparece na lista?</p>
                 <p class="text-xs mb-3" style="color: var(--text-muted);">Envie este link para que ele se cadastre na plataforma:</p>
-                <button class="btn btn-secondary" style="width: 100%; font-size: 11px;" onclick="const link = window.location.origin + '?solicitante=true'; navigator.clipboard.writeText(link); alert('Link de cadastro copiado!');">
+                <button class="btn btn-secondary" style="width: 100%; font-size: 11px;" onclick="const link = window.location.origin + '?solicitante=true'; navigator.clipboard.writeText(link); window.showToast('Link de cadastro copiado!', 'success');">
                     <i data-lucide="copy" style="width: 12px;"></i>
                     Copiar link de cadastro
                 </button>
@@ -7780,6 +7885,7 @@ function render() {
     app.innerHTML = content;
     if (state.showRubricaInstructions) app.innerHTML += RubricaInstructionsModal();
     if (state.showCapturedProjectModal) app.innerHTML += CapturedProjectModal();
+    if (state.confirmModal) app.innerHTML += ConfirmModal();
 
     lucide.createIcons();
 
@@ -7927,11 +8033,11 @@ window.toggleUploadManualExtrato = function () {
 };
 
 window.handleUploadExtrato = async function (file, projectId, documentId, comprovanteId, isReplace = false) {
-    if (!file || !projectId || !documentId) return alert("Houve um erro ao processar o upload do extrato.");
+    if (!file || !projectId || !documentId) return window.showToast("Houve um erro ao processar o upload do extrato.", 'error');
 
     const fileExt = file.name.split('.').pop().toLowerCase();
     if (!['ofx', 'csv', 'pdf'].includes(fileExt)) {
-        return alert("Formato inválido! Por favor, use OFX, CSV ou PDF.");
+        return window.showToast("Formato inválido! Por favor, use OFX, CSV ou PDF.", 'error');
     }
 
     state.loading = true;
@@ -8023,14 +8129,14 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
 // continua intacto). Sem nf_id/comprovante_id no payload — é a diferença.
 window.handleUploadExtratoLote = async function (file, projectId) {
     if (!file) return;
-    if (!projectId) return alert("Selecione um projeto antes de subir o extrato do período.");
+    if (!projectId) return window.showToast("Selecione um projeto antes de subir o extrato do período.", 'error');
 
     const fileExt = file.name.split('.').pop().toLowerCase();
     if (!['ofx', 'csv', 'pdf'].includes(fileExt)) {
-        return alert("Formato inválido! Por favor, use OFX, CSV ou PDF.");
+        return window.showToast("Formato inválido! Por favor, use OFX, CSV ou PDF.", 'error');
     }
     if (!CONFIG.N8N_WEBHOOK_RECONCILIATION_LOTE_URL) {
-        return alert("URL do webhook de conciliação em lote não configurada.");
+        return window.showToast("URL do webhook de conciliação em lote não configurada.", 'error');
     }
 
     state.loading = true;
