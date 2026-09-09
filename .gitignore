@@ -33,3 +33,6 @@ build/
 
 # Versão do Banco (SQL com dados sensíveis se houver)
  seed_data.sql
+
+# Handoff de credenciais (mapeia integrações externas, não deve entrar no histórico do repo)
+CREDENCIAIS_HANDOFF.md
