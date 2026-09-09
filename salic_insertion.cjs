@@ -498,11 +498,17 @@ module.exports = { executarInsercaoSalic };
 // =============================================================================
 if (require.main === module) {
     (async () => {
-        // Substitua pelos seus dados de teste:
+        // Dados de teste vêm de variáveis de ambiente — nunca hardcoded.
+        // Configure SALIC_TEST_USER, SALIC_TEST_PASS e SALIC_TEST_PRONAC
+        // no seu .env local antes de rodar este arquivo diretamente.
+        if (!process.env.SALIC_TEST_USER || !process.env.SALIC_TEST_PASS) {
+            console.error('Erro: configure SALIC_TEST_USER e SALIC_TEST_PASS no .env antes de testar.');
+            process.exit(1);
+        }
         const resultado = await executarInsercaoSalic({
-            usuario: '91685010644',
-            senha: '916850',
-            pronac: '248870',
+            usuario: process.env.SALIC_TEST_USER,
+            senha: process.env.SALIC_TEST_PASS,
+            pronac: process.env.SALIC_TEST_PRONAC || '000000',
             rubricaNome: 'NOME-DA-RUBRICA-AQUI',
             documento: {
                 cnpj_fornecedor: '12.345.678/0001-99',
