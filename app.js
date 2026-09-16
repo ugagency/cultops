@@ -930,9 +930,8 @@ function planilhaOrcamentariaBtn() {
 
 const SolicitanteHeader = () => `
 <header class="header">
-    <div class="logo">
-        <i data-lucide="truck"></i>
-        <span>Portal Solicitante</span>
+    <div class="logo" style="display:flex;align-items:center;gap:0.75rem;">
+        <img src="PAI-Logo-Azul.png" alt="Prestaí" style="height:28px;width:auto;">
     </div>
     <div style="display: flex; align-items: center; gap: 1rem;">
         <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; font-weight: 500;">
@@ -1147,10 +1146,7 @@ const SolicitanteLoginView = () => `
 <div class="login-view view-content">
     <div class="card login-card">
         <div style="text-align: center; margin-bottom: 2rem;">
-            <div class="logo" style="justify-content: center; font-size: 2rem; margin-bottom: 0.5rem; color: #f59e0b;">
-                <i data-lucide="truck" style="width: 32px; height: 32px;"></i>
-                <span>Portal Solicitante</span>
-            </div>
+            <img src="PAI-Logo-Azul.png" alt="Prestaí" style="height:48px;width:auto;margin-bottom:0.75rem;">
             <p style="color: var(--text-muted); font-size: 0.875rem;">Acesse para enviar comprovantes</p>
         </div>
         
@@ -1192,10 +1188,7 @@ const SolicitanteRegisterView = () => `
 <div class="login-view view-content">
     <div class="card login-card" style="max-width: 500px;">
         <div style="text-align: center; margin-bottom: 2rem;">
-            <div class="logo" style="justify-content: center; font-size: 2rem; margin-bottom: 0.5rem; color: #f59e0b;">
-                <i data-lucide="truck" style="width: 32px; height: 32px;"></i>
-                <span>Portal Solicitante</span>
-            </div>
+            <img src="PAI-Logo-Azul.png" alt="Prestaí" style="height:48px;width:auto;margin-bottom:0.75rem;">
             <p style="color: var(--text-muted); font-size: 0.875rem;">Cadastro Rápido de Empresa</p>
         </div>
         
