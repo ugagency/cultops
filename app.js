@@ -7798,8 +7798,12 @@ function render() {
         state.currentView = state.isSolicitanteMode ? 'solicitante_login' : 'login';
     }
 
-    // Segurança: Bloquear solicitante de acessar rotas de gestor
-    const isGestorView = !['login', 'solicitante_login', 'solicitante_register', 'solicitante_dashboard'].includes(state.currentView);
+    // Segurança: Bloquear solicitante de acessar rotas de gestor.
+    // update_password precisa estar liberado: é a tela da troca obrigatória do
+    // primeiro acesso e a do link de recuperação por e-mail. Sem ela aqui, o
+    // fornecedor era jogado no dashboard sem passar por navigate() — ou seja,
+    // sem trocar a senha e sem os fetches que carregam projetos e documentos.
+    const isGestorView = !['login', 'solicitante_login', 'solicitante_register', 'solicitante_dashboard', 'update_password'].includes(state.currentView);
     if (state.user && state.user.user_metadata?.role === 'fornecedor' && isGestorView) {
         state.currentView = 'solicitante_dashboard';
     }
