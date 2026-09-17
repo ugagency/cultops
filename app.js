@@ -1171,7 +1171,6 @@ const SolicitanteLoginView = () => `
         </form>
         
         <div class="login-footer">
-            <p>Primeiro acesso? <a href="#" onclick="window.navigate('solicitante_register')" style="color: #d97706; font-weight: 600;">Cadastre sua empresa</a></p>
             <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
                 <p style="margin-bottom: 0.5rem;">É um proponente/gestor?</p>
                 <button class="btn btn-ghost" onclick="window.navigate('login')" style="width: 100%; border: 1px solid var(--primary); color: var(--primary);">
