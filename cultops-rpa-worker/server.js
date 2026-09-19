@@ -274,6 +274,15 @@ app.post('/api/salic/inserir', exigirUsuarioAutenticado, async (req, res) => {
                 protocolo_salic: resultado.protocolo
             }).eq('id', documentId);
 
+            // CR-2026-001 Fase 0: marca a despesa como confirmada no SALIC.
+            // v_saldo_rubricas usa data_salic para diferenciar "já absorvido
+            // pelo SALIC" de "em trânsito" — sem isso a despesa fica presa
+            // em em_transito mesmo depois de enviada.
+            await supabase.from('despesas').update({
+                data_salic: new Date().toISOString(),
+                protocolo_salic: resultado.protocolo
+            }).eq('document_id', documentId);
+
             return res.json({ success: true, protocol: resultado.protocolo });
         } else {
             throw new Error(resultado.erro);
@@ -286,6 +295,117 @@ app.post('/api/salic/inserir', exigirUsuarioAutenticado, async (req, res) => {
         }).eq('id', documentId);
         res.status(500).json({ error: error.message });
     }
+});
+
+// ==============================================================
+// SALDO SALIC — Fase 1/4 (CR-2026-001)
+// Captura read-only do relatório de Execução Física + pareamento +
+// detecção de divergências (autodiagnóstico, Fase 4.2).
+// ==============================================================
+app.post('/capturar-execucao', exigirUsuarioAutenticado, async (req, res) => {
+    const { executarCapturaProjeto } = require('./salic_saldo_orquestrador.cjs');
+    const { projectId } = req.body;
+    const userId = req.userId;
+
+    if (!projectId) return res.status(400).json({ error: 'projectId não fornecido.' });
+
+    try {
+        const { data: project, error: projectErr } = await supabase
+            .from('projects')
+            .select('pronac, organization_id')
+            .eq('id', projectId)
+            .single();
+        if (projectErr || !project) throw new Error('Projeto não encontrado.');
+
+        const { data: creds, error: credError } = await supabase
+            .from('decrypted_external_credentials')
+            .select('*')
+            .eq('user_id', userId)
+            .eq('service_name', 'salic')
+            .single();
+        if (credError || !creds) throw new Error('Credenciais SALIC não encontradas para este usuário.');
+
+        console.log(`[SALDO-SALIC] Iniciando captura manual | projeto: ${projectId} | PRONAC: ${project.pronac}`);
+
+        const resultado = await executarCapturaProjeto(supabase, {
+            projectId,
+            pronac: String(project.pronac),
+            organizationId: project.organization_id,
+            usuario: String(creds.identifier),
+            senha: String(creds.secret_plain),
+            disparadaPor: userId
+        });
+
+        console.log(`[SALDO-SALIC] Captura concluída | total: ${resultado.total} | pareadas: ${resultado.pareadas} | fila: ${resultado.fila} | divergências: ${resultado.divergencias}`);
+        return res.json({ success: true, ...resultado });
+    } catch (error) {
+        console.error('[SALDO-SALIC] Erro na captura:', error.message);
+        return res.status(500).json({ error: error.message });
+    }
+});
+
+// ==============================================================
+// SALDO SALIC — Fase 4.1 (CR-2026-001)
+// Rede de segurança: captura condicional para projetos ativos sem
+// captura sucesso nas últimas 4h. Mesmo padrão de cron HTTP-protegido
+// do server.js principal (/api/m2/cron-alerta-guias): um scheduler
+// EXTERNO chama este endpoint periodicamente (não setInterval/node-cron
+// dentro do processo) — configurar fora deste repo, com o mesmo
+// x-cron-secret/CRON_SECRET. Intervalo sugerido do scheduler: 30-60min
+// (a condição de 4h é aplicada aqui dentro, não pelo scheduler).
+// ==============================================================
+app.post('/cron/captura-condicional', async (req, res) => {
+    if (req.headers['x-cron-secret'] !== process.env.CRON_SECRET) {
+        return res.status(401).json({ error: 'Não autorizado.' });
+    }
+
+    const { executarCapturaProjeto } = require('./salic_saldo_orquestrador.cjs');
+    const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+    const { data: elegiveis, error: elegErr } = await supabase.rpc('saldo_salic_projetos_elegiveis_captura');
+    if (elegErr) return res.status(500).json({ error: elegErr.message });
+
+    const resultados = [];
+    for (const projeto of (elegiveis || [])) {
+        try {
+            if (!projeto.sugestao_user_id) {
+                console.warn(`[SALDO-SALIC][cron] Projeto ${projeto.project_id} elegível mas sem usuário disparador conhecido — pulando.`);
+                resultados.push({ projectId: projeto.project_id, pulado: 'sem_usuario' });
+                continue;
+            }
+
+            const { data: creds, error: credError } = await supabase
+                .from('decrypted_external_credentials')
+                .select('*')
+                .eq('user_id', projeto.sugestao_user_id)
+                .eq('service_name', 'salic')
+                .maybeSingle();
+            if (credError || !creds) {
+                console.warn(`[SALDO-SALIC][cron] Sem credencial SALIC para o usuário sugerido do projeto ${projeto.project_id} — pulando.`);
+                resultados.push({ projectId: projeto.project_id, pulado: 'sem_credencial' });
+                continue;
+            }
+
+            console.log(`[SALDO-SALIC][cron] Captura condicional | projeto: ${projeto.project_id} | PRONAC: ${projeto.pronac}`);
+            const resultado = await executarCapturaProjeto(supabase, {
+                projectId: projeto.project_id,
+                pronac: String(projeto.pronac),
+                organizationId: projeto.organization_id,
+                usuario: String(creds.identifier),
+                senha: String(creds.secret_plain),
+                disparadaPor: projeto.sugestao_user_id
+            });
+            resultados.push({ projectId: projeto.project_id, ...resultado });
+        } catch (error) {
+            console.error(`[SALDO-SALIC][cron] Erro no projeto ${projeto.project_id}:`, error.message);
+            resultados.push({ projectId: projeto.project_id, erro: error.message });
+        }
+
+        // Cortesia entre projetos — não bate no portal do governo em rajada.
+        await wait(3000);
+    }
+
+    return res.json({ success: true, processados: resultados.length, resultados });
 });
 
 // Tratamento de erros global para evitar crash do processo
