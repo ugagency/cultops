@@ -375,3 +375,34 @@ async function getCurrentOrgId(projectId) {
 }
 
 window.getCurrentOrgId = getCurrentOrgId;
+
+/**
+ * CR-2026-001 Fase 2/3/4 — feature flag única para toda a superfície visível
+ * do controle preventivo de saldo (alertas, validação de contrato,
+ * divergências, aviso de nota parada). Com o flag desligado (default),
+ * nenhuma tela nova aparece — comportamento idêntico ao de antes da feature.
+ * Cacheado em memória por organization_id, mesmo padrão de _orgIdCache acima.
+ */
+const _saldoFlagCache = {};
+
+async function isSaldoRubricasHabilitado(projectId) {
+    const sb = await initSupabase();
+    if (!sb) return false;
+
+    const orgId = await getCurrentOrgId(projectId);
+    if (!orgId) return false;
+
+    if (_saldoFlagCache[orgId] !== undefined) return _saldoFlagCache[orgId];
+
+    const { data, error } = await sb
+        .from('organizations')
+        .select('saldo_rubricas_habilitado')
+        .eq('id', orgId)
+        .maybeSingle();
+
+    const habilitado = (!error && data && data.saldo_rubricas_habilitado === true);
+    _saldoFlagCache[orgId] = habilitado;
+    return habilitado;
+}
+
+window.isSaldoRubricasHabilitado = isSaldoRubricasHabilitado;

@@ -3654,6 +3654,100 @@ app.post('/api/conciliacao/auto-lote', requireAuth, async (req, res) => {
     }
 });
 
+// ==============================================================
+// SALDO SALIC — Fase 0/1 (CR-2026-001)
+// Controle preventivo de saldo de rubricas: captura read-only do
+// relatório de Execução Física do SALIC + pareamento + conferência.
+// ==============================================================
+
+/**
+ * Dispara a captura do relatório de Execução Física no worker RPA.
+ * O worker é o único lugar que sabe falar com o SALIC (Puppeteer);
+ * aqui só repassamos, no mesmo padrão de proxy de /api/salic/inserir.
+ * POST /api/saldo-salic/capturar
+ * Body: { projectId }
+ */
+app.post('/api/saldo-salic/capturar', requireAuth, async (req, res) => {
+    const { projectId } = req.body || {};
+    if (!projectId) return res.status(400).json({ error: 'projectId é obrigatório.' });
+    if (!(await userCanAccessProject(req.user.id, projectId))) {
+        return res.status(403).json({ error: 'Acesso negado ao projeto.' });
+    }
+
+    const railwayUrl = process.env.RAILWAY_URL;
+    if (!railwayUrl) {
+        return res.status(500).json({ error: 'RAILWAY_URL não configurada.' });
+    }
+
+    try {
+        const response = await fetch(`${railwayUrl}/capturar-execucao`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': req.headers.authorization || ''
+            },
+            body: JSON.stringify({ projectId })
+        });
+        const data = await response.json();
+        return res.status(response.status).json(data);
+    } catch (err) {
+        console.error('[SALDO-SALIC][capturar] Erro ao acionar worker:', err.message);
+        return res.status(500).json({ error: 'Falha ao conectar com o worker RPA: ' + err.message });
+    }
+});
+
+/**
+ * Confirma o pareamento manual de uma linha da fila de conferência:
+ * grava rubrica_id na linha e memoriza o vínculo em saldo_salic_vinculos
+ * (aprende uma vez, não pergunta de novo na próxima captura).
+ * POST /api/saldo-salic/confirmar
+ * Body: { linhaId, rubricaId }
+ */
+app.post('/api/saldo-salic/confirmar', requireAuth, async (req, res) => {
+    const { linhaId, rubricaId } = req.body || {};
+    if (!linhaId || !rubricaId) {
+        return res.status(400).json({ error: 'linhaId e rubricaId são obrigatórios.' });
+    }
+
+    try {
+        const { data: linha, error: linhaErr } = await supabase
+            .from('saldo_salic_linhas')
+            .select('id, project_id, organization_id, etapa, item, vl_programado')
+            .eq('id', linhaId)
+            .single();
+        if (linhaErr || !linha) return res.status(404).json({ error: 'Linha não encontrada.' });
+
+        if (!(await userCanAccessProject(req.user.id, linha.project_id))) {
+            return res.status(403).json({ error: 'Acesso negado ao projeto.' });
+        }
+
+        const { error: updErr } = await supabase
+            .from('saldo_salic_linhas')
+            .update({ rubrica_id: rubricaId, pareamento_status: 'pareada' })
+            .eq('id', linhaId);
+        if (updErr) throw updErr;
+
+        const { error: vincErr } = await supabase
+            .from('saldo_salic_vinculos')
+            .upsert({
+                project_id: linha.project_id,
+                organization_id: linha.organization_id,
+                chave_etapa: linha.etapa,
+                chave_item: linha.item,
+                chave_vl_programado: linha.vl_programado,
+                rubrica_id: rubricaId,
+                confirmado_por: req.user.id,
+                confirmado_em: new Date().toISOString()
+            }, { onConflict: 'project_id,chave_etapa,chave_item,chave_vl_programado' });
+        if (vincErr) throw vincErr;
+
+        return res.json({ success: true });
+    } catch (err) {
+        console.error('[SALDO-SALIC][confirmar] Erro:', err.message);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
 if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
     app.listen(PORT, () => {
         console.log(`[SERVER] Rodando em http://localhost:${PORT}`);

@@ -1416,6 +1416,22 @@
                 return;
             }
 
+            // CR-2026-001 Fase 3.4: com o flag ligado, mostra o saldo real
+            // (oficial SALIC + projeção PrestAI, nunca um número só) em vez
+            // do cálculo local aprovado-utilizado. Flag desligado mantém o
+            // texto de antes, sem tocar em v_saldo_rubricas.
+            const habilitado = window.isSaldoRubricasHabilitado
+                ? await window.isSaldoRubricasHabilitado(currentProjectId)
+                : false;
+            let saldoPorRubrica = new Map();
+            if (habilitado) {
+                const { data: saldoData } = await sb
+                    .from('v_saldo_rubricas')
+                    .select('rubrica_id, disponivel_oficial, disponivel_projetado')
+                    .eq('project_id', currentProjectId);
+                saldoPorRubrica = new Map((saldoData || []).map(s => [s.rubrica_id, s]));
+            }
+
             // <select> nativo aceita <optgroup> (ao contrário do <datalist> do
             // painel de combobox do M1) — agrupar por produto direto no HTML,
             // sem precisar replicar aquele painel customizado aqui.
@@ -1429,9 +1445,19 @@
             Object.keys(porProduto).sort().forEach(produto => {
                 html += `<optgroup label="${escapeHtml(produto)}">`;
                 porProduto[produto].forEach(r => {
-                    const saldo = Number(r.valor_aprovado || 0) - Number(r.valor_utilizado || 0);
                     const codigo = r.rubrica_id ? `${r.rubrica_id} — ` : '';
-                    html += `<option value="${r.id}">${escapeHtml(codigo + r.nome)} (saldo ${formatCurrency(saldo)})</option>`;
+                    let saldoTexto;
+                    if (!habilitado) {
+                        const saldo = Number(r.valor_aprovado || 0) - Number(r.valor_utilizado || 0);
+                        saldoTexto = `saldo ${formatCurrency(saldo)}`;
+                    } else {
+                        const s = saldoPorRubrica.get(r.id);
+                        const disponivel = (s && s.disponivel_projetado !== null && s.disponivel_projetado !== undefined)
+                            ? formatCurrency(s.disponivel_projetado)
+                            : 'Indisponível';
+                        saldoTexto = `projeção ${disponivel}`;
+                    }
+                    html += `<option value="${r.id}">${escapeHtml(codigo + r.nome)} (${saldoTexto})</option>`;
                 });
                 html += '</optgroup>';
             });
@@ -1477,6 +1503,42 @@
                 return;
             }
 
+            const continuarSalvarContrato = () => continuarSubmitContrato({
+                numero, objeto, valorTotal, inicio, fim, fornecedorId, rubricaId, arquivo, contratoPaiId, isDistrato
+            });
+
+            // CR-2026-001 Fase 3.4: alerta informativo (NÃO bloqueia) quando o
+            // valor do contrato excede o saldo disponível projetado da
+            // rubrica. Só roda com o flag ligado.
+            if (!isDistrato && rubricaId && valorTotal !== null && window.isSaldoRubricasHabilitado) {
+                const habilitado = await window.isSaldoRubricasHabilitado(currentProjectId);
+                if (habilitado) {
+                    const { data: saldoInfo } = await sb
+                        .from('v_saldo_rubricas')
+                        .select('disponivel_oficial, disponivel_projetado')
+                        .eq('rubrica_id', rubricaId)
+                        .maybeSingle();
+                    if (saldoInfo && saldoInfo.disponivel_projetado !== null) {
+                        const dispProjetado = Number(saldoInfo.disponivel_projetado);
+                        if (valorTotal > dispProjetado) {
+                            const excedente = valorTotal - dispProjetado;
+                            abrirModalConfirmGenerico({
+                                titulo: 'Saldo insuficiente na rubrica',
+                                icone: 'alert-triangle',
+                                mensagem: `Valor do contrato (${formatCurrency(valorTotal)}) excede o disponível projetado (${formatCurrency(dispProjetado)}) em ${formatCurrency(excedente)}. Oficial (SALIC): ${formatCurrency(saldoInfo.disponivel_oficial ?? 0)}. Deseja cadastrar mesmo assim?`,
+                                textoConfirmar: 'Cadastrar mesmo assim',
+                                onConfirm: continuarSalvarContrato
+                            });
+                            return;
+                        }
+                    }
+                }
+            }
+
+            await continuarSalvarContrato();
+        }
+
+        async function continuarSubmitContrato({ numero, objeto, valorTotal, inicio, fim, fornecedorId, rubricaId, arquivo, contratoPaiId, isDistrato }) {
             if (_editandoContratoId) {
                 // Edição não recria o vínculo de anexo (contrato_pai_id não é
                 // editável neste formulário) — pula a checagem de hierarquia,

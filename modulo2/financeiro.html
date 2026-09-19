@@ -149,6 +149,8 @@
         .pill-atencao::before  { background: #FF5807; }
         .pill-excedida { background: #FF5807; color: #FFFFFF; }
         .pill-excedida::before { background: #FF5807; }
+        .pill-indisponivel { background: #E5E7EB; color: #6B7280; }
+        .pill-indisponivel::before { background: #6B7280; }
 
         .alert-row {
             padding: 0.85rem 1rem;
@@ -378,13 +380,29 @@
             <div class="dashboard-grid">
                 <div style="display: flex; flex-direction: column; gap: 1.5rem;">
                     <section class="glass-card" style="padding: 1.5rem;">
-                        <h3 class="section-title">Rubricas</h3>
+                        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
+                            <h3 class="section-title" style="margin: 0;">Rubricas</h3>
+                            <div id="saldo-salic-header-controls" style="display: none; align-items: center; gap: 0.75rem;">
+                                <span id="saldo-salic-ultima-captura" style="font-size: 0.72rem; color: var(--text-muted); font-weight: 500;">Sem captura do SALIC ainda</span>
+                                <button id="btn-atualizar-salic" class="btn-inline primary" onclick="atualizarSaldoSalic()">
+                                    <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> Atualizar do SALIC
+                                </button>
+                            </div>
+                        </div>
                         <div id="rubricas-table-wrap">
                             <div class="empty-state">
                                 <i data-lucide="loader" style="width: 24px;" class="spin"></i>
                                 Carregando rubricas…
                             </div>
                         </div>
+                    </section>
+
+                    <section class="glass-card" id="saldo-salic-fila-section" style="padding: 1.5rem; display: none;">
+                        <h3 class="section-title">Conferência de pareamento (SALIC)</h3>
+                        <p style="font-size: 0.8rem; color: var(--text-muted); margin: -0.5rem 0 1rem;">
+                            Linhas do relatório do SALIC que não casaram automaticamente com nenhuma rubrica. Selecione a rubrica correta — a escolha é memorizada e não será perguntada de novo.
+                        </p>
+                        <div id="saldo-salic-fila-wrap"></div>
                     </section>
 
                     <section class="glass-card" style="padding: 1.5rem;">
@@ -399,6 +417,11 @@
                 </div>
 
                 <aside style="display: flex; flex-direction: column; gap: 1.5rem;">
+                    <section class="glass-card" id="saldo-salic-avisos-section" style="padding: 1.5rem; display:none;">
+                        <h3 class="section-title">Avisos de Saldo (SALIC)</h3>
+                        <div id="saldo-salic-avisos-wrap"></div>
+                    </section>
+
                     <section class="glass-card" style="padding: 1.5rem; display:none;">
                         <h3 class="section-title">Alertas de Rubricas</h3>
                         <div id="rubric-alerts">
@@ -463,6 +486,27 @@
     <style>
         .spin { animation: spin 1s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .btn-inline {
+            padding: 0.35rem 0.7rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid var(--border-light);
+            background: white;
+            display: inline-flex; align-items: center; gap: 0.3rem;
+        }
+        .btn-inline:hover { border-color: var(--m2-accent); color: var(--m2-accent); }
+        .btn-inline.primary { background: var(--m2-accent); color: white; border-color: transparent; }
+        .btn-inline.primary:hover { background: var(--m2-accent-hover); color: white; }
+        .btn-inline:disabled { opacity: 0.6; cursor: not-allowed; }
+        .saldo-select {
+            padding: 0.35rem 0.5rem;
+            border-radius: 6px;
+            border: 1px solid var(--border-light);
+            font-size: 0.8rem;
+            min-width: 220px;
+        }
     </style>
 
     <script src="../config.js"></script>
@@ -474,6 +518,9 @@
         let sb = null;
         let currentProjectId = null;
         let projectsById = new Map();
+        let currentRubricas = [];
+        let saldoSalicByRubrica = new Map();
+        let saldoRubricasHabilitado = false; // CR-2026-001 — feature flag por org
 
         function setSelectorPlaceholder(hasProject) {
             const placeholder = document.getElementById('selector-placeholder');
@@ -571,10 +618,18 @@
             currentProjectId = projectId;
             applySkeleton(true);
 
+            // CR-2026-001 — feature flag por organização: com o flag desligado
+            // o painel de saldo fica exatamente como era antes da feature.
+            saldoRubricasHabilitado = window.isSaldoRubricasHabilitado
+                ? await window.isSaldoRubricasHabilitado(projectId)
+                : false;
+            const headerControls = document.getElementById('saldo-salic-header-controls');
+            if (headerControls) headerControls.style.display = saldoRubricasHabilitado ? 'flex' : 'none';
+
             try {
-                const [rubricasRes, despesasExecRes, impostosRes, checklistRes, contratosRes, despesasRecentesRes, projectDataRes, fornecedoresIn23Res, valorEfetivoRes] = await Promise.all([
+                const [rubricasRes, despesasExecRes, impostosRes, checklistRes, contratosRes, despesasRecentesRes, projectDataRes, fornecedoresIn23Res, valorEfetivoRes, saldoSalicRes, filaSalicRes] = await Promise.all([
                     sb.from('rubricas')
-                        .select('nome, rubrica_id, valor_aprovado, valor_utilizado, alerta_limite_ativo, percentual_alerta')
+                        .select('id, nome, rubrica_id, valor_aprovado, valor_utilizado, alerta_limite_ativo, percentual_alerta')
                         .eq('project_id', projectId)
                         .order('nome', { ascending: true }),
                     sb.from('despesas')
@@ -594,7 +649,7 @@
                         .is('contrato_pai_id', null)
                         .is('excluido_em', null),
                     sb.from('despesas')
-                        .select('data_pagamento, created_at, valor, status, fornecedor_nome, rubricas(nome)')
+                        .select('document_id, rubrica_id, data_pagamento, created_at, valor, status, fornecedor_nome, rubricas(nome), documents(contract_id)')
                         .eq('project_id', projectId)
                         .order('data_pagamento', { ascending: false, nullsFirst: false })
                         .limit(8),
@@ -606,7 +661,15 @@
                         .select('fornecedor_nome, cnpj_fornecedor, valor')
                         .eq('project_id', projectId)
                         .in('status', STATUS_DESPESA_EXECUTADO),
-                    sb.rpc('get_valor_contratos_efetivo', { p_project_id: projectId })
+                    sb.rpc('get_valor_contratos_efetivo', { p_project_id: projectId }),
+                    sb.from('v_saldo_rubricas')
+                        .select('rubrica_id, executado_salic, nfs_confirmadas_nao_absorvidas, executado_efetivo, em_transito, disponivel_oficial, disponivel_projetado, ultima_captura_em')
+                        .eq('project_id', projectId),
+                    sb.from('saldo_salic_linhas')
+                        .select('id, etapa, item, unidade, qtde_programada, vl_programado, vl_executado')
+                        .eq('project_id', projectId)
+                        .eq('pareamento_status', 'fila_conferencia')
+                        .order('etapa', { ascending: true })
                 ]);
 
                 const rubricas = rubricasRes.data || [];
@@ -618,6 +681,10 @@
                 const valorCaptado = Number((projectDataRes.data || {}).valor_captado || 0);
                 const fornecedoresIn23Raw = fornecedoresIn23Res.data || [];
                 const valorEfetivo = valorEfetivoRes.data || [];
+                const saldoSalic = saldoSalicRes.data || [];
+                const filaSalic = filaSalicRes.data || [];
+                currentRubricas = rubricas;
+                saldoSalicByRubrica = new Map(saldoSalic.map(s => [s.rubrica_id, s]));
 
                 const totalAprovado = rubricas.reduce((s, r) => s + Number(r.valor_aprovado || 0), 0);
                 const totalExecutado = despesasExec.reduce((s, d) => s + Number(d.valor || 0), 0);
@@ -633,6 +700,14 @@
 
                 renderTopStats({ totalAprovado, totalExecutado, saldo, percExec, totalImpostos, checklistOk, checklistTotal, checklistPerc });
                 renderContractsStrip({ contratosAtivos, contratosTotal, contratosValor });
+                if (saldoRubricasHabilitado) {
+                    renderUltimaCapturaSalic(saldoSalic);
+                    renderFilaConferenciaSalic(filaSalic, rubricas);
+                    renderAvisosSaldoSalic(projectId);
+                } else {
+                    document.getElementById('saldo-salic-fila-section').style.display = 'none';
+                    document.getElementById('saldo-salic-avisos-section').style.display = 'none';
+                }
                 renderRubricasTable(rubricas);
                 renderDespesasRecentes(despesasRecentes);
                 renderRubricasAlerts(rubricas);
@@ -724,6 +799,38 @@
             return { label: 'OK', cls: 'pill-ok' };
         }
 
+        // Classifica pelo disponivel_projetado (projeção PrestAI), não pelo oficial —
+        // exigência do painel: o alerta preventivo tem que reagir ao que ainda vai
+        // chegar no SALIC, não só ao que já foi registrado lá.
+        function classifySaldoProjetado(aprov, dispProjetado, alertaAtivo, percAlerta) {
+            if (dispProjetado === null || dispProjetado === undefined) {
+                return { label: 'Sem captura', cls: 'pill-indisponivel' };
+            }
+            if (aprov <= 0) return { label: '—', cls: 'pill-ok' };
+            const util = aprov - dispProjetado;
+            const ratio = util / aprov;
+            if (ratio >= 1) return { label: 'Excedida', cls: 'pill-excedida' };
+            if (alertaAtivo === false) return { label: 'OK', cls: 'pill-ok' };
+            const limite = (percAlerta != null) ? (Number(percAlerta) / 100) : 0.9;
+            if (ratio >= limite) return { label: 'Atenção', cls: 'pill-atencao' };
+            return { label: 'OK', cls: 'pill-ok' };
+        }
+
+        function fmtBRLouIndisponivel(n) {
+            return (n === null || n === undefined) ? 'Indisponível' : fmtBRL(n);
+        }
+
+        function renderUltimaCapturaSalic(saldoSalic) {
+            const el = document.getElementById('saldo-salic-ultima-captura');
+            const comCaptura = (saldoSalic || []).find(s => s.ultima_captura_em);
+            if (!comCaptura) {
+                el.textContent = 'Sem captura do SALIC ainda';
+                return;
+            }
+            const dt = new Date(comCaptura.ultima_captura_em);
+            el.textContent = `Última captura do SALIC: ${dt.toLocaleDateString('pt-BR')} ${dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+        }
+
         function renderRubricasTable(rubricas) {
             const wrap = document.getElementById('rubricas-table-wrap');
             if (rubricas.length === 0) {
@@ -732,12 +839,26 @@
                 return;
             }
 
+            // CR-2026-001 — flag por org: com saldoRubricasHabilitado=false, as
+            // colunas novas ficam ocultas e as legadas (Executado/Saldo/%/Status)
+            // voltam a aparecer — comportamento idêntico ao de antes da feature.
+            const show = saldoRubricasHabilitado;
+            const hide = (cond) => cond ? '' : 'display:none;';
+
             const rows = rubricas.map(r => {
                 const aprov = Number(r.valor_aprovado || 0);
                 const util = Number(r.valor_utilizado || 0);
                 const saldo = aprov - util;
                 const pct = aprov > 0 ? (util / aprov) * 100 : 0;
                 const cls = classifyRubrica(aprov, util, r.percentual_alerta);
+
+                const saldoSalic = saldoSalicByRubrica.get(r.id) || {};
+                const executadoSalic = saldoSalic.executado_salic ?? null;
+                const dispOficial = saldoSalic.disponivel_oficial ?? null;
+                const emTransito = Number(saldoSalic.em_transito || 0);
+                const dispProjetado = saldoSalic.disponivel_projetado ?? null;
+                const clsProjetado = classifySaldoProjetado(aprov, dispProjetado, r.alerta_limite_ativo, r.percentual_alerta);
+
                 return `
                     <tr>
                         <td>
@@ -745,10 +866,15 @@
                             ${r.rubrica_id ? `<div style="font-size: 0.7rem; color: var(--text-muted);">${escapeHtml(r.rubrica_id)}</div>` : ''}
                         </td>
                         <td class="num">${fmtBRL(aprov)}</td>
-                        <td class="num" style="display:none;">${fmtBRL(util)}</td>
-                        <td class="num" style="display:none; color: ${saldo < 0 ? '#FF5807' : 'inherit'};">${fmtBRL(saldo)}</td>
-                        <td class="num" style="display:none;">${pct.toFixed(1)}%</td>
-                        <td style="display:none;"><span class="pill ${cls.cls}">${cls.label}</span></td>
+                        <td class="num" style="${hide(show)}">${fmtBRLouIndisponivel(executadoSalic)}</td>
+                        <td class="num" style="${hide(show)}">${fmtBRLouIndisponivel(dispOficial)}</td>
+                        <td class="num" style="${hide(show)}">${fmtBRL(emTransito)}</td>
+                        <td class="num" style="${hide(show)} color: ${(dispProjetado !== null && dispProjetado < 0) ? '#FF5807' : 'inherit'};">${fmtBRLouIndisponivel(dispProjetado)}</td>
+                        <td style="${hide(show)}"><span class="pill ${clsProjetado.cls}">${clsProjetado.label}</span></td>
+                        <td class="num" style="${hide(!show)}">${fmtBRL(util)}</td>
+                        <td class="num" style="${hide(!show)} color: ${saldo < 0 ? '#FF5807' : 'inherit'};">${fmtBRL(saldo)}</td>
+                        <td class="num" style="${hide(!show)}">${pct.toFixed(1)}%</td>
+                        <td style="${hide(!show)}"><span class="pill ${cls.cls}">${cls.label}</span></td>
                     </tr>
                 `;
             }).join('');
@@ -760,16 +886,210 @@
                             <tr>
                                 <th>Rubrica</th>
                                 <th class="num">Aprovado</th>
-                                <th class="num" style="display:none;">Executado</th>
-                                <th class="num" style="display:none;">Saldo</th>
-                                <th class="num" style="display:none;">%</th>
-                                <th style="display:none;">Status</th>
+                                <th class="num" style="${hide(show)}">Executado (SALIC)</th>
+                                <th class="num" style="${hide(show)}">Segundo o SALIC, sobra</th>
+                                <th class="num" style="${hide(show)}">Em trânsito</th>
+                                <th class="num" style="${hide(show)}">Projeção PrestAI</th>
+                                <th style="${hide(show)}">Status</th>
+                                <th class="num" style="${hide(!show)}">Executado</th>
+                                <th class="num" style="${hide(!show)}">Saldo</th>
+                                <th class="num" style="${hide(!show)}">%</th>
+                                <th style="${hide(!show)}">Status</th>
                             </tr>
                         </thead>
                         <tbody>${rows}</tbody>
                     </table>
                 </div>
             `;
+        }
+
+        function renderFilaConferenciaSalic(fila, rubricas) {
+            const section = document.getElementById('saldo-salic-fila-section');
+            const wrap = document.getElementById('saldo-salic-fila-wrap');
+            if (!fila || fila.length === 0) {
+                section.style.display = 'none';
+                wrap.innerHTML = '';
+                return;
+            }
+            section.style.display = '';
+
+            const options = rubricas
+                .slice()
+                .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''))
+                .map(r => `<option value="${r.id}">${escapeHtml(r.nome || '—')}</option>`)
+                .join('');
+
+            const rows = fila.map(l => `
+                <tr>
+                    <td>
+                        <div style="font-weight: 600;">${escapeHtml(l.item || '—')}</div>
+                        <div style="font-size: 0.7rem; color: var(--text-muted);">${escapeHtml(l.etapa || '—')}</div>
+                    </td>
+                    <td class="num">${fmtBRL(l.vl_programado)}</td>
+                    <td class="num">${fmtBRL(l.vl_executado)}</td>
+                    <td>
+                        <select class="saldo-select" id="saldo-salic-select-${l.id}">
+                            <option value="">Selecione a rubrica…</option>
+                            ${options}
+                        </select>
+                    </td>
+                    <td>
+                        <button class="btn-inline primary" onclick="confirmarPareamentoSalic('${l.id}')">Confirmar</button>
+                    </td>
+                </tr>
+            `).join('');
+
+            wrap.innerHTML = `
+                <div style="overflow-x: auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Linha do SALIC</th>
+                                <th class="num">Vl. Programado</th>
+                                <th class="num">Vl. Executado</th>
+                                <th>Rubrica</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        async function atualizarSaldoSalic() {
+            if (!currentProjectId) return;
+            const btn = document.getElementById('btn-atualizar-salic');
+            btn.disabled = true;
+            const originalHtml = btn.innerHTML;
+            btn.innerHTML = '<i data-lucide="loader" class="spin" style="width: 14px; height: 14px;"></i> Capturando…';
+            if (window.lucide) window.lucide.createIcons();
+            try {
+                const { data: { session } } = await sb.auth.getSession();
+                const token = session?.access_token || '';
+                const resp = await fetch('/api/saldo-salic/capturar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ projectId: currentProjectId })
+                });
+                const json = await resp.json();
+                if (!resp.ok || json.success === false) throw new Error(json.error || 'Falha na captura do SALIC');
+                await loadDashboardData(currentProjectId);
+            } catch (err) {
+                console.error('[atualizarSaldoSalic]', err);
+                alert('Erro ao capturar do SALIC: ' + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+                if (window.lucide) window.lucide.createIcons();
+            }
+        }
+
+        async function confirmarPareamentoSalic(linhaId) {
+            const select = document.getElementById(`saldo-salic-select-${linhaId}`);
+            const rubricaId = select?.value;
+            if (!rubricaId) { alert('Selecione uma rubrica antes de confirmar.'); return; }
+            try {
+                const { data: { session } } = await sb.auth.getSession();
+                const token = session?.access_token || '';
+                const resp = await fetch('/api/saldo-salic/confirmar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ linhaId, rubricaId })
+                });
+                const json = await resp.json();
+                if (!resp.ok || !json.success) throw new Error(json.error || 'Falha ao confirmar pareamento');
+                await loadDashboardData(currentProjectId);
+            } catch (err) {
+                console.error('[confirmarPareamentoSalic]', err);
+                alert('Erro ao confirmar pareamento: ' + err.message);
+            }
+        }
+
+        // CR-2026-001 Fase 4.2/4.3 — sinalização de divergências abertas e de
+        // notas paradas em trânsito. Só roda com o flag ligado.
+        async function renderAvisosSaldoSalic(projectId) {
+            const section = document.getElementById('saldo-salic-avisos-section');
+            const wrap = document.getElementById('saldo-salic-avisos-wrap');
+            if (!saldoRubricasHabilitado) { section.style.display = 'none'; return; }
+
+            const orgId = window.getCurrentOrgId ? await window.getCurrentOrgId(projectId) : null;
+            let prazoDias = 7;
+            if (orgId) {
+                const { data: org } = await sb.from('organizations')
+                    .select('saldo_rubricas_prazo_nota_parada_dias')
+                    .eq('id', orgId)
+                    .maybeSingle();
+                if (org?.saldo_rubricas_prazo_nota_parada_dias) prazoDias = org.saldo_rubricas_prazo_nota_parada_dias;
+            }
+            const limiteData = new Date(Date.now() - prazoDias * 24 * 60 * 60 * 1000).toISOString();
+
+            const [{ data: divergencias }, { data: notasParadas }] = await Promise.all([
+                sb.from('saldo_salic_divergencias')
+                    .select('id, vl_executado_salic, vl_confirmado_prestai, diferenca, detectada_em, rubricas(nome)')
+                    .eq('project_id', projectId)
+                    .eq('status', 'aberta')
+                    .order('detectada_em', { ascending: false }),
+                sb.from('despesas')
+                    .select('id, fornecedor_nome, valor, created_at, rubricas(nome)')
+                    .eq('project_id', projectId)
+                    .is('data_salic', null)
+                    .not('status', 'in', '(concluido,erro_rpa,bloqueado_conformidade)')
+                    .lt('created_at', limiteData)
+            ]);
+
+            const divs = divergencias || [];
+            const paradas = notasParadas || [];
+
+            if (divs.length === 0 && paradas.length === 0) {
+                section.style.display = 'none';
+                return;
+            }
+            section.style.display = '';
+
+            let html = '';
+            if (divs.length > 0) {
+                html += `<div style="margin-bottom: 1rem;">
+                    <div style="font-size: 0.8rem; font-weight: 700; margin-bottom: 0.5rem; color: #FF5807; display:flex; align-items:center; gap:0.3rem;">
+                        <i data-lucide="alert-triangle" style="width: 14px;"></i> ${divs.length} divergência(s) aberta(s)
+                    </div>
+                    ${divs.map(d => `
+                        <div style="border: 1px solid var(--border-light); border-radius: 6px; padding: 0.6rem; margin-bottom: 0.4rem; font-size: 0.75rem;">
+                            <div style="font-weight: 600;">${escapeHtml((d.rubricas && d.rubricas.nome) || '—')}</div>
+                            <div style="color: var(--text-muted);">SALIC: ${fmtBRL(d.vl_executado_salic)} · PrestAI: ${fmtBRL(d.vl_confirmado_prestai)} · Diferença: ${fmtBRL(d.diferenca)}</div>
+                            <div style="margin-top: 0.3rem; display: flex; gap: 0.4rem;">
+                                <button class="btn-inline" style="font-size: 0.7rem; padding: 0.15rem 0.4rem;" onclick="marcarDivergencia('${d.id}', 'resolvida')">Marcar resolvida</button>
+                                <button class="btn-inline" style="font-size: 0.7rem; padding: 0.15rem 0.4rem;" onclick="marcarDivergencia('${d.id}', 'ignorada')">Ignorar</button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>`;
+            }
+            if (paradas.length > 0) {
+                html += `<div>
+                    <div style="font-size: 0.8rem; font-weight: 700; margin-bottom: 0.5rem; color: #FF5807; display:flex; align-items:center; gap:0.3rem;">
+                        <i data-lucide="clock" style="width: 14px;"></i> ${paradas.length} nota(s) parada(s) em trânsito (+${prazoDias}d)
+                    </div>
+                    ${paradas.map(n => `
+                        <div style="border: 1px solid var(--border-light); border-radius: 6px; padding: 0.6rem; margin-bottom: 0.4rem; font-size: 0.75rem;">
+                            <div style="font-weight: 600;">${escapeHtml(n.fornecedor_nome || '—')} — ${fmtBRL(n.valor)}</div>
+                            <div style="color: var(--text-muted);">${escapeHtml((n.rubricas && n.rubricas.nome) || '—')} · desde ${fmtDate(n.created_at)}</div>
+                        </div>
+                    `).join('')}
+                </div>`;
+            }
+            wrap.innerHTML = html;
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        async function marcarDivergencia(id, status) {
+            const { data: { session } } = await sb.auth.getSession();
+            const userId = session?.user?.id || null;
+            const { error } = await sb.from('saldo_salic_divergencias')
+                .update({ status, resolvida_por: userId, resolvida_em: new Date().toISOString() })
+                .eq('id', id);
+            if (error) { alert('Erro ao marcar divergência: ' + error.message); return; }
+            await renderAvisosSaldoSalic(currentProjectId);
         }
 
         function renderDespesasRecentes(despesas) {
@@ -780,7 +1100,21 @@
                 return;
             }
 
-            const rows = despesas.map(d => `
+            // CR-2026-001 Fase 3.5 — vínculo opcional NF <-> contrato, só
+            // visível com o flag ligado (mesmo padrão de gating das outras
+            // colunas novas desta tela).
+            const showContrato = saldoRubricasHabilitado;
+
+            const rows = despesas.map(d => {
+                const contractId = d.documents?.contract_id || null;
+                const vinculoHtml = !showContrato ? '' : (
+                    contractId
+                        ? `<span style="font-size: 0.7rem; color: var(--text-muted);"><i data-lucide="link" style="width: 12px;"></i> Vinculada</span>`
+                        : `<div id="vinculo-contrato-${d.document_id}">
+                               <button class="btn-inline" style="font-size: 0.7rem; padding: 0.2rem 0.5rem;" onclick="abrirVinculoContrato('${d.document_id}', '${d.rubrica_id || ''}')">Vincular contrato</button>
+                           </div>`
+                );
+                return `
                 <tr>
                     <td>${fmtDate(d.data_pagamento || d.created_at)}</td>
                     <td>
@@ -789,8 +1123,10 @@
                     </td>
                     <td class="num">${fmtBRL(d.valor)}</td>
                     <td><span style="font-size: 0.75rem; color: var(--text-secondary); text-transform: capitalize;">${escapeHtml(statusLabel(d.status))}</span></td>
+                    ${showContrato ? `<td>${vinculoHtml}</td>` : ''}
                 </tr>
-            `).join('');
+            `;
+            }).join('');
 
             wrap.innerHTML = `
                 <div style="overflow-x: auto;">
@@ -801,12 +1137,67 @@
                                 <th>Fornecedor / Rubrica</th>
                                 <th class="num">Valor</th>
                                 <th>Status</th>
+                                ${showContrato ? '<th>Contrato</th>' : ''}
                             </tr>
                         </thead>
                         <tbody>${rows}</tbody>
                     </table>
                 </div>
             `;
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        // CR-2026-001 Fase 3.5 — vínculo NF <-> contrato. Sugestão automática
+        // só quando existe EXATAMENTE UM contrato elegível da rubrica; ainda
+        // assim exige confirmação explícita do usuário — nunca vincula sozinho.
+        async function abrirVinculoContrato(documentId, rubricaId) {
+            const container = document.getElementById(`vinculo-contrato-${documentId}`);
+            if (!container) return;
+            if (!rubricaId) {
+                container.innerHTML = `<span style="font-size: 0.7rem; color: var(--text-muted);">Nota sem rubrica definida.</span>`;
+                return;
+            }
+            container.innerHTML = `<span style="font-size: 0.7rem; color: var(--text-muted);">Buscando contratos…</span>`;
+
+            const { data: contratos, error } = await sb
+                .from('contracts')
+                .select('id, numero, valor_total')
+                .eq('rubrica_id', rubricaId)
+                .eq('status', 'ativo')
+                .is('excluido_em', null)
+                .order('numero');
+
+            if (error) {
+                container.innerHTML = `<span style="font-size: 0.7rem; color: #FF5807;">Erro ao buscar contratos.</span>`;
+                return;
+            }
+            if (!contratos || contratos.length === 0) {
+                container.innerHTML = `<span style="font-size: 0.7rem; color: var(--text-muted);">Nenhum contrato ativo nesta rubrica.</span>`;
+                return;
+            }
+            if (contratos.length === 1) {
+                const c = contratos[0];
+                container.innerHTML = `
+                    <span style="font-size: 0.7rem;">Vincular ao contrato <strong>${escapeHtml(c.numero)}</strong>?</span>
+                    <button class="btn-inline primary" style="font-size: 0.7rem; padding: 0.15rem 0.4rem; margin-left: 0.3rem;" onclick="confirmarVinculoContrato('${documentId}', '${c.id}')">Confirmar</button>
+                `;
+                return;
+            }
+            const options = contratos.map(c => `<option value="${c.id}">${escapeHtml(c.numero)} (${fmtBRL(c.valor_total)})</option>`).join('');
+            container.innerHTML = `
+                <select class="saldo-select" id="vinculo-select-${documentId}" style="min-width: 160px; font-size: 0.7rem;">
+                    <option value="">Selecione o contrato…</option>
+                    ${options}
+                </select>
+                <button class="btn-inline primary" style="font-size: 0.7rem; padding: 0.15rem 0.4rem;" onclick="confirmarVinculoContrato('${documentId}', document.getElementById('vinculo-select-${documentId}').value)">Confirmar</button>
+            `;
+        }
+
+        async function confirmarVinculoContrato(documentId, contractId) {
+            if (!contractId) { alert('Selecione um contrato.'); return; }
+            const { error } = await sb.from('documents').update({ contract_id: contractId }).eq('id', documentId);
+            if (error) { alert('Erro ao vincular contrato: ' + error.message); return; }
+            await loadDashboardData(currentProjectId);
         }
 
         function renderRubricasAlerts(rubricas) {

@@ -145,6 +145,8 @@
         .pill-atencao::before  { background: #FF5807; }
         .pill-excedida { background: #FF5807; color: #FFFFFF; }
         .pill-excedida::before { background: #FF5807; }
+        .pill-indisponivel { background: #E5E7EB; color: #6B7280; }
+        .pill-indisponivel::before { background: #6B7280; }
 
         /* Modal genérico */
         .modal-backdrop {
@@ -454,22 +456,47 @@
             }).join('');
         }
 
+        let saldoRubricasHabilitado = false; // CR-2026-001 — feature flag por org
+
         async function loadRubricas() {
             if (!currentProjectId) return;
-            
+
             const sb = await initSupabase();
+            saldoRubricasHabilitado = window.isSaldoRubricasHabilitado
+                ? await window.isSaldoRubricasHabilitado(currentProjectId)
+                : false;
+
+            if (!saldoRubricasHabilitado) {
+                // Flag desligado: comportamento idêntico ao de antes da
+                // feature — só a tabela rubricas, sem tocar em v_saldo_rubricas.
+                const { data, error } = await sb
+                    .from('rubricas')
+                    .select('*')
+                    .eq('project_id', currentProjectId)
+                    .order('rubrica_id');
+                if (error) { console.error("Erro ao carregar rubricas:", error); return; }
+                renderRubricas((data || []).map(r => ({ ...r, codigo_rubrica: r.rubrica_id })));
+                return;
+            }
+
+            // CR-2026-001 Fase 3.3: v_saldo_rubricas agora expõe codigo_rubrica
+            // (o código numérico SALIC, rubricas.rubrica_id) além de rubrica_id
+            // (a UUID, r.id) — dá pra ler tudo direto da view, sem merge em JS.
             const { data, error } = await sb
-                .from('rubricas')
+                .from('v_saldo_rubricas')
                 .select('*')
                 .eq('project_id', currentProjectId)
-                .order('rubrica_id');
+                .order('codigo_rubrica');
 
             if (error) {
                 console.error("Erro ao carregar rubricas:", error);
                 return;
             }
 
-            renderRubricas(data);
+            // Normaliza `id` (a view não expõe essa coluna, só a UUID em
+            // rubrica_id) para que renderRubricas use o mesmo campo nos dois
+            // caminhos (flag ligado/desligado).
+            renderRubricas((data || []).map(r => ({ ...r, id: r.rubrica_id })));
         }
 
         function renderRubricas(rubricas) {
@@ -486,54 +513,98 @@
                 return;
             }
 
+            const fmtOuIndisponivel = (n) => (n === null || n === undefined) ? 'Indisponível' : formatCurrency(n);
+
             container.innerHTML = rubricas.map(r => {
                 const approved = parseFloat(r.valor_aprovado || 0);
-                const used = parseFloat(r.valor_utilizado || 0);
-                const percent = approved > 0 ? (used / approved) * 100 : 0;
-                const ratio = approved > 0 ? (used / approved) : 0;
-
-                const limite = (r.percentual_alerta != null) ? (Number(r.percentual_alerta) / 100) : 0.9;
-                const isNearingLimit = ratio >= limite && ratio < 1;
-                const isExcedida = ratio >= 1;
+                const codigo = r.codigo_rubrica || r.rubrica_id;
                 const isAlertActive = r.alerta_limite_ativo === true;
 
-                let progressColor = 'var(--m2-accent)';
-                if (isExcedida) progressColor = 'var(--error)';
-                else if (isNearingLimit) progressColor = 'var(--warning)';
+                // CR-2026-001 — flag por org: desligado, mantém exatamente o
+                // cálculo/render de antes da feature (valor_utilizado local).
+                // Ligado, usa v_saldo_rubricas (Fase 3: já inclui comprometido).
+                let usoHtml, percentHtml, barWidth, barColor, pillHtml, usoWrapStyle, alertaWrapStyle;
 
-                let pillHtml = '<span class="pill pill-ok">OK</span>';
-                if (isExcedida) pillHtml = '<span class="pill pill-excedida">EXCEDIDA</span>';
-                else if (isNearingLimit) pillHtml = '<span class="pill pill-atencao">ATENÇÃO</span>';
+                if (!saldoRubricasHabilitado) {
+                    // Comportamento idêntico ao de antes da feature: uso/%/
+                    // barra/alerta-container ficavam display:none e nenhum
+                    // pill era renderizado (só o código, nome, etapa e o
+                    // valor aprovado apareciam de fato).
+                    const used = parseFloat(r.valor_utilizado || 0);
+                    const percent = approved > 0 ? (used / approved) * 100 : 0;
+                    const progressColor = 'var(--m2-accent)';
+
+                    usoWrapStyle = 'display:none;';
+                    alertaWrapStyle = 'display:none;';
+                    pillHtml = '';
+                    usoHtml = `
+                        <div style="display: flex; justify-content: space-between; font-size: 0.75rem; font-weight: 600;">
+                            <span>${formatCurrency(used)}</span>
+                            <span style="color: var(--text-muted);">/ ${formatCurrency(approved)}</span>
+                        </div>`;
+                    barWidth = Math.min(percent, 100);
+                    barColor = progressColor;
+                    percentHtml = percent.toFixed(1) + '%';
+                } else {
+                    usoWrapStyle = '';
+                    alertaWrapStyle = '';
+                    const temCaptura = !!r.ultima_captura_em;
+                    const executadoSalic = temCaptura ? parseFloat(r.executado_salic || 0) : null;
+                    const dispProjetado = temCaptura ? parseFloat(r.disponivel_projetado || 0) : null;
+                    const percent = (temCaptura && approved > 0) ? ((approved - dispProjetado) / approved) * 100 : 0;
+                    const ratio = (temCaptura && approved > 0) ? ((approved - dispProjetado) / approved) : 0;
+                    const limite = (r.percentual_alerta != null) ? (Number(r.percentual_alerta) / 100) : 0.9;
+                    const isNearingLimit = temCaptura && ratio >= limite && ratio < 1;
+                    const isExcedida = temCaptura && ratio >= 1;
+
+                    barColor = 'var(--m2-accent)';
+                    if (isExcedida) barColor = 'var(--error)';
+                    else if (isNearingLimit) barColor = 'var(--warning)';
+
+                    pillHtml = '<span class="pill pill-ok">OK</span>';
+                    if (!temCaptura) pillHtml = '<span class="pill pill-indisponivel">SEM CAPTURA</span>';
+                    else if (isExcedida) pillHtml = '<span class="pill pill-excedida">EXCEDIDA</span>';
+                    else if (isNearingLimit) pillHtml = '<span class="pill pill-atencao">ATENÇÃO</span>';
+
+                    usoHtml = `
+                        <div style="display: flex; justify-content: space-between; font-size: 0.7rem; font-weight: 600; color: var(--text-muted);">
+                            <span>Executado (SALIC): <strong style="color: var(--text-primary);">${fmtOuIndisponivel(executadoSalic)}</strong></span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.7rem; font-weight: 600; color: var(--text-muted); margin-top: 2px;">
+                            <span>Disponível (projeção): <strong style="color: ${(dispProjetado !== null && dispProjetado < 0) ? 'var(--error)' : 'var(--text-primary)'};">${fmtOuIndisponivel(dispProjetado)}</strong></span>
+                        </div>`;
+                    barWidth = temCaptura ? Math.min(percent, 100) : 0;
+                    if (!temCaptura) barColor = 'var(--border-light)';
+                    percentHtml = temCaptura ? percent.toFixed(1) + '%' : '—';
+                }
 
                 return `
                     <div class="glass-card rubrica-card">
-                        <div style="font-weight: 700; color: var(--text-secondary);">${r.rubrica_id || '---'}</div>
+                        <div style="font-weight: 700; color: var(--text-secondary);">${codigo || '---'}</div>
 
                         <div>
                             <div style="font-weight: 700; color: var(--text-primary);">
-                                ${r.rubrica_id ? `<span style="color: var(--m2-accent); font-family: monospace; font-size: 0.85em;">[${r.rubrica_id}]</span> ` : ''}${escapeHtml(r.nome)}
+                                ${codigo ? `<span style="color: var(--m2-accent); font-family: monospace; font-size: 0.85em;">[${codigo}]</span> ` : ''}${escapeHtml(r.nome)}
                             </div>
                             <div class="text-xs" style="color: var(--text-muted);">${escapeHtml(r.etapa || 'Fase de Execução')}</div>
                         </div>
 
                         <div style="padding-right: 2rem;">
                             <div style="font-size: 0.875rem; font-weight: 700; color: var(--text-primary);">${formatCurrency(approved)}</div>
-                            <div style="display:none;">
-                                <div style="display: flex; justify-content: space-between; font-size: 0.75rem; font-weight: 600;">
-                                    <span>${formatCurrency(used)}</span>
-                                    <span style="color: var(--text-muted);">/ ${formatCurrency(approved)}</span>
-                                </div>
-                                <div class="progress-container">
-                                    <div class="progress-bar" style="width: ${Math.min(percent, 100)}%; background: ${progressColor};"></div>
+                            <div style="${usoWrapStyle}">
+                                ${usoHtml}
+                                <div class="progress-container" style="margin-top: 4px;">
+                                    <div class="progress-bar" style="width: ${barWidth}%; background: ${barColor};"></div>
                                 </div>
                             </div>
                         </div>
 
                         <div style="display: flex; justify-content: flex-end; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-                            <div class="alerta-container" style="display:none;">
+                            <div class="alerta-container" style="${alertaWrapStyle}">
                                 <i data-lucide="${isAlertActive ? 'bell' : 'bell-off'}" style="width: 16px;"></i>
-                                <span>${percent.toFixed(1)}%</span>
+                                <span>${percentHtml}</span>
                             </div>
+                            ${pillHtml}
 
                             <button class="config-btn history-btn" title="Histórico de readequações" onclick="openHistoricoModal('${r.id}', ${JSON.stringify(r.nome).replace(/"/g,'&quot;')})">
                                 <i data-lucide="history" style="width: 18px;"></i>
@@ -545,7 +616,7 @@
                     </div>
                 `;
             }).join('');
-            
+
             if (window.lucide) window.lucide.createIcons();
         }
 
