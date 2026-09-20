@@ -362,11 +362,23 @@ app.post('/cron/captura-condicional', async (req, res) => {
     const { executarCapturaProjeto } = require('./salic_saldo_orquestrador.cjs');
     const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-    const { data: elegiveis, error: elegErr } = await supabase.rpc('saldo_salic_projetos_elegiveis_captura');
+    // BUG 4: sem teto, a primeira execução podia disparar uma sequência
+    // longa de acessos ao portal do governo numa chamada só. A função SQL
+    // já devolve os mais atrasados primeiro (nunca capturados, depois
+    // captura sucesso mais antiga) — só pegamos os N primeiros.
+    const MAX_PROJETOS_POR_CHAMADA = 5;
+
+    const { data: elegiveisTodos, error: elegErr } = await supabase.rpc('saldo_salic_projetos_elegiveis_captura');
     if (elegErr) return res.status(500).json({ error: elegErr.message });
 
+    const elegiveis = (elegiveisTodos || []).slice(0, MAX_PROJETOS_POR_CHAMADA);
+    const foraDoLote = (elegiveisTodos || []).slice(MAX_PROJETOS_POR_CHAMADA).map(p => p.project_id);
+    if (foraDoLote.length > 0) {
+        console.log(`[SALDO-SALIC][cron] ${foraDoLote.length} projeto(s) elegível(is) ficaram de fora deste lote (limite ${MAX_PROJETOS_POR_CHAMADA}): ${foraDoLote.join(', ')}`);
+    }
+
     const resultados = [];
-    for (const projeto of (elegiveis || [])) {
+    for (const projeto of elegiveis) {
         try {
             if (!projeto.sugestao_user_id) {
                 console.warn(`[SALDO-SALIC][cron] Projeto ${projeto.project_id} elegível mas sem usuário disparador conhecido — pulando.`);
@@ -405,7 +417,13 @@ app.post('/cron/captura-condicional', async (req, res) => {
         await wait(3000);
     }
 
-    return res.json({ success: true, processados: resultados.length, resultados });
+    return res.json({
+        success: true,
+        processados: resultados.length,
+        resultados,
+        fora_do_lote: foraDoLote.length,
+        projetos_fora_do_lote: foraDoLote
+    });
 });
 
 // Tratamento de erros global para evitar crash do processo

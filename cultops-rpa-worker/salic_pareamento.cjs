@@ -12,6 +12,15 @@ function normalizar(s) {
         .toLowerCase();
 }
 
+// Correção de bug (produção): o PrestAI grava etapa com prefixo numérico
+// ("2 - Produção / Execução"), o relatório do SALIC devolve sem prefixo
+// ("Produção / Execução") — sem isso, normalizar() nunca casava a etapa
+// e 100% das linhas caíam na fila manual. Idempotente para etapas que já
+// vêm sem prefixo (é o caso do lado SALIC).
+function normalizarEtapa(s) {
+    return normalizar(s).replace(/^[0-9]+\s*-\s*/, '');
+}
+
 /**
  * @param {Object} supabase - client com service_role (mesmo do server.js)
  * @param {Object} params - { projectId, organizationId, capturaId, linhas }
@@ -31,7 +40,7 @@ async function parearLinhas(supabase, { projectId, organizationId, capturaId, li
     if (vinculosErr) throw vinculosErr;
 
     const chaveVinculo = (etapa, item, valor) =>
-        `${normalizar(etapa)}|${normalizar(item)}|${Number(valor)}`;
+        `${normalizarEtapa(etapa)}|${normalizar(item)}|${Number(valor)}`;
 
     const vinculoMap = new Map(
         (vinculos || []).map(v => [chaveVinculo(v.chave_etapa, v.chave_item, v.chave_vl_programado), v.rubrica_id])
@@ -41,7 +50,7 @@ async function parearLinhas(supabase, { projectId, organizationId, capturaId, li
     const novosVinculos = [];
 
     for (const linha of linhas) {
-        const etapaNorm = normalizar(linha.etapa);
+        const etapaNorm = normalizarEtapa(linha.etapa);
         const itemNorm = normalizar(linha.item);
         let rubricaId = null;
         let nivel = null;
@@ -58,7 +67,7 @@ async function parearLinhas(supabase, { projectId, organizationId, capturaId, li
         // Nível 1: match único por (etapa, nome=item)
         if (!rubricaId) {
             const candidatas = (rubricas || []).filter(r =>
-                normalizar(r.etapa) === etapaNorm && normalizar(r.nome) === itemNorm
+                normalizarEtapa(r.etapa) === etapaNorm && normalizar(r.nome) === itemNorm
             );
             if (candidatas.length === 1) {
                 rubricaId = candidatas[0].id;
@@ -125,4 +134,4 @@ async function parearLinhas(supabase, { projectId, organizationId, capturaId, li
     return { total: resultados.length, pareadas, fila: resultados.length - pareadas };
 }
 
-module.exports = { parearLinhas, normalizar };
+module.exports = { parearLinhas, normalizar, normalizarEtapa };

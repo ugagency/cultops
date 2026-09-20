@@ -26,13 +26,16 @@ async function detectarDivergencias(supabase, { projectId, organizationId, captu
         executadoPorRubrica[l.rubrica_id] = (executadoPorRubrica[l.rubrica_id] || 0) + Number(l.vl_executado || 0);
     });
 
-    const rubricaIds = Object.keys(executadoPorRubrica);
-    if (rubricaIds.length === 0) return { divergencias: 0 };
-
+    // Correção de bug: antes a busca de despesas era filtrada pelas
+    // rubricas desta captura (.in('rubrica_id', rubricaIds)), então uma
+    // rubrica com despesa confirmada no PrestAI mas AUSENTE do relatório
+    // do SALIC nunca entrava na comparação — era o cenário mais grave
+    // ("mandei e o SALIC não registrou"). Agora busca por projeto inteiro
+    // e a união dos dois lados decide quais rubricas comparar.
     const { data: despesas, error: despesasErr } = await supabase
         .from('despesas')
         .select('rubrica_id, valor')
-        .in('rubrica_id', rubricaIds)
+        .eq('project_id', projectId)
         .not('data_salic', 'is', null)
         .lte('data_salic', concluidaEm);
     if (despesasErr) throw despesasErr;
@@ -42,9 +45,17 @@ async function detectarDivergencias(supabase, { projectId, organizationId, captu
         confirmadoPorRubrica[d.rubrica_id] = (confirmadoPorRubrica[d.rubrica_id] || 0) + Number(d.valor || 0);
     });
 
+    const rubricaIds = Array.from(new Set([
+        ...Object.keys(executadoPorRubrica),
+        ...Object.keys(confirmadoPorRubrica)
+    ]));
+    if (rubricaIds.length === 0) return { divergencias: 0 };
+
     const novasDivergencias = rubricaIds
         .map(rubricaId => {
-            const vlSalic = executadoPorRubrica[rubricaId];
+            // Rubrica ausente da captura (nunca lançada no SALIC) entra
+            // com executado_salic = 0, não fica de fora da comparação.
+            const vlSalic = executadoPorRubrica[rubricaId] || 0;
             const vlPrestai = confirmadoPorRubrica[rubricaId] || 0;
             const diferenca = vlSalic - vlPrestai;
             return { rubricaId, vlSalic, vlPrestai, diferenca };
