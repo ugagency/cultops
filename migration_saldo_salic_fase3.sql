@@ -89,7 +89,7 @@ WITH ultima_captura AS (
         id AS captura_id,
         concluida_em
     FROM public.saldo_salic_capturas
-    WHERE status = 'sucesso'
+    WHERE status = 'sucesso' AND concluida_em IS NOT NULL
     ORDER BY project_id, concluida_em DESC
 ),
 executado AS (
@@ -127,13 +127,18 @@ em_transito AS (
 ),
 contrato_consumido AS (
     -- NFs (despesas) vinculadas a cada contrato via documents.contract_id.
-    -- Sem filtro de status de propósito — ver comentário acima da view.
+    -- Exclui erro_rpa/bloqueado_conformidade: essas despesas também não
+    -- entram em em_transito (regra D3) nem em executado_efetivo (sem
+    -- data_salic) — se contassem aqui, abateriam o comprometido do
+    -- contrato sem aparecer em nenhuma outra camada, inflando
+    -- disponivel_projetado. Correção de bug (produção, 3 notas, R$ 22.359,85).
     SELECT
         doc.contract_id,
         SUM(d.valor) AS total
     FROM public.despesas d
     JOIN public.documents doc ON doc.id = d.document_id
     WHERE doc.contract_id IS NOT NULL
+      AND d.status NOT IN ('erro_rpa', 'bloqueado_conformidade')
     GROUP BY doc.contract_id
 ),
 comprometido_por_rubrica AS (
@@ -145,11 +150,14 @@ comprometido_por_rubrica AS (
     WHERE c.status = 'ativo'
       AND c.excluido_em IS NULL
       AND c.rubrica_id IS NOT NULL
+      -- Contrato vencido nesta operação está sempre pago/concluído — não
+      -- deve mais reservar saldo. Sem isso o comprometido de dia-um
+      -- inflava para R$ 120.468 (produção) em vez de R$ 14.000.
+      AND (c.data_fim IS NULL OR c.data_fim >= CURRENT_DATE)
     GROUP BY c.rubrica_id
 )
 SELECT
     r.id AS rubrica_id,
-    r.rubrica_id AS codigo_rubrica,
     r.project_id,
     r.organization_id,
     r.nome,
@@ -180,7 +188,12 @@ SELECT
              - (COALESCE(ex.executado_salic, 0) + COALESCE(nfs.total, 0))
              - COALESCE(et.total, 0)
              - COALESCE(cpr.total, 0)
-    END AS disponivel_projetado
+    END AS disponivel_projetado,
+    -- codigo_rubrica precisa ficar por ÚLTIMO no SELECT: CREATE OR REPLACE
+    -- VIEW só aceita ACRESCENTAR colunas ao final da lista existente — em
+    -- qualquer outra posição, o Postgres recusa com "cannot change name of
+    -- view column" (já aconteceu em produção).
+    r.rubrica_id AS codigo_rubrica
 FROM public.rubricas r
 LEFT JOIN ultima_captura uc ON uc.project_id = r.project_id
 LEFT JOIN executado ex ON ex.project_id = r.project_id AND ex.rubrica_id = r.id
@@ -204,12 +217,21 @@ COMMENT ON VIEW public.v_saldo_rubricas IS
 -- Também retorna o disparador da captura mais recente do projeto (se
 -- houver), para o worker localizar credenciais SALIC de um usuário real
 -- em vez de rodar sem contexto de usuário.
+--
+-- Correção de bug: o endpoint que consome esta função (/cron/captura-
+-- condicional) não tinha teto de quantos projetos processava por
+-- chamada. Para dar ao worker como priorizar quando limitar (BUG 4:
+-- máximo 5 por chamada), a função agora também retorna
+-- ultima_captura_sucesso_em e já vem ordenada com os projetos mais
+-- atrasados primeiro (nunca capturados, depois captura sucesso mais
+-- antiga) — o worker só precisa pegar os N primeiros da lista.
 CREATE OR REPLACE FUNCTION public.saldo_salic_projetos_elegiveis_captura()
 RETURNS TABLE (
     project_id UUID,
     pronac TEXT,
     organization_id UUID,
-    sugestao_user_id UUID
+    sugestao_user_id UUID,
+    ultima_captura_sucesso_em TIMESTAMPTZ
 ) AS $$
     SELECT
         p.id,
@@ -221,7 +243,12 @@ RETURNS TABLE (
             WHERE c.project_id = p.id AND c.disparada_por IS NOT NULL
             ORDER BY c.iniciada_em DESC
             LIMIT 1
-        ) AS sugestao_user_id
+        ) AS sugestao_user_id,
+        (
+            SELECT MAX(c.concluida_em)
+            FROM public.saldo_salic_capturas c
+            WHERE c.project_id = p.id AND c.status = 'sucesso'
+        ) AS ultima_captura_sucesso_em
     FROM public.projects p
     WHERE EXISTS (SELECT 1 FROM public.despesas d WHERE d.project_id = p.id)
       AND NOT EXISTS (
@@ -237,7 +264,8 @@ RETURNS TABLE (
           WHERE c2.project_id = p.id
             AND c2.status = 'executando'
             AND c2.iniciada_em > now() - interval '10 minutes'
-      );
+      )
+    ORDER BY ultima_captura_sucesso_em ASC NULLS FIRST;
 $$ LANGUAGE sql STABLE;
 
 

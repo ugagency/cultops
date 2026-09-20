@@ -226,7 +226,7 @@ WITH ultima_captura AS (
         id AS captura_id,
         concluida_em
     FROM public.saldo_salic_capturas
-    WHERE status = 'sucesso'
+    WHERE status = 'sucesso' AND concluida_em IS NOT NULL
     ORDER BY project_id, concluida_em DESC
 ),
 executado AS (
