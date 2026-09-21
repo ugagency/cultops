@@ -1,6 +1,60 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 
+const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// ── SIDEBAR DO SALIC (#sidebar-vue, accordion Materialize/Vue) ───────────
+// Links de seção: <a class="collapsible-header"><i class="material-icons">
+// list_alt</i> <span>Avaliação de Resultados</span></a> — o <i> carrega o
+// NOME do ícone como texto, então a.textContent vira "list_alt Avaliação de
+// Resultados" e NUNCA casa com comparação exata. O rótulo correto é o texto
+// do <span>; links de subitem não têm <span> e o rótulo é o texto do <a>.
+// Só considera links VISÍVEIS: o subitem existe no DOM mesmo com o accordion
+// pai fechado (display:none), e só deve ser clicado depois que o pai abriu.
+async function clicarLinkSidebar(page, textoAlvo) {
+    return await page.evaluate((alvo) => {
+        const norm = (s) => String(s || '')
+            .normalize('NFD').replace(/\p{Diacritic}/gu, '')
+            .replace(/\s+/g, ' ').trim().toLowerCase();
+        const raiz = document.querySelector('#sidebar-vue') || document;
+        const rotulo = (a) => {
+            const span = a.querySelector('span');
+            if (span) return span.textContent;
+            const clone = a.cloneNode(true);
+            clone.querySelectorAll('i').forEach(i => i.remove());
+            return clone.textContent;
+        };
+        const visivel = (el) => el.getClientRects().length > 0;
+        const alvoNorm = norm(alvo);
+        const link = Array.from(raiz.querySelectorAll('a'))
+            .find(a => visivel(a) && norm(rotulo(a)) === alvoNorm);
+        if (!link) return false;
+        link.click();
+        return true;
+    }, textoAlvo);
+}
+
+async function rotulosVisiveisSidebar(page) {
+    return await page.evaluate(() => {
+        const raiz = document.querySelector('#sidebar-vue');
+        if (!raiz) return null;
+        return Array.from(raiz.querySelectorAll('a'))
+            .filter(a => a.getClientRects().length > 0)
+            .map(a => (a.querySelector('span') || a).textContent.trim().replace(/\s+/g, ' '));
+    });
+}
+
+async function tentarClicarSidebar(page, textoAlvo) {
+    for (let i = 0; i < 15; i++) {
+        if (await clicarLinkSidebar(page, textoAlvo)) return true;
+        await wait(1000);
+    }
+    // Diagnóstico: mostra o que a sidebar realmente tinha de visível.
+    const rotulos = await rotulosVisiveisSidebar(page);
+    console.warn(`[SALIC-CAPTURA] "${textoAlvo}" nao encontrado. #sidebar-vue ${rotulos === null ? 'NAO EXISTE na pagina' : 'tem visiveis: ' + JSON.stringify(rotulos)}`);
+    return false;
+}
+
 /**
  * Captura read-only do relatório de Execução Física do SALIC.
  * CR-2026-001 Fase 1. Login e navegação por PRONAC reaproveitados de
@@ -14,7 +68,6 @@ const fs = require('fs');
  */
 async function capturarExecucaoSalic(config) {
     const { usuario, senha, pronac } = config;
-    const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
     if (!usuario || typeof usuario !== 'string') throw new Error(`Usuario invalido (Tipo: ${typeof usuario})`);
     if (!senha || typeof senha !== 'string') throw new Error(`Senha invalida (Tipo: ${typeof senha})`);
@@ -29,10 +82,14 @@ async function capturarExecucaoSalic(config) {
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
-            '--disable-gpu',
-            '--single-process'
+            '--disable-gpu'
         ]
     };
+
+    // --single-process derruba o Chrome no Windows ("Protocol error
+    // (Target.setAutoAttach): Target closed", reproduzido em teste). Só é
+    // usado fora do Windows (Docker/Linux), como em salic_insertion.cjs.
+    if (!isWindows) launchOptions.args.push('--single-process');
 
     if (isWindows) {
         launchOptions.executablePath = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
@@ -120,52 +177,25 @@ async function capturarExecucaoSalic(config) {
         await page.goto(urlProjeto, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
         // ── NAVEGAÇÃO ATÉ "EXECUÇÃO FÍSICA" (DOM inspecionado em produção) ──
-        // Tudo dentro de #sidebar-vue, sem mudança de URL — é accordion Vuetify:
-        // "Avaliação de Resultados" (<a><span> dentro de .collapsible-header)
-        //   -> "Relatório de execução financeira" -> "Execução física".
-        // Clique por texto exato (normalizado), não por classe — as classes
-        // waves-effect/waves-cyan se repetem em ~40 links do menu.
-        async function clicarLinkPorTexto(p, escopoSel, textoAlvo) {
-            return await p.evaluate((escopoSelector, alvo) => {
-                const norm = (s) => String(s || '')
-                    .normalize('NFD').replace(/\p{Diacritic}/gu, '')
-                    .replace(/\s+/g, ' ').trim().toLowerCase();
-                const raiz = document.querySelector(escopoSelector) || document;
-                const alvoNorm = norm(alvo);
-                const link = Array.from(raiz.querySelectorAll('a')).find(a => norm(a.textContent) === alvoNorm);
-                if (!link) return false;
-                link.click();
-                return true;
-            }, escopoSel, textoAlvo);
-        }
-
-        async function tentarClicarSidebar(textoAlvo, escopoSel) {
-            const escopo = escopoSel || '#sidebar-vue';
-            for (let i = 0; i < 15; i++) {
-                if (await clicarLinkPorTexto(page, escopo, textoAlvo)) return true;
-                await wait(1000);
-            }
-            return false;
-        }
-
+        // Tudo dentro de #sidebar-vue, sem mudança de URL: clica em "Avaliação de
+        // Resultados" (abre o accordion), depois "Relatório de execução
+        // financeira" (abre o sub-accordion), depois "Execução física".
+        // Casa pelo texto do <span> do rótulo (ver clicarLinkSidebar), não por
+        // classe — waves-effect/waves-cyan se repetem em ~40 links do menu.
         console.log('[SALIC-CAPTURA] Abrindo "Avaliação de Resultados"...');
-        if (!(await tentarClicarSidebar('Avaliação de Resultados', '.collapsible-header'))) {
-            // Fallback: procura em toda a sidebar, não só no header, caso o
-            // markup mude de posição sem mudar de texto.
-            if (!(await tentarClicarSidebar('Avaliação de Resultados'))) {
-                throw new Error('Nao encontrei o link "Avaliacao de Resultados" na sidebar (#sidebar-vue).');
-            }
+        if (!(await tentarClicarSidebar(page, 'Avaliação de Resultados'))) {
+            throw new Error('Nao encontrei o link "Avaliacao de Resultados" na sidebar (#sidebar-vue).');
         }
         await wait(500);
 
         console.log('[SALIC-CAPTURA] Abrindo "Relatório de execução financeira"...');
-        if (!(await tentarClicarSidebar('Relatório de execução financeira'))) {
+        if (!(await tentarClicarSidebar(page, 'Relatório de execução financeira'))) {
             throw new Error('Nao encontrei "Relatorio de execucao financeira" na sidebar (#sidebar-vue).');
         }
         await wait(500);
 
         console.log('[SALIC-CAPTURA] Abrindo "Execução física"...');
-        if (!(await tentarClicarSidebar('Execução física'))) {
+        if (!(await tentarClicarSidebar(page, 'Execução física'))) {
             throw new Error('Nao encontrei "Execucao fisica" na sidebar (#sidebar-vue).');
         }
         await wait(1500);
@@ -298,4 +328,4 @@ async function capturarExecucaoSalic(config) {
     }
 }
 
-module.exports = { capturarExecucaoSalic };
+module.exports = { capturarExecucaoSalic, clicarLinkSidebar, tentarClicarSidebar };
