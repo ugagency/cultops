@@ -355,7 +355,7 @@ app.post('/capturar-execucao', exigirUsuarioAutenticado, async (req, res) => {
 // (a condição de 4h é aplicada aqui dentro, não pelo scheduler).
 // ==============================================================
 app.post('/cron/captura-condicional', async (req, res) => {
-    if (req.headers['x-cron-secret'] !== process.env.CRON_SECRET) {
+    if (!process.env.CRON_SECRET || req.headers['x-cron-secret'] !== process.env.CRON_SECRET) {
         return res.status(401).json({ error: 'Não autorizado.' });
     }
 
