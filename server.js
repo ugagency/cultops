@@ -2147,7 +2147,7 @@ app.post('/api/m2/evidencia/notificar', async (req, res) => {
 // Envia alertas de guias vencendo em 7 dias aos gestores/analistas.
 // ─────────────────────────────────────────────────────────────────────────────
 app.post('/api/m2/cron-alerta-guias', async (req, res) => {
-    if (req.headers['x-cron-secret'] !== process.env.CRON_SECRET) {
+    if (!process.env.CRON_SECRET || req.headers['x-cron-secret'] !== process.env.CRON_SECRET) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
 
