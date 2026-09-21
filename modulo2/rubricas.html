@@ -147,6 +147,8 @@
         .pill-excedida::before { background: #FF5807; }
         .pill-indisponivel { background: #E5E7EB; color: #6B7280; }
         .pill-indisponivel::before { background: #6B7280; }
+        .pill-comprovado { background: #0A7D3E; color: #FFFFFF; }
+        .pill-comprovado::before { background: #0A7D3E; }
 
         /* Modal genérico */
         .modal-backdrop {
@@ -552,19 +554,22 @@
                     const executadoSalic = temCaptura ? parseFloat(r.executado_salic || 0) : null;
                     const dispProjetado = temCaptura ? parseFloat(r.disponivel_projetado || 0) : null;
                     const percent = (temCaptura && approved > 0) ? ((approved - dispProjetado) / approved) * 100 : 0;
-                    const ratio = (temCaptura && approved > 0) ? ((approved - dispProjetado) / approved) : 0;
-                    const limite = (r.percentual_alerta != null) ? (Number(r.percentual_alerta) / 100) : 0.9;
-                    const isNearingLimit = temCaptura && ratio >= limite && ratio < 1;
-                    const isExcedida = temCaptura && ratio >= 1;
+
+                    // Regra única em supabase-helper.js: Excedida só se o SALIC
+                    // passou do aprovado; Comprovado se o SALIC bateu o aprovado.
+                    const status = window.classificarStatusSaldo({
+                        aprovado: approved,
+                        executadoSalic,
+                        dispProjetado,
+                        alertaAtivo: r.alerta_limite_ativo,
+                        percentualAlerta: r.percentual_alerta
+                    });
 
                     barColor = 'var(--m2-accent)';
-                    if (isExcedida) barColor = 'var(--error)';
-                    else if (isNearingLimit) barColor = 'var(--warning)';
+                    if (status.key === 'excedida') barColor = 'var(--error)';
+                    else if (status.key === 'atencao') barColor = 'var(--warning)';
 
-                    pillHtml = '<span class="pill pill-ok">OK</span>';
-                    if (!temCaptura) pillHtml = '<span class="pill pill-indisponivel">SEM CAPTURA</span>';
-                    else if (isExcedida) pillHtml = '<span class="pill pill-excedida">EXCEDIDA</span>';
-                    else if (isNearingLimit) pillHtml = '<span class="pill pill-atencao">ATENÇÃO</span>';
+                    pillHtml = `<span class="pill ${status.cls}">${status.label.toUpperCase()}</span>`;
 
                     usoHtml = `
                         <div style="display: flex; justify-content: space-between; font-size: 0.7rem; font-weight: 600; color: var(--text-muted);">

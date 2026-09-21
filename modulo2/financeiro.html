@@ -151,6 +151,8 @@
         .pill-excedida::before { background: #FF5807; }
         .pill-indisponivel { background: #E5E7EB; color: #6B7280; }
         .pill-indisponivel::before { background: #6B7280; }
+        .pill-comprovado { background: #0A7D3E; color: #FFFFFF; }
+        .pill-comprovado::before { background: #0A7D3E; }
 
         .alert-row {
             padding: 0.85rem 1rem;
@@ -512,6 +514,7 @@
     <script src="../config.js"></script>
     <script src="../auth-logout.js"></script>
     <script src="supabase-helper.js"></script>
+    <script src="rubrica-combobox.js"></script>
     <script>
         const STATUS_DESPESA_EXECUTADO = ['enviado_salic', 'concluido', 'liberado_rpa', 'aguardando_d3'];
 
@@ -629,7 +632,7 @@
             try {
                 const [rubricasRes, despesasExecRes, impostosRes, checklistRes, contratosRes, despesasRecentesRes, projectDataRes, fornecedoresIn23Res, valorEfetivoRes, saldoSalicRes, filaSalicRes] = await Promise.all([
                     sb.from('rubricas')
-                        .select('id, nome, rubrica_id, valor_aprovado, valor_utilizado, alerta_limite_ativo, percentual_alerta')
+                        .select('id, nome, rubrica_id, produto, valor_aprovado, valor_utilizado, alerta_limite_ativo, percentual_alerta')
                         .eq('project_id', projectId)
                         .order('nome', { ascending: true }),
                     sb.from('despesas')
@@ -799,23 +802,6 @@
             return { label: 'OK', cls: 'pill-ok' };
         }
 
-        // Classifica pelo disponivel_projetado (projeção PrestAI), não pelo oficial —
-        // exigência do painel: o alerta preventivo tem que reagir ao que ainda vai
-        // chegar no SALIC, não só ao que já foi registrado lá.
-        function classifySaldoProjetado(aprov, dispProjetado, alertaAtivo, percAlerta) {
-            if (dispProjetado === null || dispProjetado === undefined) {
-                return { label: 'Sem captura', cls: 'pill-indisponivel' };
-            }
-            if (aprov <= 0) return { label: '—', cls: 'pill-ok' };
-            const util = aprov - dispProjetado;
-            const ratio = util / aprov;
-            if (ratio >= 1) return { label: 'Excedida', cls: 'pill-excedida' };
-            if (alertaAtivo === false) return { label: 'OK', cls: 'pill-ok' };
-            const limite = (percAlerta != null) ? (Number(percAlerta) / 100) : 0.9;
-            if (ratio >= limite) return { label: 'Atenção', cls: 'pill-atencao' };
-            return { label: 'OK', cls: 'pill-ok' };
-        }
-
         function fmtBRLouIndisponivel(n) {
             return (n === null || n === undefined) ? 'Indisponível' : fmtBRL(n);
         }
@@ -857,7 +843,13 @@
                 const dispOficial = saldoSalic.disponivel_oficial ?? null;
                 const emTransito = Number(saldoSalic.em_transito || 0);
                 const dispProjetado = saldoSalic.disponivel_projetado ?? null;
-                const clsProjetado = classifySaldoProjetado(aprov, dispProjetado, r.alerta_limite_ativo, r.percentual_alerta);
+                const clsProjetado = window.classificarStatusSaldo({
+                    aprovado: aprov,
+                    executadoSalic,
+                    dispProjetado,
+                    alertaAtivo: r.alerta_limite_ativo,
+                    percentualAlerta: r.percentual_alerta
+                });
 
                 return `
                     <tr>
@@ -913,11 +905,11 @@
             }
             section.style.display = '';
 
-            const options = rubricas
-                .slice()
-                .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''))
-                .map(r => `<option value="${r.id}">${escapeHtml(r.nome || '—')}</option>`)
-                .join('');
+            // Combobox igual ao do M1 (modulo2/rubrica-combobox.js): produto como
+            // cabeçalho de grupo, dá para escolher OU digitar para filtrar. O mesmo
+            // nome de rubrica se repete em produtos diferentes (ex.: "Assistente de
+            // Produção", R$ 80.000 e R$ 3.000) — produto e valor aprovado desambiguam.
+            window.RubricaCombobox.definirLista(rubricas);
 
             const rows = fila.map(l => `
                 <tr>
@@ -928,10 +920,7 @@
                     <td class="num">${fmtBRL(l.vl_programado)}</td>
                     <td class="num">${fmtBRL(l.vl_executado)}</td>
                     <td>
-                        <select class="saldo-select" id="saldo-salic-select-${l.id}">
-                            <option value="">Selecione a rubrica…</option>
-                            ${options}
-                        </select>
+                        <input type="text" class="saldo-select" id="saldo-salic-select-${l.id}" data-rubrica-combo autocomplete="off" placeholder="Digite ou escolha a rubrica…">
                     </td>
                     <td>
                         <button class="btn-inline primary" onclick="confirmarPareamentoSalic('${l.id}')">Confirmar</button>
@@ -986,9 +975,15 @@
         }
 
         async function confirmarPareamentoSalic(linhaId) {
-            const select = document.getElementById(`saldo-salic-select-${linhaId}`);
-            const rubricaId = select?.value;
-            if (!rubricaId) { alert('Selecione uma rubrica antes de confirmar.'); return; }
+            const campo = document.getElementById(`saldo-salic-select-${linhaId}`);
+            const texto = (campo?.value || '').trim();
+            if (!texto) { alert('Escolha ou digite uma rubrica antes de confirmar.'); return; }
+            // Texto -> rubrica: aceita o rótulo escolhido na lista, e recusa o que
+            // não bate com exatamente uma rubrica (ambíguo ou digitado à mão errado)
+            // em vez de vincular a rubrica errada.
+            const escolhida = window.RubricaCombobox.resolver(texto, currentRubricas);
+            if (!escolhida) { alert('Rubrica não encontrada ou ambígua. Escolha uma opção da lista (o produto aparece como cabeçalho de cada grupo).'); return; }
+            const rubricaId = escolhida.id;
             try {
                 const { data: { session } } = await sb.auth.getSession();
                 const token = session?.access_token || '';

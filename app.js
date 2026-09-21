@@ -4543,6 +4543,23 @@ const OrcamentoView = () => {
         'erro': 'Erro ao processar o PDF. Verifique se é a Planilha Orçamentária correta.'
     };
 
+    // CR-2026-001: botão "Atualizar do SALIC" — só com a flag da organização
+    // ligada (mesma regra do painel M2) e com um projeto selecionado.
+    const atualizandoSaldo = state.saldoSalicAtualizando === true;
+    const ultimaCapturaIso = Object.values(state.saldoRubricas || {}).map(s => s.ultima_captura_em).find(Boolean);
+    const ultimaCapturaTxt = ultimaCapturaIso
+        ? `Última captura: ${new Date(ultimaCapturaIso).toLocaleDateString('pt-BR')} ${new Date(ultimaCapturaIso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+        : 'Sem captura do SALIC ainda';
+    const saldoSalicControls = (state.saldoRubricasHabilitado === true && state.filters.project) ? `
+        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem;">
+            <span class="text-xs text-muted">${ultimaCapturaTxt}</span>
+            <button class="btn btn-secondary" onclick="window.handleAtualizarSaldoSalic()" ${atualizandoSaldo ? 'disabled' : ''} style="display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.5rem 0.9rem; font-size: 12px;">
+                <i data-lucide="${atualizandoSaldo ? 'loader-2' : 'refresh-cw'}" class="${atualizandoSaldo ? 'spin' : ''}" style="width: 14px;"></i>
+                ${atualizandoSaldo ? 'Capturando…' : 'Atualizar do SALIC'}
+            </button>
+        </div>
+    ` : '';
+
     const headerContent = `
         <div style="display: flex; justify-content: space-between; align-items: flex-end;">
             <div>
@@ -4561,6 +4578,7 @@ const OrcamentoView = () => {
                         `).join('')}
                     </select>
                 </div>
+                ${saldoSalicControls}
             </div>
         </div>
     `;
@@ -5043,6 +5061,43 @@ async function fetchSaldoRubricas(projectId) {
     if (error) { console.error('[saldo-salic] fetch view:', error); state.saldoRubricas = {}; return; }
     state.saldoRubricas = Object.fromEntries((data || []).map(r => [r.rubrica_id, r]));
 }
+
+// CR-2026-001: dispara a captura do relatório de Execução Física do SALIC para o
+// projeto selecionado (mesma rota do botão do painel M2) e recarrega o saldo.
+window.handleAtualizarSaldoSalic = async function () {
+    const projectId = state.filters.project;
+    if (!supabaseClient || !projectId || state.saldoSalicAtualizando) return;
+
+    state.saldoSalicAtualizando = true;
+    render();
+    showToast('Capturando do SALIC… pode levar de 1 a 2 minutos.', 'info');
+
+    try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session) throw new Error('Sessão expirada. Faça login novamente.');
+
+        const resp = await fetch('/api/saldo-salic/capturar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
+            body: JSON.stringify({ projectId })
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok || json.success === false) throw new Error(json.error || 'Falha na captura do SALIC.');
+
+        // O usuário pode ter trocado de projeto durante a captura: só recarrega
+        // o saldo se ainda estiver no mesmo, senão sobrescreveria o do outro.
+        if (state.filters.project === projectId) await fetchSaldoRubricas(projectId);
+
+        const pendentes = json.fila > 0 ? ` ${json.fila} linha(s) aguardam conferência no painel financeiro (M2).` : '';
+        showToast(`Saldo atualizado do SALIC (${json.total ?? '?'} linhas).${pendentes}`, 'success');
+    } catch (err) {
+        console.error('[saldo-salic] captura manual falhou:', err);
+        showToast('Erro ao capturar do SALIC: ' + err.message, 'error');
+    } finally {
+        state.saldoSalicAtualizando = false;
+        render();
+    }
+};
 
 async function fetchRubricaVersions(projectId) {
     if (!supabaseClient || !projectId) return;

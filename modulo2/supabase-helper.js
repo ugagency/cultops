@@ -406,3 +406,36 @@ async function isSaldoRubricasHabilitado(projectId) {
 }
 
 window.isSaldoRubricasHabilitado = isSaldoRubricasHabilitado;
+
+/**
+ * Status de uma rubrica no painel de saldo (CR-2026-001). Regra única,
+ * usada por financeiro.html e rubricas.html.
+ *
+ *  - Excedida:   SÓ quando o SALIC (número oficial) já passou do aprovado.
+ *  - Comprovado: o SALIC bateu exatamente o aprovado (gasto completo).
+ *  - Atenção:    a PROJEÇÃO (SALIC + em trânsito + comprometido) chegou ao
+ *                limite de alerta ou passou do aprovado, mas o SALIC ainda
+ *                não estourou — é o alerta preventivo, não um estouro.
+ *  - OK / Sem captura: como antes.
+ * Tolerância de R$ 0,01 (mesma da detecção de divergências).
+ */
+function classificarStatusSaldo({ aprovado, executadoSalic, dispProjetado, alertaAtivo, percentualAlerta }) {
+    const TOL = 0.01;
+    if (dispProjetado === null || dispProjetado === undefined) {
+        return { key: 'sem_captura', label: 'Sem captura', cls: 'pill-indisponivel' };
+    }
+    const aprov = Number(aprovado || 0);
+    const salic = Number(executadoSalic || 0);
+    if (salic > aprov + TOL) return { key: 'excedida', label: 'Excedida', cls: 'pill-excedida' };
+    if (aprov <= 0) return { key: 'sem_valor', label: '—', cls: 'pill-ok' };
+    if (Math.abs(salic - aprov) <= TOL) return { key: 'comprovado', label: 'Comprovado', cls: 'pill-comprovado' };
+
+    const ratio = (aprov - Number(dispProjetado)) / aprov;
+    if (ratio >= 1) return { key: 'atencao', label: 'Atenção', cls: 'pill-atencao' };
+    if (alertaAtivo === false) return { key: 'ok', label: 'OK', cls: 'pill-ok' };
+    const limite = (percentualAlerta != null) ? (Number(percentualAlerta) / 100) : 0.9;
+    if (ratio >= limite) return { key: 'atencao', label: 'Atenção', cls: 'pill-atencao' };
+    return { key: 'ok', label: 'OK', cls: 'pill-ok' };
+}
+
+window.classificarStatusSaldo = classificarStatusSaldo;
