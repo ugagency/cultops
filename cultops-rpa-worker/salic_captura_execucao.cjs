@@ -119,89 +119,123 @@ async function capturarExecucaoSalic(config) {
         console.log('[SALIC-CAPTURA] Navegando para os detalhes do projeto...');
         await page.goto(urlProjeto, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-        // ── NAVEGAÇÃO ATÉ "EXECUÇÃO FÍSICA" (somente leitura, sem análogo em salic_insertion.cjs) ──
-        // Sidebar "Avaliação de Resultados" -> "Relatório de Execução Financeira" -> aba "Execução Física"
-        async function clicarPorTexto(p, ...trechosBusca) {
-            return await p.evaluate((trechos) => {
-                const norm = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-                const alvo = trechos.map(norm);
-                const allElements = Array.from(document.querySelectorAll('a, span, li, div, button'));
-                for (const el of allElements) {
-                    const text = norm((el.textContent || '').trim());
-                    if (text.length > 0 && text.length < 200 && alvo.every(t => text.includes(t))) {
-                        const clicavel = el.tagName === 'A' || el.tagName === 'BUTTON' ? el : (el.closest('a, button') || el);
-                        clicavel.click();
-                        return true;
-                    }
-                }
-                return false;
-            }, trechosBusca);
+        // ── NAVEGAÇÃO ATÉ "EXECUÇÃO FÍSICA" (DOM inspecionado em produção) ──
+        // Tudo dentro de #sidebar-vue, sem mudança de URL — é accordion Vuetify:
+        // "Avaliação de Resultados" (<a><span> dentro de .collapsible-header)
+        //   -> "Relatório de execução financeira" -> "Execução física".
+        // Clique por texto exato (normalizado), não por classe — as classes
+        // waves-effect/waves-cyan se repetem em ~40 links do menu.
+        async function clicarLinkPorTexto(p, escopoSel, textoAlvo) {
+            return await p.evaluate((escopoSelector, alvo) => {
+                const norm = (s) => String(s || '')
+                    .normalize('NFD').replace(/\p{Diacritic}/gu, '')
+                    .replace(/\s+/g, ' ').trim().toLowerCase();
+                const raiz = document.querySelector(escopoSelector) || document;
+                const alvoNorm = norm(alvo);
+                const link = Array.from(raiz.querySelectorAll('a')).find(a => norm(a.textContent) === alvoNorm);
+                if (!link) return false;
+                link.click();
+                return true;
+            }, escopoSel, textoAlvo);
         }
 
-        async function tentarClicar(...trechos) {
+        async function tentarClicarSidebar(textoAlvo, escopoSel) {
+            const escopo = escopoSel || '#sidebar-vue';
             for (let i = 0; i < 15; i++) {
-                let clicou = await clicarPorTexto(page, ...trechos);
-                if (!clicou) {
-                    for (const frame of page.frames()) {
-                        clicou = await clicarPorTexto(frame, ...trechos);
-                        if (clicou) break;
-                    }
-                }
-                if (clicou) return true;
-                await wait(2000);
+                if (await clicarLinkPorTexto(page, escopo, textoAlvo)) return true;
+                await wait(1000);
             }
             return false;
         }
 
         console.log('[SALIC-CAPTURA] Abrindo "Avaliação de Resultados"...');
-        if (!(await tentarClicar('avaliacao', 'resultados'))) {
-            throw new Error('Nao encontrei o item "Avaliacao de Resultados" na sidebar.');
-        }
-        await wait(2000);
-
-        console.log('[SALIC-CAPTURA] Abrindo "Relatório de Execução Financeira"...');
-        if (!(await tentarClicar('relatorio', 'execucao financeira'))) {
-            throw new Error('Nao encontrei "Relatorio de Execucao Financeira".');
-        }
-        await wait(2000);
-
-        console.log('[SALIC-CAPTURA] Abrindo aba "Execução Física"...');
-        if (!(await tentarClicar('execucao fisica'))) {
-            throw new Error('Nao encontrei a aba "Execucao Fisica".');
-        }
-        await wait(2000);
-
-        // Seletor "Todos" no paginador — precisa vir ANTES de ler, senão só
-        // pega a primeira página. Único "clique" desta etapa é em um <select>
-        // de paginação, não em botão de ação.
-        console.log('[SALIC-CAPTURA] Selecionando "Todos" no paginador...');
-        const selecionouTodos = await page.evaluate(() => {
-            const selects = Array.from(document.querySelectorAll('select'));
-            for (const sel of selects) {
-                const opts = Array.from(sel.options);
-                const optTodos = opts.find(o => o.textContent.trim().toLowerCase() === 'todos');
-                if (optTodos) {
-                    sel.value = optTodos.value;
-                    sel.dispatchEvent(new Event('change', { bubbles: true }));
-                    return true;
-                }
+        if (!(await tentarClicarSidebar('Avaliação de Resultados', '.collapsible-header'))) {
+            // Fallback: procura em toda a sidebar, não só no header, caso o
+            // markup mude de posição sem mudar de texto.
+            if (!(await tentarClicarSidebar('Avaliação de Resultados'))) {
+                throw new Error('Nao encontrei o link "Avaliacao de Resultados" na sidebar (#sidebar-vue).');
             }
-            return false;
-        });
-        if (!selecionouTodos) {
-            console.warn('[SALIC-CAPTURA] AVISO: nao encontrei seletor "Todos" — pode capturar so a primeira pagina.');
         }
-        await wait(2500);
+        await wait(500);
+
+        console.log('[SALIC-CAPTURA] Abrindo "Relatório de execução financeira"...');
+        if (!(await tentarClicarSidebar('Relatório de execução financeira'))) {
+            throw new Error('Nao encontrei "Relatorio de execucao financeira" na sidebar (#sidebar-vue).');
+        }
+        await wait(500);
+
+        console.log('[SALIC-CAPTURA] Abrindo "Execução física"...');
+        if (!(await tentarClicarSidebar('Execução física'))) {
+            throw new Error('Nao encontrei "Execucao fisica" na sidebar (#sidebar-vue).');
+        }
+        await wait(1500);
+
+        // Seletor "Linhas por página" — NÃO é <select> nativo, é Vuetify
+        // (.v-select__slot dentro de .v-datatable__actions__select, abre um
+        // .v-menu__content com .v-list__tile__title como opções). page.select()
+        // não funciona aqui. Precisa vir ANTES de ler, senão só pega a
+        // primeira página. Único "clique" desta etapa é no seletor de
+        // paginação, não em botão de ação.
+        console.log('[SALIC-CAPTURA] Abrindo seletor "Linhas por página"...');
+        const abriuSeletor = await page.evaluate(() => {
+            const slot = document.querySelector('.v-datatable__actions__select .v-select__slot');
+            if (!slot) return false;
+            slot.click();
+            return true;
+        });
+
+        let selecionouTodos = false;
+        if (!abriuSeletor) {
+            console.warn('[SALIC-CAPTURA] AVISO: nao encontrei .v-datatable__actions__select .v-select__slot — pode capturar so a primeira pagina.');
+        } else {
+            const menuAbriu = await page.waitForSelector('.v-menu__content', { visible: true, timeout: 10000 }).catch(() => null);
+            if (menuAbriu) {
+                await wait(300); // folga para a animação de abertura do menu
+                selecionouTodos = await page.evaluate(() => {
+                    const itens = Array.from(document.querySelectorAll('.v-menu__content .v-list__tile__title'));
+                    const todos = itens.find(el => (el.textContent || '').trim() === 'Todos');
+                    if (!todos) return false;
+                    todos.click();
+                    return true;
+                });
+            }
+            if (!selecionouTodos) {
+                console.warn('[SALIC-CAPTURA] AVISO: nao encontrei a opcao "Todos" no menu — pode capturar so a primeira pagina.');
+            }
+        }
+
+        if (selecionouTodos) {
+            // Confirma que a paginação virou "1-N de N" (mesmo N nas duas
+            // posições) antes de ler — evita ler a tabela no meio da
+            // renderização das linhas novas.
+            console.log('[SALIC-CAPTURA] Aguardando paginação confirmar "Todos"...');
+            const paginacaoOk = await page.waitForFunction(() => {
+                const container = document.querySelector('.v-datatable__actions') || document.body;
+                const m = (container.textContent || '').match(/(\d+)\s*-\s*(\d+)\s+de\s+(\d+)/);
+                if (!m) return false;
+                return m[2] === m[3];
+            }, { timeout: 15000 }).catch(() => null);
+            if (!paginacaoOk) {
+                console.warn('[SALIC-CAPTURA] AVISO: nao confirmei "N de N" na paginacao — pode capturar apenas parte das linhas.');
+            }
+        }
+        await wait(500);
 
         // ── LEITURA DA TABELA (v-datatable) ─────────────────────────────────
+        // <table class="v-datatable v-table theme--light">, <thead><tr><th>
+        // (N°, ETAPA, ITEM, UNIDADE, QTDE PROGRAMADA, VL. PROGRAMADO,
+        // % EXECUTADO, VL. EXECUTADO, % A EXECUTAR) e <tbody><tr><td> na
+        // mesma ordem. Sem id/data-attribute nas colunas — mapeia por
+        // POSIÇÃO do <th>, não por texto (não quebra se o SALIC mudar
+        // acentuação). Seleciona a tabela pela classe v-datatable/v-table,
+        // não mais pelo texto do cabeçalho.
         console.log('[SALIC-CAPTURA] Lendo tabela de execução física...');
         const leitura = await page.evaluate(() => {
             const tabelas = Array.from(document.querySelectorAll('table'));
-            const tabela = tabelas.find(t => {
-                const headerText = (t.querySelector('thead')?.innerText || '').toLowerCase();
-                return headerText.includes('etapa') && headerText.includes('executado');
-            });
-            if (!tabela) return { erro: 'tabela de execução física não encontrada', linhas: [] };
+            const tabela = tabelas.find(t => t.classList.contains('v-datatable') && t.classList.contains('v-table'));
+            if (!tabela) return { erro: 'tabela table.v-datatable.v-table não encontrada', linhas: [] };
+
+            const colunasHeader = Array.from(tabela.querySelectorAll('thead th')).map(th => th.textContent.trim());
 
             const linhas = Array.from(tabela.querySelectorAll('tbody tr'))
                 .map(tr => Array.from(tr.querySelectorAll('td')).map(td => td.innerText.trim()))
@@ -209,6 +243,7 @@ async function capturarExecucaoSalic(config) {
 
             return {
                 erro: null,
+                colunasHeader,
                 linhas: linhas.map(cols => ({
                     numero: cols[0] || null,
                     etapa: cols[1] || null,
@@ -224,6 +259,11 @@ async function capturarExecucaoSalic(config) {
         });
 
         if (leitura.erro) throw new Error('Falha ao ler tabela de execução física: ' + leitura.erro);
+
+        console.log('[SALIC-CAPTURA] Colunas do cabeçalho (por posição):', JSON.stringify(leitura.colunasHeader));
+        if (leitura.colunasHeader.length !== 9) {
+            console.warn(`[SALIC-CAPTURA] AVISO: esperava 9 colunas no cabeçalho, encontrei ${leitura.colunasHeader.length} — mapeamento por posição pode estar errado.`);
+        }
 
         // Normaliza formato BR (1.234,56) para numeric
         const parseNumBR = (s) => {
