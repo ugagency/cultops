@@ -832,7 +832,7 @@ app.post('/api/gestor/importar-fornecedores-salic',
 // um documento chega em 'aguardando_d3'. Mesmo padrão de segredo do
 // /api/m2/cron-alerta-guias (x-cron-secret / CRON_SECRET).
 app.post('/api/m1/verificar-fornecedor-salic', async (req, res) => {
-    if (req.headers['x-cron-secret'] !== process.env.CRON_SECRET) {
+    if (!process.env.CRON_SECRET || req.headers['x-cron-secret'] !== process.env.CRON_SECRET) {
         return res.status(401).json({ error: 'Não autorizado.' });
     }
     const { document_id, cnpj } = req.body;
