@@ -86,6 +86,28 @@ async function detectarDivergencias(supabase, { projectId, organizationId, captu
  * evita duplicar o fluxo entre os dois pontos de entrada.
  */
 async function executarCapturaProjeto(supabase, { projectId, pronac, organizationId, usuario, senha, disparadaPor }) {
+    // Achado de auditoria: nem o clique manual nem o cron verificavam se já
+    // havia uma captura em andamento para este projeto antes de abrir outro
+    // Chrome — dois admins clicando quase juntos (ou um clique coincidindo
+    // com o cron) abriam duas sessões simultâneas com a MESMA credencial no
+    // SALIC, que não tem homologação. Mesma janela de 10min de "travada"
+    // usada em saldo_salic_projetos_elegiveis_captura() (Fase 4.1), para as
+    // duas checagens tratarem "em andamento" do mesmo jeito. Isso não é uma
+    // trava atômica (SELECT-então-INSERT) — fecha a janela de clique humano,
+    // não uma corrida de milissegundos entre dois processos.
+    const { data: emAndamento, error: emAndamentoErr } = await supabase
+        .from('saldo_salic_capturas')
+        .select('id, iniciada_em')
+        .eq('project_id', projectId)
+        .eq('status', 'executando')
+        .gt('iniciada_em', new Date(Date.now() - 10 * 60 * 1000).toISOString())
+        .limit(1)
+        .maybeSingle();
+    if (emAndamentoErr) throw emAndamentoErr;
+    if (emAndamento) {
+        throw new Error(`Já existe uma captura em andamento para este projeto (iniciada às ${emAndamento.iniciada_em}). Aguarde terminar antes de tentar de novo.`);
+    }
+
     const { data: captura, error: capturaErr } = await supabase
         .from('saldo_salic_capturas')
         .insert({
