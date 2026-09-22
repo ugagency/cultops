@@ -590,6 +590,12 @@
         let _ocrContratFilePath = null;   // path já enviado ao Storage durante OCR
         let _ocrFornecedorPendente = null; // { cnpj, nome } caso fornecedor não cadastrado
         let _editandoContratoId = null;   // id do contrato em edição (null = modo criação)
+        // CR-2026-001: valor_total e rubrica_id ANTES da edição, para a
+        // checagem de saldo (Fase 3.4) não contar o comprometido antigo
+        // deste mesmo contrato como se fosse alheio — ver comentário em
+        // submitContrato().
+        let _editandoContratoValorOriginal = null;
+        let _editandoContratoRubricaOriginal = null;
 
         document.addEventListener('DOMContentLoaded', async () => {
             if (window.verificarAcessoM2 && !(await window.verificarAcessoM2())) return;
@@ -931,6 +937,8 @@
                 return;
             }
             _editandoContratoId = null;
+            _editandoContratoValorOriginal = null;
+            _editandoContratoRubricaOriginal = null;
             document.getElementById('form-contrato').reset();
             document.getElementById('c-contrato-pai-id').value = parentContractId || '';
             document.querySelector('#modal-contrato h3').innerHTML = parentContractId
@@ -970,6 +978,8 @@
             }
 
             _editandoContratoId = contractId;
+            _editandoContratoValorOriginal = Number(contrato.valor_total) || 0;
+            _editandoContratoRubricaOriginal = contrato.rubrica_id || null;
 
             document.getElementById('form-contrato').reset();
             document.getElementById('c-contrato-pai-id').value = contrato.contrato_pai_id || '';
@@ -1510,6 +1520,15 @@
             // CR-2026-001 Fase 3.4: alerta informativo (NÃO bloqueia) quando o
             // valor do contrato excede o saldo disponível projetado da
             // rubrica. Só roda com o flag ligado.
+            //
+            // Correção de bug (auditoria): disponivel_projetado já vem com o
+            // comprometido de TODOS os contratos ativos da rubrica descontado
+            // — inclusive, em modo edição, o valor_total ANTIGO deste mesmo
+            // contrato. Comparar o valor NOVO direto contra esse saldo conta
+            // o valor antigo duas vezes (uma já embutida no saldo, outra ao
+            // comparar o total novo). Por isso somamos de volta o valor
+            // antigo antes de comparar — só quando a rubrica não mudou; se
+            // mudou, o valor antigo pertence à rubrica de origem, não a esta.
             if (!isDistrato && rubricaId && valorTotal !== null && window.isSaldoRubricasHabilitado) {
                 const habilitado = await window.isSaldoRubricasHabilitado(currentProjectId);
                 if (habilitado) {
@@ -1519,7 +1538,9 @@
                         .eq('rubrica_id', rubricaId)
                         .maybeSingle();
                     if (saldoInfo && saldoInfo.disponivel_projetado !== null) {
-                        const dispProjetado = Number(saldoInfo.disponivel_projetado);
+                        const editandoMesmaRubrica = !!(_editandoContratoId && _editandoContratoRubricaOriginal === rubricaId);
+                        const dispProjetado = Number(saldoInfo.disponivel_projetado)
+                            + (editandoMesmaRubrica ? _editandoContratoValorOriginal : 0);
                         if (valorTotal > dispProjetado) {
                             const excedente = valorTotal - dispProjetado;
                             abrirModalConfirmGenerico({
@@ -1696,6 +1717,8 @@
                 closeContratoModal();
                 showToast('Contrato atualizado com sucesso.', 'success');
                 _editandoContratoId = null;
+                _editandoContratoValorOriginal = null;
+                _editandoContratoRubricaOriginal = null;
                 await loadContracts();
             } catch (err) {
                 console.error('[executarUpdateContrato]', err);
