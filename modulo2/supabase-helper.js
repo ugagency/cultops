@@ -375,3 +375,67 @@ async function getCurrentOrgId(projectId) {
 }
 
 window.getCurrentOrgId = getCurrentOrgId;
+
+/**
+ * CR-2026-001 Fase 2/3/4 — feature flag única para toda a superfície visível
+ * do controle preventivo de saldo (alertas, validação de contrato,
+ * divergências, aviso de nota parada). Com o flag desligado (default),
+ * nenhuma tela nova aparece — comportamento idêntico ao de antes da feature.
+ * Cacheado em memória por organization_id, mesmo padrão de _orgIdCache acima.
+ */
+const _saldoFlagCache = {};
+
+async function isSaldoRubricasHabilitado(projectId) {
+    const sb = await initSupabase();
+    if (!sb) return false;
+
+    const orgId = await getCurrentOrgId(projectId);
+    if (!orgId) return false;
+
+    if (_saldoFlagCache[orgId] !== undefined) return _saldoFlagCache[orgId];
+
+    const { data, error } = await sb
+        .from('organizations')
+        .select('saldo_rubricas_habilitado')
+        .eq('id', orgId)
+        .maybeSingle();
+
+    const habilitado = (!error && data && data.saldo_rubricas_habilitado === true);
+    _saldoFlagCache[orgId] = habilitado;
+    return habilitado;
+}
+
+window.isSaldoRubricasHabilitado = isSaldoRubricasHabilitado;
+
+/**
+ * Status de uma rubrica no painel de saldo (CR-2026-001). Regra única,
+ * usada por financeiro.html e rubricas.html.
+ *
+ *  - Excedida:   SÓ quando o SALIC (número oficial) já passou do aprovado.
+ *  - Comprovado: o SALIC bateu exatamente o aprovado (gasto completo).
+ *  - Atenção:    a PROJEÇÃO (SALIC + em trânsito + comprometido) chegou ao
+ *                limite de alerta ou passou do aprovado, mas o SALIC ainda
+ *                não estourou — é o alerta preventivo, não um estouro.
+ *  - OK / Sem captura: como antes.
+ * Tolerância de R$ 0,01 (mesma da detecção de divergências).
+ */
+function classificarStatusSaldo({ aprovado, executadoSalic, dispProjetado, alertaAtivo, percentualAlerta }) {
+    const TOL = 0.01;
+    if (dispProjetado === null || dispProjetado === undefined) {
+        return { key: 'sem_captura', label: 'Sem captura', cls: 'pill-indisponivel' };
+    }
+    const aprov = Number(aprovado || 0);
+    const salic = Number(executadoSalic || 0);
+    if (salic > aprov + TOL) return { key: 'excedida', label: 'Excedida', cls: 'pill-excedida' };
+    if (aprov <= 0) return { key: 'sem_valor', label: '—', cls: 'pill-ok' };
+    if (Math.abs(salic - aprov) <= TOL) return { key: 'comprovado', label: 'Comprovado', cls: 'pill-comprovado' };
+
+    const ratio = (aprov - Number(dispProjetado)) / aprov;
+    if (ratio >= 1) return { key: 'atencao', label: 'Atenção', cls: 'pill-atencao' };
+    if (alertaAtivo === false) return { key: 'ok', label: 'OK', cls: 'pill-ok' };
+    const limite = (percentualAlerta != null) ? (Number(percentualAlerta) / 100) : 0.9;
+    if (ratio >= limite) return { key: 'atencao', label: 'Atenção', cls: 'pill-atencao' };
+    return { key: 'ok', label: 'OK', cls: 'pill-ok' };
+}
+
+window.classificarStatusSaldo = classificarStatusSaldo;

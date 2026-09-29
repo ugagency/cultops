@@ -2268,6 +2268,20 @@ async function processarFilaSalic() {
     const successCount = state.salicLoteQueue.filter(item => item.status === 'success').length;
     const errorCount = state.salicLoteQueue.filter(item => item.status === 'error').length;
     showToast(`Lote processado! Sucessos: ${successCount}, Falhas: ${errorCount}`, 'info');
+
+    // CR-2026-001 Fase 1 (complemento D5): dispara UMA captura de saldo ao
+    // fim do lote (não uma por nota) — só se pelo menos 1 envio deu certo.
+    // Fire-and-forget: não bloqueia a UI nem vira erro do lote.
+    if (successCount > 0) {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (session) {
+            fetch('/api/saldo-salic/capturar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
+                body: JSON.stringify({ projectId: state.filters.project })
+            }).catch(err => console.error('[saldo-salic] captura pós-lote falhou:', err));
+        }
+    }
 }
 
 const CreateProjectView = () => `
@@ -4529,6 +4543,23 @@ const OrcamentoView = () => {
         'erro': 'Erro ao processar o PDF. Verifique se é a Planilha Orçamentária correta.'
     };
 
+    // CR-2026-001: botão "Atualizar do SALIC" — só com a flag da organização
+    // ligada (mesma regra do painel M2) e com um projeto selecionado.
+    const atualizandoSaldo = state.saldoSalicAtualizando === true;
+    const ultimaCapturaIso = Object.values(state.saldoRubricas || {}).map(s => s.ultima_captura_em).find(Boolean);
+    const ultimaCapturaTxt = ultimaCapturaIso
+        ? `Última captura: ${new Date(ultimaCapturaIso).toLocaleDateString('pt-BR')} ${new Date(ultimaCapturaIso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+        : 'Sem captura do SALIC ainda';
+    const saldoSalicControls = (state.saldoRubricasHabilitado === true && state.filters.project) ? `
+        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem;">
+            <span class="text-xs text-muted">${ultimaCapturaTxt}</span>
+            <button class="btn btn-secondary" onclick="window.handleAtualizarSaldoSalic()" ${atualizandoSaldo ? 'disabled' : ''} style="display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.5rem 0.9rem; font-size: 12px;">
+                <i data-lucide="${atualizandoSaldo ? 'loader-2' : 'refresh-cw'}" class="${atualizandoSaldo ? 'spin' : ''}" style="width: 14px;"></i>
+                ${atualizandoSaldo ? 'Capturando…' : 'Atualizar do SALIC'}
+            </button>
+        </div>
+    ` : '';
+
     const headerContent = `
         <div style="display: flex; justify-content: space-between; align-items: flex-end;">
             <div>
@@ -4547,6 +4578,7 @@ const OrcamentoView = () => {
                         `).join('')}
                     </select>
                 </div>
+                ${saldoSalicControls}
             </div>
         </div>
     `;
@@ -4658,9 +4690,31 @@ const OrcamentoView = () => {
                     <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(min(350px, 100%), 1fr)); gap: 1rem;">
                         ${rubricas.map(r => {
         const aprovado = parseFloat(r.valor_aprovado || 0);
+        const habilitado = state.saldoRubricasHabilitado === true;
+
+        // CR-2026-001 — flag por org: desligado, mantém exatamente o
+        // cálculo/render de antes da feature (percent/bar/saldo ficavam
+        // display:none, só "Aprovado:" aparecia). Ligado, usa
+        // state.saldoRubricas (view v_saldo_rubricas, Fase 3 já inclui
+        // comprometido) — dois números separados, nunca somados.
         const utilizado = parseFloat(r.valor_utilizado || 0);
-        const percentual = aprovado > 0 ? (utilizado / aprovado) * 100 : 0;
-        const saldo = aprovado - utilizado;
+        const percentualLegado = aprovado > 0 ? (utilizado / aprovado) * 100 : 0;
+
+        const saldoInfo = state.saldoRubricas?.[r.id];
+        const temCaptura = habilitado && saldoInfo && saldoInfo.ultima_captura_em;
+        const executadoSalic = temCaptura ? parseFloat(saldoInfo.executado_salic || 0) : null;
+        const dispProjetado = temCaptura ? parseFloat(saldoInfo.disponivel_projetado || 0) : null;
+        const percentualProjetado = (temCaptura && aprovado > 0) ? ((aprovado - dispProjetado) / aprovado) * 100 : 0;
+        const fmtBRLouIndisponivel = (n) => (n === null || n === undefined) ? 'Indisponível' : `R$ ${n.toLocaleString('pt-BR')}`;
+
+        const percentDisplay = habilitado
+            ? (temCaptura ? percentualProjetado.toFixed(1) + '%' : '—')
+            : percentualLegado.toFixed(1) + '%';
+        const barWidth = habilitado ? (temCaptura ? Math.min(percentualProjetado, 100) : 0) : Math.min(percentualLegado, 100);
+        const barColor = habilitado
+            ? (!temCaptura ? 'var(--border-light)' : (percentualProjetado > 100 ? 'var(--error)' : 'var(--primary)'))
+            : 'var(--primary)';
+
         return `
                                 <div class="card rubric-card" style="padding: 1.25rem;">
                                     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
@@ -4670,21 +4724,27 @@ const OrcamentoView = () => {
                                             </h5>
                                             <p class="text-xs text-muted mt-1">Qtde: ${r.quantidade || 1} x R$ ${(parseFloat(r.valor_unitario || r.valor_aprovado || 0)).toLocaleString('pt-BR')}</p>
                                         </div>
-                                        <div style="text-align: right; display:none;">
-                                            <div class="text-xs font-bold ${percentual > 90 ? 'text-error' : 'text-primary'}">${percentual.toFixed(1)}%</div>
+                                        <div style="text-align: right; display:${habilitado ? '' : 'none'};">
+                                            <div class="text-xs font-bold ${temCaptura ? (percentualProjetado > 90 ? 'text-error' : 'text-primary') : 'text-muted'}">${percentDisplay}</div>
                                         </div>
                                     </div>
-                                    <div style="width: 100%; height: 6px; background: var(--border-light); border-radius: 3px; overflow: hidden; margin-bottom: 0.75rem; display:none;">
-                                        <div style="width: ${Math.min(percentual, 100)}%; height: 100%; background: ${percentual > 100 ? 'var(--error)' : 'var(--primary)'}; transition: width 0.3s ease;"></div>
+                                    <div style="width: 100%; height: 6px; background: var(--border-light); border-radius: 3px; overflow: hidden; margin-bottom: 0.75rem; display:${habilitado ? '' : 'none'};">
+                                        <div style="width: ${barWidth}%; height: 100%; background: ${barColor}; transition: width 0.3s ease;"></div>
                                     </div>
                                     <div style="display: flex; justify-content: space-between; font-size: 11px;">
                                         <div>
                                             <span class="text-muted">Aprovado:</span>
                                             <span class="font-semibold">R$ ${aprovado.toLocaleString('pt-BR')}</span>
                                         </div>
-                                        <div style="display:none;">
-                                            <span class="text-muted">Saldo:</span>
-                                            <span class="font-bold ${saldo < 0 ? 'color-error' : 'color-success'}">R$ ${saldo.toLocaleString('pt-BR')}</span>
+                                    </div>
+                                    <div style="display: flex; justify-content: space-between; font-size: 11px; margin-top: 0.25rem; display:${habilitado ? 'flex' : 'none'};">
+                                        <div>
+                                            <span class="text-muted">Executado (SALIC):</span>
+                                            <span class="font-semibold">${fmtBRLouIndisponivel(executadoSalic)}</span>
+                                        </div>
+                                        <div>
+                                            <span class="text-muted">Disponível (projeção):</span>
+                                            <span class="font-bold ${(dispProjetado !== null && dispProjetado < 0) ? 'color-error' : 'color-success'}">${fmtBRLouIndisponivel(dispProjetado)}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -4823,6 +4883,8 @@ window.navigate = async function (view, id = null) {
 
         if (state.filters.project) {
             await fetchRubricas(state.filters.project);
+            state.saldoRubricasHabilitado = await isSaldoRubricasHabilitado();
+            await fetchSaldoRubricas(state.filters.project);
             await fetchRubricaVersions(state.filters.project);
             const [{ data: projFin }, { data: docsConf }] = await Promise.all([
                 supabaseClient.from('projects').select('valor_aprovado, valor_captado').eq('id', state.filters.project).single(),
@@ -4966,6 +5028,76 @@ async function fetchRubricas(projectId) {
         console.error("Erro fetch rubricas:", err);
     }
 }
+
+// CR-2026-001 Fase 1 (complemento): fonte à parte de fetchRubricas() — essa
+// não é tocada porque seu join com despesas(status_conformidade, conciliado)
+// alimenta calcularRegrasIN23. v_saldo_rubricas traz as quatro camadas de
+// saldo (oficial SALIC + projeção PrestAI) para os cards de Gestão Orçamentária.
+// CR-2026-001 — feature flag única por organização para toda a superfície
+// visível do controle de saldo (inclui o painel Fase 0/1). Desligado por
+// padrão: com ela off, o comportamento fica idêntico ao de antes da feature.
+// Cacheado em memória — mesmo padrão do _orgIdCache de modulo2/supabase-helper.js.
+let _saldoFlagCache;
+async function isSaldoRubricasHabilitado() {
+    if (_saldoFlagCache !== undefined) return _saldoFlagCache;
+    if (!supabaseClient) return false;
+    const orgId = state.user?.app_metadata?.org_id;
+    if (!orgId) { _saldoFlagCache = false; return false; }
+    const { data, error } = await supabaseClient
+        .from('organizations')
+        .select('saldo_rubricas_habilitado')
+        .eq('id', orgId)
+        .maybeSingle();
+    _saldoFlagCache = (!error && data && data.saldo_rubricas_habilitado === true);
+    return _saldoFlagCache;
+}
+
+async function fetchSaldoRubricas(projectId) {
+    if (!supabaseClient || !projectId) return;
+    const { data, error } = await supabaseClient
+        .from('v_saldo_rubricas')
+        .select('*')
+        .eq('project_id', projectId);
+    if (error) { console.error('[saldo-salic] fetch view:', error); state.saldoRubricas = {}; return; }
+    state.saldoRubricas = Object.fromEntries((data || []).map(r => [r.rubrica_id, r]));
+}
+
+// CR-2026-001: dispara a captura do relatório de Execução Física do SALIC para o
+// projeto selecionado (mesma rota do botão do painel M2) e recarrega o saldo.
+window.handleAtualizarSaldoSalic = async function () {
+    const projectId = state.filters.project;
+    if (!supabaseClient || !projectId || state.saldoSalicAtualizando) return;
+
+    state.saldoSalicAtualizando = true;
+    render();
+    showToast('Capturando do SALIC… pode levar de 1 a 2 minutos.', 'info');
+
+    try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session) throw new Error('Sessão expirada. Faça login novamente.');
+
+        const resp = await fetch('/api/saldo-salic/capturar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
+            body: JSON.stringify({ projectId })
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok || json.success === false) throw new Error(json.error || 'Falha na captura do SALIC.');
+
+        // O usuário pode ter trocado de projeto durante a captura: só recarrega
+        // o saldo se ainda estiver no mesmo, senão sobrescreveria o do outro.
+        if (state.filters.project === projectId) await fetchSaldoRubricas(projectId);
+
+        const pendentes = json.fila > 0 ? ` ${json.fila} linha(s) aguardam conferência no painel financeiro (M2).` : '';
+        showToast(`Saldo atualizado do SALIC (${json.total ?? '?'} linhas).${pendentes}`, 'success');
+    } catch (err) {
+        console.error('[saldo-salic] captura manual falhou:', err);
+        showToast('Erro ao capturar do SALIC: ' + err.message, 'error');
+    } finally {
+        state.saldoSalicAtualizando = false;
+        render();
+    }
+};
 
 async function fetchRubricaVersions(projectId) {
     if (!supabaseClient || !projectId) return;
@@ -5393,6 +5525,44 @@ window.handleVincularRubrica = async function (documentId, projectId, valorDespe
     const rubricaNome = rubricaSelecionada.nome;
     if (valorDespesa === undefined || valorDespesa === null) valorDespesa = 0;
 
+    const executarVinculoRubrica = () => executarVinculoRubricaImpl(documentId, projectId, valorDespesa, rubricaId, rubricaNome);
+
+    // CR-2026-001 Fase 2.2: valida saldo ANTES de gravar, enquanto o usuário
+    // ainda pode mudar de ideia — não depois de processado. Só roda com o
+    // flag ligado.
+    if (await isSaldoRubricasHabilitado()) {
+        const { data: saldoInfo } = await supabaseClient
+            .from('v_saldo_rubricas')
+            .select('disponivel_oficial, disponivel_projetado')
+            .eq('rubrica_id', rubricaId)
+            .maybeSingle();
+
+        if (!saldoInfo || saldoInfo.disponivel_projetado === null) {
+            window.showToast('Saldo indisponível — sem captura do SALIC para esta rubrica.', 'info');
+        } else {
+            const dispProjetado = parseFloat(saldoInfo.disponivel_projetado);
+            const valor = parseFloat(valorDespesa) || 0;
+            if (valor > dispProjetado) {
+                const excedente = valor - dispProjetado;
+                const jaEstourada = dispProjetado < 0
+                    ? 'Esta rubrica já estava com saldo projetado negativo antes deste lançamento (estouro pré-existente, não causado por esta nota). '
+                    : '';
+                window.showConfirmModal({
+                    title: 'Saldo insuficiente na rubrica',
+                    message: `${jaEstourada}Valor da nota (R$ ${valor.toLocaleString('pt-BR')}) excede o disponível projetado (R$ ${dispProjetado.toLocaleString('pt-BR')}) em R$ ${excedente.toLocaleString('pt-BR')}. Oficial (SALIC): R$ ${parseFloat(saldoInfo.disponivel_oficial ?? 0).toLocaleString('pt-BR')}.`,
+                    confirmLabel: 'Vincular mesmo assim',
+                    variant: 'danger',
+                    onConfirm: executarVinculoRubrica
+                });
+                return;
+            }
+        }
+    }
+
+    await executarVinculoRubrica();
+};
+
+async function executarVinculoRubricaImpl(documentId, projectId, valorDespesa, rubricaId, rubricaNome) {
     state.loading = true;
     render();
 
@@ -7053,10 +7223,44 @@ window.handleProcessarTodosLote = async function () {
         , 'error');
     }
 
+    // CR-2026-001 Fase 2.3: soma por rubrica das notas da fila e compara com
+    // disponivel_projetado ANTES da confirmação — o usuário confirma o lote
+    // inteiro uma vez, não nota a nota. Estouro pré-existente (saldo já
+    // negativo antes deste lote) é sinalizado como tal, não como causado
+    // pelo lançamento atual.
+    let avisoSaldo = '';
+    if (await isSaldoRubricasHabilitado()) {
+        const totalPorRubrica = {};
+        itensComRubrica.forEach(({ doc, rubricaIdFk }) => {
+            if (!rubricaIdFk) return;
+            totalPorRubrica[rubricaIdFk] = (totalPorRubrica[rubricaIdFk] || 0) + (parseFloat(doc.valor) || 0);
+        });
+        const rubricaIds = Object.keys(totalPorRubrica);
+        if (rubricaIds.length > 0) {
+            const { data: saldos } = await supabaseClient
+                .from('v_saldo_rubricas')
+                .select('rubrica_id, nome, disponivel_projetado')
+                .in('rubrica_id', rubricaIds);
+            const estouros = (saldos || [])
+                .filter(s => s.disponivel_projetado !== null && totalPorRubrica[s.rubrica_id] > parseFloat(s.disponivel_projetado))
+                .map(s => {
+                    const total = totalPorRubrica[s.rubrica_id];
+                    const disp = parseFloat(s.disponivel_projetado);
+                    const excedente = total - disp;
+                    const jaEstourada = disp < 0 ? ' (estouro pré-existente, não causado por este lote)' : '';
+                    return `• ${s.nome}: lote soma R$ ${total.toLocaleString('pt-BR')}, disponível (projeção) R$ ${disp.toLocaleString('pt-BR')} — excede em R$ ${excedente.toLocaleString('pt-BR')}${jaEstourada}`;
+                });
+            if (estouros.length > 0) {
+                avisoSaldo = `\n\nRubricas que estourariam o saldo projetado:\n${estouros.join('\n')}`;
+            }
+        }
+    }
+
     window.showConfirmModal({
         title: 'Processar documentos',
-        message: `Processar ${itensComRubrica.length} documento(s)?`,
-        confirmLabel: 'Processar',
+        message: `Processar ${itensComRubrica.length} documento(s)?${avisoSaldo}`,
+        confirmLabel: avisoSaldo ? 'Processar mesmo assim' : 'Processar',
+        variant: avisoSaldo ? 'danger' : 'primary',
         onConfirm: async () => {
             state.loading = true;
             render();
@@ -7237,6 +7441,14 @@ window.handleEnviarSalic = async function (documentId) {
 
             if (resData.success) {
                 showToast("Inserção concluída com sucesso!", 'success');
+                // CR-2026-001 Fase 1 (complemento D5): dispara a captura de
+                // saldo sozinha após envio individual bem-sucedido. Fire-and-
+                // forget — falha na captura não é erro do envio.
+                fetch('/api/saldo-salic/capturar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
+                    body: JSON.stringify({ projectId: doc.project_id })
+                }).catch(err => console.error('[saldo-salic] captura pós-envio falhou:', err));
             }
         }
 

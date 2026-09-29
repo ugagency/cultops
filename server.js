@@ -259,14 +259,47 @@ app.post('/api/salic/inserir', async (req, res) => {
     try {
         console.log(`[API] Iniciando processo para documento: ${documentId}`);
 
-        // 1. Buscar Credenciais do Usuário (SALIC)
-        // Usamos a view descriptografada definida no setup.sql
-        const { data: creds, error: credError } = await supabase
+        // 1. Preferir a credencial própria. Se não existir, usar a do
+        // admin/gestor responsável pelo analista, sempre dentro da mesma org.
+        let credentialOwnerId = userId;
+        let { data: creds, error: credError } = await supabase
             .from('decrypted_external_credentials')
             .select('*')
             .eq('user_id', userId)
             .eq('service_name', 'salic')
-            .single();
+            .maybeSingle();
+
+        if (!creds && !credError) {
+            const { data: analystLink, error: linkError } = await supabase
+                .from('organization_users')
+                .select('organization_id, salic_credential_owner_id')
+                .eq('user_id', userId)
+                .maybeSingle();
+            if (linkError) throw linkError;
+
+            if (analystLink?.salic_credential_owner_id) {
+                const { data: ownerLink, error: ownerError } = await supabase
+                    .from('organization_users')
+                    .select('role')
+                    .eq('organization_id', analystLink.organization_id)
+                    .eq('user_id', analystLink.salic_credential_owner_id)
+                    .in('role', ['admin', 'gestor'])
+                    .maybeSingle();
+                if (ownerError) throw ownerError;
+
+                if (ownerLink) {
+                    credentialOwnerId = analystLink.salic_credential_owner_id;
+                    const inherited = await supabase
+                        .from('decrypted_external_credentials')
+                        .select('*')
+                        .eq('user_id', credentialOwnerId)
+                        .eq('service_name', 'salic')
+                        .maybeSingle();
+                    creds = inherited.data;
+                    credError = inherited.error;
+                }
+            }
+        }
 
         if (credError || !creds) {
             console.error('[API] Erro ao buscar credenciais:', credError);
@@ -324,7 +357,8 @@ app.post('/api/salic/inserir', async (req, res) => {
             // Atualizar o banco com o protocolo
             await supabase.from('documents').update({
                 status: 'enviado_salic',
-                protocolo_salic: resultado.protocolo
+                protocolo_salic: resultado.protocolo,
+                salic_credential_owner_id: credentialOwnerId
             }).eq('id', documentId);
 
             return res.json({ success: true, protocol: resultado.protocolo });
@@ -418,7 +452,7 @@ app.get('/api/gestor/usuarios',
 
             const { data: orgUsers, error } = await supabase
                 .from('organization_users')
-                .select('user_id, role, created_at')
+                .select('user_id, role, created_at, salic_credential_owner_id')
                 .eq('organization_id', orgId);
             if (error) throw error;
 
@@ -429,6 +463,7 @@ app.get('/api/gestor/usuarios',
                     email: data?.user?.email || null,
                     role: data?.user?.app_metadata?.role || data?.user?.user_metadata?.role || null,
                     org_role: ou.role,
+                    salic_credential_owner_id: ou.salic_credential_owner_id || null,
                     created_at: ou.created_at
                 };
             }));
@@ -436,6 +471,65 @@ app.get('/api/gestor/usuarios',
             res.json({ users });
         } catch (err) {
             console.error('[GESTOR] listUsers:', err);
+            res.status(500).json({ error: err.message });
+        }
+    }
+);
+
+// Define qual admin/gestor fornece a credencial SALIC para um analista.
+app.patch('/api/gestor/usuarios/:id/responsavel-salic',
+    requireAuth, requireRole('gestor', 'admin'),
+    async (req, res) => {
+        const analystId = req.params.id;
+        const { credentialOwnerId } = req.body || {};
+        const orgId = req.user.app_metadata?.org_id;
+        if (!orgId || !credentialOwnerId) {
+            return res.status(400).json({ error: 'credentialOwnerId e organização são obrigatórios.' });
+        }
+
+        try {
+            const { data: analyst, error: analystErr } = await supabase
+                .from('organization_users')
+                .select('role')
+                .eq('organization_id', orgId)
+                .eq('user_id', analystId)
+                .maybeSingle();
+            if (analystErr) throw analystErr;
+            if (!analyst || analyst.role !== 'analista') {
+                return res.status(404).json({ error: 'Analista não encontrado nesta organização.' });
+            }
+
+            const { data: owner, error: ownerErr } = await supabase
+                .from('organization_users')
+                .select('role')
+                .eq('organization_id', orgId)
+                .eq('user_id', credentialOwnerId)
+                .in('role', ['admin', 'gestor'])
+                .maybeSingle();
+            if (ownerErr) throw ownerErr;
+            if (!owner) {
+                return res.status(400).json({ error: 'Responsável deve ser admin ou gestor da mesma organização.' });
+            }
+
+            const { error: updateErr } = await supabase
+                .from('organization_users')
+                .update({ salic_credential_owner_id: credentialOwnerId })
+                .eq('organization_id', orgId)
+                .eq('user_id', analystId);
+            if (updateErr) throw updateErr;
+
+            await supabase.from('audit_log').insert({
+                tabela: 'organization_users',
+                registro_id: analystId,
+                campo: 'salic_credential_owner_id',
+                valor_anterior: null,
+                valor_novo: credentialOwnerId,
+                alterado_por: req.user.id,
+                origem: 'gestor_ui'
+            });
+            res.json({ ok: true });
+        } catch (err) {
+            console.error('[GESTOR] responsável SALIC:', err);
             res.status(500).json({ error: err.message });
         }
     }
@@ -674,7 +768,14 @@ app.post('/api/gestor/criar-analista',
 
             const { error: linkErr } = await supabase
                 .from('organization_users')
-                .insert({ organization_id: orgId, user_id: newUserId, role });
+                .insert({
+                    organization_id: orgId,
+                    user_id: newUserId,
+                    role,
+                    salic_credential_owner_id: role === 'analista'
+                        ? req.user.id
+                        : (['admin', 'gestor'].includes(role) ? newUserId : null)
+                });
             if (linkErr) {
                 // Rollback: remove o user criado para não deixar órfão sem vínculo
                 await supabase.auth.admin.deleteUser(newUserId);
@@ -832,7 +933,7 @@ app.post('/api/gestor/importar-fornecedores-salic',
 // um documento chega em 'aguardando_d3'. Mesmo padrão de segredo do
 // /api/m2/cron-alerta-guias (x-cron-secret / CRON_SECRET).
 app.post('/api/m1/verificar-fornecedor-salic', async (req, res) => {
-    if (req.headers['x-cron-secret'] !== process.env.CRON_SECRET) {
+    if (!process.env.CRON_SECRET || req.headers['x-cron-secret'] !== process.env.CRON_SECRET) {
         return res.status(401).json({ error: 'Não autorizado.' });
     }
     const { document_id, cnpj } = req.body;
@@ -2147,7 +2248,7 @@ app.post('/api/m2/evidencia/notificar', async (req, res) => {
 // Envia alertas de guias vencendo em 7 dias aos gestores/analistas.
 // ─────────────────────────────────────────────────────────────────────────────
 app.post('/api/m2/cron-alerta-guias', async (req, res) => {
-    if (req.headers['x-cron-secret'] !== process.env.CRON_SECRET) {
+    if (!process.env.CRON_SECRET || req.headers['x-cron-secret'] !== process.env.CRON_SECRET) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
 
@@ -3651,6 +3752,100 @@ app.post('/api/conciliacao/auto-lote', requireAuth, async (req, res) => {
     } catch (e) {
         console.error('[CONCILIACAO-AUTO-LOTE]', e);
         return res.status(500).json({ error: e.message });
+    }
+});
+
+// ==============================================================
+// SALDO SALIC — Fase 0/1 (CR-2026-001)
+// Controle preventivo de saldo de rubricas: captura read-only do
+// relatório de Execução Física do SALIC + pareamento + conferência.
+// ==============================================================
+
+/**
+ * Dispara a captura do relatório de Execução Física no worker RPA.
+ * O worker é o único lugar que sabe falar com o SALIC (Puppeteer);
+ * aqui só repassamos, no mesmo padrão de proxy de /api/salic/inserir.
+ * POST /api/saldo-salic/capturar
+ * Body: { projectId }
+ */
+app.post('/api/saldo-salic/capturar', requireAuth, async (req, res) => {
+    const { projectId } = req.body || {};
+    if (!projectId) return res.status(400).json({ error: 'projectId é obrigatório.' });
+    if (!(await userCanAccessProject(req.user.id, projectId))) {
+        return res.status(403).json({ error: 'Acesso negado ao projeto.' });
+    }
+
+    const railwayUrl = process.env.RAILWAY_URL;
+    if (!railwayUrl) {
+        return res.status(500).json({ error: 'RAILWAY_URL não configurada.' });
+    }
+
+    try {
+        const response = await fetch(`${railwayUrl}/capturar-execucao`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': req.headers.authorization || ''
+            },
+            body: JSON.stringify({ projectId })
+        });
+        const data = await response.json();
+        return res.status(response.status).json(data);
+    } catch (err) {
+        console.error('[SALDO-SALIC][capturar] Erro ao acionar worker:', err.message);
+        return res.status(500).json({ error: 'Falha ao conectar com o worker RPA: ' + err.message });
+    }
+});
+
+/**
+ * Confirma o pareamento manual de uma linha da fila de conferência:
+ * grava rubrica_id na linha e memoriza o vínculo em saldo_salic_vinculos
+ * (aprende uma vez, não pergunta de novo na próxima captura).
+ * POST /api/saldo-salic/confirmar
+ * Body: { linhaId, rubricaId }
+ */
+app.post('/api/saldo-salic/confirmar', requireAuth, async (req, res) => {
+    const { linhaId, rubricaId } = req.body || {};
+    if (!linhaId || !rubricaId) {
+        return res.status(400).json({ error: 'linhaId e rubricaId são obrigatórios.' });
+    }
+
+    try {
+        const { data: linha, error: linhaErr } = await supabase
+            .from('saldo_salic_linhas')
+            .select('id, project_id, organization_id, etapa, item, vl_programado')
+            .eq('id', linhaId)
+            .single();
+        if (linhaErr || !linha) return res.status(404).json({ error: 'Linha não encontrada.' });
+
+        if (!(await userCanAccessProject(req.user.id, linha.project_id))) {
+            return res.status(403).json({ error: 'Acesso negado ao projeto.' });
+        }
+
+        const { error: updErr } = await supabase
+            .from('saldo_salic_linhas')
+            .update({ rubrica_id: rubricaId, pareamento_status: 'pareada' })
+            .eq('id', linhaId);
+        if (updErr) throw updErr;
+
+        const { error: vincErr } = await supabase
+            .from('saldo_salic_vinculos')
+            .upsert({
+                project_id: linha.project_id,
+                organization_id: linha.organization_id,
+                chave_etapa: linha.etapa,
+                chave_item: linha.item,
+                chave_vl_programado: linha.vl_programado,
+                rubrica_id: rubricaId,
+                confirmado_por: req.user.id,
+                confirmado_em: new Date().toISOString()
+            }, { onConflict: 'project_id,chave_etapa,chave_item,chave_vl_programado' });
+        if (vincErr) throw vincErr;
+
+        return res.json({ success: true });
+    } catch (err) {
+        console.error('[SALDO-SALIC][confirmar] Erro:', err.message);
+        return res.status(500).json({ error: err.message });
     }
 });
 
