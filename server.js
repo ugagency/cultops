@@ -259,14 +259,47 @@ app.post('/api/salic/inserir', async (req, res) => {
     try {
         console.log(`[API] Iniciando processo para documento: ${documentId}`);
 
-        // 1. Buscar Credenciais do Usuário (SALIC)
-        // Usamos a view descriptografada definida no setup.sql
-        const { data: creds, error: credError } = await supabase
+        // 1. Preferir a credencial própria. Se não existir, usar a do
+        // admin/gestor responsável pelo analista, sempre dentro da mesma org.
+        let credentialOwnerId = userId;
+        let { data: creds, error: credError } = await supabase
             .from('decrypted_external_credentials')
             .select('*')
             .eq('user_id', userId)
             .eq('service_name', 'salic')
-            .single();
+            .maybeSingle();
+
+        if (!creds && !credError) {
+            const { data: analystLink, error: linkError } = await supabase
+                .from('organization_users')
+                .select('organization_id, salic_credential_owner_id')
+                .eq('user_id', userId)
+                .maybeSingle();
+            if (linkError) throw linkError;
+
+            if (analystLink?.salic_credential_owner_id) {
+                const { data: ownerLink, error: ownerError } = await supabase
+                    .from('organization_users')
+                    .select('role')
+                    .eq('organization_id', analystLink.organization_id)
+                    .eq('user_id', analystLink.salic_credential_owner_id)
+                    .in('role', ['admin', 'gestor'])
+                    .maybeSingle();
+                if (ownerError) throw ownerError;
+
+                if (ownerLink) {
+                    credentialOwnerId = analystLink.salic_credential_owner_id;
+                    const inherited = await supabase
+                        .from('decrypted_external_credentials')
+                        .select('*')
+                        .eq('user_id', credentialOwnerId)
+                        .eq('service_name', 'salic')
+                        .maybeSingle();
+                    creds = inherited.data;
+                    credError = inherited.error;
+                }
+            }
+        }
 
         if (credError || !creds) {
             console.error('[API] Erro ao buscar credenciais:', credError);
@@ -324,7 +357,8 @@ app.post('/api/salic/inserir', async (req, res) => {
             // Atualizar o banco com o protocolo
             await supabase.from('documents').update({
                 status: 'enviado_salic',
-                protocolo_salic: resultado.protocolo
+                protocolo_salic: resultado.protocolo,
+                salic_credential_owner_id: credentialOwnerId
             }).eq('id', documentId);
 
             return res.json({ success: true, protocol: resultado.protocolo });
@@ -418,7 +452,7 @@ app.get('/api/gestor/usuarios',
 
             const { data: orgUsers, error } = await supabase
                 .from('organization_users')
-                .select('user_id, role, created_at')
+                .select('user_id, role, created_at, salic_credential_owner_id')
                 .eq('organization_id', orgId);
             if (error) throw error;
 
@@ -429,6 +463,7 @@ app.get('/api/gestor/usuarios',
                     email: data?.user?.email || null,
                     role: data?.user?.app_metadata?.role || data?.user?.user_metadata?.role || null,
                     org_role: ou.role,
+                    salic_credential_owner_id: ou.salic_credential_owner_id || null,
                     created_at: ou.created_at
                 };
             }));
@@ -436,6 +471,65 @@ app.get('/api/gestor/usuarios',
             res.json({ users });
         } catch (err) {
             console.error('[GESTOR] listUsers:', err);
+            res.status(500).json({ error: err.message });
+        }
+    }
+);
+
+// Define qual admin/gestor fornece a credencial SALIC para um analista.
+app.patch('/api/gestor/usuarios/:id/responsavel-salic',
+    requireAuth, requireRole('gestor', 'admin'),
+    async (req, res) => {
+        const analystId = req.params.id;
+        const { credentialOwnerId } = req.body || {};
+        const orgId = req.user.app_metadata?.org_id;
+        if (!orgId || !credentialOwnerId) {
+            return res.status(400).json({ error: 'credentialOwnerId e organização são obrigatórios.' });
+        }
+
+        try {
+            const { data: analyst, error: analystErr } = await supabase
+                .from('organization_users')
+                .select('role')
+                .eq('organization_id', orgId)
+                .eq('user_id', analystId)
+                .maybeSingle();
+            if (analystErr) throw analystErr;
+            if (!analyst || analyst.role !== 'analista') {
+                return res.status(404).json({ error: 'Analista não encontrado nesta organização.' });
+            }
+
+            const { data: owner, error: ownerErr } = await supabase
+                .from('organization_users')
+                .select('role')
+                .eq('organization_id', orgId)
+                .eq('user_id', credentialOwnerId)
+                .in('role', ['admin', 'gestor'])
+                .maybeSingle();
+            if (ownerErr) throw ownerErr;
+            if (!owner) {
+                return res.status(400).json({ error: 'Responsável deve ser admin ou gestor da mesma organização.' });
+            }
+
+            const { error: updateErr } = await supabase
+                .from('organization_users')
+                .update({ salic_credential_owner_id: credentialOwnerId })
+                .eq('organization_id', orgId)
+                .eq('user_id', analystId);
+            if (updateErr) throw updateErr;
+
+            await supabase.from('audit_log').insert({
+                tabela: 'organization_users',
+                registro_id: analystId,
+                campo: 'salic_credential_owner_id',
+                valor_anterior: null,
+                valor_novo: credentialOwnerId,
+                alterado_por: req.user.id,
+                origem: 'gestor_ui'
+            });
+            res.json({ ok: true });
+        } catch (err) {
+            console.error('[GESTOR] responsável SALIC:', err);
             res.status(500).json({ error: err.message });
         }
     }
@@ -674,7 +768,14 @@ app.post('/api/gestor/criar-analista',
 
             const { error: linkErr } = await supabase
                 .from('organization_users')
-                .insert({ organization_id: orgId, user_id: newUserId, role });
+                .insert({
+                    organization_id: orgId,
+                    user_id: newUserId,
+                    role,
+                    salic_credential_owner_id: role === 'analista'
+                        ? req.user.id
+                        : (['admin', 'gestor'].includes(role) ? newUserId : null)
+                });
             if (linkErr) {
                 // Rollback: remove o user criado para não deixar órfão sem vínculo
                 await supabase.auth.admin.deleteUser(newUserId);

@@ -293,6 +293,7 @@
                         <tr>
                             <th>E-mail</th>
                             <th>Perfil atual</th>
+                            <th>Responsável SALIC</th>
                             <th>Cadastro</th>
                             <th style="text-align: right;">Ações</th>
                         </tr>
@@ -315,6 +316,18 @@
                                     <span class="badge ${u.role === 'gestor' || u.role === 'admin' ? 'status-completed' : 'status-pending'}">
                                         ${ROLE_LABELS[u.role] || (u.role || '—')}
                                     </span>
+                                </td>
+                                <td>
+                                    ${u.role === 'analista' ? `
+                                    <select aria-label="Responsável SALIC de ${u.email || 'analista'}"
+                                        onchange="handleSetSalicOwner('${u.id}', this.value)"
+                                        style="min-width: 190px; padding: 0.45rem;">
+                                        <option value="">Selecione…</option>
+                                        ${equipe.filter(r => ['admin', 'gestor'].includes(r.role)).map(r => `
+                                            <option value="${r.id}" ${u.salic_credential_owner_id === r.id ? 'selected' : ''}>
+                                                ${r.email || ROLE_LABELS[r.role]}
+                                            </option>`).join('')}
+                                    </select>` : '<span class="text-xs" style="color: var(--text-muted);">Credencial própria</span>'}
                                 </td>
                                 <td>${u.created_at ? new Date(u.created_at).toLocaleDateString('pt-BR') : '---'}</td>
                                 <td style="text-align: right; white-space: nowrap;">
@@ -378,6 +391,29 @@
                 await fetchEquipe();
             } catch (err) {
                 showToast(err.message, 'error');
+            }
+        }
+
+        async function handleSetSalicOwner(analystId, credentialOwnerId) {
+            if (!analystId || !credentialOwnerId) return;
+            try {
+                const sb = await initSupabase();
+                const { data: { session } } = await sb.auth.getSession();
+                const resp = await fetch(`/api/gestor/usuarios/${analystId}/responsavel-salic`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${session.access_token}`
+                    },
+                    body: JSON.stringify({ credentialOwnerId })
+                });
+                const json = await resp.json().catch(() => ({}));
+                if (!resp.ok) throw new Error(json.error || 'Falha ao alterar responsável SALIC.');
+                showToast('Responsável SALIC atualizado.', 'success');
+                await fetchEquipe();
+            } catch (err) {
+                showToast(err.message, 'error');
+                await fetchEquipe();
             }
         }
 
