@@ -119,6 +119,34 @@
                 display: none;
             }
 
+            /* Card de Contratos: "Ver contratos" ao lado do texto não cabia
+               em telas estreitas e estourava a largura do card (ficava
+               cortado ou empurrava o card inteiro, arrastando junto
+               qualquer outro conteúdo que dividisse o mesmo scroll
+               horizontal — foi o que cortou o badge de status da lista de
+               rubricas, mais abaixo na mesma coluna). Botão vai pra uma
+               linha própria, largura total.
+            */
+            .contracts-strip {
+                flex-wrap: wrap;
+            }
+            .contracts-strip > a.nav-item {
+                width: 100%;
+                justify-content: center;
+            }
+
+            /* Mesmo problema no cabeçalho de "Rubricas": texto da última
+               captura + botão "Atualizar do SALIC" não cabiam numa linha só. */
+            #saldo-salic-header-controls {
+                flex-wrap: wrap;
+                width: 100%;
+            }
+            #saldo-salic-ultima-captura {
+                white-space: normal;
+                overflow-wrap: anywhere;
+                flex: 1 1 100%;
+            }
+
             .quick-nav {
                 display: grid;
                 grid-template-columns: 1fr 1fr;
