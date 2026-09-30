@@ -51,7 +51,7 @@ async function detectarDivergencias(supabase, { projectId, organizationId, captu
     ]));
     if (rubricaIds.length === 0) return { divergencias: 0 };
 
-    const novasDivergencias = rubricaIds
+    const divergenciasAtuais = rubricaIds
         .map(rubricaId => {
             // Rubrica ausente da captura (nunca lançada no SALIC) entra
             // com executado_salic = 0, não fica de fora da comparação.
@@ -60,8 +60,29 @@ async function detectarDivergencias(supabase, { projectId, organizationId, captu
             const diferenca = vlSalic - vlPrestai;
             return { rubricaId, vlSalic, vlPrestai, diferenca };
         })
-        .filter(d => Math.abs(d.diferenca) > TOLERANCIA_DIVERGENCIA)
-        .map(d => ({
+        .filter(d => Math.abs(d.diferenca) > TOLERANCIA_DIVERGENCIA);
+
+    // Bug corrigido: antes cada captura fazia um INSERT cego, então uma
+    // rubrica com divergência persistente ganhava uma linha nova a cada
+    // captura/cron em vez de manter uma única linha 'aberta' atualizada
+    // (156 linhas duplicadas de 52 rubricas observadas em produção).
+    // Agora: mantém no máximo uma divergência 'aberta' por rubrica — se já
+    // existe, atualiza os valores; senão insere.
+    const { data: abertasExistentes, error: abertasErr } = await supabase
+        .from('saldo_salic_divergencias')
+        .select('id, rubrica_id')
+        .eq('project_id', projectId)
+        .eq('status', 'aberta')
+        .in('rubrica_id', divergenciasAtuais.map(d => d.rubricaId));
+    if (abertasErr) throw abertasErr;
+
+    const abertaPorRubrica = {};
+    (abertasExistentes || []).forEach(a => { abertaPorRubrica[a.rubrica_id] = a.id; });
+
+    const paraAtualizar = [];
+    const paraInserir = [];
+    divergenciasAtuais.forEach(d => {
+        const linha = {
             project_id: projectId,
             organization_id: organizationId,
             rubrica_id: d.rubricaId,
@@ -69,13 +90,23 @@ async function detectarDivergencias(supabase, { projectId, organizationId, captu
             vl_confirmado_prestai: d.vlPrestai,
             diferenca: d.diferenca,
             status: 'aberta'
-        }));
+        };
+        const existenteId = abertaPorRubrica[d.rubricaId];
+        if (existenteId) paraAtualizar.push({ id: existenteId, ...linha });
+        else paraInserir.push(linha);
+    });
 
-    if (novasDivergencias.length > 0) {
-        const { error: insErr } = await supabase.from('saldo_salic_divergencias').insert(novasDivergencias);
+    if (paraInserir.length > 0) {
+        const { error: insErr } = await supabase.from('saldo_salic_divergencias').insert(paraInserir);
         if (insErr) throw insErr;
     }
-    return { divergencias: novasDivergencias.length };
+    for (const atualizacao of paraAtualizar) {
+        const { id, ...campos } = atualizacao;
+        const { error: updErr } = await supabase.from('saldo_salic_divergencias').update(campos).eq('id', id);
+        if (updErr) throw updErr;
+    }
+
+    return { divergencias: paraInserir.length + paraAtualizar.length };
 }
 
 /**
