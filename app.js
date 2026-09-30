@@ -3011,7 +3011,6 @@ ${Sidebar()}
                                 <i data-lucide="tag" style="width: 16px; color: var(--primary);"></i>
                                 <span class="text-sm" style="font-weight: 600;">${doc.rubrica || '<span style="color: var(--primary); font-weight: 500;">Identificada pela IA</span>'}</span>
                             </div>
-                            ${renderSaldoBadgeHtml(doc.rubrica_id_fk)}
 
                             <!-- Só permite vincular/alterar se houver bloqueio -->
                             ${doc.status === 'bloqueado_conformidade' ? `
@@ -3189,6 +3188,7 @@ ${Sidebar()}
                                          </div>`) :
                     `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando liberação financeira (D+3)...</p>`))
         }
+                            ${renderSaldoBadgeDestaque(doc.rubrica_id_fk)}
                         </div>
 
                     </div>
@@ -5122,6 +5122,35 @@ function renderSaldoBadgeHtml(rubricaId) {
     return `<div style="margin-top:0.35rem; font-size:12px; display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
         <span style="font-weight:600; color:${cls.cor};">${cls.label}</span>
         <span style="color: var(--text-muted);">Disponível projetado: ${dispTxt}</span>
+    </div>`;
+}
+
+function _estiloSaldoDestaque(label) {
+    switch (label) {
+        case 'Excedida': return { bg: 'rgba(220, 38, 38, 0.08)', borda: 'rgba(220, 38, 38, 0.35)', cor: '#DC2626', icone: 'alert-circle' };
+        case 'Atenção': return { bg: 'rgba(255, 88, 7, 0.08)', borda: 'rgba(255, 88, 7, 0.35)', cor: '#FF5807', icone: 'alert-triangle' };
+        case 'Comprovado':
+        case 'OK': return { bg: 'rgba(22, 163, 74, 0.08)', borda: 'rgba(22, 163, 74, 0.3)', cor: '#16A34A', icone: 'check-circle-2' };
+        default: return { bg: 'var(--bg-sidebar)', borda: 'var(--border-light)', cor: '#64748b', icone: 'info' };
+    }
+}
+
+// Versão em destaque — usada no box "3. Portal SALIC" (documento único), logo
+// abaixo do botão de envio, onde o pedido do cliente foi "mais chamativo":
+// fundo colorido por status, ícone e texto maior que a caixinha discreta
+// (renderSaldoBadgeHtml) usada nas telas de upload/lote.
+function renderSaldoBadgeDestaque(rubricaId) {
+    if (!state.saldoRubricasHabilitado || !rubricaId) return '';
+    const s = (state.saldoRubricas || {})[rubricaId];
+    const cls = classificarStatusSaldoM1(s);
+    const est = _estiloSaldoDestaque(cls.label);
+    const dispTxt = (s && s.disponivel_projetado != null) ? fmtBRLM1(s.disponivel_projetado) : '—';
+    return `<div style="margin-top: 0.75rem; padding: 0.65rem 0.75rem; border-radius: var(--radius-sm); background: ${est.bg}; border: 1px solid ${est.borda}; display: flex; align-items: center; gap: 0.6rem;">
+        <i data-lucide="${est.icone}" style="width: 18px; height: 18px; color: ${est.cor}; flex-shrink: 0;"></i>
+        <div>
+            <div style="font-size: 13px; font-weight: 700; color: ${est.cor};">Saldo da rubrica: ${cls.label}</div>
+            <div style="font-size: 12px; color: var(--text-secondary);">Disponível projetado: ${dispTxt}</div>
+        </div>
     </div>`;
 }
 
