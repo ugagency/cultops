@@ -1452,47 +1452,53 @@ ${Sidebar()}
             <div style="flex: 1; min-width: 0;">
                 <input type="text" placeholder="Pesquisar notas..." value="${state.filters.search}" oninput="window.updateFilters('search', this.value)">
             </div>
-            <div style="flex: 1 1 160px; min-width: 0;">
-                <select onchange="window.updateFilters('project', this.value)">
-                    <option value="">Todos os projetos</option>
-                    ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
-                </select>
+            <button type="button" class="btn btn-secondary dashboard-filtros-toggle" onclick="window.toggleDashboardFiltrosMobile()">
+                <i data-lucide="sliders-horizontal" style="width: 16px;"></i>
+                Filtros
+            </button>
+            <div id="dashboard-filtros-painel" class="dashboard-filtros-painel${state.dashboardFiltrosMobileAberto ? ' is-open' : ''}">
+                <div style="flex: 1 1 160px; min-width: 0;">
+                    <select onchange="window.updateFilters('project', this.value)">
+                        <option value="">Todos os projetos</option>
+                        ${state.projects.map(p => `<option value="${p.id}" ${state.filters.project === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
+                    </select>
+                </div>
+                <div style="flex: 1 1 160px; min-width: 0;">
+                    <select onchange="window.updateFilters('status', this.value)">
+                        <option value="">Todos os status</option>
+                        <option value="uploaded" ${state.filters.status === 'uploaded' ? 'selected' : ''}>Enviado</option>
+                        <option value="processing_ocr" ${state.filters.status === 'processing_ocr' ? 'selected' : ''}>Em Processamento</option>
+                        <option value="aguardando_comprovante" ${state.filters.status === 'aguardando_comprovante' ? 'selected' : ''}>Falta Comprovante</option>
+                        <option value="aguardando_conciliacao_bancaria" ${state.filters.status === 'aguardando_conciliacao_bancaria' ? 'selected' : ''}>Falta Conciliação</option>
+                        <option value="aguardando_d3" ${state.filters.status === 'aguardando_d3' ? 'selected' : ''}>Em carência (D-3)</option>
+                        <option value="liberado_rpa_airtop" ${state.filters.status === 'liberado_rpa_airtop' ? 'selected' : ''}>Pronto para envio</option>
+                        <option value="enviado_salic" ${state.filters.status === 'enviado_salic' ? 'selected' : ''}>Enviado ao SALIC</option>
+                        <option value="concluido" ${state.filters.status === 'concluido' ? 'selected' : ''}>Concluído</option>
+                        <option value="aguardando_conformidade" ${state.filters.status === 'aguardando_conformidade' ? 'selected' : ''}>Em Auditoria IA</option>
+                        <option value="bloqueado_conformidade" ${state.filters.status === 'bloqueado_conformidade' ? 'selected' : ''}>Bloqueado</option>
+                        <option value="revisao_manual" ${state.filters.status === 'revisao_manual' ? 'selected' : ''}>Revisão Manual</option>
+                        <option value="erro_rpa" ${state.filters.status === 'erro_rpa' ? 'selected' : ''}>Erro no Envio</option>
+                        <option value="validating" ${state.filters.status === 'validating' ? 'selected' : ''}>Validando</option>
+                        <option value="validated" ${state.filters.status === 'validated' ? 'selected' : ''}>Validado</option>
+                        <option value="divergencia_valor" ${state.filters.status === 'divergencia_valor' ? 'selected' : ''}>Divergência de Valor</option>
+                        <option value="divergencia_beneficiario" ${state.filters.status === 'divergencia_beneficiario' ? 'selected' : ''}>Divergência de Beneficiário</option>
+                    </select>
+                </div>
+                <div style="flex: 1 1 160px; min-width: 0;">
+                    <select onchange="window.updateSort(this.value)">
+                        <option value="date_desc" ${state.filters.sort === 'date_desc' ? 'selected' : ''}>Ordenar: Mais recentes</option>
+                        <option value="date_asc" ${state.filters.sort === 'date_asc' ? 'selected' : ''}>Ordenar: Mais antigos</option>
+                        <option value="status" ${state.filters.sort === 'status' ? 'selected' : ''}>Ordenar: Status</option>
+                        <option value="name" ${state.filters.sort === 'name' ? 'selected' : ''}>Ordenar: Nome (A-Z)</option>
+                    </select>
+                </div>
+                <button class="btn btn-secondary" onclick="window.clearFilters()">Limpar filtros</button>
             </div>
-            <div style="flex: 1 1 160px; min-width: 0;">
-                <select onchange="window.updateFilters('status', this.value)">
-                    <option value="">Todos os status</option>
-                    <option value="uploaded" ${state.filters.status === 'uploaded' ? 'selected' : ''}>Enviado</option>
-                    <option value="processing_ocr" ${state.filters.status === 'processing_ocr' ? 'selected' : ''}>Em Processamento</option>
-                    <option value="aguardando_comprovante" ${state.filters.status === 'aguardando_comprovante' ? 'selected' : ''}>Falta Comprovante</option>
-                    <option value="aguardando_conciliacao_bancaria" ${state.filters.status === 'aguardando_conciliacao_bancaria' ? 'selected' : ''}>Falta Conciliação</option>
-                    <option value="aguardando_d3" ${state.filters.status === 'aguardando_d3' ? 'selected' : ''}>Em carência (D-3)</option>
-                    <option value="liberado_rpa_airtop" ${state.filters.status === 'liberado_rpa_airtop' ? 'selected' : ''}>Pronto para envio</option>
-                    <option value="enviado_salic" ${state.filters.status === 'enviado_salic' ? 'selected' : ''}>Enviado ao SALIC</option>
-                    <option value="concluido" ${state.filters.status === 'concluido' ? 'selected' : ''}>Concluído</option>
-                    <option value="aguardando_conformidade" ${state.filters.status === 'aguardando_conformidade' ? 'selected' : ''}>Em Auditoria IA</option>
-                    <option value="bloqueado_conformidade" ${state.filters.status === 'bloqueado_conformidade' ? 'selected' : ''}>Bloqueado</option>
-                    <option value="revisao_manual" ${state.filters.status === 'revisao_manual' ? 'selected' : ''}>Revisão Manual</option>
-                    <option value="erro_rpa" ${state.filters.status === 'erro_rpa' ? 'selected' : ''}>Erro no Envio</option>
-                    <option value="validating" ${state.filters.status === 'validating' ? 'selected' : ''}>Validando</option>
-                    <option value="validated" ${state.filters.status === 'validated' ? 'selected' : ''}>Validado</option>
-                    <option value="divergencia_valor" ${state.filters.status === 'divergencia_valor' ? 'selected' : ''}>Divergência de Valor</option>
-                    <option value="divergencia_beneficiario" ${state.filters.status === 'divergencia_beneficiario' ? 'selected' : ''}>Divergência de Beneficiário</option>
-                </select>
-            </div>
-            <div style="flex: 1 1 160px; min-width: 0;">
-                <select onchange="window.updateSort(this.value)">
-                    <option value="date_desc" ${state.filters.sort === 'date_desc' ? 'selected' : ''}>Ordenar: Mais recentes</option>
-                    <option value="date_asc" ${state.filters.sort === 'date_asc' ? 'selected' : ''}>Ordenar: Mais antigos</option>
-                    <option value="status" ${state.filters.sort === 'status' ? 'selected' : ''}>Ordenar: Status</option>
-                    <option value="name" ${state.filters.sort === 'name' ? 'selected' : ''}>Ordenar: Nome (A-Z)</option>
-                </select>
-            </div>
-            <button class="btn btn-secondary" onclick="window.clearFilters()">Limpar filtros</button>
             ${userCanDelete() ? `<button class="btn btn-secondary" id="btn-excluir-lote-dashboard" style="display: none; background: var(--error); color: white; border: none; align-items: center; gap: 0.25rem;" onclick="window.handleDeleteSelectedDocuments()">
                 <i data-lucide="trash-2" style="width: 16px;"></i>
                 Excluir Selecionados (<span id="count-excluir-lote-dashboard">0</span>)
             </button>` : ''}
-            <button class="btn btn-primary" onclick="window.navigate('upload')">
+            <button class="btn btn-primary" id="btn-enviar-nota-desktop" onclick="window.navigate('upload')">
                 <i data-lucide="upload-cloud"></i>
                 Enviar nota
             </button>
@@ -1587,8 +1593,62 @@ ${Sidebar()}
     }).join('')}
                 </tbody>
             </table>
+            <div class="doc-cards-mobile">
+                ${sortedDocs.map(doc => {
+        const status = STATUS_MAP[doc.status] || { label: doc.status, class: 'status-pending' };
+        const project = state.projects.find(p => p.id === doc.project_id);
+        const dup = duplicidadeInfo(doc);
+        const travado = estaTravado(doc);
+        return `
+                <div class="doc-card-mobile">
+                    <div style="display: flex; gap: 0.6rem; align-items: flex-start;">
+                        <label style="width: 40px; height: 40px; margin: -8px 0 -8px -8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                            <input type="checkbox" class="chk-doc-dashboard" data-id="${doc.id}" data-file-path="${doc.file_path}" onchange="window.handleDashboardDocCheckboxChange()">
+                        </label>
+                        <div style="flex: 1; min-width: 0;">
+                            <div style="font-weight: 600; font-size: 0.9rem; line-height: 1.3; overflow-wrap: anywhere;">${doc.name}</div>
+                            <div class="text-xs" style="color: var(--text-muted); margin-top: 0.15rem;">${doc.size || '---'} · Projeto ${project ? project.pronac : '---'}</div>
+                        </div>
+                    </div>
+                    ${dup ? `<button type="button" title="${dup.titulo}"
+                        onclick="event.stopPropagation(); window.navigate('details', '${doc.id}')"
+                        style="align-self: flex-start; display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.15rem 0.5rem; border-radius: 9999px; border: 1px solid ${dup.borda}; background: ${dup.fundo}; color: ${dup.cor}; font-size: 11px; font-weight: 600; cursor: pointer; ${doc.duplicidade_revisada ? 'opacity: 0.55;' : ''}">
+                        <i data-lucide="${dup.icone}" style="width: 12px;"></i>
+                        ${dup.label}${doc.duplicidade_revisada ? ' · revisado' : ''}
+                    </button>` : ''}
+                    ${travado ? `<button type="button" title="Sem avançar há ${formatarTempoTravado(minutosParadoDoc(doc))} — clique para reprocessar"
+                        onclick="event.stopPropagation(); window.handleReprocessarDocumentoTravado('${doc.id}')"
+                        style="align-self: flex-start; display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.15rem 0.5rem; border-radius: 9999px; border: 1px solid #FCA5A5; background: #FEE2E2; color: #B91C1C; font-size: 11px; font-weight: 600; cursor: pointer;">
+                        <i data-lucide="alert-triangle" style="width: 12px;"></i>
+                        Parado há ${formatarTempoTravado(minutosParadoDoc(doc))} — reprocessar
+                    </button>` : ''}
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                        <div>
+                            <div style="font-size: 1.05rem; font-weight: 700;">${doc.valor != null ? 'R$ ' + parseValorBR(doc.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '---'}</div>
+                            <div class="text-xs" style="color: var(--text-muted);">${new Date(doc.created_at).toLocaleDateString('pt-BR')}</div>
+                        </div>
+                        <span class="badge ${status.class}">
+                            <span class="badge-dot"></span>
+                            ${status.label}
+                        </span>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn btn-secondary" style="flex: 1;" onclick="window.navigate('details', '${doc.id}')">
+                            <i data-lucide="eye" style="width: 14px;"></i> Visualizar
+                        </button>
+                        <button class="btn btn-secondary" style="flex: 1; color: var(--error);" onclick="window.handleDeleteDocument('${doc.id}', '${doc.file_path}')">
+                            <i data-lucide="trash-2" style="width: 14px;"></i> Excluir
+                        </button>
+                    </div>
+                </div>
+                        `;
+    }).join('')}
+            </div>
         `}
     </div>
+    <button type="button" class="fab-enviar-nota" onclick="window.navigate('upload')">
+        <i data-lucide="upload" style="width: 18px;"></i> Enviar nota
+    </button>
 </main>
 `;
 };
@@ -4101,6 +4161,13 @@ window.handleLogout = async function () {
 
 window.toggleExtratoLancamentos = function () {
     state.extratoLancamentosExpandido = !state.extratoLancamentosExpandido;
+    render();
+};
+
+// Redesign mobile do Dashboard: no desktop os filtros ficam sempre visíveis
+// (não usa esse estado); no mobile, escondidos atrás do botão "Filtros".
+window.toggleDashboardFiltrosMobile = function () {
+    state.dashboardFiltrosMobileAberto = !state.dashboardFiltrosMobileAberto;
     render();
 };
 

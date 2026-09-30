@@ -515,6 +515,34 @@ optgroup option { font-weight: 400; color: var(--text-primary); }
     animation: fadeIn 200ms ease-out;
 }
 
+/* Redesign mobile do Dashboard (M1) — classes novas, inertes no desktop.
+   O que cada uma vira em telas estreitas está no @media 768px logo abaixo. */
+.dashboard-filtros-toggle {
+    display: none;
+}
+
+.dashboard-filtros-painel {
+    display: contents;
+}
+
+.doc-cards-mobile {
+    display: none;
+}
+
+.doc-card-mobile {
+    background: #FFFFFF;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    padding: 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+}
+
+.fab-enviar-nota {
+    display: none;
+}
+
 /* Mobile Responsiveness */
 @media (max-width: 1024px) {
     .sidebar {
@@ -606,11 +634,82 @@ optgroup option { font-weight: 400; color: var(--text-primary); }
 
     .main-content {
         margin-left: 0 !important;
-        padding: 4.5rem 1rem 1.5rem !important;
+        /* Bottom maior que o padrão pra caber a FAB "Enviar nota" (Dashboard)
+           sem cobrir o último item da lista — inofensivo nas demais telas. */
+        padding: 4.5rem 1rem 5.5rem !important;
     }
 
     .hamburger-btn {
         display: flex !important;
+    }
+
+    /* Dashboard (M1) mobile — cards de métrica fixos em 2 colunas (nunca
+       menos, mesmo quando os cards condicionais de aviso aparecem: eles só
+       formam mais uma linha no grid). */
+    .metrics-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem;
+    }
+
+    .metric-card {
+        padding: 1.1rem 1rem;
+    }
+
+    .metric-value {
+        font-size: 24px;
+    }
+
+    /* Filtros escondidos atrás do botão "Filtros", ao lado da busca. */
+    .dashboard-filtros-toggle {
+        display: inline-flex;
+    }
+
+    .dashboard-filtros-painel {
+        display: none;
+        flex-direction: column;
+        width: 100%;
+        gap: 0.75rem;
+        margin-top: 0.25rem;
+    }
+
+    .dashboard-filtros-painel.is-open {
+        display: flex;
+    }
+
+    /* Lista de notas vira cards; a tabela (mantida no DOM para o desktop)
+       fica oculta. */
+    .data-table-container table.data-table {
+        display: none;
+    }
+
+    .doc-cards-mobile {
+        display: grid;
+        gap: 0.75rem;
+    }
+
+    #btn-enviar-nota-desktop {
+        display: none;
+    }
+
+    .fab-enviar-nota {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        position: fixed;
+        left: 1rem;
+        right: 1rem;
+        bottom: 1rem;
+        height: 52px;
+        border: none;
+        border-radius: var(--radius-md);
+        background: var(--color-primary);
+        color: #FFFFFF;
+        font-weight: 600;
+        font-size: 0.95rem;
+        box-shadow: 0 8px 24px rgba(21, 71, 255, 0.3);
+        z-index: 900;
+        cursor: pointer;
     }
 }
 
