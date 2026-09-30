@@ -3,6 +3,7 @@ const fs = require('fs');
 const https = require('https');
 const path = require('path');
 const os = require('os');
+const { localizarPronac, mascararCpf } = require('./salic_proponente.cjs');
 
 // tpDocumento values descobertos no SALIC:
 //   '1' = Cupom Fiscal
@@ -99,7 +100,7 @@ async function executarInsercaoSalic(config) {
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
         await page.setViewport({ width: 1280, height: 800 });
 
-        console.log(`[SALIC] Iniciando login para o usuario: ${usuario} (Tipo: ${typeof usuario})`);
+        console.log(`[SALIC] Iniciando login para o usuario: ${mascararCpf(usuario)} (Tipo: ${typeof usuario})`);
         console.log(`[SALIC] Tipo da Senha recebida: ${typeof senha}`);
 
         if (!usuario || typeof usuario !== 'string') {
@@ -159,28 +160,39 @@ async function executarInsercaoSalic(config) {
             waitUntil: 'domcontentloaded', timeout: 60000
         });
 
-        // Aguarda e clica no campo de busca
-        await page.waitForSelector('input[aria-label="Buscar"]');
         console.log('[SALIC] Buscando projeto:', pronac);
-        await page.type('input[aria-label="Buscar"]', pronac);
-
-        await wait(3000); // Espera a busca processar
-
-        console.log('[SALIC] Clicando no PRONAC para abrir detalhes...');
-        console.log('[SALIC] Extraindo o link do PRONAC...');
-        const urlProjeto = await page.evaluate((p) => {
-            const links = Array.from(document.querySelectorAll('table tbody tr td a'));
-            const alvo = links.find(a => a.innerText.includes(p));
-            return alvo ? alvo.href : null;
-        }, pronac);
-
-        if (!urlProjeto) throw new Error('Link do PRONAC nao encontrado na tabela.');
+        // Um PRONAC só existe sob um proponente — percorre todos os
+        // proponentes do combobox até achar (ver salic_proponente.cjs).
+        // Se não achar em nenhum, localizarPronac lança e a inserção para
+        // aqui, sem tentar gravar nada.
+        const { href: urlProjeto, proponente } = await localizarPronac(
+            page, pronac, (msg) => console.log(msg)
+        );
+        console.log(`[SALIC] PRONAC encontrado sob o proponente: ${proponente}`);
 
         console.log('[SALIC] Navegando para os detalhes do projeto na mesma aba...');
         await page.goto(urlProjeto, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
         // A partir de agora, o targetPage é a própria página (não abrimos nova aba)
         targetPage = page;
+
+        // ── CONFERÊNCIA OBRIGATÓRIA ANTES DE QUALQUER GRAVAÇÃO ──────────
+        // Robô de ESCRITA: mesmo já tendo achado o link pelo proponente
+        // certo, confirma que o PRONAC esperado aparece na própria tela
+        // do projeto antes de prosseguir. Se não bater, aborta sem tentar
+        // inserir nada. (Verificação por texto solto na página — não
+        // temos confirmado o seletor exato do campo PRONAC na tela de
+        // detalhe; validar isso é uma das suposições a confirmar.)
+        const pronacConfere = await targetPage.evaluate((p) => {
+            return !!(document.body && document.body.innerText.includes(p));
+        }, pronac);
+        if (!pronacConfere) {
+            throw new Error(
+                `Abortando insercao: PRONAC ${pronac} nao aparece na tela do projeto aberto ` +
+                `(proponente "${proponente}"). Pode ser um link errado ou a pagina nao carregou.`
+            );
+        }
+        console.log('[SALIC] PRONAC confirmado na tela do projeto — prosseguindo.');
 
         // Funcao auxiliar para achar o botao nos frames/side-nav
         async function encontrarBotaoNoSidenav(p) {

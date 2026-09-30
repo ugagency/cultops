@@ -1,5 +1,6 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
+const { localizarPronac, mascararCpf } = require('./salic_proponente.cjs');
 
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -119,7 +120,7 @@ async function capturarExecucaoSalic(config) {
         await page.setViewport({ width: 1280, height: 800 });
 
         // ── LOGIN (origem: salic_insertion.cjs linhas 112-155) ──────────────
-        console.log(`[SALIC-CAPTURA] Iniciando login para o usuario: ${usuario}`);
+        console.log(`[SALIC-CAPTURA] Iniciando login para o usuario: ${mascararCpf(usuario)}`);
         await page.goto('http://salic.cultura.gov.br', { waitUntil: 'domcontentloaded', timeout: 60000 });
         await page.waitForSelector('#Login', { timeout: 30000 });
         await page.type('#Login', usuario, { delay: 50 });
@@ -161,17 +162,13 @@ async function capturarExecucaoSalic(config) {
             waitUntil: 'domcontentloaded', timeout: 60000
         });
 
-        await page.waitForSelector('input[aria-label="Buscar"]');
         console.log('[SALIC-CAPTURA] Buscando projeto:', pronac);
-        await page.type('input[aria-label="Buscar"]', pronac);
-        await wait(3000);
-
-        const urlProjeto = await page.evaluate((p) => {
-            const links = Array.from(document.querySelectorAll('table tbody tr td a'));
-            const alvo = links.find(a => a.innerText.includes(p));
-            return alvo ? alvo.href : null;
-        }, pronac);
-        if (!urlProjeto) throw new Error('Link do PRONAC nao encontrado na tabela.');
+        // Um PRONAC só existe sob um proponente — percorre todos os
+        // proponentes do combobox até achar (ver salic_proponente.cjs).
+        const { href: urlProjeto, proponente } = await localizarPronac(
+            page, pronac, (msg) => console.log(msg)
+        );
+        console.log(`[SALIC-CAPTURA] PRONAC encontrado sob o proponente: ${proponente}`);
 
         console.log('[SALIC-CAPTURA] Navegando para os detalhes do projeto...');
         await page.goto(urlProjeto, { waitUntil: 'domcontentloaded', timeout: 60000 });
