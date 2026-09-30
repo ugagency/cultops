@@ -361,6 +361,16 @@ app.post('/api/salic/inserir', async (req, res) => {
                 salic_credential_owner_id: credentialOwnerId
             }).eq('id', documentId);
 
+            // CR-2026-001 Fase 0: marca a despesa como confirmada no SALIC.
+            // v_saldo_rubricas e a detecção de divergências usam data_salic
+            // para diferenciar "já absorvido pelo SALIC" de "em trânsito" —
+            // sem isso a despesa nunca conta como confirmada. Mesmo fix já
+            // aplicado na rota equivalente do worker (branch api).
+            await supabase.from('despesas').update({
+                data_salic: new Date().toISOString(),
+                protocolo_salic: resultado.protocolo
+            }).eq('document_id', documentId);
+
             return res.json({ success: true, protocol: resultado.protocolo });
         } else {
             throw new Error(resultado.erro);
