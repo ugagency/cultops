@@ -180,11 +180,16 @@ async function executarInsercaoSalic(config) {
         // Robô de ESCRITA: mesmo já tendo achado o link pelo proponente
         // certo, confirma que o PRONAC esperado aparece na própria tela
         // do projeto antes de prosseguir. Se não bater, aborta sem tentar
-        // inserir nada. (Verificação por texto solto na página — não
-        // temos confirmado o seletor exato do campo PRONAC na tela de
-        // detalhe; validar isso é uma das suposições a confirmar.)
+        // inserir nada. Palavra inteira (\b...\b), não includes() — um
+        // "includes" bateria também dentro de "1248504" ou "2485040".
+        // (Verificação por texto solto na página, não um seletor
+        // específico do campo PRONAC — ainda aguardando o HTML da tela de
+        // detalhe pra trocar por algo mais preciso.)
         const pronacConfere = await targetPage.evaluate((p) => {
-            return !!(document.body && document.body.innerText.includes(p));
+            if (!document.body) return false;
+            const escapado = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const re = new RegExp(`\\b${escapado}\\b`);
+            return re.test(document.body.innerText);
         }, pronac);
         if (!pronacConfere) {
             throw new Error(
