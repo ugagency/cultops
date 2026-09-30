@@ -588,6 +588,15 @@ function inicializarComboRubricas() {
     };
     window.addEventListener('scroll', reposicionar, true);
     window.addEventListener('resize', reposicionar);
+
+    // CR-2026-001 (complemento): comboboxes marcados com data-saldo-target
+    // atualizam a caixinha de saldo ao lado assim que uma rubrica é escolhida
+    // (_comboSelecionar dispara 'change' no input). Delegado porque os inputs
+    // são recriados a cada render().
+    document.addEventListener('change', e => {
+        const input = e.target.closest && e.target.closest('[data-rubrica-combo][data-saldo-target]');
+        if (input) atualizarSaldoInput(input);
+    });
 }
 
 const isSolicitanteMode = window.location.pathname.includes('solicitante') || window.location.hash.includes('solicitante') || window.location.search.includes('solicitante');
@@ -1688,7 +1697,8 @@ ${Sidebar()}
 
                 <div class="form-group mb-4">
                     <label>Rubrica Orçamentária (Obrigatório)</label>
-                    <input type="text" id="rubrica-input" data-rubrica-combo placeholder="Digite para buscar rubrica..." autocomplete="off" style="width: 100%;">
+                    <input type="text" id="rubrica-input" data-rubrica-combo data-saldo-target="upload-rubrica-saldo" placeholder="Digite para buscar rubrica..." autocomplete="off" style="width: 100%;">
+                    <div id="upload-rubrica-saldo"></div>
                 </div>
 
                 <script>
@@ -1830,7 +1840,8 @@ ${Sidebar()}
                                     <td style="max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${doc.name}">${doc.name}</td>
                                     <td>${doc.size || '-'}</td>
                                     <td>
-                                        <input type="text" id="lote-rubrica-${doc.id}" data-rubrica-combo placeholder="${rubricas.length === 0 ? 'Selecione um projeto com rubricas...' : 'Digite para buscar rubrica...'}" autocomplete="off" style="width: 100%; padding: 0.5rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: 4px; background: white;" value="${escAttr(valorInput)}" ${rubricas.length === 0 ? 'disabled' : ''}>
+                                        <input type="text" id="lote-rubrica-${doc.id}" data-rubrica-combo data-saldo-target="lote-rubrica-saldo-${doc.id}" placeholder="${rubricas.length === 0 ? 'Selecione um projeto com rubricas...' : 'Digite para buscar rubrica...'}" autocomplete="off" style="width: 100%; padding: 0.5rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: 4px; background: white;" value="${escAttr(valorInput)}" ${rubricas.length === 0 ? 'disabled' : ''}>
+                                        <div id="lote-rubrica-saldo-${doc.id}">${renderSaldoBadgeHtml(rubricaPre ? rubricaPre.id : null)}</div>
                                     </td>
                                     <td>
                                         <button class="btn btn-primary" style="padding: 0.4rem 0.75rem;" onclick="window.handleProcessarLoteItem('${doc.id}')">
@@ -1970,7 +1981,10 @@ const EnvioLoteSalicView = () => {
                                         </td>
                                         <td style="font-weight: 600; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${doc.name}</td>
                                         <td style="font-size: 13px; color: var(--text-secondary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${projLabel}</td>
-                                        <td style="font-size: 13px; font-weight: 500;">${doc.rubrica_nome || doc.rubrica || '-'}</td>
+                                        <td style="font-size: 13px; font-weight: 500;">
+                                            ${doc.rubrica_nome || doc.rubrica || '-'}
+                                            ${renderSaldoBadgeHtml(doc.rubrica_id_fk)}
+                                        </td>
                                         <td>
                                             ${doc.status === 'erro_rpa'
                                                 ? '<span class="status-badge status-error">Reenvio (erro anterior)</span>'
@@ -2997,7 +3011,8 @@ ${Sidebar()}
                                 <i data-lucide="tag" style="width: 16px; color: var(--primary);"></i>
                                 <span class="text-sm" style="font-weight: 600;">${doc.rubrica || '<span style="color: var(--primary); font-weight: 500;">Identificada pela IA</span>'}</span>
                             </div>
-                            
+                            ${renderSaldoBadgeHtml(doc.rubrica_id_fk)}
+
                             <!-- Só permite vincular/alterar se houver bloqueio -->
                             ${doc.status === 'bloqueado_conformidade' ? `
                                 <div style="display: flex; gap: 0.5rem;">
@@ -4865,11 +4880,13 @@ window.navigate = async function (view, id = null) {
             await Promise.all([
                 fetchRubricasDisponiveis(state.filters.project),
                 fetchExtratoLoteVinculado(state.filters.project),
+                carregarSaldoRubricasSeHabilitado(state.filters.project),
             ]);
         }
     } else if (view === 'envio_lote_salic') {
         await fetchProjects();
         await fetchDocuments();
+        await atualizarSaldoEnvioLote();
     } else if (view === 'orcamento' || view === 'financeiro') {
         await fetchProjects();
         await fetchCatalogoRubricas();
@@ -5052,14 +5069,78 @@ async function isSaldoRubricasHabilitado() {
     return _saldoFlagCache;
 }
 
-async function fetchSaldoRubricas(projectId) {
-    if (!supabaseClient || !projectId) return;
+// Aceita um projectId único ou uma lista (Envio SALIC em Lote mostra
+// documentos de vários projetos quando "Todos os projetos" está selecionado).
+async function fetchSaldoRubricas(projectIdOuLista) {
+    if (!supabaseClient || !projectIdOuLista) return;
+    const ids = Array.isArray(projectIdOuLista) ? projectIdOuLista.filter(Boolean) : [projectIdOuLista];
+    if (ids.length === 0) { state.saldoRubricas = {}; return; }
     const { data, error } = await supabaseClient
         .from('v_saldo_rubricas')
         .select('*')
-        .eq('project_id', projectId);
+        .in('project_id', ids);
     if (error) { console.error('[saldo-salic] fetch view:', error); state.saldoRubricas = {}; return; }
     state.saldoRubricas = Object.fromEntries((data || []).map(r => [r.rubrica_id, r]));
+}
+
+// CR-2026-001 (complemento): mostra o saldo projetado da rubrica escolhida
+// nos 4 pontos do M1 onde uma rubrica é selecionada/exibida antes de uma ação
+// (upload único, upload em lote, envio individual ao SALIC, envio em lote ao
+// SALIC). v_saldo_rubricas já carrega valor_aprovado/percentual_alerta/
+// alerta_limite_ativo da própria rubrica (r.*), então basta o registro do
+// saldo — não precisa cruzar com state.rubricas_disponiveis. Mesma regra de
+// classificação de modulo2/supabase-helper.js (classificarStatusSaldo),
+// portada aqui porque o M1 não carrega esse arquivo.
+function classificarStatusSaldoM1(s) {
+    const TOL = 0.01;
+    if (!s || s.disponivel_projetado === null || s.disponivel_projetado === undefined) {
+        return { label: 'Sem captura SALIC', cor: '#64748b' };
+    }
+    const aprov = Number(s.valor_aprovado || 0);
+    const salic = Number(s.executado_salic || 0);
+    if (salic > aprov + TOL) return { label: 'Excedida', cor: '#DC2626' };
+    if (aprov <= 0) return { label: '—', cor: '#64748b' };
+    if (Math.abs(salic - aprov) <= TOL) return { label: 'Comprovado', cor: '#16A34A' };
+    const ratio = (aprov - Number(s.disponivel_projetado)) / aprov;
+    const limite = (s.percentual_alerta != null) ? (Number(s.percentual_alerta) / 100) : 0.9;
+    if (ratio >= 1 || (s.alerta_limite_ativo !== false && ratio >= limite)) return { label: 'Atenção', cor: '#FF5807' };
+    return { label: 'OK', cor: '#16A34A' };
+}
+
+function fmtBRLM1(v) {
+    return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+// Retorna o HTML da caixinha de saldo (string, para embutir direto no
+// template) ou '' quando não há nada a mostrar — flag desligada, sem rubrica
+// escolhida ainda, ou sem captura do SALIC ainda para o projeto.
+function renderSaldoBadgeHtml(rubricaId) {
+    if (!state.saldoRubricasHabilitado || !rubricaId) return '';
+    const s = (state.saldoRubricas || {})[rubricaId];
+    const cls = classificarStatusSaldoM1(s);
+    const dispTxt = (s && s.disponivel_projetado != null) ? fmtBRLM1(s.disponivel_projetado) : '—';
+    return `<div style="margin-top:0.35rem; font-size:12px; display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
+        <span style="font-weight:600; color:${cls.cor};">${cls.label}</span>
+        <span style="color: var(--text-muted);">Disponível projetado: ${dispTxt}</span>
+    </div>`;
+}
+
+// Versão DOM: usada pelo listener de 'change' dos comboboxes de rubrica, que
+// não podem re-renderizar a view inteira a cada escolha.
+function renderSaldoBox(targetElId, rubricaId) {
+    const el = document.getElementById(targetElId);
+    if (!el) return;
+    el.innerHTML = renderSaldoBadgeHtml(rubricaId);
+}
+
+function atualizarSaldoInput(inputEl) {
+    if (!inputEl || !inputEl.dataset || !inputEl.dataset.saldoTarget) return;
+    let rubricaId = inputEl.dataset.rubricaId || null;
+    if (!rubricaId) {
+        const r = resolverRubricaPorRotulo(inputEl.value, state.rubricas_disponiveis || []);
+        rubricaId = r ? r.id : null;
+    }
+    renderSaldoBox(inputEl.dataset.saldoTarget, rubricaId);
 }
 
 // CR-2026-001: dispara a captura do relatório de Execução Física do SALIC para o
@@ -5453,6 +5534,11 @@ async function fetchDocumentDetails(id, silent = false) {
                 .order('rubrica_id', { ascending: true });
             state.rubricas_disponiveis = ordenarRubricas(rubData || []);
             state.uploadRubricasProjectId = data.project_id;
+
+            // CR-2026-001 (complemento): saldo da rubrica vinculada, mostrado antes
+            // do envio ao SALIC (individual). Só na carga completa (!silent) — os
+            // polls silenciosos de status não precisam repetir esta consulta.
+            if (!silent) await carregarSaldoRubricasSeHabilitado(data.project_id);
         }
 
         // Extrato bancário e seus lançamentos (somente leitura).
@@ -5792,7 +5878,12 @@ window.updateFilters = function (key, value) {
     // Debounce na busca para evitar muitas requisições
     if (window.filterTimeout) clearTimeout(window.filterTimeout);
     window.filterTimeout = setTimeout(() => {
-        fetchDocuments().then(render);
+        fetchDocuments().then(async () => {
+            // CR-2026-001 (complemento): trocar o filtro de projeto nesta tela muda
+            // quais documentos aparecem, então o saldo carregado precisa acompanhar.
+            if (state.currentView === 'envio_lote_salic') await atualizarSaldoEnvioLote();
+            render();
+        });
     }, 400);
 };
 
@@ -6791,6 +6882,7 @@ window.handleProjectSelectChange = async function (projectId) {
     input.value = '';
     delete input.dataset.rubricaId;
     input.placeholder = 'Carregando rubricas...';
+    renderSaldoBox('upload-rubrica-saldo', null);
     // Marca de qual projeto é a lista em memória, para o render() não refazer a query
     // (nem limpar o input) a cada re-render da tela de upload.
     state.uploadRubricasProjectId = projectId || null;
@@ -6819,6 +6911,10 @@ window.handleProjectSelectChange = async function (projectId) {
         input.placeholder = state.rubricas_disponiveis.length > 0
             ? `Digite para buscar entre ${state.rubricas_disponiveis.length} rubricas...`
             : 'Nenhuma rubrica cadastrada neste projeto';
+
+        // CR-2026-001 (complemento): carrega o saldo projetado das rubricas deste
+        // projeto para exibir ao lado assim que uma for escolhida no combobox.
+        await carregarSaldoRubricasSeHabilitado(projectId);
 
         // Se o operador já está com o campo aberto, atualiza o painel na hora.
         if (_comboAberto() && _comboInput === input) _comboAbrir(input);
@@ -6977,9 +7073,29 @@ window.handleLoteProjectChange = async function (projectId) {
         // Restaura do banco em vez de só zerar: outro projeto pode ter um
         // vínculo próprio ativo de uma sessão anterior.
         fetchExtratoLoteVinculado(projectId),
+        carregarSaldoRubricasSeHabilitado(projectId),
     ]);
     render();
 };
+
+// CR-2026-001 (complemento): helper curto para os pontos que só precisam
+// "carregar o saldo se a flag estiver ligada" sem repetir a checagem toda vez.
+async function carregarSaldoRubricasSeHabilitado(projectIdOuLista) {
+    state.saldoRubricasHabilitado = await isSaldoRubricasHabilitado();
+    if (state.saldoRubricasHabilitado) await fetchSaldoRubricas(projectIdOuLista);
+    else state.saldoRubricas = {};
+}
+
+// Envio SALIC em Lote mostra documentos com status liberado_rpa_airtop/erro_rpa,
+// de um projeto ou de todos (filtro "Todos os projetos") — por isso carrega o
+// saldo pelos project_id distintos dos documentos elegíveis, não por um único id.
+async function atualizarSaldoEnvioLote() {
+    const projectIds = [...new Set((state.documents || [])
+        .filter(doc => ['liberado_rpa_airtop', 'erro_rpa'].includes(doc.status))
+        .map(doc => doc.project_id)
+        .filter(Boolean))];
+    await carregarSaldoRubricasSeHabilitado(projectIds);
+}
 
 // Restaura state.loteExtratoVinculado a partir do banco — é o que faz o vínculo
 // sobreviver a F5, troca de aba prolongada ou expiração de sessão. Só restaura
