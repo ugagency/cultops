@@ -225,12 +225,81 @@ async function renderSidebar() {
     hamburger.className = 'hamburger-btn';
     hamburger.setAttribute('aria-label', 'Abrir menu');
     hamburger.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>`;
-    hamburger.addEventListener('click', () => {
+    const toggleDrawer = () => {
         sidebar.classList.toggle('sidebar-open');
         overlay.classList.toggle('active');
-    });
+    };
+    hamburger.addEventListener('click', toggleDrawer);
     document.body.appendChild(hamburger);
     // ──────────────────────────────────────────────────────────
+
+    // Redesign mobile (pedido do cliente, mockup "Dashboard Mobile"): barra
+    // superior fixa (logo + avatar) e barra inferior de atalhos — só
+    // aparecem abaixo de 768px (CSS em modulo2/m2-shared.css). O
+    // .hamburger-btn continua exatamente como era (canto superior
+    // esquerdo); a topbar só entra "atrás" dele, na mesma altura, pra
+    // formar visualmente uma única barra — por isso nenhuma regra do
+    // hamburger em style.css precisou mudar (risco zero pro M1, que usa a
+    // mesma regra).
+    const existingTopbar = document.querySelector('.mobile-topbar');
+    if (existingTopbar) existingTopbar.remove();
+    const topbar = document.createElement('div');
+    topbar.className = 'mobile-topbar';
+    topbar.innerHTML = `
+        <span class="mobile-topbar-logo">prestaí</span>
+        <div class="mobile-topbar-avatar">A</div>
+    `;
+    document.body.appendChild(topbar);
+
+    const existingTabbar = document.querySelector('.mobile-tabbar');
+    if (existingTabbar) existingTabbar.remove();
+    const tabItems = [
+        { label: 'Início', icon: 'home', path: 'financeiro.html' },
+        { label: 'Rubricas', icon: 'pie-chart', path: 'rubricas.html' },
+        { label: 'Contratos', icon: 'file-text', path: 'contratos.html' },
+        { label: 'Mais', icon: 'more-horizontal', path: null },
+    ];
+    const tabbar = document.createElement('nav');
+    tabbar.className = 'mobile-tabbar';
+    tabbar.innerHTML = tabItems.map(item => {
+        const active = item.path && currentFile === item.path;
+        if (!item.path) {
+            return `
+                <a href="#" class="mobile-tab-item" data-mais="1">
+                    <i data-lucide="${item.icon}"></i>
+                    <span>${item.label}</span>
+                </a>
+            `;
+        }
+        return `
+            <a href="${item.path}" class="mobile-tab-item ${active ? 'active' : ''}">
+                <i data-lucide="${item.icon}"></i>
+                <span>${item.label}</span>
+            </a>
+        `;
+    }).join('');
+    document.body.appendChild(tabbar);
+    const maisTab = tabbar.querySelector('[data-mais="1"]');
+    if (maisTab) {
+        maisTab.addEventListener('click', (e) => {
+            e.preventDefault();
+            toggleDrawer();
+        });
+    }
+
+    // Mesmos dados de sessão já buscados acima pro rodapé da sidebar —
+    // reaproveita pro avatar da topbar em vez de fazer uma segunda consulta.
+    (async () => {
+        try {
+            const sb = await initSupabase();
+            if (!sb) return;
+            const { data: { session } } = await sb.auth.getSession();
+            const user = session?.user;
+            if (!user || !user.email) return;
+            const avatarTop = topbar.querySelector('.mobile-topbar-avatar');
+            if (avatarTop) avatarTop.textContent = user.email[0].toUpperCase();
+        } catch (_) {}
+    })();
 
     // Inicia ícones do Lucide após inserir no DOM
     if (window.lucide) {

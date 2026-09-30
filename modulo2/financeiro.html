@@ -102,6 +102,96 @@
             .dashboard-grid { grid-template-columns: 1fr; }
         }
 
+        /* Redesign mobile (pedido do cliente, mockup "Dashboard Mobile") */
+        .checklist-card-mobile { display: none; }
+        #rubricas-accordion-mobile { display: none; }
+
+        @media (max-width: 768px) {
+            .checklist-card-mobile {
+                display: flex;
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+
+            /* O mesmo dado já aparece no card dedicado acima — evita duplicar
+               dentro do grid de stats no mobile. */
+            #stat-card-checklist {
+                display: none;
+            }
+
+            .quick-nav {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 0.6rem;
+            }
+            .quick-nav .nav-item {
+                flex-direction: column;
+                text-align: center;
+                gap: 0.5rem;
+                padding: 1rem 0.75rem;
+            }
+            .quick-nav .nav-item:hover { transform: none; }
+
+            #rubricas-table-wrap table { display: none; }
+            #rubricas-accordion-mobile { display: block; }
+
+            .rubrica-acc-busca {
+                width: 100%;
+                box-sizing: border-box;
+                padding: 0.6rem 0.8rem;
+                border: 1px solid var(--border-light);
+                border-radius: var(--radius-md);
+                font-size: 0.875rem;
+                margin-bottom: 0.75rem;
+            }
+            .rubrica-acc-filtros {
+                display: flex;
+                gap: 0.5rem;
+                margin-bottom: 0.75rem;
+            }
+            .rubrica-acc-filtro-btn {
+                height: 36px;
+                padding: 0 1rem;
+                border-radius: 999px;
+                border: 1px solid var(--border-light);
+                background: #FFFFFF;
+                color: var(--text-primary);
+                font-size: 0.8rem;
+                font-weight: 600;
+                cursor: pointer;
+            }
+            .rubrica-acc-filtro-btn.is-active {
+                background: var(--m2-accent);
+                color: #FFFFFF;
+                border-color: var(--m2-accent);
+            }
+            .rubrica-acc-item {
+                border-top: 1px solid var(--border-subtle);
+                padding: 0.9rem 0;
+                cursor: pointer;
+            }
+            .rubrica-acc-item:first-child { border-top: none; }
+            .rubrica-acc-detalhes {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 0.6rem;
+                margin-top: 0.75rem;
+                padding: 0.75rem;
+                border-radius: var(--radius-md);
+                background: var(--bg-sidebar, #F5F0E8);
+            }
+            .rubrica-acc-detalhes .lbl {
+                font-size: 0.68rem;
+                font-weight: 700;
+                color: var(--text-muted);
+                text-transform: uppercase;
+            }
+            .rubrica-acc-detalhes .val {
+                font-size: 0.85rem;
+                color: var(--text-primary);
+            }
+        }
+
         .section-title {
             font-size: 1.125rem;
             font-weight: 700;
@@ -326,6 +416,19 @@
         </header>
 
         <div id="dashboard-body">
+            <!-- Redesign mobile (pedido do cliente, mockup "Dashboard Mobile"):
+                 card dedicado, só visível abaixo de 768px — no desktop o
+                 mesmo dado aparece dentro de #stats-grid (stat-checklist). -->
+            <section class="glass-card checklist-card-mobile" id="checklist-card-mobile">
+                <span class="stat-label">Checklist MinC</span>
+                <span class="stat-value" id="checklist-mobile-value">0 / 0 itens</span>
+                <div class="progress-container">
+                    <div class="progress-bar-bg">
+                        <div class="progress-bar-fill" id="checklist-mobile-bar" style="width: 0%"></div>
+                    </div>
+                </div>
+            </section>
+
             <section class="stats-grid" id="stats-grid">
                 <div class="glass-card stat-card">
                     <span class="stat-label">Total Aprovado MinC</span>
@@ -356,7 +459,7 @@
                     <span class="stat-value skeleton" id="stat-impostos">R$ 0,00</span>
                     <span class="stat-sub" id="stat-impostos-sub">&nbsp;</span>
                 </div>
-                <div class="glass-card stat-card">
+                <div class="glass-card stat-card" id="stat-card-checklist">
                     <span class="stat-label">Checklist MinC</span>
                     <span class="stat-value skeleton" id="stat-checklist">0 / 0</span>
                     <div class="progress-container">
@@ -397,6 +500,10 @@
                                 Carregando rubricas…
                             </div>
                         </div>
+                        <!-- Redesign mobile: lista em acordeão, só visível abaixo de
+                             768px (a tabela acima fica display:none nesse breakpoint).
+                             Conteúdo inteiro gerado por renderRubricasAccordionMobile(). -->
+                        <div id="rubricas-accordion-mobile"></div>
                     </section>
 
                     <section class="glass-card" id="saldo-salic-fila-section" style="padding: 1.5rem; display: none;">
@@ -702,6 +809,7 @@
                 const contratosValor = valorEfetivo.reduce((s, r) => s + Number(r.valor_efetivo || 0), 0);
 
                 renderTopStats({ totalAprovado, totalExecutado, saldo, percExec, totalImpostos, checklistOk, checklistTotal, checklistPerc });
+                renderChecklistCardMobile({ checklistOk, checklistTotal, checklistPerc });
                 renderContractsStrip({ contratosAtivos, contratosTotal, contratosValor });
                 if (saldoRubricasHabilitado) {
                     renderUltimaCapturaSalic(saldoSalic);
@@ -712,6 +820,7 @@
                     document.getElementById('saldo-salic-avisos-section').style.display = 'none';
                 }
                 renderRubricasTable(rubricas);
+                renderRubricasAccordionMobile(rubricas);
                 renderDespesasRecentes(despesasRecentes);
                 renderRubricasAlerts(rubricas);
                 // IN23-DISABLED: renderIN23(rubricas, totalAprovado, valorCaptado, fornecedoresIn23Raw);
@@ -779,6 +888,15 @@
             if (s.checklistTotal === 0) {
                 cb.style.width = '0%';
             }
+        }
+
+        // Redesign mobile: mesmo dado de renderTopStats, card dedicado (só
+        // visível abaixo de 768px via CSS) em vez de dividir espaço no
+        // grid de stats — nenhuma query nova.
+        function renderChecklistCardMobile({ checklistOk, checklistTotal, checklistPerc }) {
+            document.getElementById('checklist-mobile-value').textContent = `${checklistOk} / ${checklistTotal} itens`;
+            const bar = document.getElementById('checklist-mobile-bar');
+            bar.style.width = checklistTotal > 0 ? `${Math.min(100, Math.max(0, checklistPerc))}%` : '0%';
         }
 
         function renderContractsStrip({ contratosAtivos, contratosTotal, contratosValor }) {
@@ -894,6 +1012,96 @@
                 </div>
             `;
         }
+
+        // Redesign mobile: mesma lista de rubricas da tabela acima, em cards
+        // de acordeão (busca + filtro Todas/Excedidas + expandir por linha).
+        // Usa os mesmos dados (rubricas + saldoSalicByRubrica), sem query
+        // nova. Estado só de UI (busca/filtro/item aberto) fica aqui, e a
+        // própria função se re-chama a cada interação — não depende de um
+        // ciclo de render global como o M1.
+        let _rubAccBusca = '';
+        let _rubAccFiltro = 'all'; // 'all' | 'exc'
+        let _rubAccAberta = null; // id da rubrica com o detalhe expandido
+
+        function renderRubricasAccordionMobile(rubricas) {
+            const wrap = document.getElementById('rubricas-accordion-mobile');
+            if (!wrap) return;
+
+            const itens = (rubricas || []).map(r => {
+                const aprov = Number(r.valor_aprovado || 0);
+                const saldoSalic = saldoSalicByRubrica.get(r.id) || {};
+                const executadoSalic = saldoSalic.executado_salic ?? null;
+                const dispOficial = saldoSalic.disponivel_oficial ?? null;
+                const emTransito = Number(saldoSalic.em_transito || 0);
+                const dispProjetado = saldoSalic.disponivel_projetado ?? null;
+                const cls = saldoRubricasHabilitado
+                    ? window.classificarStatusSaldo({
+                        aprovado: aprov,
+                        executadoSalic,
+                        dispProjetado,
+                        alertaAtivo: r.alerta_limite_ativo,
+                        percentualAlerta: r.percentual_alerta
+                    })
+                    : classifyRubrica(aprov, Number(r.valor_utilizado || 0), r.percentual_alerta);
+                const excedida = cls.label === 'Excedida';
+                return { r, aprov, executadoSalic, dispOficial, emTransito, dispProjetado, cls, excedida };
+            });
+
+            const excCount = itens.filter(it => it.excedida).length;
+            const termo = _rubAccBusca.trim().toLowerCase();
+            const filtrados = itens.filter(it => {
+                if (_rubAccFiltro === 'exc' && !it.excedida) return false;
+                if (termo && !(it.r.nome || '').toLowerCase().includes(termo)) return false;
+                return true;
+            });
+
+            const linhas = filtrados.map(it => {
+                const aberta = _rubAccAberta === it.r.id;
+                return `
+                    <div class="rubrica-acc-item" onclick="window.toggleRubricaAccMobile('${it.r.id}')">
+                        <div style="display: flex; gap: 10px; align-items: flex-start;">
+                            <div style="flex: 1; min-width: 0;">
+                                <div style="font-weight: 600; font-size: 0.95rem; line-height: 1.25;">${escapeHtml(it.r.nome || '—')}</div>
+                                ${it.r.rubrica_id ? `<div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 2px;">#${escapeHtml(it.r.rubrica_id)}</div>` : ''}
+                            </div>
+                            <div style="text-align: right; flex-shrink: 0;">
+                                <span class="pill ${it.cls.cls}">${it.cls.label}</span>
+                            </div>
+                        </div>
+                        ${aberta ? `
+                        <div class="rubrica-acc-detalhes">
+                            <div><div class="lbl">Aprovado</div><div class="val">${fmtBRL(it.aprov)}</div></div>
+                            <div><div class="lbl">Executado (SALIC)</div><div class="val">${fmtBRLouIndisponivel(it.executadoSalic)}</div></div>
+                            <div><div class="lbl">Segundo o SALIC, sobra</div><div class="val">${fmtBRLouIndisponivel(it.dispOficial)}</div></div>
+                            <div><div class="lbl">Em trânsito</div><div class="val">${fmtBRL(it.emTransito)}</div></div>
+                        </div>` : ''}
+                    </div>
+                `;
+            }).join('');
+
+            wrap.innerHTML = `
+                <input type="text" class="rubrica-acc-busca" placeholder="Buscar rubrica" value="${escapeHtml(_rubAccBusca)}" oninput="window.buscarRubricaAccMobile(this.value)">
+                <div class="rubrica-acc-filtros">
+                    <button type="button" class="rubrica-acc-filtro-btn ${_rubAccFiltro === 'all' ? 'is-active' : ''}" onclick="window.filtrarRubricaAccMobile('all')">Todas (${itens.length})</button>
+                    <button type="button" class="rubrica-acc-filtro-btn ${_rubAccFiltro === 'exc' ? 'is-active' : ''}" onclick="window.filtrarRubricaAccMobile('exc')">Excedidas (${excCount})</button>
+                </div>
+                ${filtrados.length === 0 ? `<div class="empty-state">Nenhuma rubrica encontrada.</div>` : linhas}
+            `;
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        window.toggleRubricaAccMobile = function (rubricaId) {
+            _rubAccAberta = _rubAccAberta === rubricaId ? null : rubricaId;
+            renderRubricasAccordionMobile(currentRubricas);
+        };
+        window.buscarRubricaAccMobile = function (valor) {
+            _rubAccBusca = valor;
+            renderRubricasAccordionMobile(currentRubricas);
+        };
+        window.filtrarRubricaAccMobile = function (filtro) {
+            _rubAccFiltro = filtro;
+            renderRubricasAccordionMobile(currentRubricas);
+        };
 
         function renderFilaConferenciaSalic(fila, rubricas) {
             const section = document.getElementById('saldo-salic-fila-section');
