@@ -208,6 +208,12 @@ h1, h2, h3, h4, h5, h6,
 /* Main Content Area */
 .main-content {
     flex: 1;
+    /* Sem isso, um item flex nunca encolhe abaixo da largura mínima do
+       próprio conteúdo (ex.: <select> com opção de texto longo) — em telas
+       estreitas isso força .main-content a ficar mais largo que a viewport,
+       cortando cards/filtros/subtítulo em vez de empilhar (bug reportado
+       pelo cliente no iPhone: dashboard todo cortado à direita). */
+    min-width: 0;
     margin-left: var(--sidebar-width);
     padding: 2.5rem 3rem;
     min-height: 100vh;
