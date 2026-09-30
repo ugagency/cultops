@@ -706,7 +706,7 @@
                 if (saldoRubricasHabilitado) {
                     renderUltimaCapturaSalic(saldoSalic);
                     renderFilaConferenciaSalic(filaSalic, rubricas);
-                    renderAvisosSaldoSalic(projectId);
+                    renderAvisosSaldoSalic(rubricas);
                 } else {
                     document.getElementById('saldo-salic-fila-section').style.display = 'none';
                     document.getElementById('saldo-salic-avisos-section').style.display = 'none';
@@ -1001,90 +1001,71 @@
             }
         }
 
-        // CR-2026-001 Fase 4.2/4.3 — sinalização de divergências abertas e de
-        // notas paradas em trânsito. Só roda com o flag ligado.
-        async function renderAvisosSaldoSalic(projectId) {
+        // CR-2026-001 Fase 4.2/4.3 (revisado) — avisos de saldo mostram só
+        // rubricas Excedida ou Atenção (mesma classificação de
+        // renderRubricasTable, via window.classificarStatusSaldo). Detecção
+        // de divergências continua rodando no worker (saldo_salic_divergencias
+        // segue populada), só não é mais o que aparece nesta seção.
+        function renderAvisosSaldoSalic(rubricas) {
             const section = document.getElementById('saldo-salic-avisos-section');
             const wrap = document.getElementById('saldo-salic-avisos-wrap');
             if (!saldoRubricasHabilitado) { section.style.display = 'none'; return; }
 
-            const orgId = window.getCurrentOrgId ? await window.getCurrentOrgId(projectId) : null;
-            let prazoDias = 7;
-            if (orgId) {
-                const { data: org } = await sb.from('organizations')
-                    .select('saldo_rubricas_prazo_nota_parada_dias')
-                    .eq('id', orgId)
-                    .maybeSingle();
-                if (org?.saldo_rubricas_prazo_nota_parada_dias) prazoDias = org.saldo_rubricas_prazo_nota_parada_dias;
+            const excedidas = [];
+            const atencao = [];
+            for (const r of rubricas) {
+                const aprov = Number(r.valor_aprovado || 0);
+                const saldoSalic = saldoSalicByRubrica.get(r.id) || {};
+                const executadoSalic = saldoSalic.executado_salic ?? null;
+                const dispProjetado = saldoSalic.disponivel_projetado ?? null;
+                const cls = window.classificarStatusSaldo({
+                    aprovado: aprov,
+                    executadoSalic,
+                    dispProjetado,
+                    alertaAtivo: r.alerta_limite_ativo,
+                    percentualAlerta: r.percentual_alerta
+                });
+                const item = { rubrica: r, aprov, executadoSalic, dispProjetado };
+                if (cls.key === 'excedida') excedidas.push(item);
+                else if (cls.key === 'atencao') atencao.push(item);
             }
-            const limiteData = new Date(Date.now() - prazoDias * 24 * 60 * 60 * 1000).toISOString();
 
-            const [{ data: divergencias }, { data: notasParadas }] = await Promise.all([
-                sb.from('saldo_salic_divergencias')
-                    .select('id, vl_executado_salic, vl_confirmado_prestai, diferenca, detectada_em, rubricas(nome)')
-                    .eq('project_id', projectId)
-                    .eq('status', 'aberta')
-                    .order('detectada_em', { ascending: false }),
-                sb.from('despesas')
-                    .select('id, fornecedor_nome, valor, created_at, rubricas(nome)')
-                    .eq('project_id', projectId)
-                    .is('data_salic', null)
-                    .not('status', 'in', '(concluido,erro_rpa,bloqueado_conformidade)')
-                    .lt('created_at', limiteData)
-            ]);
-
-            const divs = divergencias || [];
-            const paradas = notasParadas || [];
-
-            if (divs.length === 0 && paradas.length === 0) {
+            if (excedidas.length === 0 && atencao.length === 0) {
                 section.style.display = 'none';
                 return;
             }
             section.style.display = '';
 
+            const porDispCrescente = (a, b) => (a.dispProjetado ?? 0) - (b.dispProjetado ?? 0);
+            excedidas.sort(porDispCrescente);
+            atencao.sort(porDispCrescente);
+
+            const renderItem = (a) => `
+                <div style="border: 1px solid var(--border-light); border-radius: 6px; padding: 0.6rem; margin-bottom: 0.4rem; font-size: 0.75rem;">
+                    <div style="font-weight: 600;">${escapeHtml(a.rubrica.nome || '—')}</div>
+                    <div style="color: var(--text-muted);">Aprovado: ${fmtBRL(a.aprov)} · Executado SALIC: ${a.executadoSalic != null ? fmtBRL(a.executadoSalic) : '—'} · Disponível projetado: ${a.dispProjetado != null ? fmtBRL(a.dispProjetado) : '—'}</div>
+                </div>
+            `;
+
             let html = '';
-            if (divs.length > 0) {
+            if (excedidas.length > 0) {
                 html += `<div style="margin-bottom: 1rem;">
-                    <div style="font-size: 0.8rem; font-weight: 700; margin-bottom: 0.5rem; color: #FF5807; display:flex; align-items:center; gap:0.3rem;">
-                        <i data-lucide="alert-triangle" style="width: 14px;"></i> ${divs.length} divergência(s) aberta(s)
+                    <div style="font-size: 0.8rem; font-weight: 700; margin-bottom: 0.5rem; color: #DC2626; display:flex; align-items:center; gap:0.3rem;">
+                        <i data-lucide="alert-circle" style="width: 14px;"></i> ${excedidas.length} rubrica(s) excedida(s)
                     </div>
-                    ${divs.map(d => `
-                        <div style="border: 1px solid var(--border-light); border-radius: 6px; padding: 0.6rem; margin-bottom: 0.4rem; font-size: 0.75rem;">
-                            <div style="font-weight: 600;">${escapeHtml((d.rubricas && d.rubricas.nome) || '—')}</div>
-                            <div style="color: var(--text-muted);">SALIC: ${fmtBRL(d.vl_executado_salic)} · PrestAI: ${fmtBRL(d.vl_confirmado_prestai)} · Diferença: ${fmtBRL(d.diferenca)}</div>
-                            <div style="margin-top: 0.3rem; display: flex; gap: 0.4rem;">
-                                <button class="btn-inline" style="font-size: 0.7rem; padding: 0.15rem 0.4rem;" onclick="marcarDivergencia('${d.id}', 'resolvida')">Marcar resolvida</button>
-                                <button class="btn-inline" style="font-size: 0.7rem; padding: 0.15rem 0.4rem;" onclick="marcarDivergencia('${d.id}', 'ignorada')">Ignorar</button>
-                            </div>
-                        </div>
-                    `).join('')}
+                    ${excedidas.map(renderItem).join('')}
                 </div>`;
             }
-            if (paradas.length > 0) {
+            if (atencao.length > 0) {
                 html += `<div>
                     <div style="font-size: 0.8rem; font-weight: 700; margin-bottom: 0.5rem; color: #FF5807; display:flex; align-items:center; gap:0.3rem;">
-                        <i data-lucide="clock" style="width: 14px;"></i> ${paradas.length} nota(s) parada(s) em trânsito (+${prazoDias}d)
+                        <i data-lucide="alert-triangle" style="width: 14px;"></i> ${atencao.length} rubrica(s) próxima(s) do limite
                     </div>
-                    ${paradas.map(n => `
-                        <div style="border: 1px solid var(--border-light); border-radius: 6px; padding: 0.6rem; margin-bottom: 0.4rem; font-size: 0.75rem;">
-                            <div style="font-weight: 600;">${escapeHtml(n.fornecedor_nome || '—')} — ${fmtBRL(n.valor)}</div>
-                            <div style="color: var(--text-muted);">${escapeHtml((n.rubricas && n.rubricas.nome) || '—')} · desde ${fmtDate(n.created_at)}</div>
-                        </div>
-                    `).join('')}
+                    ${atencao.map(renderItem).join('')}
                 </div>`;
             }
             wrap.innerHTML = html;
             if (window.lucide) window.lucide.createIcons();
-        }
-
-        async function marcarDivergencia(id, status) {
-            const { data: { session } } = await sb.auth.getSession();
-            const userId = session?.user?.id || null;
-            const { error } = await sb.from('saldo_salic_divergencias')
-                .update({ status, resolvida_por: userId, resolvida_em: new Date().toISOString() })
-                .eq('id', id);
-            if (error) { alert('Erro ao marcar divergência: ' + error.message); return; }
-            await renderAvisosSaldoSalic(currentProjectId);
         }
 
         function renderDespesasRecentes(despesas) {
