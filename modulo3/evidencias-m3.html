@@ -697,6 +697,20 @@
                 errEl.style.display = 'none';
             }
         }
+        // Bug reportado pelo cliente: upload falhava com "Invalid key" em nomes de
+        // arquivo com acento (ex.: "Espetáculo"). O Storage do Supabase só aceita
+        // \w (ASCII) e um conjunto pequeno de símbolos na key — "á", "ç" etc. não
+        // passam. app.js e comprovacao-fisica.html já evitam isso usando nome
+        // aleatório na key; aqui a key preserva o nome original (mostrado na
+        // lista), então em vez de descartar o nome, só dobra os acentos para a
+        // letra sem acento e troca qualquer caractere fora do permitido por "_".
+        function sanitizarNomeArquivo(nome) {
+            const semAcento = String(nome || '')
+                .normalize('NFD')
+                .replace(/[̀-ͯ]/g, '');
+            return semAcento.replace(/[^\w!\-.*'() &$@=;:+,?]/g, '_');
+        }
+
         async function salvarAttendance() {
             const fileInput    = document.getElementById('att-file');
             const totalInput   = document.getElementById('att-total');
@@ -715,7 +729,7 @@
             try {
                 const sb    = await initSupabase();
                 const orgId = await getCurrentOrgIdM3();
-                const filePath = `${orgId}/attendance/${eventId}/${Date.now()}_${file.name}`.trim();
+                const filePath = `${orgId}/attendance/${eventId}/${Date.now()}_${sanitizarNomeArquivo(file.name)}`.trim();
 
                 const { error: upErr } = await sb.storage
                     .from('physical-evidences')
@@ -840,7 +854,7 @@
             try {
                 const sb    = await initSupabase();
                 const orgId = await getCurrentOrgIdM3();
-                const filePath = `${orgId}/evidencias-m3/${eventId}/${Date.now()}_${file.name}`.trim();
+                const filePath = `${orgId}/evidencias-m3/${eventId}/${Date.now()}_${sanitizarNomeArquivo(file.name)}`.trim();
 
                 const { error: upErr } = await sb.storage
                     .from('physical-evidences')
