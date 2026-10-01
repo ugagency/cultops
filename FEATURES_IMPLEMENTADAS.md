@@ -1,6 +1,6 @@
 # Resumo das Features Implementadas (Sessão Atual)
 
-Abaixo estão detalhadas todas as funcionalidades, otimizações e correções implementadas durante nossa última sessão de desenvolvimento no projeto **Prestaí (Cultopps)**.
+Abaixo estão detalhadas todas as funcionalidades, otimizações e correções implementadas durante nossa última sessão de desenvolvimento no projeto **Prestaí**.
 
 ---
 

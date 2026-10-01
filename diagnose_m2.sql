@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════
--- diagnose_m2.sql — Diagnóstico READ-ONLY do banco do Cultopps
+-- diagnose_m2.sql — Diagnóstico READ-ONLY do banco do Prestaí
 --
 -- Objetivo: descobrir o estado REAL antes de aplicar
 --           migration_m2_rls_align_m1.sql (que está em DRAFT).

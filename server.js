@@ -210,7 +210,7 @@ app.get('/api/health', (req, res) => {
 // Servir arquivos estáticos (Front-end) - Desativável via Variável de Ambiente
 if (process.env.DISABLE_FRONTEND === 'true') {
     app.get('/', (req, res) => {
-        res.send("🤖 Cultopps RPA Microservice - Running!");
+        res.send("🤖 Prestaí RPA Microservice - Running!");
     });
 } else {
     const staticPath = path.resolve(__dirname);

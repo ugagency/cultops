@@ -1,4 +1,4 @@
-# Auditoria de Código — PrestAI/Cultopps
+# Auditoria de Código — Prestaí
 
 **Data:** 2026-07-17
 **Escopo:** código morto, duplicidade, risco de bug e divergência entre branches, como insumo para a decisão de arquitetura do Módulo 3.

@@ -4566,7 +4566,7 @@ const RubricaInstructionsModal = () => `
             </div>
             <div class="step-item">
                 <div class="step-number">9</div>
-                <div class="step-text">Volte aqui no CultOps e faça o upload do arquivo gerado.</div>
+                <div class="step-text">Volte aqui no Prestaí e faça o upload do arquivo gerado.</div>
             </div>
         </div>
         
