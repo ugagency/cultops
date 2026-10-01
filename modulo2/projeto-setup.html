@@ -626,6 +626,10 @@
                     (data.message && data.message.toLowerCase().includes("não encontrado")) ||
                     (data.pronac === null && data.nome === null);
 
+                if (data.aviso) {
+                    throw new Error('Projeto PRONAC já está importado para esta organização');
+                }
+
                 if (isNotFound || data.success === false || data.error) {
                     throw new Error(data.message || data.error || "Projeto não encontrado no SALIC. Verifique o número.");
                 }

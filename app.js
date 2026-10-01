@@ -2392,7 +2392,7 @@ ${Sidebar()}
                 <div style="margin-top: 1.5rem; padding: 1rem; background: rgba(239, 68, 68, 0.1); border-radius: var(--radius-sm); border-left: 3px solid var(--error); display: flex; gap: 0.75rem; align-items: flex-start;">
                     <i data-lucide="alert-circle" style="width: 18px; color: var(--error); flex-shrink: 0; margin-top: 2px;"></i>
                     <div>
-                        <p class="text-sm" style="color: var(--error); font-weight: 600; margin-bottom: 2px;">Falha na importação</p>
+                        <p class="text-sm" style="color: var(--error); font-weight: 600; margin-bottom: 2px;">${state.errorIsWarning ? 'Aviso' : 'Falha na importação'}</p>
                         <p class="text-xs" style="color: var(--text-secondary); line-height: 1.4;">${state.error}</p>
                     </div>
                 </div>
@@ -6135,6 +6135,7 @@ window.handleFetchSalicProject = async function () {
 
     state.loading = true;
     state.error = null;
+    state.errorIsWarning = false;
     render();
 
     try {
@@ -6159,6 +6160,14 @@ window.handleFetchSalicProject = async function () {
         const isNotFound =
             (data.message && data.message.toLowerCase().includes("não encontrado")) ||
             (data.pronac === null && data.nome === null);
+
+        if (data.aviso) {
+            // Projeto já importado na organização: não é falha, é um aviso
+            state.error = 'Projeto PRONAC já está importado para esta organização';
+            state.errorIsWarning = true;
+            showToast(state.error, 'warning');
+            return;
+        }
 
         if (isNotFound || data.success === false || data.error) {
             const errorMsg = data.message || data.error || "Projeto não encontrado no SALIC. Verifique o número do PRONAC.";
