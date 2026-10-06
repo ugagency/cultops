@@ -286,6 +286,18 @@
         
         <div class="toast-notification" id="toast" style="position: fixed; bottom: 2.5rem; right: 2.5rem; padding: 1.25rem 2rem; border-radius: var(--radius-md); color: white; font-weight: 700; font-size: 0.95rem; z-index: 10000; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); transform: translateY(150%); transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);"></div>
 
+        <!-- Ocorrência 14: confirmação antes de importar a planilha de rubricas -->
+        <div id="confirma-importacao-modal" class="modal-backdrop" hidden onclick="if(event.target===this) cancelarImportacaoRubricas()">
+            <div class="modal-dialog">
+                <h3>Importar planilha de rubricas</h3>
+                <p id="confirma-importacao-texto" style="margin: 0; color: var(--text-secondary);"></p>
+                <div class="modal-actions">
+                    <button type="button" class="btn-modal btn-modal-cancel" onclick="cancelarImportacaoRubricas()">Cancelar</button>
+                    <button type="button" class="btn-modal btn-modal-primary" onclick="confirmarImportacaoRubricas()">Confirmar</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Modal de Readequação Orçamentária -->
         <div id="readequacao-modal" class="modal-backdrop" hidden onclick="if(event.target===this) closeReadequacaoModal()">
             <div class="modal-dialog">
@@ -825,14 +837,44 @@
             document.getElementById('upload-status').textContent = text;
         }
 
-        window.handleRubricaUpload = async function(file) {
+        // Ocorrência 14: pede confirmação do projeto de destino antes de enviar o PDF.
+        // Cancelar limpa o input, para o mesmo arquivo poder ser escolhido de novo.
+        let importacaoPendente = null;
+        window.handleRubricaUpload = function(file) {
+            if (!file) return;
+            if (!currentProjectId) {
+                showToast("Selecione um projeto primeiro!", "error");
+                return;
+            }
+            const select = document.getElementById('project-select');
+            const partes = select.options[select.selectedIndex].text.split(' - ');
+            const pronac = partes[0];
+            const nome = partes.slice(1).join(' - ');
+            importacaoPendente = file;
+            document.getElementById('confirma-importacao-texto').textContent =
+                `Importar esta planilha para o projeto PRONAC ${pronac} — ${nome}?`;
+            document.getElementById('confirma-importacao-modal').hidden = false;
+        };
+        window.cancelarImportacaoRubricas = function() {
+            importacaoPendente = null;
+            document.getElementById('confirma-importacao-modal').hidden = true;
+            document.getElementById('file-upload-rubricas').value = '';
+        };
+        window.confirmarImportacaoRubricas = function() {
+            const file = importacaoPendente;
+            importacaoPendente = null;
+            document.getElementById('confirma-importacao-modal').hidden = true;
+            if (file) executarImportacaoRubricas(file);
+        };
+
+        async function executarImportacaoRubricas(file) {
             if (!file) return;
             if (!currentProjectId) {
                 showToast("Selecione um projeto primeiro!", "error");
                 return;
             }
 
-            const project = document.getElementById('project-select').options[document.getElementById('project-select').selectedIndex].text;
+            const project =document.getElementById('project-select').options[document.getElementById('project-select').selectedIndex].text;
             const pronac = project.split(' - ')[0];
 
             // Setup UI for upload
@@ -933,7 +975,7 @@
                 // Limpa o input de arquivo
                 document.getElementById('file-upload-rubricas').value = '';
             }
-        };
+        }
     </script>
 </body>
 </html>

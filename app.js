@@ -70,14 +70,17 @@ window.showToast = function (message, type = 'info') {
 // Uso: window.showConfirmModal({ title, message, confirmLabel, cancelLabel, variant, onConfirm })
 // no lugar de `if (!confirm(msg)) return; ...resto...` — mover o "...resto..."
 // para dentro de onConfirm (chamado só quando o usuário confirma).
-window.showConfirmModal = function ({ title = 'Confirmar ação', message = '', confirmLabel = 'Confirmar', cancelLabel = 'Cancelar', variant = 'primary', onConfirm } = {}) {
-    state.confirmModal = { title, message, confirmLabel, cancelLabel, variant, onConfirm };
+window.showConfirmModal = function ({ title = 'Confirmar ação', message = '', confirmLabel = 'Confirmar', cancelLabel = 'Cancelar', variant = 'primary', onConfirm, onCancel } = {}) {
+    state.confirmModal = { title, message, confirmLabel, cancelLabel, variant, onConfirm, onCancel };
     render();
 };
 
+// Cancelar, "X" e clique fora passam por aqui; onCancel (opcional) roda depois de fechar.
 window.closeConfirmModal = function () {
+    const modal = state.confirmModal;
     state.confirmModal = null;
     render();
+    if (modal && typeof modal.onCancel === 'function') modal.onCancel();
 };
 
 // Executa a ação confirmada: fecha o modal e só então chama o callback
@@ -6240,6 +6243,22 @@ window.handleRubricaUpload = async function (file) {
     const project = state.projects.find(p => p.id === state.filters.project);
     if (!project) return window.showToast("Selecione um projeto primeiro!", 'error');
 
+    // Ocorrência 14: confirma o projeto de destino antes de enviar qualquer coisa.
+    // Cancelar limpa o input para o mesmo arquivo poder ser escolhido de novo.
+    const limparInput = () => {
+        const input = document.getElementById('rubrica-pdf-input');
+        if (input) input.value = '';
+    };
+    window.showConfirmModal({
+        title: 'Importar planilha de rubricas',
+        message: `Importar esta planilha para o projeto PRONAC ${project.pronac} — ${project.nome}?`,
+        confirmLabel: 'Confirmar',
+        onConfirm: () => importarRubricasPdf(file, project),
+        onCancel: limparInput
+    });
+};
+
+async function importarRubricasPdf(file, project) {
     state.importState = 'uploading';
     state.importProgress = 10;
     render();
@@ -6339,7 +6358,7 @@ window.handleRubricaUpload = async function (file) {
             }, 5000);
         }
     }
-};
+}
 
 window.handleDeleteProject = async function (id, nome) {
     // Trava de segurança: Verifica se o usuário é admin
