@@ -70,9 +70,19 @@ window.showToast = function (message, type = 'info') {
 // Uso: window.showConfirmModal({ title, message, confirmLabel, cancelLabel, variant, onConfirm })
 // no lugar de `if (!confirm(msg)) return; ...resto...` — mover o "...resto..."
 // para dentro de onConfirm (chamado só quando o usuário confirma).
-window.showConfirmModal = function ({ title = 'Confirmar ação', message = '', confirmLabel = 'Confirmar', cancelLabel = 'Cancelar', variant = 'primary', onConfirm, onCancel } = {}) {
-    state.confirmModal = { title, message, confirmLabel, cancelLabel, variant, onConfirm, onCancel };
+window.showConfirmModal = function ({ title = 'Confirmar ação', message = '', confirmLabel = 'Confirmar', cancelLabel = 'Cancelar', variant = 'primary', onConfirm, onCancel, confirmText } = {}) {
+    // confirmText (opcional): o botão de confirmar só habilita quando o usuário digita exatamente esse texto.
+    state.confirmModal = { title, message, confirmLabel, cancelLabel, variant, onConfirm, onCancel, confirmText, typed: '' };
     render();
+};
+
+// Chamado a cada tecla do campo de confirmação digitada. Não usa render() para não perder o foco do input.
+window.__confirmModalDigitou = function (valor) {
+    const modal = state.confirmModal;
+    if (!modal) return;
+    modal.typed = valor;
+    const botao = document.getElementById('confirm-modal-ok');
+    if (botao) botao.disabled = modal.typed !== modal.confirmText;
 };
 
 // Cancelar, "X" e clique fora passam por aqui; onCancel (opcional) roda depois de fechar.
@@ -87,6 +97,7 @@ window.closeConfirmModal = function () {
 // (equivalente ao "return" logo após o `if (confirm(...))` nativo).
 window.__execConfirmModal = function () {
     const modal = state.confirmModal;
+    if (modal && modal.confirmText && modal.typed !== modal.confirmText) return;
     state.confirmModal = null;
     render();
     if (modal && typeof modal.onConfirm === 'function') modal.onConfirm();
@@ -4597,9 +4608,14 @@ const ConfirmModal = () => {
         </button>
         <h3 class="h2 mb-4">${escAttr(cm.title)}</h3>
         <p class="text-sm text-secondary mb-6" style="white-space: pre-line;">${escAttr(cm.message)}</p>
+        ${cm.confirmText ? `
+        <div class="mb-6">
+            <label class="text-sm" for="confirm-modal-input">Para confirmar, digite <strong>${escAttr(cm.confirmText)}</strong>:</label>
+            <input type="text" id="confirm-modal-input" autocomplete="off" autocapitalize="off" spellcheck="false" style="width: 100%; margin-top: 0.5rem;" value="${escAttr(cm.typed || '')}" oninput="window.__confirmModalDigitou(this.value)">
+        </div>` : ''}
         <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
             <button class="btn btn-secondary" onclick="window.closeConfirmModal()">${escAttr(cm.cancelLabel)}</button>
-            <button class="btn btn-primary" style="${confirmBtnStyle}" onclick="window.__execConfirmModal()">${escAttr(cm.confirmLabel)}</button>
+            <button class="btn btn-primary" id="confirm-modal-ok" style="${confirmBtnStyle}" ${cm.confirmText && cm.typed !== cm.confirmText ? 'disabled' : ''} onclick="window.__execConfirmModal()">${escAttr(cm.confirmLabel)}</button>
         </div>
     </div>
 </div>
@@ -6374,6 +6390,7 @@ window.handleDeleteProject = async function (id, nome) {
         message: `Tem certeza que deseja excluir o projeto "${nome}"? Esta ação excluirá todos os documentos, rubricas e despesas vinculadas a ele.`,
         confirmLabel: 'Excluir',
         variant: 'danger',
+        confirmText: 'APAGAR',
         onConfirm: async () => {
             state.loading = true;
             render();
