@@ -217,7 +217,7 @@ function renderIN23(rubricas, valorProjeto, valorCaptado, documentos) {
 function mountIN23Panel() {
     const mount = document.getElementById('in23-panel-mount');
     if (!mount || !state.in23ProjectFinanceiro) return;
-    const vProjeto = parseFloat(state.in23ProjectFinanceiro.valor_aprovado) || 0;
+    const vProjeto = parseValorProjeto(state.in23ProjectFinanceiro.valor_aprovado) ?? 0;
     const vCaptado = parseFloat(state.in23ProjectFinanceiro.valor_captado)  || 0;
     const panel = renderIN23(state.rubricas, vProjeto, vCaptado, state.in23DocumentosConferidos || []);
     mount.innerHTML = '';
@@ -242,6 +242,29 @@ function parseValorBR(v) {
         return parseFloat(s.replace('.', '')) || 0;
     }
     return parseFloat(s) || 0;
+}
+
+// Ocorrência 25 — SÓ para projects.valor_aprovado, que é TEXTO com formatos misturados
+// ("8996121.5781", "27834125.625", "11.176.760,04"). Não substitui parseValorBR, cuja regra
+// ("ponto único com 3 dígitos = milhar") é usada por outros campos.
+// Regra: vazio/não numérico = null; com vírgula = formato BR; sem vírgula e mais de um
+// ponto = pontos de milhar; senão o ponto é decimal. Sempre arredonda a 2 casas.
+// Limite conhecido: "1.234" (sem vírgula, um ponto) é lido como 1,23.
+function parseValorProjeto(v) {
+    if (v === null || v === undefined || v === '') return null;
+    if (typeof v === 'number') return Number.isFinite(v) ? Math.round(v * 100) / 100 : null;
+    let s = String(v).replace(/[R$\s]/g, '');
+    if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+    else if ((s.match(/\./g) || []).length > 1) s = s.replace(/\./g, '');
+    const n = Number(s);
+    return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
+}
+
+// "R$ 27.834.125,63", ou "-" quando o valor não existe.
+function formatValorProjeto(v) {
+    const n = parseValorProjeto(v);
+    if (n === null) return '-';
+    return 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1711,7 +1734,7 @@ ${Sidebar()}
                             </td>
                             <td class="text-sm">${p.uf || '---'}</td>
                             <td class="text-sm" style="font-weight: 600; color: var(--success);">
-                                R$ ${parseValorBR(p.valor_aprovado).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                ${formatValorProjeto(p.valor_aprovado)}
                             </td>
                             <td class="text-sm">${new Date(p.created_at).toLocaleDateString('pt-BR')}</td>
                             <td style="text-align: right;">
@@ -4912,7 +4935,7 @@ const CapturedProjectModal = () => {
                 </div>
                 <div class="info-item">
                     <label>Valor Aprovado</label>
-                    <p class="text-sm font-bold" style="color: var(--primary);">R$ ${(p.valor_aprovado ? parseFloat(p.valor_aprovado) : 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                    <p class="text-sm font-bold" style="color: var(--primary);">${formatValorProjeto(p.valor_aprovado)}</p>
                 </div>
                 <div class="info-item">
                     <label>Valor Arrecadado</label>
@@ -7648,7 +7671,7 @@ window.handleEnviarSalic = async function (documentId) {
         ]);
 
         /* IN23-DISABLED: bloqueio de envio por IN23 desativado — Reativar quando gestão de saldo implementada
-        const vProjeto = parseFloat(projFinanc?.valor_aprovado) || 0;
+        const vProjeto = parseValorProjeto(projFinanc?.valor_aprovado) ?? 0;
         const vCaptado = parseFloat(projFinanc?.valor_captado)  || 0;
         const regrasIN23 = calcularRegrasIN23(rubricasProjeto, vProjeto, vCaptado, docsConferidos);
 
