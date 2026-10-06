@@ -4733,7 +4733,7 @@ const OrcamentoView = () => {
                     <div style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border-light);">
                         <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; color: var(--text-secondary);">
                             <i data-lucide="history" style="width: 18px;"></i>
-                            <span class="font-bold text-sm">Versões Anterior (Backups)</span>
+                            <span class="font-bold text-sm">Versões anteriores (Backups)</span>
                         </div>
                         ${state.rubrica_versions.length === 0 ? `
                             <p class="text-xs text-muted italic">Nenhum backup de versão anterior encontrado.</p>
@@ -6335,6 +6335,8 @@ async function importarRubricasPdf(file, project) {
             state.importProgress = 100;
             showToast(`${result.rubricas_importadas} rubricas importadas com sucesso!`, 'success');
             await fetchRubricas(project.id);
+            // Ocorrência 11: a nova versão (backup) precisa aparecer sem trocar de tela.
+            await fetchRubricaVersions(project.id);
         } else {
             state.importState = 'erro';
             state.error = result.message || "O servidor não conseguiu extrair as rubricas. Verifique se o arquivo PDF é a 'Planilha Orçamentária' oficial do SALIC.";
