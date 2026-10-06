@@ -32,4 +32,11 @@ dist/
 build/
 
 # Versão do Banco (SQL com dados sensíveis se houver)
- seed_data.sql
+seed_data.sql
+
+# Documentos internos e configuração local do agente (o repositório é público)
+CREDENCIAIS_HANDOFF.md
+API_REFERENCE.md
+DATABASE.md
+DEPLOY.md
+.claude/settings.local.json
