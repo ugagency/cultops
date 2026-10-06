@@ -361,17 +361,18 @@
                 <i data-lucide="history" style="color: var(--text-secondary);"></i>
                 <h3 style="font-size: 1.1rem; margin: 0;">Histórico de Importações</h3>
             </div>
-            <div style="overflow-x: auto; max-height: 200px;">
+            <div style="overflow: auto; max-height: 380px;">
                 <table class="history-table">
                     <thead>
                         <tr>
                             <th>Data</th>
                             <th>Arquivo</th>
                             <th>Status</th>
+                            <th>PDF</th>
                         </tr>
                     </thead>
                     <tbody id="history-tbody">
-                        <tr><td colspan="3" style="text-align: center; color: var(--text-muted);">Selecione um projeto para ver o histórico.</td></tr>
+                        <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Selecione um projeto para ver o histórico.</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -437,14 +438,14 @@
             const sb = await initSupabase();
             const { data, error } = await sb
                 .from('documents')
-                .select('id, name, status, created_at')
+                .select('id, name, status, created_at, file_path')
                 .eq('project_id', currentProjectId)
                 .eq('tipo_documento', 'planilha_orcamentaria')
                 .order('created_at', { ascending: false });
 
             const tbody = document.getElementById('history-tbody');
             if (error || !data || data.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: var(--text-muted);">Nenhuma importação encontrada.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Nenhuma importação encontrada.</td></tr>`;
                 return;
             }
 
@@ -463,8 +464,9 @@
                 return `
                     <tr>
                         <td data-label="Data">${new Date(doc.created_at).toLocaleString('pt-BR')}</td>
-                        <td style="font-weight: 500;" data-label="Arquivo">${doc.name}</td>
+                        <td style="font-weight: 500; overflow-wrap: anywhere;" data-label="Arquivo">${escapeHtml(doc.name)}</td>
                         <td data-label="Status"><span class="status-badge ${badgeClass}">${statusLabel}</span></td>
+                        <td data-label="PDF">${doc.file_path ? `<button type="button" class="btn-modal btn-modal-cancel" style="padding: 0.3rem 0.7rem; font-size: 0.75rem; white-space: nowrap;" data-path="${escapeHtml(doc.file_path)}" onclick="baixarPdfOriginal(this.dataset.path)">Baixar PDF</button>` : '—'}</td>
                     </tr>
                 `;
             }).join('');
@@ -806,6 +808,24 @@
                 return dt.toLocaleDateString('pt-BR');
             } catch { return '—'; }
         }
+
+        // Ocorrência 12: abre o PDF original da importação. URL assinada (1h) mesmo com o bucket
+        // público. A aba abre antes do await para o bloqueador de pop-ups não barrar.
+        window.baixarPdfOriginal = async function(filePath) {
+            const aba = window.open('about:blank', '_blank');
+            if (aba) aba.opener = null;
+            try {
+                const sb = await initSupabase();
+                const { data, error } = await sb.storage.from('documentos').createSignedUrl(filePath, 3600);
+                if (error || !data || !data.signedUrl) throw error || new Error('URL assinada vazia');
+                if (aba) aba.location.href = data.signedUrl;
+                else window.location.href = data.signedUrl;
+            } catch (err) {
+                if (aba) aba.close();
+                console.error('Erro ao gerar URL assinada do PDF original:', err);
+                showToast('Não foi possível gerar o link do arquivo.', 'error');
+            }
+        };
 
         function escapeHtml(s) {
             return String(s == null ? '' : s)

@@ -704,6 +704,7 @@ const state = {
     confirmModal: null,
     isUploadingComprovante: false,
     rubrica_versions: [],
+    rubrica_arquivos: [],        // PDFs originais enviados na importação de rubricas (documents)
     equipe: [],
     salicLoteQueue: [],          // [{id, name, status, error, project_name}]
     salicLoteRunning: false,
@@ -4792,6 +4793,29 @@ const OrcamentoView = () => {
                             </div>
                         `}
                     </div>
+                    <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-light);">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; color: var(--text-secondary);">
+                            <i data-lucide="file-text" style="width: 18px;"></i>
+                            <span class="font-bold text-sm">Arquivos enviados (PDF original)</span>
+                        </div>
+                        ${state.rubrica_arquivos.length === 0 ? `
+                            <p class="text-xs text-muted italic">Nenhum PDF enviado para este projeto.</p>
+                        ` : `
+                            <div style="display: flex; flex-direction: column; gap: 0.75rem; max-height: 320px; overflow-y: auto;">
+                                ${state.rubrica_arquivos.map(a => `
+                                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; padding: 0.75rem; background: white; border: 1px solid var(--border-light); border-radius: 4px;">
+                                        <div style="min-width: 0;">
+                                            <p class="text-xs font-bold" style="margin: 0; overflow-wrap: anywhere;">${escAttr(a.name)}</p>
+                                            <p class="text-xs text-muted" style="margin: 0;">${new Date(a.created_at).toLocaleString('pt-BR')}</p>
+                                        </div>
+                                        <button type="button" class="btn btn-secondary" style="padding: 4px 8px; font-size: 10px; white-space: nowrap;" data-path="${escAttr(a.file_path)}" onclick="window.baixarPdfOriginal(this.dataset.path)">
+                                            <i data-lucide="download" style="width: 12px;"></i> Baixar PDF
+                                        </button>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `}
+                    </div>
                 </div>
             </div>
         </div>
@@ -5012,6 +5036,7 @@ window.navigate = async function (view, id = null) {
             state.saldoRubricasHabilitado = await isSaldoRubricasHabilitado();
             await fetchSaldoRubricas(state.filters.project);
             await fetchRubricaVersions(state.filters.project);
+            await fetchRubricaArquivos(state.filters.project);
             const [{ data: projFin }, { data: docsConf }] = await Promise.all([
                 supabaseClient.from('projects').select('valor_aprovado, valor_captado').eq('id', state.filters.project).single(),
                 supabaseClient.from('documents').select('nome_emissor, cnpj_emissor, valor').eq('project_id', state.filters.project).in('status', ['liberado_rpa_airtop', 'enviado_salic', 'concluido'])
@@ -5332,6 +5357,44 @@ async function fetchRubricaVersions(projectId) {
         console.error("Erro fetch rubrica versions:", err);
     }
 }
+
+// Ocorrência 12: PDFs originais das importações de rubricas (cada upload vira uma linha em
+// documents). O status do documento não é exibido: hoje não é confiável (as planilhas ficam
+// em revisao_manual mesmo quando importadas com sucesso).
+async function fetchRubricaArquivos(projectId) {
+    if (!supabaseClient || !projectId) { state.rubrica_arquivos = []; return; }
+    try {
+        const { data, error } = await supabaseClient
+            .from('documents')
+            .select('id, name, file_path, created_at')
+            .eq('project_id', projectId)
+            .eq('tipo_documento', 'planilha_orcamentaria')
+            .order('created_at', { ascending: false });
+        if (error) throw error;
+        state.rubrica_arquivos = data || [];
+    } catch (err) {
+        // Não deixa a lista de outro projeto na tela.
+        state.rubrica_arquivos = [];
+        console.error("Erro fetch arquivos de rubricas:", err);
+    }
+}
+
+// URL assinada (1h) mesmo com o bucket público, para não depender de ele continuar público.
+// A aba é aberta antes do await para o bloqueador de pop-ups não barrar.
+window.baixarPdfOriginal = async function (filePath) {
+    const aba = window.open('about:blank', '_blank');
+    if (aba) aba.opener = null;
+    try {
+        const { data, error } = await supabaseClient.storage.from('documentos').createSignedUrl(filePath, 3600);
+        if (error || !data || !data.signedUrl) throw error || new Error('URL assinada vazia');
+        if (aba) aba.location.href = data.signedUrl;
+        else window.location.href = data.signedUrl;
+    } catch (err) {
+        if (aba) aba.close();
+        console.error("Erro ao gerar URL assinada do PDF original:", err);
+        window.showToast("Não foi possível gerar o link do arquivo.", 'error');
+    }
+};
 
 window.handleCreateRubrica = async function () {
     if (!userIsGestorOrAbove()) {
@@ -6376,6 +6439,7 @@ async function importarRubricasPdf(file, project) {
             await fetchRubricas(project.id);
             // Ocorrência 11: a nova versão (backup) precisa aparecer sem trocar de tela.
             await fetchRubricaVersions(project.id);
+            await fetchRubricaArquivos(project.id);
         } else {
             state.importState = 'erro';
             state.error = result.message || "O servidor não conseguiu extrair as rubricas. Verifique se o arquivo PDF é a 'Planilha Orçamentária' oficial do SALIC.";
