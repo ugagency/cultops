@@ -317,6 +317,10 @@
     <script src="../auth-logout.js"></script>
     <script src="supabase-helper.js"></script>
     <script>
+        // Importação de rubricas por planilha (XLSX/CSV) DESLIGADA: o insert usa a coluna percentual_executado,
+        // que não existe em rubricas; o valor perde casas decimais (11176.5 vira 111765) e não há validação.
+        const IMPORTAR_RUBRICAS_PLANILHA = false;
+
         let currentUserContext = null;
         let pendingProjectId = null;
 
@@ -663,8 +667,13 @@
                 pendingProjectId = proj.id;
                 ProjectManager.setSelected(proj.id);
                 
-                // Abre modal para convidar upload rubricas (que o Salic não puxa)
-                document.getElementById('rubricasModal').style.display = 'flex';
+                // Abre modal para convidar upload rubricas (que o Salic não puxa).
+                // Desligado: segue como o botão "Fazer depois" do modal.
+                if (IMPORTAR_RUBRICAS_PLANILHA) {
+                    document.getElementById('rubricasModal').style.display = 'flex';
+                } else {
+                    goToFinanceiro();
+                }
 
             } catch (err) {
                 if (err.message.includes("Crendenciais do salic não encontradas") || err.message.includes("credenciais SALIC")) {
