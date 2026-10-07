@@ -122,6 +122,30 @@ const supabase = createClient(
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
 
+// Respostas de erro nunca levam texto técnico (Supabase/Postgres/Node/n8n) ao usuário:
+// o original vai para o log e o cliente recebe a tradução. Mensagens já escritas
+// em português para o usuário passam sem alteração.
+const { traduzirTecnico } = require('./erros-amigaveis.js');
+app.use((req, res, next) => {
+    const jsonOriginal = res.json.bind(res);
+    res.json = (body) => {
+        try {
+            if (body && typeof body === 'object' && !Array.isArray(body) && (res.statusCode >= 400 || body.success === false)) {
+                for (const campo of ['error', 'message', 'aviso']) {
+                    if (typeof body[campo] !== 'string') continue;
+                    const amigavel = traduzirTecnico(body[campo]);
+                    if (amigavel !== null) {
+                        console.warn('[erro traduzido]', req.method, req.originalUrl, '→', body[campo]);
+                        body = { ...body, [campo]: amigavel };
+                    }
+                }
+            }
+        } catch (_) { /* nunca impedir a resposta */ }
+        return jsonOriginal(body);
+    };
+    next();
+});
+
 // --- Auth middlewares (S1-A) ---
 async function requireAuth(req, res, next) {
     const authHeader = req.headers.authorization || '';
@@ -1105,6 +1129,9 @@ app.post('/api/m2/salic/encerrar', async (req, res) => {
     res.json({ success: true, message: "Fluxo de encerramento iniciado (Simulado). Mapeamento SALIC pendente." });
 });
 
+// Mensagem única mostrada ao usuário quando o n8n falha; o erro real vai pro log.
+const MSG_N8N_INDISPONIVEL = 'Não foi possível concluir a operação agora. Tente novamente em instantes. Se o problema continuar, fale com o suporte.';
+
 /**
  * Proxy para importação de rubricas via n8n (Evita CORS)
  */
@@ -1135,24 +1162,28 @@ app.post('/api/rubricas/importar', async (req, res) => {
                     const json = JSON.parse(responseData);
                     res.status(n8nRes.statusCode).json(json);
                 } catch (e) {
-                    // Se o n8n retornar um texto (ex: "Workflow got started"), empacotamos em um JSON
-                    res.status(n8nRes.statusCode).json({ 
-                        success: n8nRes.statusCode < 400, 
-                        message: responseData || "Resposta não pôde ser lida." 
+                    // Se o n8n retornar um texto (ex: "Workflow got started"), empacotamos em um JSON.
+                    // Texto cru de erro do n8n não vai para o usuário — só o sucesso/falha.
+                    const ok = n8nRes.statusCode < 400;
+                    if (!ok) console.error('[PROXY ERROR] n8n respondeu', n8nRes.statusCode, responseData);
+                    res.status(n8nRes.statusCode).json({
+                        success: ok,
+                        message: ok ? (responseData || "OK") : MSG_N8N_INDISPONIVEL
                     });
                 }
             });
         });
 
         n8nReq.on('error', (error) => {
-            throw error;
+            console.error('[PROXY ERROR] n8n inacessível:', error);
+            if (!res.headersSent) res.status(502).json({ success: false, message: MSG_N8N_INDISPONIVEL });
         });
 
         n8nReq.write(dataStr);
         n8nReq.end();
     } catch (error) {
         console.error('[PROXY ERROR]', error);
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: MSG_N8N_INDISPONIVEL });
     }
 });
 
@@ -2178,17 +2209,25 @@ app.post('/api/m2/gerar-relatorio', async (req, res) => {
                     const json = JSON.parse(responseData);
                     res.status(n8nRes.statusCode).json(json);
                 } catch (e) {
-                    res.status(n8nRes.statusCode).json({ success: n8nRes.statusCode < 400, message: responseData });
+                    const ok = n8nRes.statusCode < 400;
+                    if (!ok) console.error('[REPORT PROXY ERROR] n8n respondeu', n8nRes.statusCode, responseData);
+                    res.status(n8nRes.statusCode).json({
+                        success: ok,
+                        message: ok ? responseData : 'Não foi possível gerar o relatório agora. Tente novamente em instantes.'
+                    });
                 }
             });
         });
 
-        n8nReq.on('error', (error) => { throw error; });
+        n8nReq.on('error', (error) => {
+            console.error('[REPORT PROXY ERROR] n8n inacessível:', error);
+            if (!res.headersSent) res.status(502).json({ success: false, message: 'Não foi possível gerar o relatório agora. Tente novamente em instantes.' });
+        });
         n8nReq.write(dataStr);
         n8nReq.end();
     } catch (error) {
         console.error('[REPORT PROXY ERROR]', error);
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: 'Não foi possível gerar o relatório agora. Tente novamente em instantes.' });
     }
 });
 
@@ -3595,7 +3634,7 @@ app.post('/api/suporte/documentos/:id/reprocessar-ocr', requireAuth, requireSupo
             just_erro: null
         }).eq('id', documentId);
 
-        await fetch('https://automacoes-n8n.infrassys.com/webhook/cultops-ocr', {
+        const n8nResp = await fetch('https://automacoes-n8n.infrassys.com/webhook/cultops-ocr', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -3603,6 +3642,10 @@ app.post('/api/suporte/documentos/:id/reprocessar-ocr', requireAuth, requireSupo
                 user_id: doc.user_id, bucket: 'documentos'
             })
         });
+        if (!n8nResp.ok) {
+            console.error('[SUPORTE] reprocessar-ocr: n8n respondeu', n8nResp.status);
+            return res.status(502).json({ error: 'Não foi possível reenviar o documento para o OCR agora. Tente novamente em instantes.' });
+        }
 
         // Obrigatório — mesma regra do item 5.
         await supabase.from('audit_log').insert({
