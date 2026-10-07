@@ -315,6 +315,7 @@
 
     <script src="../config.js"></script>
     <script src="../auth-logout.js"></script>
+    <script src="../erros-amigaveis.js"></script>
     <script src="supabase-helper.js"></script>
     <script>
         // Importação de rubricas por planilha (XLSX/CSV) DESLIGADA: o insert usa a coluna percentual_executado,
@@ -351,6 +352,7 @@
         }
 
         function showToast(msg, type = 'success') {
+            if (window.prestaiSuavizar) msg = window.prestaiSuavizar(msg, type);
             const t = document.getElementById('toast');
             if (!t) return;
             t.innerText = msg;
@@ -620,7 +622,7 @@
                 });
 
                 if (!response.ok) {
-                    throw new Error(`Erro no webhook interno: ${response.status}`);
+                    throw window.prestaiN8nErro(response.status);
                 }
 
                 const rawData = await response.json();
@@ -679,7 +681,7 @@
                 if (err.message.includes("Crendenciais do salic não encontradas") || err.message.includes("credenciais SALIC")) {
                     abrirModalConfirmSalicCreds();
                 } else {
-                    showToast("Erro: " + err.message, 'error');
+                    showToast(window.prestaiErroAmigavel(err, 'importar_projeto'), 'error');
                 }
             } finally {
                 btn.innerHTML = oldText;

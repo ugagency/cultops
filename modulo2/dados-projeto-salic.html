@@ -446,6 +446,7 @@
     </div>
 
     <script src="../config.js"></script>
+    <script src="../erros-amigaveis.js"></script>
     <script src="../auth-logout.js"></script>
     <script src="supabase-helper.js"></script>
     <script>
@@ -471,6 +472,7 @@
         }
 
         function showToast(msg, type = 'default') {
+            if (window.prestaiSuavizar) msg = window.prestaiSuavizar(msg, type);
             const c = document.getElementById('toast-container');
             const t = document.createElement('div');
             t.className = 'toast ' + type;
@@ -679,7 +681,7 @@
 
             } catch (err) {
                 console.error('[processar-pdf-salic]', err);
-                document.getElementById('error-text').textContent = err.message || 'Erro desconhecido.';
+                document.getElementById('error-text').textContent = window.prestaiErroTexto(err);
                 showState('state-error');
             }
         }

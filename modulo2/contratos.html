@@ -574,6 +574,7 @@
     </div>
 
     <script src="../config.js"></script>
+    <script src="../erros-amigaveis.js"></script>
     <script src="../auth-logout.js"></script>
     <script src="supabase-helper.js"></script>
     <script>
@@ -1852,7 +1853,7 @@
                 .order('numero', { ascending: true });
             if (error) {
                 console.error('[loadParcelas]', error);
-                panel.innerHTML = `<div class="empty-mini">Erro: ${escapeHtml(error.message)}</div>`;
+                panel.innerHTML = `<div class="empty-mini">Erro: ${escapeHtml(window.prestaiErroTexto(error))}</div>`;
                 return;
             }
 
@@ -2031,7 +2032,7 @@
                 .order('data_aditivo', { ascending: true });
             if (error) {
                 console.error('[loadAditivos]', error);
-                panel.innerHTML = `<div class="empty-mini">Erro: ${escapeHtml(error.message)}</div>`;
+                panel.innerHTML = `<div class="empty-mini">Erro: ${escapeHtml(window.prestaiErroTexto(error))}</div>`;
                 return;
             }
 
@@ -2094,7 +2095,7 @@
                 .order('criado_em', { ascending: false });
             if (error) {
                 console.error('[loadAnexos]', error);
-                panel.innerHTML = `<div class="empty-mini">Erro: ${escapeHtml(error.message)}</div>`;
+                panel.innerHTML = `<div class="empty-mini">Erro: ${escapeHtml(window.prestaiErroTexto(error))}</div>`;
                 return;
             }
 
@@ -2390,6 +2391,7 @@
         }
 
         function showToast(msg, type = 'success') {
+            if (window.prestaiSuavizar) msg = window.prestaiSuavizar(msg, type);
             const t = document.getElementById('toast');
             if (!t) return;
             t.innerText = msg;

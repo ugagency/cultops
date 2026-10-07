@@ -621,6 +621,7 @@
     </div>
 
     <script src="../config.js"></script>
+    <script src="../erros-amigaveis.js"></script>
     <script src="../auth-logout.js"></script>
     <script src="supabase-helper.js"></script>
     <script>
@@ -1597,6 +1598,7 @@
         }
 
         function showToast(msg, type = 'success') {
+            if (window.prestaiSuavizar) msg = window.prestaiSuavizar(msg, type);
             const t = document.getElementById('toast');
             if (!t) return;
             t.innerText = msg;

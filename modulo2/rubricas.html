@@ -403,6 +403,7 @@
 
     <script src="../config.js"></script>
     <script src="../auth-logout.js"></script>
+    <script src="../erros-amigaveis.js"></script>
     <script src="supabase-helper.js"></script>
     <script>
         let currentProjectId = ProjectManager.getSelected();
@@ -953,7 +954,7 @@
 
             const content = document.getElementById('hist-content');
             if (error) {
-                content.innerHTML = `<div class="hist-empty">Erro: ${escapeHtml(error.message)}</div>`;
+                content.innerHTML = `<div class="hist-empty">Erro: ${escapeHtml(window.prestaiErroTexto(error))}</div>`;
                 return;
             }
             if (!data || data.length === 0) {
@@ -1080,6 +1081,7 @@
         });
 
         function showToast(msg, type = 'success') {
+            if (window.prestaiSuavizar) msg = window.prestaiSuavizar(msg, type);
             const t = document.getElementById('toast');
             t.innerText = msg;
             t.style.background = type === 'success' ? '#1547FF' : (type === 'error' ? '#FF5807' : '#1547FF');

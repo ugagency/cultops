@@ -662,6 +662,7 @@
     </style>
 
     <script src="../config.js"></script>
+    <script src="../erros-amigaveis.js"></script>
     <script src="../auth-logout.js"></script>
     <script src="supabase-helper.js"></script>
     <script src="rubrica-combobox.js"></script>
@@ -1218,7 +1219,7 @@
                 await loadDashboardData(currentProjectId);
             } catch (err) {
                 console.error('[atualizarSaldoSalic]', err);
-                alert('Erro ao capturar do SALIC: ' + err.message);
+                alert(window.prestaiSuavizar('Erro ao capturar do SALIC: ' + err.message, 'error'));
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = originalHtml;
@@ -1249,7 +1250,7 @@
                 await loadDashboardData(currentProjectId);
             } catch (err) {
                 console.error('[confirmarPareamentoSalic]', err);
-                alert('Erro ao confirmar pareamento: ' + err.message);
+                alert(window.prestaiSuavizar('Erro ao confirmar pareamento: ' + err.message, 'error'));
             }
         }
 
@@ -1424,7 +1425,7 @@
         async function confirmarVinculoContrato(documentId, contractId) {
             if (!contractId) { alert('Selecione um contrato.'); return; }
             const { error } = await sb.from('documents').update({ contract_id: contractId }).eq('id', documentId);
-            if (error) { alert('Erro ao vincular contrato: ' + error.message); return; }
+            if (error) { alert(window.prestaiSuavizar('Erro ao vincular contrato: ' + error.message, 'error')); return; }
             await loadDashboardData(currentProjectId);
         }
 

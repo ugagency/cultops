@@ -504,6 +504,7 @@
     </div>
 
     <script src="../config.js"></script>
+    <script src="../erros-amigaveis.js"></script>
     <script src="../auth-logout.js"></script>
     <script src="supabase-helper.js"></script>
     <script>
@@ -639,7 +640,7 @@
             const { data, error } = await query;
 
             if (error) {
-                fb.textContent = 'Erro ao buscar despesas: ' + error.message;
+                fb.textContent = 'Erro ao buscar despesas: ' + window.prestaiErroTexto(error);
                 btn.disabled = false;
                 return;
             }
@@ -968,6 +969,7 @@
         }
 
         function showToast(msg, type = 'success') {
+            if (window.prestaiSuavizar) msg = window.prestaiSuavizar(msg, type);
             const t = document.getElementById('toast');
             if (!t) return;
             t.innerText = msg;
