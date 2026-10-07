@@ -361,16 +361,17 @@
         <div class="glass-card" style="margin-top: 1.5rem; padding: 0;">
             <div style="padding: 1.5rem; border-bottom: 1px solid var(--border-light); display: flex; align-items: center; gap: 0.5rem;">
                 <i data-lucide="history" style="color: var(--text-secondary);"></i>
-                <h3 style="font-size: 1.1rem; margin: 0;">Histórico de Importações</h3>
+                <h3 style="font-size: 1.1rem; margin: 0;">Histórico de Versões</h3>
             </div>
+            <p style="margin: 0; padding: 1rem 1.5rem 0; font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5;"><strong>PDF importado</strong> = arquivo enviado nesta versão. <strong>Estado anterior</strong> = como as rubricas estavam antes desta importação.</p>
             <div style="overflow: auto; max-height: 380px;">
                 <table class="history-table">
                     <thead>
                         <tr>
+                            <th>Versão</th>
                             <th>Data</th>
-                            <th>Arquivo</th>
-                            <th>Status</th>
-                            <th>PDF</th>
+                            <th>Rubricas</th>
+                            <th>Arquivos</th>
                         </tr>
                     </thead>
                     <tbody id="history-tbody">
@@ -436,40 +437,56 @@
             loadHistory();
         }
 
+        // Histórico de versões da planilha de rubricas (mesma fonte do painel do M1): rubricas_versions com
+        // ativa = true. Versões novas têm PDF importado e snapshot (estado anterior); as legadas só o .xls.
+        let versoesImportacao = [];
+
         async function loadHistory() {
             if (!currentProjectId) return;
             const sb = await initSupabase();
             const { data, error } = await sb
-                .from('documents')
-                .select('id, name, status, created_at, file_path')
+                .from('rubricas_versions')
+                .select('*')
                 .eq('project_id', currentProjectId)
-                .eq('tipo_documento', 'planilha_orcamentaria')
+                .eq('ativa', true)
+                .order('versao', { ascending: false })
                 .order('created_at', { ascending: false });
 
             const tbody = document.getElementById('history-tbody');
-            if (error || !data || data.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Nenhuma importação encontrada.</td></tr>`;
+            const linhaVazia = (texto) => `<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">${texto}</td></tr>`;
+            if (error) {
+                console.error('Erro ao carregar versões das rubricas:', error);
+                versoesImportacao = [];
+                tbody.innerHTML = linhaVazia('Não foi possível carregar as versões.');
+                return;
+            }
+            versoesImportacao = data || [];
+            if (versoesImportacao.length === 0) {
+                tbody.innerHTML = linhaVazia('Nenhuma versão encontrada para este projeto.');
                 return;
             }
 
-            tbody.innerHTML = data.map(doc => {
-                let badgeClass = 'status-processing';
-                let statusLabel = 'Processando';
-                
-                if (doc.status === 'concluido' || doc.status === 'success' || doc.status === 'aguardando_conformidade' || doc.status === 'revisao_manual') {
-                    badgeClass = 'status-success';
-                    statusLabel = 'Concluído';
-                } else if (doc.status === 'erro_rpa' || doc.status === 'erro') {
-                    badgeClass = 'status-error';
-                    statusLabel = 'Erro';
+            const botao = 'class="btn-modal btn-modal-cancel" style="padding: 0.3rem 0.7rem; font-size: 0.75rem; white-space: nowrap;"';
+            tbody.innerHTML = versoesImportacao.map(v => {
+                const nova = v.inseridas !== null && v.inseridas !== undefined;
+                const quando = nova ? new Date(v.created_at).toLocaleString('pt-BR') : new Date(v.created_at).toLocaleDateString('pt-BR');
+                const resumo = nova ? ` (+${v.inseridas || 0} / ~${v.atualizadas || 0} / -${v.desativadas || 0})` : '';
+                const botoes = [];
+                if (v.pdf_path) {
+                    botoes.push(`<button type="button" ${botao} data-versao-id="${escapeHtml(v.id)}" onclick="baixarPdfDaVersao(this.dataset.versaoId)">PDF importado</button>`);
                 }
-
+                if (Array.isArray(v.snapshot) && v.snapshot.length > 0) {
+                    botoes.push(`<button type="button" ${botao} data-versao-id="${escapeHtml(v.id)}" onclick="baixarEstadoAnteriorCsv(this.dataset.versaoId)">Estado anterior (CSV)</button>`);
+                }
+                if (!v.pdf_path && v.file_path) {
+                    botoes.push(`<a href="${escapeHtml(v.file_path)}" target="_blank" rel="noopener" ${botao}>Baixar XLS</a>`);
+                }
                 return `
                     <tr>
-                        <td data-label="Data">${new Date(doc.created_at).toLocaleString('pt-BR')}</td>
-                        <td style="font-weight: 500; overflow-wrap: anywhere;" data-label="Arquivo">${escapeHtml(doc.name)}</td>
-                        <td data-label="Status"><span class="status-badge ${badgeClass}">${statusLabel}</span></td>
-                        <td data-label="PDF">${doc.file_path ? `<button type="button" class="btn-modal btn-modal-cancel" style="padding: 0.3rem 0.7rem; font-size: 0.75rem; white-space: nowrap;" data-path="${escapeHtml(doc.file_path)}" onclick="baixarPdfOriginal(this.dataset.path)">Baixar PDF</button>` : '—'}</td>
+                        <td style="font-weight: 600;" data-label="Versão">Versão ${escapeHtml(v.versao)}</td>
+                        <td data-label="Data">${escapeHtml(quando)}</td>
+                        <td data-label="Rubricas">${escapeHtml(v.total_rubricas ?? 0)} rubricas${escapeHtml(resumo)}</td>
+                        <td data-label="Arquivos"><div style="display: flex; flex-wrap: wrap; gap: 0.4rem;">${botoes.join('') || '—'}</div></td>
                     </tr>
                 `;
             }).join('');
@@ -850,22 +867,63 @@
             } catch { return '—'; }
         }
 
-        // Ocorrência 12: abre o PDF original da importação. URL assinada (1h) mesmo com o bucket
-        // público. A aba abre antes do await para o bloqueador de pop-ups não barrar.
-        window.baixarPdfOriginal = async function(filePath) {
+        // Abre um arquivo do Storage por URL assinada (1h), mesmo com o bucket público. A aba abre antes
+        // do await para o bloqueador de pop-ups não barrar. Bucket e caminho vêm da linha da versão.
+        window.baixarPdfDaVersao = async function(versaoId) {
+            const v = versoesImportacao.find(x => String(x.id) === String(versaoId));
+            if (!v || !v.pdf_path) { showToast('Esta versão não tem PDF.', 'error'); return; }
             const aba = window.open('about:blank', '_blank');
             if (aba) aba.opener = null;
             try {
                 const sb = await initSupabase();
-                const { data, error } = await sb.storage.from('documentos').createSignedUrl(filePath, 3600);
+                const { data, error } = await sb.storage.from(v.pdf_bucket || 'documentos').createSignedUrl(v.pdf_path, 3600);
                 if (error || !data || !data.signedUrl) throw error || new Error('URL assinada vazia');
                 if (aba) aba.location.href = data.signedUrl;
                 else window.location.href = data.signedUrl;
             } catch (err) {
                 if (aba) aba.close();
-                console.error('Erro ao gerar URL assinada do PDF original:', err);
+                console.error('Erro ao gerar URL assinada do PDF da versão:', err);
                 showToast('Não foi possível gerar o link do arquivo.', 'error');
             }
+        };
+
+        // CSV do estado das rubricas ANTES daquela importação (snapshot da versão), gerado no navegador:
+        // ; como separador, vírgula decimal, aspas duplicadas e BOM UTF-8 para o Excel.
+        function rubricasParaCsv(linhas) {
+            const colunas = [
+                ['codigo', 'rubrica_id'], ['nome', 'nome'], ['produto', 'produto'], ['etapa', 'etapa'],
+                ['uf_municipio', 'uf_municipio'], ['quantidade', 'quantidade'], ['valor_unitario', 'valor_unitario'],
+                ['valor_aprovado', 'valor_aprovado']
+            ];
+            const numericas = new Set(['rubrica_id', 'quantidade', 'valor_unitario', 'valor_aprovado']);
+            const celula = (campo, valor) => {
+                if (valor === null || valor === undefined) return '';
+                let t = String(valor);
+                if (numericas.has(campo) && t !== '' && !isNaN(Number(t))) t = t.replace('.', ',');
+                return /[;"\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+            };
+            const cab = colunas.map(c => c[0]).join(';');
+            const corpo = linhas.map(l => colunas.map(c => celula(c[1], l[c[1]])).join(';'));
+            return '\uFEFF' + [cab, ...corpo].join('\r\n') + '\r\n';
+        }
+
+        window.baixarEstadoAnteriorCsv = function(versaoId) {
+            const v = versoesImportacao.find(x => String(x.id) === String(versaoId));
+            if (!v || !Array.isArray(v.snapshot) || v.snapshot.length === 0) {
+                showToast('Esta versão não tem estado anterior para baixar.', 'error');
+                return;
+            }
+            const select = document.getElementById('project-select');
+            const pronac = select && select.selectedIndex >= 0 ? select.options[select.selectedIndex].text.split(' - ')[0] : 'projeto';
+            const blob = new Blob([rubricasParaCsv(v.snapshot)], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `rubricas_antes_da_v${v.versao}_${pronac}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
         };
 
         function escapeHtml(s) {
