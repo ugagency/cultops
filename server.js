@@ -1192,7 +1192,8 @@ app.post('/api/rubricas/importar', async (req, res) => {
  * IMPORTAÇÃO DE PROJETO VIA PDF DO SALIC (substitui o fluxo n8n)
  * POST /api/m2/processar-pdf-salic
  * Body: { import_id, project_id, file_path }
- * Fluxo: download do PDF -> OCR (Mistral) -> estruturação JSON (Mistral) ->
+ * Fluxo: download do PDF -> leitura e estruturação JSON (Gemini lê o PDF direto; com
+ *        OCR_PROVIDER=mistral volta o caminho antigo: OCR + estruturação no Mistral) ->
  *        persistência nas tabelas project_*.
  * ============================================================================
  */
@@ -1224,7 +1225,99 @@ function dateOrNull(v) {
     return v.trim();
 }
 
-// PASSO 4 — OCR via endpoint dedicado Mistral /v1/ocr
+// ---------------------------------------------------------------------------
+// Leitura de PDF (OCR + estruturação em JSON): provedor configurável por ambiente.
+//   OCR_PROVIDER      'gemini' (padrão) ou 'mistral' (caminho antigo, para voltar sem mexer no código)
+//   GEMINI_API_KEY    obrigatória com OCR_PROVIDER=gemini
+//   GEMINI_OCR_MODEL  modelo do Gemini (padrão gemini-3.6-flash, o mesmo do "Analyze document" do n8n)
+//   MISTRAL_API_KEY   obrigatória só com OCR_PROVIDER=mistral
+// Nenhuma chave fica no código. Com o Gemini a leitura e a estruturação são UMA chamada: o PDF vai
+// inline junto com a instrução de campos. O conteúdo do PDF e o texto extraído não são registrados em log.
+// ---------------------------------------------------------------------------
+const GEMINI_MODELO_PADRAO = 'gemini-3.6-flash';
+const GEMINI_STATUS_COM_NOVA_TENTATIVA = new Set([429, 500, 502, 503, 504]);
+const GEMINI_PREFACIO = 'O documento a analisar está anexo em PDF: leia o próprio PDF onde a instrução abaixo falar em "texto extraído". ' +
+    'Você é um extrator de dados que responde exclusivamente com JSON válido.\n\n';
+
+// Escolhe o provedor e valida a chave. Devolve { provider, apiKey } ou { erro } (para responder 500).
+function configurarOcr(mensagemSemChaveMistral) {
+    const provider = String(process.env.OCR_PROVIDER || 'gemini').trim().toLowerCase();
+    if (provider === 'gemini') {
+        const apiKey = process.env.GEMINI_API_KEY;
+        if (!apiKey) return { erro: 'GEMINI_API_KEY não configurada no servidor.' };
+        return { provider, apiKey };
+    }
+    if (provider === 'mistral') {
+        const apiKey = process.env.MISTRAL_API_KEY;
+        if (!apiKey) return { erro: mensagemSemChaveMistral };
+        return { provider, apiKey };
+    }
+    return { erro: 'OCR_PROVIDER inválido (use "gemini" ou "mistral").' };
+}
+
+// Uma chamada ao Gemini com o PDF inline e as instruções; devolve o texto da resposta (JSON se json=true).
+// Timeout de 90 s por chamada; até 3 tentativas, só para HTTP 429/500/502/503/504 (espera 2 s e 4 s).
+// Os parâmetros opcionais existem para teste (fetch e espera injetáveis).
+async function extrairComGemini(pdfBase64, instrucoes, {
+    json = true,
+    apiKey = process.env.GEMINI_API_KEY,
+    modelo = process.env.GEMINI_OCR_MODEL || GEMINI_MODELO_PADRAO,
+    timeoutMs = 90000,
+    esperasMs = [2000, 4000],
+    fetchImpl = fetch,
+    dormir = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+} = {}) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelo)}:generateContent`;
+    const corpo = JSON.stringify({
+        contents: [{
+            parts: [
+                { inline_data: { mime_type: 'application/pdf', data: pdfBase64 } },
+                { text: GEMINI_PREFACIO + instrucoes }
+            ]
+        }],
+        generationConfig: { ...(json ? { responseMimeType: 'application/json' } : {}), temperature: 0 }
+    });
+
+    for (let tentativa = 0; ; tentativa++) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            const response = await fetchImpl(url, {
+                method: 'POST',
+                signal: controller.signal,
+                headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+                body: corpo
+            });
+            if (response.ok) {
+                const result = await response.json();
+                const partes = result?.candidates?.[0]?.content?.parts;
+                const texto = Array.isArray(partes) ? partes.map(p => p?.text || '').join('') : '';
+                if (!texto.trim()) throw new Error('OCR não retornou texto.');
+                return texto;
+            }
+            // O corpo da resposta de erro não vai para a mensagem nem para o log.
+            await response.text().catch(() => '');
+            if (GEMINI_STATUS_COM_NOVA_TENTATIVA.has(response.status) && tentativa < esperasMs.length) {
+                clearTimeout(timer);
+                await dormir(esperasMs[tentativa]);
+                continue;
+            }
+            throw new Error(`OCR falhou (HTTP ${response.status})`);
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+}
+
+// Mistral: faz o OCR do PDF em texto (passo separado). Com o Gemini não há esse passo: devolve só o PDF.
+async function lerDocumentoPdf(ocr, pdfBase64) {
+    if (ocr.provider === 'mistral') {
+        return { pdfBase64, texto: await runMistralOcr(pdfBase64, ocr.apiKey) };
+    }
+    return { pdfBase64, texto: null };
+}
+
+// PASSO 4 (provedor mistral) — OCR via endpoint dedicado Mistral /v1/ocr
 async function runMistralOcr(pdfBase64, apiKey) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 90000);
@@ -1263,8 +1356,8 @@ async function runMistralOcr(pdfBase64, apiKey) {
     }
 }
 
-// PASSO 5 — Estrutura o texto do OCR em JSON usando Mistral.
-async function estruturarSalicJson(textoOcr, apiKey) {
+// PASSO 5 — Estrutura o documento em JSON: Gemini lê o PDF direto; com OCR_PROVIDER=mistral usa o texto do OCR.
+async function estruturarSalicJson(entrada, ocr) {
     const instrucoes = `Analise o texto extraído de um PDF do SALIC (Ministério da Cultura) e retorne APENAS um JSON com a seguinte estrutura:
 
 {
@@ -1295,6 +1388,12 @@ async function estruturarSalicJson(textoOcr, apiKey) {
 }
 
 Retorne APENAS o JSON válido. Sem markdown, sem backticks, sem explicação. Se uma seção não for encontrada, retorne array/string vazio. Datas no formato AAAA-MM-DD.`;
+
+    if (ocr.provider === 'gemini') {
+        return parseSalicJson(await extrairComGemini(entrada.pdfBase64, instrucoes, { json: true, apiKey: ocr.apiKey }));
+    }
+    const textoOcr = entrada.texto;
+    const apiKey = ocr.apiKey;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 90000);
@@ -1348,7 +1447,7 @@ async function userCanAccessProject(userId, projectId) {
 }
 
 // OCR — Estrutura texto de contrato de prestação de serviços em JSON.
-async function estruturarContratoJson(textoOcr, apiKey) {
+async function estruturarContratoJson(entrada, ocr) {
     // O prompt anterior falava só em "CONTRATADO" (masculino) e não cobria o
     // vocabulário de locação. Casos reais que ele errava: contrato da HOLZ, que usa
     // "CONTRATADA" por ser LTDA, e os 10 contratos de locação que usam
@@ -1441,6 +1540,13 @@ Vincular o contrato ao fornecedor errado corrompe a prestação de contas de for
 Campo não encontrado: string vazia, ou 0 para valor_total.
 Responda APENAS o JSON válido. Sem markdown, sem backticks, sem explicação.`;
 
+    if (ocr.provider === 'gemini') {
+        const raw = await extrairComGemini(entrada.pdfBase64, instrucoes, { json: true, apiKey: ocr.apiKey });
+        try { return JSON.parse(raw); } catch { return {}; }
+    }
+    const textoOcr = entrada.texto;
+    const apiKey = ocr.apiKey;
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 90000);
     try {
@@ -1469,8 +1575,8 @@ Responda APENAS o JSON válido. Sem markdown, sem backticks, sem explicação.`;
     }
 }
 
-// OCR — Estrutura texto de guia de imposto/tributo em JSON.
-async function estruturarImpostoJson(textoOcr, apiKey) {
+// OCR — Estrutura guia de imposto/tributo em JSON (Gemini lê o PDF; Mistral usa o texto do OCR).
+async function estruturarImpostoJson(entrada, ocr) {
     const instrucoes = `Analise o texto extraído de uma guia de recolhimento tributário (DARF, ISS, INSS, etc.) e retorne APENAS um JSON:
 
 {
@@ -1487,6 +1593,13 @@ Regras:
 - valor: número decimal puro sem R$ ou separadores.
 - data_vencimento: formato YYYY-MM-DD.
 - Retorne APENAS o JSON válido, sem markdown, sem backticks.`;
+
+    if (ocr.provider === 'gemini') {
+        const raw = await extrairComGemini(entrada.pdfBase64, instrucoes, { json: true, apiKey: ocr.apiKey });
+        try { return JSON.parse(raw); } catch { return {}; }
+    }
+    const textoOcr = entrada.texto;
+    const apiKey = ocr.apiKey;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 90000);
@@ -1608,9 +1721,9 @@ app.post('/api/m2/processar-pdf-salic', async (req, res) => {
         return res.status(400).json({ error: 'Parâmetros obrigatórios: project_id, file_path.' });
     }
 
-    const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
-    if (!MISTRAL_API_KEY) {
-        return res.status(500).json({ error: 'MISTRAL_API_KEY não configurada no servidor.' });
+    const ocr = configurarOcr('MISTRAL_API_KEY não configurada no servidor.');
+    if (ocr.erro) {
+        return res.status(500).json({ error: ocr.erro });
     }
 
     let import_id = null;
@@ -1666,12 +1779,12 @@ app.post('/api/m2/processar-pdf-salic', async (req, res) => {
         const pdfBase64 = pdfBuffer.toString('base64');
         console.log(`[SALIC-PDF] PDF baixado (${(pdfBuffer.length / 1024).toFixed(0)} KB). Executando OCR...`);
 
-        // 4. OCR via Mistral
-        const textoOcr = await runMistralOcr(pdfBase64, MISTRAL_API_KEY);
-        console.log(`[SALIC-PDF] OCR concluído (${textoOcr.length} chars). Estruturando JSON...`);
+        // 4. Leitura do PDF (Mistral: OCR em texto; Gemini: o PDF vai direto para a estruturação)
+        const entrada = await lerDocumentoPdf(ocr, pdfBase64);
+        console.log(`[SALIC-PDF] Leitura concluída${entrada.texto ? ` (${entrada.texto.length} chars)` : ''}. Estruturando JSON...`);
 
         // 5. Estruturar em JSON
-        const jsonParsed = await estruturarSalicJson(textoOcr, MISTRAL_API_KEY);
+        const jsonParsed = await estruturarSalicJson(entrada, ocr);
 
         // 6. status = processado + dados_extraidos
         await supabase.from('project_salic_imports')
@@ -1696,7 +1809,7 @@ app.post('/api/m2/processar-pdf-salic', async (req, res) => {
 });
 
 /**
- * OCR de contrato de prestação de serviços via Mistral.
+ * OCR de contrato de prestação de serviços (Gemini por padrão; OCR_PROVIDER=mistral volta o caminho antigo).
  * POST /api/m2/contratos/ocr
  * Body: { file_path } — path no bucket 'contracts' do Supabase Storage
  */
@@ -1706,8 +1819,8 @@ app.post('/api/m2/contratos/ocr', requireAuth, async (req, res) => {
     const { fileBase64, fileName, projectId } = req.body || {};
     if (!fileBase64 || !projectId) return res.status(400).json({ error: 'fileBase64 e projectId obrigatórios.' });
     if (!(await userCanAccessProject(req.user.id, projectId))) return res.status(403).json({ error: 'Acesso negado ao projeto.' });
-    const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
-    if (!MISTRAL_API_KEY) return res.status(500).json({ error: 'MISTRAL_API_KEY não configurada.' });
+    const ocr = configurarOcr('MISTRAL_API_KEY não configurada.');
+    if (ocr.erro) return res.status(500).json({ error: ocr.erro });
     try {
         // Upload para Storage via service_role (bypassa RLS)
         const pdfBuffer = Buffer.from(fileBase64, 'base64');
@@ -1719,8 +1832,8 @@ app.post('/api/m2/contratos/ocr', requireAuth, async (req, res) => {
         // OCR
         const pdfBase64 = pdfBuffer.toString('base64');
         console.log(`[CONTRATO-OCR] PDF (${(pdfBuffer.length / 1024).toFixed(0)} KB). Executando OCR...`);
-        const texto = await runMistralOcr(pdfBase64, MISTRAL_API_KEY);
-        const dados = await estruturarContratoJson(texto, MISTRAL_API_KEY);
+        const entrada = await lerDocumentoPdf(ocr, pdfBase64);
+        const dados = await estruturarContratoJson(entrada, ocr);
         console.log('[CONTRATO-OCR] Concluído:', JSON.stringify(dados).slice(0, 200));
         return res.json({ success: true, data: dados, file_path: filePath });
     } catch (err) {
@@ -1730,7 +1843,7 @@ app.post('/api/m2/contratos/ocr', requireAuth, async (req, res) => {
 });
 
 /**
- * OCR de guia de imposto/tributo via Mistral.
+ * OCR de guia de imposto/tributo (Gemini por padrão; OCR_PROVIDER=mistral volta o caminho antigo).
  * POST /api/m2/impostos/ocr
  * Body: { file_path } — path no bucket 'tax-guides' do Supabase Storage
  */
@@ -1740,8 +1853,8 @@ app.post('/api/m2/impostos/ocr', requireAuth, async (req, res) => {
     const { fileBase64, fileName, projectId } = req.body || {};
     if (!fileBase64 || !projectId) return res.status(400).json({ error: 'fileBase64 e projectId obrigatórios.' });
     if (!(await userCanAccessProject(req.user.id, projectId))) return res.status(403).json({ error: 'Acesso negado ao projeto.' });
-    const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
-    if (!MISTRAL_API_KEY) return res.status(500).json({ error: 'MISTRAL_API_KEY não configurada.' });
+    const ocr = configurarOcr('MISTRAL_API_KEY não configurada.');
+    if (ocr.erro) return res.status(500).json({ error: ocr.erro });
     try {
         // Upload para Storage via service_role (bypassa RLS)
         const pdfBuffer = Buffer.from(fileBase64, 'base64');
@@ -1753,8 +1866,8 @@ app.post('/api/m2/impostos/ocr', requireAuth, async (req, res) => {
         // OCR
         const pdfBase64 = pdfBuffer.toString('base64');
         console.log(`[IMPOSTO-OCR] PDF (${(pdfBuffer.length / 1024).toFixed(0)} KB). Executando OCR...`);
-        const texto = await runMistralOcr(pdfBase64, MISTRAL_API_KEY);
-        const dados = await estruturarImpostoJson(texto, MISTRAL_API_KEY);
+        const entrada = await lerDocumentoPdf(ocr, pdfBase64);
+        const dados = await estruturarImpostoJson(entrada, ocr);
         console.log('[IMPOSTO-OCR] Concluído:', JSON.stringify(dados).slice(0, 200));
         return res.json({ success: true, data: dados, file_path: filePath });
     } catch (err) {
