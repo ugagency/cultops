@@ -4784,21 +4784,12 @@ const OrcamentoView = () => {
                             <i data-lucide="history" style="width: 18px;"></i>
                             <span class="font-bold text-sm">Versões anteriores (Backups)</span>
                         </div>
+                        <p class="text-xs text-muted" style="margin: 0 0 0.75rem; line-height: 1.5;"><strong>PDF importado</strong> = arquivo enviado nesta versão. <strong>Estado anterior</strong> = como as rubricas estavam antes desta importação.</p>
                         ${state.rubrica_versions.length === 0 ? `
-                            <p class="text-xs text-muted italic">Nenhum backup de versão anterior encontrado.</p>
+                            <p class="text-xs text-muted italic">Nenhuma versão encontrada para este projeto.</p>
                         ` : `
-                            <div style="display: flex; flex-direction: column; gap: 0.75rem;">
-                                ${state.rubrica_versions.map(v => `
-                                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: white; border: 1px solid var(--border-light); border-radius: 4px;">
-                                        <div>
-                                            <p class="text-xs font-bold" style="margin: 0;">${v.version_name}</p>
-                                            <p class="text-xs text-muted" style="margin: 0;">${new Date(v.created_at).toLocaleDateString('pt-BR')} • ${v.total_rubricas} rubricas</p>
-                                        </div>
-                                        <a href="${v.file_path}" target="_blank" class="btn btn-secondary" style="padding: 4px 8px; font-size: 10px;">
-                                            <i data-lucide="download" style="width: 12px;"></i> Baixar
-                                        </a>
-                                    </div>
-                                `).join('')}
+                            <div style="display: flex; flex-direction: column; gap: 0.75rem; max-height: 380px; overflow-y: auto;">
+                                ${state.rubrica_versions.map(v => rubricaVersaoLinhaHtml(v)).join('')}
                             </div>
                         `}
                     </div>
@@ -5355,10 +5346,13 @@ window.handleAtualizarSaldoSalic = async function () {
 async function fetchRubricaVersions(projectId) {
     if (!supabaseClient || !projectId) return;
     try {
+        // Só versões ativas. O snapshot (estado anterior) vem junto: é pequeno e permite montar o CSV sem nova consulta.
         const { data, error } = await supabaseClient
             .from('rubricas_versions')
             .select('*')
             .eq('project_id', projectId)
+            .eq('ativa', true)
+            .order('versao', { ascending: false })
             .order('created_at', { ascending: false });
 
         if (!error && data) state.rubrica_versions = data;
@@ -5366,6 +5360,98 @@ async function fetchRubricaVersions(projectId) {
         console.error("Erro fetch rubrica versions:", err);
     }
 }
+
+// Linha do painel de versões (C4). Versões novas têm pdf_path/snapshot; as legadas (v2, v3...) só file_path (.xls).
+function rubricaVersaoLinhaHtml(v) {
+    const novaImportacao = v.inseridas !== null && v.inseridas !== undefined;
+    const quando = novaImportacao
+        ? new Date(v.created_at).toLocaleString('pt-BR')
+        : new Date(v.created_at).toLocaleDateString('pt-BR');
+    const resumo = novaImportacao
+        ? ` (+${v.inseridas || 0} / ~${v.atualizadas || 0} / -${v.desativadas || 0})`
+        : '';
+    const temSnapshot = Array.isArray(v.snapshot) && v.snapshot.length > 0;
+    const botao = 'class="btn btn-secondary" style="padding: 4px 8px; font-size: 10px; white-space: nowrap;"';
+    const botoes = [];
+    if (v.pdf_path) {
+        botoes.push(`<button type="button" ${botao} data-versao-id="${escAttr(v.id)}" onclick="window.baixarPdfDaVersao(this.dataset.versaoId)"><i data-lucide="file-text" style="width: 12px;"></i> PDF importado</button>`);
+    }
+    if (temSnapshot) {
+        botoes.push(`<button type="button" ${botao} data-versao-id="${escAttr(v.id)}" onclick="window.baixarEstadoAnteriorCsv(this.dataset.versaoId)"><i data-lucide="download" style="width: 12px;"></i> Estado anterior (CSV)</button>`);
+    }
+    if (!v.pdf_path && v.file_path) {
+        botoes.push(`<a href="${escAttr(v.file_path)}" target="_blank" rel="noopener" ${botao}><i data-lucide="download" style="width: 12px;"></i> Baixar XLS</a>`);
+    }
+    return `
+        <div style="padding: 0.75rem; background: white; border: 1px solid var(--border-light); border-radius: 4px;">
+            <p class="text-xs font-bold" style="margin: 0;">Versão ${escAttr(v.versao)}</p>
+            <p class="text-xs text-muted" style="margin: 0 0 ${botoes.length ? '0.5rem' : '0'};">${escAttr(quando)} • ${escAttr(v.total_rubricas ?? 0)} rubricas${escAttr(resumo)}</p>
+            ${botoes.length ? `<div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">${botoes.join('')}</div>` : ''}
+        </div>
+    `;
+}
+
+// Abre um arquivo do Storage por URL assinada (1h), mesmo com o bucket público. A aba abre antes do
+// await para o bloqueador de pop-ups não barrar.
+async function abrirUrlAssinada(bucket, caminho) {
+    const aba = window.open('about:blank', '_blank');
+    if (aba) aba.opener = null;
+    try {
+        const { data, error } = await supabaseClient.storage.from(bucket).createSignedUrl(caminho, 3600);
+        if (error || !data || !data.signedUrl) throw error || new Error('URL assinada vazia');
+        if (aba) aba.location.href = data.signedUrl;
+        else window.location.href = data.signedUrl;
+    } catch (err) {
+        if (aba) aba.close();
+        console.error("Erro ao gerar URL assinada:", err);
+        window.showToast("Não foi possível gerar o link do arquivo.", 'error');
+    }
+}
+
+// PDF que foi importado naquela versão (bucket e caminho vêm da linha da versão, não da tela).
+window.baixarPdfDaVersao = function (versaoId) {
+    const v = state.rubrica_versions.find(x => String(x.id) === String(versaoId));
+    if (!v || !v.pdf_path) return window.showToast("Esta versão não tem PDF.", 'error');
+    return abrirUrlAssinada(v.pdf_bucket || 'documentos', v.pdf_path);
+};
+
+// CSV de uma lista de linhas de rubricas: ; como separador, vírgula decimal, aspas duplicadas.
+function rubricasParaCsv(linhas) {
+    const colunas = [
+        ['codigo', 'rubrica_id'], ['nome', 'nome'], ['produto', 'produto'], ['etapa', 'etapa'],
+        ['uf_municipio', 'uf_municipio'], ['quantidade', 'quantidade'], ['valor_unitario', 'valor_unitario'],
+        ['valor_aprovado', 'valor_aprovado']
+    ];
+    const numericas = new Set(['rubrica_id', 'quantidade', 'valor_unitario', 'valor_aprovado']);
+    const celula = (campo, valor) => {
+        if (valor === null || valor === undefined) return '';
+        let t = String(valor);
+        if (numericas.has(campo) && t !== '' && !isNaN(Number(t))) t = t.replace('.', ',');
+        return /[;"\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+    };
+    const cab = colunas.map(c => c[0]).join(';');
+    const corpo = linhas.map(l => colunas.map(c => celula(c[1], l[c[1]])).join(';'));
+    return '\uFEFF' + [cab, ...corpo].join('\r\n') + '\r\n';
+}
+
+// Estado das rubricas ANTES daquela importação (snapshot da versão), gerado no navegador.
+window.baixarEstadoAnteriorCsv = function (versaoId) {
+    const v = state.rubrica_versions.find(x => String(x.id) === String(versaoId));
+    if (!v || !Array.isArray(v.snapshot) || v.snapshot.length === 0) {
+        return window.showToast("Esta versão não tem estado anterior para baixar.", 'error');
+    }
+    const projeto = state.projects.find(p => p.id === state.filters.project);
+    const pronac = projeto ? projeto.pronac : 'projeto';
+    const blob = new Blob([rubricasParaCsv(v.snapshot)], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `rubricas_antes_da_v${v.versao}_${pronac}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
 
 // Ocorrência 12: PDFs originais das importações de rubricas (cada upload vira uma linha em
 // documents). O status do documento não é exibido: hoje não é confiável (as planilhas ficam
@@ -5390,19 +5476,8 @@ async function fetchRubricaArquivos(projectId) {
 
 // URL assinada (1h) mesmo com o bucket público, para não depender de ele continuar público.
 // A aba é aberta antes do await para o bloqueador de pop-ups não barrar.
-window.baixarPdfOriginal = async function (filePath) {
-    const aba = window.open('about:blank', '_blank');
-    if (aba) aba.opener = null;
-    try {
-        const { data, error } = await supabaseClient.storage.from('documentos').createSignedUrl(filePath, 3600);
-        if (error || !data || !data.signedUrl) throw error || new Error('URL assinada vazia');
-        if (aba) aba.location.href = data.signedUrl;
-        else window.location.href = data.signedUrl;
-    } catch (err) {
-        if (aba) aba.close();
-        console.error("Erro ao gerar URL assinada do PDF original:", err);
-        window.showToast("Não foi possível gerar o link do arquivo.", 'error');
-    }
+window.baixarPdfOriginal = function (filePath) {
+    return abrirUrlAssinada('documentos', filePath);
 };
 
 window.handleCreateRubrica = async function () {
