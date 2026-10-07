@@ -4757,16 +4757,24 @@ const ConfirmModal = () => {
 const OrcamentoView = () => {
     const activeProject = state.projects.find(p => p.id === state.filters.project);
 
-    // Agrupar rubricas de forma segura
-    const rubricasPorEtapa = (state.rubricas || []).filter(r => r.ativa !== false).reduce((acc, r) => {
-        const etapa = (r.etapa || '').trim() || 'Etapa não definida';
-        if (!acc[etapa]) acc[etapa] = {};
+    // Agrupar rubricas de forma segura: produto > local. A etapa aparece no cartão de cada rubrica.
+    const PRODUTO_NAO_DEFINIDO = 'Produto não definido';
+    const rubricasPorProduto = (state.rubricas || []).filter(r => r.ativa !== false).reduce((acc, r) => {
+        const produto = (r.produto || '').trim() || PRODUTO_NAO_DEFINIDO;
+        if (!acc[produto]) acc[produto] = {};
         // uf_municipio vem nulo nos dados antigos (até reimportar): cai em um grupo próprio, sem quebrar a tela.
         const local = (r.uf_municipio || '').trim() || 'Sem local informado';
-        if (!acc[etapa][local]) acc[etapa][local] = [];
-        acc[etapa][local].push(r);
+        if (!acc[produto][local]) acc[produto][local] = [];
+        acc[produto][local].push(r);
         return acc;
     }, {});
+    // Mesma ordem dos seletores de rubrica (ordenarRubricas): produtos em ordem alfabética (pt-BR) e,
+    // sem produto, no fim da lista.
+    const produtosOrdenados = Object.entries(rubricasPorProduto).sort(([a], [b]) => {
+        if (a === PRODUTO_NAO_DEFINIDO && b !== PRODUTO_NAO_DEFINIDO) return 1;
+        if (b === PRODUTO_NAO_DEFINIDO && a !== PRODUTO_NAO_DEFINIDO) return -1;
+        return a.localeCompare(b, 'pt-BR');
+    });
 
     const IMPORT_MESSAGES = {
         'uploading': 'Enviando PDF...',
@@ -4949,16 +4957,16 @@ const OrcamentoView = () => {
         </details>
     `;
 
-    const rubricasContent = Object.entries(rubricasPorEtapa).length === 0 ? `
+    const rubricasContent = produtosOrdenados.length === 0 ? `
         <div class="empty-state card">
             <i data-lucide="folder-search" style="width: 48px; height: 48px; color: var(--text-muted); margin-bottom: 1rem;"></i>
             <h3 class="h2">Nenhuma rubrica sincronizada</h3>
             <p class="text-muted text-sm">Selecione o projeto e suba a planilha orçamentária do SALIC acima.</p>
         </div>
-    ` : Object.entries(rubricasPorEtapa).map(([etapa, locais]) => `
+    ` : produtosOrdenados.map(([produto, locais]) => `
         <div class="etapa-section mb-6">
             <h2 class="etapa-title">
-                ${escAttr(etapa)}
+                ${escAttr(produto)}
             </h2>
             ${Object.entries(locais).map(([local, rubricas]) => `
                 <div class="local-group mb-4">
@@ -4999,6 +5007,7 @@ const OrcamentoView = () => {
                                                 <span style="color: var(--primary); font-family: monospace;">[${r.rubrica_id || '---'}]</span> ${r.nome}
                                             </h5>
                                             <p class="text-xs text-muted mt-1">Qtde: ${r.quantidade || 1} x R$ ${(parseFloat(r.valor_unitario || r.valor_aprovado || 0)).toLocaleString('pt-BR')}</p>
+                                            <p class="text-xs text-muted" style="margin: 0.15rem 0 0;">Etapa: ${escAttr((r.etapa || '').trim() || 'Etapa não definida')}</p>
                                         </div>
                                         <div style="text-align: right; display:${habilitado ? '' : 'none'};">
                                             <div class="text-xs font-bold ${temCaptura ? (percentualProjetado > 90 ? 'text-error' : 'text-primary') : 'text-muted'}">${percentDisplay}</div>
