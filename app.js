@@ -4655,9 +4655,10 @@ const OrcamentoView = () => {
 
     // Agrupar rubricas de forma segura
     const rubricasPorEtapa = (state.rubricas || []).filter(r => r.ativa !== false).reduce((acc, r) => {
-        const etapa = r.etapa || 'Etapa não definida';
+        const etapa = (r.etapa || '').trim() || 'Etapa não definida';
         if (!acc[etapa]) acc[etapa] = {};
-        const local = r.uf_municipio || 'Local não definido';
+        // uf_municipio vem nulo nos dados antigos (até reimportar): cai em um grupo próprio, sem quebrar a tela.
+        const local = (r.uf_municipio || '').trim() || 'Sem local informado';
         if (!acc[etapa][local]) acc[etapa][local] = [];
         acc[etapa][local].push(r);
         return acc;
@@ -4862,11 +4863,11 @@ const OrcamentoView = () => {
     ` : Object.entries(rubricasPorEtapa).map(([etapa, locais]) => `
         <div class="etapa-section mb-6">
             <h2 class="etapa-title">
-                ${etapa}
+                ${escAttr(etapa)}
             </h2>
             ${Object.entries(locais).map(([local, rubricas]) => `
                 <div class="local-group mb-4">
-                    <h4 class="text-xs font-bold uppercase tracking-wider text-muted mb-3">📍 ${local}</h4>
+                    <h4 class="text-xs font-bold uppercase tracking-wider text-muted mb-3">📍 ${escAttr(local)}</h4>
                     <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(min(350px, 100%), 1fr)); gap: 1rem;">
                         ${rubricas.map(r => {
         const aprovado = parseFloat(r.valor_aprovado || 0);
