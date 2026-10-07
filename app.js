@@ -74,10 +74,21 @@ window.showToast = function (message, type = 'info') {
 // Uso: window.showConfirmModal({ title, message, confirmLabel, cancelLabel, variant, onConfirm })
 // no lugar de `if (!confirm(msg)) return; ...resto...` — mover o "...resto..."
 // para dentro de onConfirm (chamado só quando o usuário confirma).
-window.showConfirmModal = function ({ title = 'Confirmar ação', message = '', confirmLabel = 'Confirmar', cancelLabel = 'Cancelar', variant = 'primary', onConfirm, onCancel, confirmText } = {}) {
+window.showConfirmModal = function ({ title = 'Confirmar ação', message = '', confirmLabel = 'Confirmar', cancelLabel = 'Cancelar', variant = 'primary', onConfirm, onCancel, confirmText, motivoMinimo } = {}) {
     // confirmText (opcional): o botão de confirmar só habilita quando o usuário digita exatamente esse texto.
-    state.confirmModal = { title, message, confirmLabel, cancelLabel, variant, onConfirm, onCancel, confirmText, typed: '' };
+    // motivoMinimo (opcional): mostra o campo "Motivo"; o botão só habilita com esse mínimo de caracteres
+    // e onConfirm recebe o motivo digitado.
+    state.confirmModal = { title, message, confirmLabel, cancelLabel, variant, onConfirm, onCancel, confirmText, typed: '', motivoMinimo, motivo: '' };
     render();
+};
+
+// A cada tecla do campo Motivo. Não usa render() para não perder o foco.
+window.__confirmModalMotivo = function (valor) {
+    const modal = state.confirmModal;
+    if (!modal) return;
+    modal.motivo = valor;
+    const botao = document.getElementById('confirm-modal-ok');
+    if (botao) botao.disabled = modal.motivo.trim().length < (modal.motivoMinimo || 0);
 };
 
 // Chamado a cada tecla do campo de confirmação digitada. Não usa render() para não perder o foco do input.
@@ -102,9 +113,10 @@ window.closeConfirmModal = function () {
 window.__execConfirmModal = function () {
     const modal = state.confirmModal;
     if (modal && modal.confirmText && modal.typed !== modal.confirmText) return;
+    if (modal && modal.motivoMinimo && (modal.motivo || '').trim().length < modal.motivoMinimo) return;
     state.confirmModal = null;
     render();
-    if (modal && typeof modal.onConfirm === 'function') modal.onConfirm();
+    if (modal && typeof modal.onConfirm === 'function') modal.onConfirm(modal.motivoMinimo ? (modal.motivo || '').trim() : undefined);
 };
 
 // Redireciona alerts para o toast por padrão
@@ -4728,9 +4740,14 @@ const ConfirmModal = () => {
             <label class="text-sm" for="confirm-modal-input">Para confirmar, digite <strong>${escAttr(cm.confirmText)}</strong>:</label>
             <input type="text" id="confirm-modal-input" autocomplete="off" autocapitalize="off" spellcheck="false" style="width: 100%; margin-top: 0.5rem;" value="${escAttr(cm.typed || '')}" oninput="window.__confirmModalDigitou(this.value)">
         </div>` : ''}
+        ${cm.motivoMinimo ? `
+        <div class="mb-6">
+            <label class="text-sm" for="confirm-modal-motivo">Motivo (obrigatório, mínimo ${escAttr(cm.motivoMinimo)} caracteres)</label>
+            <textarea id="confirm-modal-motivo" rows="3" style="width: 100%; margin-top: 0.5rem;" oninput="window.__confirmModalMotivo(this.value)">${escAttr(cm.motivo || '')}</textarea>
+        </div>` : ''}
         <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
             <button class="btn btn-secondary" onclick="window.closeConfirmModal()">${escAttr(cm.cancelLabel)}</button>
-            <button class="btn btn-primary" id="confirm-modal-ok" style="${confirmBtnStyle}" ${cm.confirmText && cm.typed !== cm.confirmText ? 'disabled' : ''} onclick="window.__execConfirmModal()">${escAttr(cm.confirmLabel)}</button>
+            <button class="btn btn-primary" id="confirm-modal-ok" style="${confirmBtnStyle}" ${(cm.confirmText && cm.typed !== cm.confirmText) || (cm.motivoMinimo && (cm.motivo || '').trim().length < cm.motivoMinimo) ? 'disabled' : ''} onclick="window.__execConfirmModal()">${escAttr(cm.confirmLabel)}</button>
         </div>
     </div>
 </div>
@@ -4879,7 +4896,7 @@ const OrcamentoView = () => {
                             <p class="text-xs text-muted italic">Nenhuma versão encontrada para este projeto.</p>
                         ` : `
                             <div style="display: flex; flex-direction: column; gap: 0.75rem; max-height: 380px; overflow-y: auto;">
-                                ${state.rubrica_versions.map(v => rubricaVersaoLinhaHtml(v)).join('')}
+                                ${state.rubrica_versions.map((v, i) => rubricaVersaoLinhaHtml(v, i === 0)).join('')}
                             </div>
                         `}
                     </div>
@@ -5474,7 +5491,7 @@ async function fetchRubricaVersions(projectId) {
 }
 
 // Linha do painel de versões (C4). Versões novas têm pdf_path/snapshot; as legadas (v2, v3...) só file_path (.xls).
-function rubricaVersaoLinhaHtml(v) {
+function rubricaVersaoLinhaHtml(v, ehAtual) {
     const novaImportacao = v.inseridas !== null && v.inseridas !== undefined;
     const quando = novaImportacao
         ? new Date(v.created_at).toLocaleString('pt-BR')
@@ -5493,6 +5510,10 @@ function rubricaVersaoLinhaHtml(v) {
     }
     if (!v.pdf_path && v.file_path) {
         botoes.push(`<a href="${escAttr(v.file_path)}" target="_blank" rel="noopener" ${botao}><i data-lucide="download" style="width: 12px;"></i> Baixar XLS</a>`);
+    }
+    // Ocorrência 18: só admin (mesma checagem das ações restritas, userCanDelete) e nunca na versão atual.
+    if (userCanDelete() && !ehAtual) {
+        botoes.push(`<button type="button" ${botao} data-versao-id="${escAttr(v.id)}" onclick="window.abrirModalOcultarVersao(this.dataset.versaoId)">Ocultar</button>`);
     }
     return `
         <div style="padding: 0.75rem; background: white; border: 1px solid var(--border-light); border-radius: 4px;">
@@ -5518,6 +5539,35 @@ async function abrirUrlAssinada(bucket, caminho) {
         console.error("Erro ao gerar URL assinada:", err);
         window.showToast("Não foi possível gerar o link do arquivo.", 'error');
     }
+}
+
+// Ocorrência 18: oculta uma versão (nada é apagado: o banco marca ativa = false e registra o motivo).
+window.abrirModalOcultarVersao = function (versaoId) {
+    const v = state.rubrica_versions.find(x => String(x.id) === String(versaoId));
+    if (!v) return;
+    if (!userCanDelete()) return window.showToast('Somente administradores podem ocultar versões.', 'error');
+    window.showConfirmModal({
+        title: 'Ocultar versão',
+        message: `Ocultar a versão ${v.versao}? A versão fica guardada e deixa de aparecer nesta lista.`,
+        confirmLabel: 'Ocultar versão',
+        motivoMinimo: 5,
+        onConfirm: (motivo) => ocultarVersaoRubricas(v.id, motivo)
+    });
+};
+
+async function ocultarVersaoRubricas(versionId, motivo) {
+    try {
+        const { error } = await supabaseClient.rpc('ocultar_versao_rubricas', { p_version_id: versionId, p_motivo: motivo });
+        if (error) throw error;
+        window.showToast('Versão ocultada.', 'success');
+    } catch (err) {
+        window.showToast(window.prestaiErroOcultarVersao
+            ? window.prestaiErroOcultarVersao(err)
+            : 'Não foi possível ocultar a versão agora. Tente novamente em instantes.', 'error');
+    }
+    // Recarrega a lista também em erro: a versão pode já ter sido ocultada ou ter deixado de ser a atual.
+    await fetchRubricaVersions(state.filters.project);
+    render();
 }
 
 // PDF que foi importado naquela versão (bucket e caminho vêm da linha da versão, não da tela).

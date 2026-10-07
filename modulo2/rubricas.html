@@ -298,6 +298,24 @@
             </div>
         </div>
 
+        <!-- Ocorrência 18: ocultar versão da planilha de rubricas (admin, com motivo) -->
+        <div id="ocultar-versao-modal" class="modal-backdrop" hidden onclick="if(event.target===this) cancelarOcultarVersao()">
+            <div class="modal-dialog">
+                <h3>Ocultar versão</h3>
+                <p id="ocultar-versao-texto" style="margin: 0 0 1rem; color: var(--text-secondary);"></p>
+                <div class="form-grid">
+                    <label>
+                        Motivo <span style="color:#FF5807;">*</span>
+                        <textarea id="ocultar-versao-motivo" rows="3" oninput="validarMotivoOcultarVersao()" placeholder="Informe o motivo (mínimo 5 caracteres)"></textarea>
+                    </label>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-modal btn-modal-cancel" onclick="cancelarOcultarVersao()">Cancelar</button>
+                    <button type="button" class="btn-modal btn-modal-primary" id="ocultar-versao-confirmar" disabled onclick="confirmarOcultarVersao()">Ocultar versão</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Modal de Readequação Orçamentária -->
         <div id="readequacao-modal" class="modal-backdrop" hidden onclick="if(event.target===this) closeReadequacaoModal()">
             <div class="modal-dialog">
@@ -464,13 +482,17 @@
                 return;
             }
             versoesImportacao = data || [];
+            // Mesma leitura de papel que o resto do M2 (verificarAcessoM2): só admin vê o botão Ocultar.
+            const { data: { session } } = await sb.auth.getSession();
+            const papel = session && session.user ? (session.user.app_metadata?.role || session.user.user_metadata?.role) : null;
+            const ehAdmin = papel === 'admin';
             if (versoesImportacao.length === 0) {
                 tbody.innerHTML = linhaVazia('Nenhuma versão encontrada para este projeto.');
                 return;
             }
 
             const botao = 'class="btn-modal btn-modal-cancel" style="padding: 0.3rem 0.7rem; font-size: 0.75rem; white-space: nowrap;"';
-            tbody.innerHTML = versoesImportacao.map(v => {
+            tbody.innerHTML = versoesImportacao.map((v, idx) => {
                 const nova = v.inseridas !== null && v.inseridas !== undefined;
                 const quando = nova ? new Date(v.created_at).toLocaleString('pt-BR') : new Date(v.created_at).toLocaleDateString('pt-BR');
                 const resumo = nova ? ` (+${v.inseridas || 0} / ~${v.atualizadas || 0} / -${v.desativadas || 0})` : '';
@@ -483,6 +505,10 @@
                 }
                 if (!v.pdf_path && v.file_path) {
                     botoes.push(`<a href="${escapeHtml(v.file_path)}" target="_blank" rel="noopener" ${botao}>Baixar XLS</a>`);
+                }
+                // Ocorrência 18: nunca na versão atual (a primeira da lista).
+                if (ehAdmin && idx > 0) {
+                    botoes.push(`<button type="button" ${botao} data-versao-id="${escapeHtml(v.id)}" onclick="abrirModalOcultarVersao(this.dataset.versaoId)">Ocultar</button>`);
                 }
                 return `
                     <tr>
@@ -1021,6 +1047,60 @@
                 if (aba) aba.close();
                 console.error('Erro ao gerar URL assinada do PDF da versão:', err);
                 showToast('Não foi possível gerar o link do arquivo.', 'error');
+            }
+        };
+
+        // Ocorrência 18: oculta uma versão (nada é apagado: o banco marca ativa = false e registra o motivo).
+        let versaoParaOcultar = null;
+
+        window.abrirModalOcultarVersao = function(versaoId) {
+            const v = versoesImportacao.find(x => String(x.id) === String(versaoId));
+            if (!v) return;
+            versaoParaOcultar = v;
+            document.getElementById('ocultar-versao-texto').textContent =
+                `Ocultar a versão ${v.versao}? A versão fica guardada e deixa de aparecer nesta lista.`;
+            const campo = document.getElementById('ocultar-versao-motivo');
+            campo.value = '';
+            document.getElementById('ocultar-versao-confirmar').disabled = true;
+            document.getElementById('ocultar-versao-modal').hidden = false;
+            campo.focus();
+        };
+
+        window.validarMotivoOcultarVersao = function() {
+            const ok = document.getElementById('ocultar-versao-motivo').value.trim().length >= 5;
+            document.getElementById('ocultar-versao-confirmar').disabled = !ok;
+        };
+
+        window.cancelarOcultarVersao = function() {
+            versaoParaOcultar = null;
+            document.getElementById('ocultar-versao-modal').hidden = true;
+        };
+
+        window.confirmarOcultarVersao = async function() {
+            const v = versaoParaOcultar;
+            const motivo = document.getElementById('ocultar-versao-motivo').value.trim();
+            if (!v || motivo.length < 5) return;
+            const botao = document.getElementById('ocultar-versao-confirmar');
+            botao.disabled = true;
+            try {
+                const sb = await initSupabase();
+                const { error } = await sb.rpc('ocultar_versao_rubricas', { p_version_id: v.id, p_motivo: motivo });
+                if (error) throw error;
+                window.cancelarOcultarVersao();
+                showToast('Versão ocultada.', 'success');
+                await loadHistory();
+            } catch (err) {
+                const msg = window.prestaiErroOcultarVersao
+                    ? window.prestaiErroOcultarVersao(err)
+                    : 'Não foi possível ocultar a versão agora. Tente novamente em instantes.';
+                showToast(msg, 'error');
+                if (/versao_ja_oculta|versao_atual_nao_pode_ser_ocultada/.test(String(err && err.message))) {
+                    // A lista na tela ficou desatualizada: fecha e recarrega.
+                    window.cancelarOcultarVersao();
+                    await loadHistory();
+                } else {
+                    botao.disabled = false; // permite tentar de novo sem digitar o motivo outra vez
+                }
             }
         };
 

@@ -130,6 +130,24 @@
         return trad === null ? bruto : trad;
     }
 
+    // Ocultar versão de rubricas (função ocultar_versao_rubricas): o banco devolve só o código curto.
+    // Código desconhecido nunca vai para a tela: cai na frase genérica do tradutor.
+    const CODIGOS_OCULTAR_VERSAO = [
+        [/sem_permissao/, 'Somente administradores podem ocultar versões.'],
+        [/motivo_obrigatorio/, 'Informe o motivo (mínimo 5 caracteres).'],
+        [/versao_atual_nao_pode_ser_ocultada/, 'A versão atual não pode ser ocultada.'],
+        [/versao_ja_oculta/, 'Esta versão já está oculta.']
+    ];
+
+    function erroOcultarVersao(err) {
+        const t = texto(err);
+        for (const [regex, frase] of CODIGOS_OCULTAR_VERSAO) {
+            if (regex.test(t)) { console.error('[erro/ocultar_versao]', err); return frase; }
+        }
+        const base = erroAmigavel(err, 'padrao');
+        return /^[a-z0-9_]+$/.test(String(base).trim()) ? GENERICO.padrao : base;
+    }
+
     function n8nErro(status) {
         const e = new Error('HTTP ' + status);
         e.status = status;
@@ -137,11 +155,12 @@
         return e;
     }
 
-    const api = { traduzirTecnico, suavizar, erroAmigavel, n8nErro };
+    const api = { traduzirTecnico, suavizar, erroAmigavel, erroOcultarVersao, n8nErro };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     if (root) {
         root.prestaiN8nErro = n8nErro;
         root.prestaiErroAmigavel = erroAmigavel;
+        root.prestaiErroOcultarVersao = erroOcultarVersao;
         root.prestaiErroTexto = function (e) { return erroAmigavel(e); };
         root.prestaiSuavizar = function (msg, type) {
             try { return suavizar(msg, type); } catch (_) { return msg; }
