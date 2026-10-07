@@ -276,7 +276,7 @@ async function loadRelatorioFotos() {
     } catch (err) {
         REL_GALERIAS.forEach(g => {
             const el = document.getElementById(g.grid);
-            if (el) el.innerHTML = `<div class="empty-state" style="color:#FF5807;padding:1rem;grid-column:1/-1;">Erro ao carregar evidências: ${esc(err.message)}</div>`;
+            if (el) el.innerHTML = `<div class="empty-state" style="color:#FF5807;padding:1rem;grid-column:1/-1;">Erro ao carregar evidências: ${esc(window.prestaiErroTexto(err))}</div>`;
         });
     }
 }

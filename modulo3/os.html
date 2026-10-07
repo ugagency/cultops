@@ -272,6 +272,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script src="../config.js"></script>
+    <script src="../erros-amigaveis.js"></script>
     <script src="../auth-logout.js"></script>
     <script src="supabase-helper-m3.js?v=7"></script>
     <script>
@@ -288,6 +289,7 @@
         }
 
         function showToast(msg, type = 'success') {
+            if (window.prestaiSuavizar) msg = window.prestaiSuavizar(msg, type);
             const c = document.getElementById('toast-container');
             const t = document.createElement('div');
             t.className = `toast toast-${type}`;

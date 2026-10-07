@@ -155,6 +155,7 @@
 
     <script src="../config.js"></script>
     <script src="../auth-logout.js"></script>
+    <script src="../erros-amigaveis.js"></script>
     <script src="supabase-helper-m3.js?v=7"></script>
     <script>
         // ── State ────────────────────────────────────────────
@@ -170,6 +171,7 @@
         }
 
         function showToast(msg, type = 'success') {
+            if (window.prestaiSuavizar) msg = window.prestaiSuavizar(msg, type);
             const c = document.getElementById('toast-container');
             const t = document.createElement('div');
             t.className = `toast toast-${type}`;
@@ -342,7 +344,7 @@
                     body: JSON.stringify({ pronac, user_id: session.user.id })
                 });
 
-                if (!response.ok) throw new Error(`Erro de comunicação: ${response.status}`);
+                if (!response.ok) throw window.prestaiN8nErro(response.status);
 
                 const rawData = await response.json();
                 const data = Array.isArray(rawData) ? rawData[0] : rawData;
@@ -383,7 +385,7 @@
                 // passa a listar o projeto recém-importado.
                 setTimeout(() => location.reload(), 800);
             } catch (err) {
-                showToast('Erro ao importar: ' + err.message, 'error');
+                showToast(window.prestaiErroAmigavel(err, 'importar_projeto'), 'error');
                 if (btn) { btn.disabled = false; btn.style.opacity = ''; }
             }
         }

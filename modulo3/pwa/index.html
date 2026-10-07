@@ -16,6 +16,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="../../config.js"></script>
+    <script src="../../erros-amigaveis.js"></script>
     <script src="idb.js"></script>
 
     <style>
@@ -261,6 +262,7 @@
 
     // ── Toast ─────────────────────────────────────────────────
     function showToastPwa(msg, tipo = 'success') {
+        if (window.prestaiSuavizar) msg = window.prestaiSuavizar(msg, tipo);
         const t = document.createElement('div');
         t.textContent = msg;
         t.style.cssText = `
@@ -416,7 +418,7 @@
                         </div>
                     </div>`).join('');
             } catch (e) {
-                resultados.innerHTML = `<div class="empty-pwa">Erro: ${esc(e.message)}</div>`;
+                resultados.innerHTML = `<div class="empty-pwa">Erro: ${esc(window.prestaiErroTexto(e))}</div>`;
             }
         }, 300);
     }
