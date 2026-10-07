@@ -183,6 +183,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script src="config.js"></script>
+    <script src="erros-amigaveis.js"></script>
     <script>
         let sbClient = null;
         async function initSupabase() {
@@ -192,6 +193,7 @@
         }
 
         function showToast(msg, type = 'success') {
+            if (window.prestaiSuavizar) msg = window.prestaiSuavizar(msg, type);
             const c = document.getElementById('toast-container');
             const t = document.createElement('div');
             t.className = `toast toast-${type}`;
@@ -247,7 +249,7 @@
                 renderOrgs();
             } catch (err) {
                 console.error('fetchOrgs:', err);
-                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(err.message)}</p>`;
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(window.prestaiErroTexto(err))}</p>`;
             }
         }
 

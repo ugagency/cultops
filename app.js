@@ -16,9 +16,12 @@ function initializeSupabase() {
         console.log("Supabase Client inicializado com sucesso.");
     } else {
         console.error("ERRO: Falha ao inicializar o Supabase.");
-        if (typeof window.showToast === 'function' && !window.location.hash.includes('login')) {
-            window.showToast("Falha na configuração do banco de dados (Supabase). Confira as chaves no arquivo .env", 'error');
-        }
+        // showToast só é definido mais abaixo neste arquivo: espera o carregamento para o aviso aparecer de fato.
+        window.addEventListener('DOMContentLoaded', () => {
+            if (typeof window.showToast === 'function' && !window.location.hash.includes('login')) {
+                window.showToast("Não foi possível conectar ao sistema. Recarregue a página e, se continuar, fale com o suporte.", 'error');
+            }
+        });
     }
 }
 
@@ -34,6 +37,7 @@ const app = document.getElementById('app');
 
 // --- Notificações Premium (Toasts) ---
 window.showToast = function (message, type = 'info') {
+    if (window.prestaiSuavizar) message = window.prestaiSuavizar(message, type);
     let container = document.getElementById('toast-container');
     if (!container) {
         container = document.createElement('div');
@@ -3220,7 +3224,7 @@ ${Sidebar()}
                     <div style="padding: 1rem; background: ${doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') ? 'rgba(239, 68, 68, 0.05)' : 'var(--bg-sidebar)'}; border-radius: var(--radius-sm); border-left: 3px solid ${doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') ? 'var(--error)' : (doc.justification ? 'var(--success)' : 'var(--primary)')};">
                         <p class="text-sm" style="line-height: 1.6; color: var(--text-primary);">
                             ${doc.status.includes('bloqueado') || doc.status.includes('divergencia') || doc.status === 'revisao_manual' ?
-            `<strong style="color: var(--error);">Atenção:</strong><br>${doc.justification || doc.just_erro || 'Documento requer análise manual devido a divergências ou baixa confiança no OCR.'}` :
+            `<strong style="color: var(--error);">Atenção:</strong><br>${doc.justification || window.prestaiSuavizar?.(doc.just_erro, 'error') || 'Documento requer análise manual devido a divergências ou baixa confiança no OCR.'}` :
             (doc.justification ? `<strong style="color: var(--success);">✓ Aprovado</strong><br>${doc.justification}` : 'Aguardando processamento da IA para gerar a análise de conformidade...')
         }
                         </p>
@@ -3261,7 +3265,7 @@ ${Sidebar()}
                                 <p class="text-xs" style="color: var(--error); font-weight: 600;">
                                     ${doc.status === 'divergencia_valor' ? '⚠ Divergência de valor detectada entre a NF e o extrato.' : '⚠  Transação não encontrada no extrato. Verifique manualmente'}
                                 </p>
-                                <p class="text-xs" style="color: var(--text-muted); line-height: 1.4;">${doc.just_erro || 'Verifique o extrato bancário e a nota fiscal manualmente antes de prosseguir.'}</p>
+                                <p class="text-xs" style="color: var(--text-muted); line-height: 1.4;">${window.prestaiSuavizar?.(doc.just_erro, 'error') || 'Verifique o extrato bancário e a nota fiscal manualmente antes de prosseguir.'}</p>
                                 <div style="padding: 0.6rem; background: rgba(245, 158, 11, 0.1); border-radius: 4px; border: 1px solid rgba(245, 158, 11, 0.3);">
                                     <p class="text-xs" style="color: #d97706; font-weight: 600; margin-bottom: 0.25rem;">📋 Revisão Manual Necessária</p>
                                     <p class="text-xs" style="color: var(--text-secondary); line-height: 1.4;">Compare o valor e CNPJ do extrato com os dados extraídos da nota fiscal. Se estiver correto, use o botão abaixo para continuar.</p>
@@ -3365,7 +3369,7 @@ ${Sidebar()}
                          </div>` :
                         `<div style="display: flex; flex-direction: column; gap: 0.5rem;">
                                             <p class="text-xs" style="color: var(--error); font-weight: 500;">Falha no envio automático:</p>
-                                            <p class="text-xs" style="color: var(--text-muted); font-style: italic;">${doc.just_erro || 'Erro no robô SALIC'}</p>
+                                            <p class="text-xs" style="color: var(--text-muted); font-style: italic;">${window.prestaiSuavizar?.(doc.just_erro, 'error') || 'Erro no robô SALIC'}</p>
                                             ${faltaDadoObrigatorioSalic ?
                         `<button class="btn btn-secondary" style="width: 100%; font-size: 10px; padding: 0.3rem; opacity: 0.5; cursor: not-allowed;" disabled>Tentar Novamente</button>
                                             <p class="text-xs" style="color: var(--text-secondary); font-style: italic;">Preencha os dados obrigatórios (destacados acima) antes de tentar novamente.</p>` :
@@ -6428,7 +6432,7 @@ window.handleFetchSalicProject = async function () {
         });
 
         if (!response.ok) {
-            throw new Error(`Erro de comunicação com o webhook: ${response.status}`);
+            throw window.prestaiN8nErro(response.status);
         }
 
         const rawData = await response.json();
@@ -6447,7 +6451,9 @@ window.handleFetchSalicProject = async function () {
         }
 
         if (isNotFound || data.success === false || data.error) {
-            const errorMsg = data.message || data.error || "Projeto não encontrado no SALIC. Verifique o número do PRONAC.";
+            const errorMsg = (data.message || data.error)
+                ? window.prestaiErroAmigavel(data, 'importar_projeto')
+                : "Projeto não encontrado no SALIC. Verifique o número do PRONAC.";
             state.error = errorMsg;
             throw new Error(errorMsg);
         }
@@ -6469,8 +6475,9 @@ window.handleFetchSalicProject = async function () {
         importarFornecedoresSalicDoProjeto(pronac);
 
     } catch (err) {
-        state.error = err.message;
-        showToast(err.message, 'error');
+        const msg = window.prestaiErroAmigavel(err, 'importar_projeto');
+        state.error = msg;
+        showToast(msg, 'error');
     } finally {
         state.loading = false;
         render();
@@ -7405,7 +7412,7 @@ function dispararOcr(documentId, filePath) {
         .then(response => console.log("Resposta n8n:", response.status))
         .catch(err => {
             console.error("ERRO CRÍTICO n8n:", err);
-            window.showToast("O arquivo foi enviado, mas o processamento automático falhou. Verifique a URL do n8n.", 'warning');
+            window.showToast(window.prestaiErroAmigavel(err, 'upload_documento'), 'warning');
         });
 }
 
@@ -8068,7 +8075,7 @@ window.handleVincularDocumento = async function (parentDocumentId, file, tipo, l
 
             if (!response.ok) {
                 console.error("Erro n8n vinculacao:", response.status);
-                throw new Error(`Erro ao notificar servidor de automação: ${response.status}`);
+                throw window.prestaiN8nErro(response.status);
             }
         }
 
@@ -8077,7 +8084,7 @@ window.handleVincularDocumento = async function (parentDocumentId, file, tipo, l
         // Recarrega os detalhes para mostrar o status atualizado
         await fetchDocumentDetails(parentDocumentId);
     } catch (error) {
-        window.showToast(`Erro ao vincular ${tipo}: ` + error.message, 'error');
+        window.showToast(window.prestaiErroAmigavel(error, 'vincular_comprovante'), 'error');
     } finally {
         state.isUploadingComprovante = false;
         render();
@@ -8848,7 +8855,7 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
 
             if (!response.ok) {
                 console.error("Erro na resposta do n8n:", response.status, response.statusText);
-                throw new Error(`O servidor n8n retornou erro: ${response.status} ${response.statusText}`);
+                throw window.prestaiN8nErro(response.status);
             }
 
             console.log("n8n reconciliation ok!");
@@ -8863,7 +8870,7 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
         setTimeout(() => fetchDocumentDetails(documentId), 2500);
 
     } catch (error) {
-        showToast("Erro no extrato: " + error.message, 'error');
+        showToast(window.prestaiErroAmigavel(error, 'conciliacao'), 'error');
     } finally {
         state.loading = false;
         state.isUploadingExtrato = false;
@@ -8927,7 +8934,7 @@ window.handleUploadExtratoLote = async function (file, projectId) {
             })
         });
         if (!response.ok) {
-            throw new Error(`O servidor n8n retornou erro: ${response.status} ${response.statusText}`);
+            throw window.prestaiN8nErro(response.status);
         }
 
         showToast("Extrato enviado! Conciliando contra todas as notas pendentes do projeto...", 'success');
@@ -8936,7 +8943,7 @@ window.handleUploadExtratoLote = async function (file, projectId) {
         // os status novos quando o workflow terminar.
         setTimeout(() => { fetchDocuments().then(render); }, 3000);
     } catch (error) {
-        showToast("Erro no extrato em lote: " + error.message, 'error');
+        showToast(window.prestaiErroAmigavel(error, 'conciliacao'), 'error');
     } finally {
         state.loading = false;
         render();

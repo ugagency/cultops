@@ -287,6 +287,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script src="config.js"></script>
+    <script src="erros-amigaveis.js"></script>
     <script>
         let sbClient = null;
         async function initSupabase() {
@@ -296,6 +297,7 @@
         }
 
         function showToast(msg, type = 'success') {
+            if (window.prestaiSuavizar) msg = window.prestaiSuavizar(msg, type);
             const c = document.getElementById('toast-container');
             const t = document.createElement('div');
             t.className = `toast toast-${type}`;
@@ -428,7 +430,7 @@
                 const json = await authFetch(`/api/suporte/buscar?q=${encodeURIComponent(termo)}`);
                 renderBuscaResultados(json.projetos || [], json.fornecedores || []);
             } catch (err) {
-                wrap.innerHTML = `<p class="text-sm" style="color: var(--error);">Erro na busca: ${esc(err.message)}</p>`;
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error);">Erro na busca: ${esc(window.prestaiErroTexto(err))}</p>`;
             }
         }
 
@@ -479,7 +481,7 @@
                 renderOrgs();
             } catch (err) {
                 console.error('fetchOrgs:', err);
-                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(err.message)}</p>`;
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(window.prestaiErroTexto(err))}</p>`;
             }
         }
 
@@ -561,7 +563,7 @@
                 renderProjetos(json.projetos || []);
             } catch (err) {
                 console.error('fetchProjetos:', err);
-                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(err.message)}</p>`;
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(window.prestaiErroTexto(err))}</p>`;
             }
         }
 
@@ -636,7 +638,7 @@
                 renderUsuarios(json.users || []);
             } catch (err) {
                 console.error('fetchUsuarios:', err);
-                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(err.message)}</p>`;
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(window.prestaiErroTexto(err))}</p>`;
             }
         }
 
@@ -682,7 +684,7 @@
                 renderDocumentos();
             } catch (err) {
                 console.error('fetchDocumentos:', err);
-                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(err.message)}</p>`;
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(window.prestaiErroTexto(err))}</p>`;
             }
         }
 
@@ -812,7 +814,7 @@
                 renderContratos();
             } catch (err) {
                 console.error('fetchContratos:', err);
-                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(err.message)}</p>`;
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(window.prestaiErroTexto(err))}</p>`;
             }
         }
 
@@ -861,7 +863,7 @@
                 renderGuias();
             } catch (err) {
                 console.error('fetchGuias:', err);
-                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(err.message)}</p>`;
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(window.prestaiErroTexto(err))}</p>`;
             }
         }
 
@@ -930,7 +932,7 @@
                 renderAuditoria();
             } catch (err) {
                 console.error('fetchAuditoria:', err);
-                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(err.message)}</p>`;
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(window.prestaiErroTexto(err))}</p>`;
             }
         }
 
@@ -1064,7 +1066,7 @@
                 renderCrons(json.crons || []);
             } catch (err) {
                 console.error('fetchCrons:', err);
-                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(err.message)}</p>`;
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(window.prestaiErroTexto(err))}</p>`;
             }
         }
 

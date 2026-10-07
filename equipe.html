@@ -179,6 +179,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script src="config.js"></script>
+    <script src="erros-amigaveis.js"></script>
     <script src="auth-logout.js"></script>
     <script src="page-sidebar.js"></script>
     <script>
@@ -192,6 +193,7 @@
         }
 
         function showToast(msg, type = 'success') {
+            if (window.prestaiSuavizar) msg = window.prestaiSuavizar(msg, type);
             const c = document.getElementById('toast-container');
             const t = document.createElement('div');
             t.className = `toast toast-${type}`;
@@ -277,7 +279,7 @@
             } catch (err) {
                 console.error('fetchEquipe:', err);
                 showToast(err.message, 'error');
-                wrap.innerHTML = `<p class="text-sm" style="color: var(--error);">Erro ao carregar: ${err.message}</p>`;
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error);">Erro ao carregar: ${window.prestaiErroTexto(err)}</p>`;
             }
         }
 
