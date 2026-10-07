@@ -550,9 +550,9 @@
                     </section>
 
                     <section class="glass-card" id="saldo-salic-fila-section" style="padding: 1.5rem; display: none;">
-                        <h3 class="section-title">Conferência de pareamento (SALIC)</h3>
+                        <h3 class="section-title">Linhas do SALIC aguardando sua confirmação</h3>
                         <p style="font-size: 0.8rem; color: var(--text-muted); margin: -0.5rem 0 1rem;">
-                            Linhas do relatório do SALIC que não casaram automaticamente com nenhuma rubrica. Selecione a rubrica correta — a escolha é memorizada e não será perguntada de novo.
+                            O SALIC mostra o quanto foi executado por item, mas não diz a qual rubrica do Prestaí cada item corresponde. Estas linhas têm nomes repetidos ou diferentes e o sistema não conseguiu decidir sozinho. Escolha a rubrica correta de cada uma. A escolha fica memorizada e não será pedida de novo. Enquanto uma linha estiver pendente, o valor executado dela não é descontado do saldo de nenhuma rubrica, e o saldo mostrado fica maior do que o real.
                         </p>
                         <div id="saldo-salic-fila-wrap"></div>
                     </section>
@@ -1164,6 +1164,20 @@
             // Produção", R$ 80.000 e R$ 3.000) — produto e valor aprovado desambiguam.
             window.RubricaCombobox.definirLista(rubricas);
 
+            // Apoio ao usuário: quantas rubricas ATIVAS do projeto têm o mesmo nome do item (sem acento e sem
+            // diferença de maiúsculas). Só informa; nada é pré-selecionado.
+            const normalizarNome = (t) => String(t == null ? '' : t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+            const textoRubricasComNome = (item) => {
+                const alvo = normalizarNome(item);
+                const n = alvo ? (rubricas || []).filter(r => r.ativa !== false && normalizarNome(r.nome) === alvo).length : 0;
+                if (n === 0) return 'nenhuma rubrica com este nome';
+                return n === 1 ? '1 rubrica com este nome' : n + ' rubricas com este nome';
+            };
+
+            // Resumo da fila: o executado dessas linhas ainda não foi descontado de nenhuma rubrica.
+            const totalPendente = fila.reduce((soma, l) => soma + Number(l.vl_executado || 0), 0);
+            const resumo = `${fila.length} ${fila.length === 1 ? 'linha pendente' : 'linhas pendentes'}, somando ${fmtBRL(totalPendente)} executados no SALIC fora do saldo das rubricas`;
+
             const rows = fila.map(l => `
                 <tr>
                     <td>
@@ -1174,22 +1188,24 @@
                     <td class="num">${fmtBRL(l.vl_executado)}</td>
                     <td>
                         <input type="text" class="saldo-select" id="saldo-salic-select-${l.id}" data-rubrica-combo autocomplete="off" placeholder="Digite ou escolha a rubrica…">
+                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.25rem;">${escapeHtml(textoRubricasComNome(l.item))}</div>
                     </td>
                     <td>
-                        <button class="btn-inline primary" onclick="confirmarPareamentoSalic('${l.id}')">Confirmar</button>
+                        <button class="btn-inline primary" onclick="confirmarPareamentoSalic('${l.id}')">Confirmar ligação</button>
                     </td>
                 </tr>
             `).join('');
 
             wrap.innerHTML = `
+                <p style="font-size: 0.85rem; font-weight: 600; margin: 0 0 0.75rem;">${escapeHtml(resumo)}</p>
                 <div style="overflow-x: auto;">
                     <table class="data-table">
                         <thead>
                             <tr>
                                 <th>Linha do SALIC</th>
-                                <th class="num">Vl. Programado</th>
-                                <th class="num">Vl. Executado</th>
-                                <th>Rubrica</th>
+                                <th class="num">Programado</th>
+                                <th class="num">Executado</th>
+                                <th>Rubrica do Prestaí</th>
                                 <th></th>
                             </tr>
                         </thead>
