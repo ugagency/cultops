@@ -695,6 +695,8 @@ const state = {
     },
     importState: null, // null, 'disparando', 'navegando', 'gerando', 'ocr', 'salvando', 'concluido', 'erro'
     importProgress: 0,
+    importMensagem: null,  // mensagem de sucesso devolvida pelo servidor na importação de rubricas
+    importAviso: null,     // aviso adicional (ex.: rubricas marcadas como removidas)
     importResult: null,
     showRubricaInstructions: false,
     capturedProject: null,
@@ -4665,7 +4667,7 @@ const OrcamentoView = () => {
         'extracting': 'Extraindo rubricas...',
         'saving': 'Salvando no sistema...',
         'concluido': 'Rubricas importadas com sucesso!',
-        'erro': 'Erro ao processar o PDF. Verifique se é a Planilha Orçamentária correta.'
+        'erro': 'Não foi possível importar'
     };
 
     // CR-2026-001: botão "Atualizar do SALIC" — só com a flag da organização
@@ -4708,21 +4710,28 @@ const OrcamentoView = () => {
         </div>
     `;
 
+    // Em erro a barra e o percentual somem (nada de barra parada em 48% ou 90%) e a mensagem
+    // do servidor vira o texto principal. Todo texto do servidor passa por escAttr.
+    const importEmErro = state.importState === 'erro';
+    const importConcluido = state.importState === 'concluido';
     const progressContent = state.importState ? `
-        <div class="card mb-6" style="background: rgba(37, 99, 235, 0.05); border-color: var(--primary); padding: 1.5rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+        <div class="card mb-6" style="background: ${importEmErro ? 'rgba(220, 38, 38, 0.06)' : 'rgba(37, 99, 235, 0.05)'}; border-color: ${importEmErro ? 'var(--error)' : 'var(--primary)'}; padding: 1.5rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: ${importEmErro ? '0.25rem' : '0.75rem'};">
                 <div style="display: flex; align-items: center; gap: 0.75rem;">
-                    <i data-lucide="${state.importState === 'concluido' ? 'check-circle' : (state.importState === 'erro' ? 'alert-circle' : 'loader-2')}" 
-                       class="${['concluido', 'erro'].includes(state.importState) ? '' : 'spin'}" 
-                       style="width: 20px; color: var(--primary);"></i>
-                    <h4 class="font-bold" style="color: var(--primary); margin: 0;">${IMPORT_MESSAGES[state.importState] || 'Processando...'}</h4>
+                    <i data-lucide="${importConcluido ? 'check-circle' : (importEmErro ? 'alert-circle' : 'loader-2')}"
+                       class="${['concluido', 'erro'].includes(state.importState) ? '' : 'spin'}"
+                       style="width: 20px; color: ${importEmErro ? 'var(--error)' : 'var(--primary)'};"></i>
+                    <h4 class="font-bold" style="color: ${importEmErro ? 'var(--error)' : 'var(--primary)'}; margin: 0;">${IMPORT_MESSAGES[state.importState] || 'Processando...'}</h4>
                 </div>
-                <span class="text-sm font-bold text-primary">${state.importProgress || 0}%</span>
+                ${importEmErro ? '' : `<span class="text-sm font-bold text-primary">${state.importProgress || 0}%</span>`}
             </div>
+            ${importEmErro ? '' : `
             <div style="width: 100%; height: 6px; background: var(--border-light); border-radius: 3px; overflow: hidden;">
                 <div style="width: ${state.importProgress}%; height: 100%; background: var(--primary); transition: width 0.5s ease;"></div>
-            </div>
-            ${state.importState === 'erro' ? `<p class="text-xs mt-2" style="color: var(--error);">${state.error || ''}</p>` : ''}
+            </div>`}
+            ${importEmErro ? `<p class="text-sm" style="color: var(--text-primary); margin: 0.5rem 0 0;">${escAttr(state.error || '')}</p>` : ''}
+            ${importConcluido && state.importMensagem ? `<p class="text-sm" style="margin: 0.75rem 0 0;">${escAttr(state.importMensagem)}</p>` : ''}
+            ${importConcluido && state.importAviso ? `<p class="text-xs" style="margin: 0.5rem 0 0; color: var(--text-secondary);">${escAttr(state.importAviso)}</p>` : ''}
         </div>
     ` : '';
 
@@ -6360,7 +6369,13 @@ window.handleRubricaUpload = async function (file) {
     });
 };
 
+// Mensagem única para falha de infraestrutura (HTTP sem corpo, rede fora, erro de upload).
+const MSG_IMPORTACAO_GENERICA = 'Não foi possível importar a planilha. Tente novamente; se persistir, avise o suporte.';
+
 async function importarRubricasPdf(file, project) {
+    state.error = null;
+    state.importMensagem = null;
+    state.importAviso = null;
     state.importState = 'uploading';
     state.importProgress = 10;
     render();
@@ -6427,29 +6442,44 @@ async function importarRubricasPdf(file, project) {
 
         clearInterval(interval);
 
-        if (!response.ok) throw new Error("Erro no processamento do arquivo pelo servidor.");
-
-        const rawResult = await response.json();
-        const result = Array.isArray(rawResult) ? rawResult[0] : rawResult;
+        // O webhook devolve JSON {success, message, ...} também em erro de negócio. Sem corpo
+        // utilizável (ex.: HTTP 500 de infraestrutura) cai na mensagem genérica.
+        const corpo = await response.text().catch(() => '');
+        let result = null;
+        try {
+            const raw = JSON.parse(corpo);
+            result = Array.isArray(raw) ? raw[0] : raw;
+        } catch (_) { /* corpo vazio ou não JSON */ }
+        if (!result || typeof result !== 'object' || !('success' in result)) {
+            console.error('Importação de rubricas: resposta sem corpo utilizável. HTTP', response.status, corpo.slice(0, 300));
+            result = { success: false, message: MSG_IMPORTACAO_GENERICA };
+        }
 
         if (result.success) {
             state.importState = 'concluido';
             state.importProgress = 100;
-            showToast(`${result.rubricas_importadas} rubricas importadas com sucesso!`, 'success');
+            state.importMensagem = result.message || `${result.rubricas_importadas} rubricas importadas com sucesso!`;
+            const n = Number(result.desativadas) || 0;
+            if (n > 0) {
+                state.importAviso = n === 1
+                    ? '1 rubrica não consta na nova planilha e foi marcada como removida.'
+                    : `${n} rubricas não constam na nova planilha e foram marcadas como removidas.`;
+            }
+            showToast(state.importMensagem, 'success');
             await fetchRubricas(project.id);
             // Ocorrência 11: a nova versão (backup) precisa aparecer sem trocar de tela.
             await fetchRubricaVersions(project.id);
             await fetchRubricaArquivos(project.id);
         } else {
             state.importState = 'erro';
-            state.error = result.message || "O servidor não conseguiu extrair as rubricas. Verifique se o arquivo PDF é a 'Planilha Orçamentária' oficial do SALIC.";
+            state.error = result.message || result.mensagem || MSG_IMPORTACAO_GENERICA;
             console.error("Erro no processamento das rubricas:", result);
         }
     } catch (err) {
         state.importState = 'erro';
-        state.error = "Erro técnico: " + err.message;
+        state.error = MSG_IMPORTACAO_GENERICA;
         console.error("Falha técnica no upload de rubricas:", err);
-        showToast(err.message, 'error');
+        showToast(state.error, 'error');
     } finally {
         render();
         // Limpar estado após alguns segundos se for sucesso

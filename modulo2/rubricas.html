@@ -351,9 +351,11 @@
                 </div>
                 <span id="upload-status" style="font-size: 0.875rem; color: var(--text-secondary); font-weight: 500;">Iniciando...</span>
             </div>
-            <div class="upload-progress-bar-bg">
+            <div class="upload-progress-bar-bg" id="upload-progress-bar-bg">
                 <div class="upload-progress-bar-fill" id="upload-progress-fill"></div>
             </div>
+            <p id="upload-mensagem" hidden style="margin: 0.75rem 0 0; font-size: 0.9rem; color: var(--text-primary);"></p>
+            <p id="upload-aviso" hidden style="margin: 0.4rem 0 0; font-size: 0.8rem; color: var(--text-secondary);"></p>
         </div>
 
         <div class="glass-card" style="margin-top: 1.5rem; padding: 0;">
@@ -852,6 +854,42 @@
             setTimeout(() => t.style.transform = 'translateY(150%)', 4000);
         }
 
+        const MSG_IMPORTACAO_GENERICA = 'Não foi possível importar a planilha. Tente novamente; se persistir, avise o suporte.';
+
+        // Estado do painel de importação. Em erro a barra some (nada de barra parada em
+        // percentual) e a mensagem do servidor vira o texto principal. textContent: sem HTML.
+        function resetUploadPanel() {
+            const status = document.getElementById('upload-status');
+            status.style.color = '';
+            document.getElementById('upload-progress-bar-bg').hidden = false;
+            document.getElementById('upload-progress-fill').style.background = '';
+            for (const id of ['upload-mensagem', 'upload-aviso']) {
+                const el = document.getElementById(id);
+                el.hidden = true;
+                el.textContent = '';
+            }
+        }
+        function showUploadError(message) {
+            const status = document.getElementById('upload-status');
+            status.textContent = 'Não foi possível importar';
+            status.style.color = 'var(--error)';
+            document.getElementById('upload-progress-bar-bg').hidden = true;
+            const el = document.getElementById('upload-mensagem');
+            el.textContent = message;
+            el.hidden = false;
+        }
+        function showUploadSuccess(message, aviso) {
+            setUploadProgress(100, 'Concluído!');
+            const el = document.getElementById('upload-mensagem');
+            el.textContent = message;
+            el.hidden = false;
+            if (aviso) {
+                const av = document.getElementById('upload-aviso');
+                av.textContent = aviso;
+                av.hidden = false;
+            }
+        }
+
         function setUploadProgress(percent, text) {
             document.getElementById('upload-progress-fill').style.width = `${percent}%`;
             document.getElementById('upload-status').textContent = text;
@@ -901,6 +939,7 @@
             const container = document.getElementById('upload-progress-container');
             container.style.display = 'block';
             document.getElementById('upload-filename').textContent = file.name;
+            resetUploadPanel();
             setUploadProgress(10, 'Iniciando upload...');
 
             try {
@@ -961,36 +1000,48 @@
                 
                 clearInterval(uploadInterval);
 
-                if (!response.ok) throw new Error("Erro no processamento do arquivo pelo servidor.");
+                // O webhook devolve JSON {success, message, ...} também em erro de negócio. Sem
+                // corpo utilizável (ex.: HTTP 500 de infraestrutura) cai na mensagem genérica.
+                const corpo = await response.text().catch(() => '');
+                let result = null;
+                try {
+                    const raw = JSON.parse(corpo);
+                    result = Array.isArray(raw) ? raw[0] : raw;
+                } catch (_) { /* corpo vazio ou não JSON */ }
+                if (!result || typeof result !== 'object' || !('success' in result)) {
+                    console.error('Importação de rubricas: resposta sem corpo utilizável. HTTP', response.status, corpo.slice(0, 300));
+                    result = { success: false, message: MSG_IMPORTACAO_GENERICA };
+                }
 
-                const rawResult = await response.json();
-                const result = Array.isArray(rawResult) ? rawResult[0] : rawResult;
-
-                if (result.success || result.rubricas_importadas !== undefined) {
-                    setUploadProgress(100, 'Concluído!');
-                    
+                if (result.success === true) {
                     // Atualiza status no banco para concluído
                     await sb.from('documents').update({ status: 'concluido' }).eq('id', docData.id);
-                    
-                    showToast(`${result.rubricas_importadas || 'Várias'} rubricas importadas com sucesso!`, 'success');
+
+                    const mensagem = result.message || `${result.rubricas_importadas} rubricas importadas com sucesso!`;
+                    const n = Number(result.desativadas) || 0;
+                    const aviso = n > 0
+                        ? (n === 1 ? '1 rubrica não consta na nova planilha e foi marcada como removida.'
+                                   : `${n} rubricas não constam na nova planilha e foram marcadas como removidas.`)
+                        : '';
+                    showUploadSuccess(mensagem, aviso);
+                    showToast(mensagem, 'success');
                     await loadRubricas();
                     await loadHistory();
-                    
-                    setTimeout(() => { container.style.display = 'none'; }, 3000);
+
+                    setTimeout(() => { container.style.display = 'none'; }, aviso ? 9000 : 5000);
                 } else {
                     await sb.from('documents').update({ status: 'erro' }).eq('id', docData.id);
-                    setUploadProgress(100, 'Erro no processamento.');
-                    document.getElementById('upload-progress-fill').style.background = 'var(--error)';
                     console.error("Erro no processamento das rubricas:", result);
-                    showToast(result.message || "Falha ao extrair rubricas. Verifique se o PDF é a planilha do SALIC.", 'error');
+                    const mensagem = result.message || result.mensagem || MSG_IMPORTACAO_GENERICA;
+                    showUploadError(mensagem);
+                    showToast(mensagem, 'error');
                     await loadHistory();
                 }
             } catch (err) {
                 if (uploadInterval) clearInterval(uploadInterval);
-                setUploadProgress(100, 'Falha no upload.');
-                document.getElementById('upload-progress-fill').style.background = 'var(--error)';
                 console.error("Falha técnica no upload de rubricas:", err);
-                showToast("Erro: " + err.message, 'error');
+                showUploadError(MSG_IMPORTACAO_GENERICA);
+                showToast(MSG_IMPORTACAO_GENERICA, 'error');
             } finally {
                 // Limpa o input de arquivo
                 document.getElementById('file-upload-rubricas').value = '';
