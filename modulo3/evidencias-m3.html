@@ -794,6 +794,7 @@
                 .from('rubricas')
                 .select('produto')
                 .eq('project_id', evento.project_id)
+                .eq('ativa', true)
                 .not('produto', 'is', null);
             if (error) { console.error('[loadProdutosM3]', error); return; }
             allProdutosM3 = [...new Set((data || []).map(r => r.produto).filter(p => p && p.trim()))].sort();

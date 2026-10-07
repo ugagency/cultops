@@ -1415,6 +1415,7 @@
                 .from('rubricas')
                 .select('id, nome, rubrica_id, produto, valor_aprovado, valor_utilizado')
                 .eq('project_id', currentProjectId)
+                .eq('ativa', true)
                 .order('nome', { ascending: true });
             if (error) {
                 console.error('[loadRubricasSelect]', error);

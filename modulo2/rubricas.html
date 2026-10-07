@@ -394,6 +394,7 @@
             <div id="rubricas-container">
                 <!-- Data will be injected here -->
             </div>
+            <div id="rubricas-removidas"></div>
         </div>
     </main>
 
@@ -489,22 +490,25 @@
                 // feature — só a tabela rubricas, sem tocar em v_saldo_rubricas.
                 const { data, error } = await sb
                     .from('rubricas')
-                    .select('*')
+                    .select('*, despesas(id)')
                     .eq('project_id', currentProjectId)
                     .order('rubrica_id');
                 if (error) { console.error("Erro ao carregar rubricas:", error); return; }
-                renderRubricas((data || []).map(r => ({ ...r, codigo_rubrica: r.rubrica_id })));
+                const todas = (data || []).map(r => ({ ...r, codigo_rubrica: r.rubrica_id }));
+                renderRubricas(todas.filter(r => r.ativa !== false));
+                renderRubricasRemovidas(todas.filter(r => r.ativa === false &&
+                    (Number(r.valor_utilizado || 0) > 0 || (r.despesas || []).length > 0)));
                 return;
             }
 
             // CR-2026-001 Fase 3.3: v_saldo_rubricas agora expõe codigo_rubrica
             // (o código numérico SALIC, rubricas.rubrica_id) além de rubrica_id
             // (a UUID, r.id) — dá pra ler tudo direto da view, sem merge em JS.
-            const { data, error } = await sb
-                .from('v_saldo_rubricas')
-                .select('*')
-                .eq('project_id', currentProjectId)
-                .order('codigo_rubrica');
+            // v_saldo_rubricas não tem a coluna ativa: lê ativa (e se há despesa) direto de rubricas e cruza aqui.
+            const [{ data, error }, { data: meta }] = await Promise.all([
+                sb.from('v_saldo_rubricas').select('*').eq('project_id', currentProjectId).order('codigo_rubrica'),
+                sb.from('rubricas').select('id, ativa, despesas(id)').eq('project_id', currentProjectId)
+            ]);
 
             if (error) {
                 console.error("Erro ao carregar rubricas:", error);
@@ -514,7 +518,42 @@
             // Normaliza `id` (a view não expõe essa coluna, só a UUID em
             // rubrica_id) para que renderRubricas use o mesmo campo nos dois
             // caminhos (flag ligado/desligado).
-            renderRubricas((data || []).map(r => ({ ...r, id: r.rubrica_id })));
+            const metaPorId = new Map((meta || []).map(m => [m.id, m]));
+            const linhas = (data || []).map(r => ({ ...r, id: r.rubrica_id }));
+            const removida = (r) => (metaPorId.get(r.id) || {}).ativa === false;
+            renderRubricas(linhas.filter(r => !removida(r)));
+            renderRubricasRemovidas(linhas.filter(r => removida(r) &&
+                (Number(r.valor_utilizado || 0) > 0 || ((metaPorId.get(r.id) || {}).despesas || []).length > 0)));
+        }
+
+        // Rubricas que saíram da planilha (ativa = false) mas ainda têm despesa ou saldo utilizado.
+        // Bloco recolhido, só com o saldo; elas não aparecem nas listas de seleção.
+        function renderRubricasRemovidas(lista) {
+            const el = document.getElementById('rubricas-removidas');
+            if (!el) return;
+            if (!lista || lista.length === 0) { el.innerHTML = ''; return; }
+            const linhas = lista.map(r => {
+                const aprovado = Number(r.valor_aprovado || 0);
+                const usado = Number(r.valor_utilizado || 0);
+                const codigo = r.codigo_rubrica || r.rubrica_id;
+                return `<tr>
+                    <td>${codigo ? `<span style="font-family: monospace;">[${escapeHtml(codigo)}]</span> ` : ''}${escapeHtml(r.nome)}</td>
+                    <td style="text-align: right;">${formatCurrency(aprovado)}</td>
+                    <td style="text-align: right;">${formatCurrency(usado)}</td>
+                    <td style="text-align: right;">${formatCurrency(aprovado - usado)}</td>
+                </tr>`;
+            }).join('');
+            el.innerHTML = `
+                <details class="glass-card" style="margin-top: 1.5rem; padding: 1rem 1.25rem;">
+                    <summary style="cursor: pointer; font-weight: 600;">Removidas da planilha atual (${lista.length})</summary>
+                    <p style="margin: 0.75rem 0; font-size: 0.85rem; color: var(--text-secondary);">Estas rubricas não constam na planilha mais recente, mas têm despesas lançadas. Elas não aparecem nas listas de seleção.</p>
+                    <div style="overflow-x: auto;">
+                        <table class="history-table">
+                            <thead><tr><th>Rubrica</th><th style="text-align: right;">Aprovado (planilha anterior)</th><th style="text-align: right;">Utilizado</th><th style="text-align: right;">Saldo</th></tr></thead>
+                            <tbody>${linhas}</tbody>
+                        </table>
+                    </div>
+                </details>`;
         }
 
         function renderRubricas(rubricas) {

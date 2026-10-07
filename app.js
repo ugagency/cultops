@@ -219,7 +219,9 @@ function mountIN23Panel() {
     if (!mount || !state.in23ProjectFinanceiro) return;
     const vProjeto = parseValorProjeto(state.in23ProjectFinanceiro.valor_aprovado) ?? 0;
     const vCaptado = parseFloat(state.in23ProjectFinanceiro.valor_captado)  || 0;
-    const panel = renderIN23(state.rubricas, vProjeto, vCaptado, state.in23DocumentosConferidos || []);
+    // Rubrica removida da planilha: o aprovado dela não entra no total, mas o que foi gasto nela continua contando.
+    const rubricasIN23 = (state.rubricas || []).map(r => r.ativa === false ? { ...r, valor_aprovado: 0 } : r);
+    const panel = renderIN23(rubricasIN23, vProjeto, vCaptado, state.in23DocumentosConferidos || []);
     mount.innerHTML = '';
     mount.appendChild(panel);
 }
@@ -4652,7 +4654,7 @@ const OrcamentoView = () => {
     const activeProject = state.projects.find(p => p.id === state.filters.project);
 
     // Agrupar rubricas de forma segura
-    const rubricasPorEtapa = (state.rubricas || []).reduce((acc, r) => {
+    const rubricasPorEtapa = (state.rubricas || []).filter(r => r.ativa !== false).reduce((acc, r) => {
         const etapa = r.etapa || 'Etapa não definida';
         if (!acc[etapa]) acc[etapa] = {};
         const local = r.uf_municipio || 'Local não definido';
@@ -4821,6 +4823,36 @@ const OrcamentoView = () => {
         </div>
     `;
 
+    // Importações novas marcam ativa=false nas rubricas que saíram da planilha (nunca apagam). As que ainda
+    // têm despesa ou saldo utilizado aparecem aqui, recolhidas, com o saldo visível.
+    const somaDespesasRubrica = (r) => (r.despesas || []).reduce((s, d) => s + (parseFloat(d.valor) || 0), 0);
+    const rubricasRemovidas = (state.rubricas || []).filter(r => r.ativa === false &&
+        ((r.despesas || []).length > 0 || Number(r.valor_utilizado || 0) > 0));
+    const fmtMoedaRemovida = (n) => 'R$ ' + (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const removidasContent = rubricasRemovidas.length === 0 ? '' : `
+        <details class="card" style="margin-top: 1.5rem; padding: 1rem 1.25rem;">
+            <summary class="font-bold text-sm" style="cursor: pointer;">Removidas da planilha atual (${rubricasRemovidas.length})</summary>
+            <p class="text-xs text-muted" style="margin: 0.75rem 0; line-height: 1.5;">Estas rubricas não constam na planilha mais recente, mas têm despesas lançadas. Elas não aparecem nas listas de seleção.</p>
+            <div style="overflow-x: auto;">
+                <table class="data-table" style="width: 100%;">
+                    <thead><tr><th>Rubrica</th><th style="text-align: right;">Aprovado (planilha anterior)</th><th style="text-align: right;">Utilizado</th><th style="text-align: right;">Saldo</th></tr></thead>
+                    <tbody>
+                        ${rubricasRemovidas.map(r => {
+        const aprovado = Number(r.valor_aprovado || 0);
+        const utilizado = Number(r.valor_utilizado || 0) || somaDespesasRubrica(r);
+        return `<tr>
+                            <td>${r.rubrica_id ? `<span style="font-family: monospace;">[${escAttr(r.rubrica_id)}]</span> ` : ''}${escAttr(r.nome)}</td>
+                            <td style="text-align: right;">${fmtMoedaRemovida(aprovado)}</td>
+                            <td style="text-align: right;">${fmtMoedaRemovida(utilizado)}</td>
+                            <td style="text-align: right;">${fmtMoedaRemovida(aprovado - utilizado)}</td>
+                        </tr>`;
+    }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </details>
+    `;
+
     const rubricasContent = Object.entries(rubricasPorEtapa).length === 0 ? `
         <div class="empty-state card">
             <i data-lucide="folder-search" style="width: 48px; height: 48px; color: var(--text-muted); margin-bottom: 1rem;"></i>
@@ -4913,6 +4945,7 @@ const OrcamentoView = () => {
                     ${instructionsAndUpload}
                     ${progressContent}
                     ${rubricasContent}
+                    ${removidasContent}
                     <div id="in23-panel-mount"></div>
                 </div>
             `}
@@ -5815,6 +5848,7 @@ async function fetchDocumentDetails(id, silent = false) {
                 .from('rubricas')
                 .select('id, nome, rubrica_id, produto, valor_aprovado')
                 .eq('project_id', data.project_id)
+                .eq('ativa', true)
                 .order('produto', { ascending: true })
                 .order('rubrica_id', { ascending: true });
             state.rubricas_disponiveis = ordenarRubricas(rubData || []);
@@ -7233,6 +7267,7 @@ window.handleProjectSelectChange = async function (projectId) {
             .from('rubricas')
             .select('id, nome, rubrica_id, produto, valor_aprovado')
             .eq('project_id', projectId)
+            .eq('ativa', true)
             .order('produto', { ascending: true })
             .order('rubrica_id', { ascending: true });
 
@@ -7375,6 +7410,7 @@ async function fetchRubricasDisponiveis(projectId) {
         .from('rubricas')
         .select('id, nome, rubrica_id, produto, valor_aprovado')
         .eq('project_id', projectId)
+        .eq('ativa', true)
         .order('produto', { ascending: true })
         .order('rubrica_id', { ascending: true });
     if (error) {

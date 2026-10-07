@@ -784,6 +784,7 @@
                     sb.from('rubricas')
                         .select('id, nome, rubrica_id, produto, valor_aprovado, valor_utilizado, alerta_limite_ativo, percentual_alerta')
                         .eq('project_id', projectId)
+                        .eq('ativa', true)
                         .order('nome', { ascending: true }),
                     sb.from('despesas')
                         .select('valor')

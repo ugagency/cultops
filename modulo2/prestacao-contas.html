@@ -633,7 +633,7 @@
 
             const [results, rubricasRes, projValRes, despExecRes, docFncCount] = await Promise.all([
                 Promise.all([q1, q2, q3, q4, q5, q6, q7, q8, q9]),
-                sbClient.from('rubricas').select('nome, rubrica_id, categoria, valor_aprovado, valor_utilizado').eq('project_id', pid),
+                sbClient.from('rubricas').select('nome, rubrica_id, categoria, valor_aprovado, valor_utilizado').eq('project_id', pid).eq('ativa', true),
                 sbClient.from('projects').select('valor_captado').eq('id', pid).single(),
                 sbClient.from('despesas').select('valor').eq('project_id', pid).in('status', ['enviado_salic', 'concluido', 'liberado_rpa', 'aguardando_d3']),
                 getCount(sbClient.from('documents').select('*', { count: 'exact', head: true }).eq('project_id', pid).eq('tipo', 'recolhimento_fnc'))

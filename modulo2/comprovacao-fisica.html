@@ -764,6 +764,7 @@
                 .from('rubricas')
                 .select('produto')
                 .eq('project_id', currentProjectId)
+                .eq('ativa', true)
                 .not('produto', 'is', null);
 
             if (error) { console.error('[loadProdutos]', error); renderProdutoField(); return; }

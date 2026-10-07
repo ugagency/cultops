@@ -760,7 +760,7 @@
                 ] = await Promise.all([
                     sbClient.from('projects').select('*').eq('id', pid).maybeSingle(),
                     sbClient.from('rubricas')
-                        .select('nome, rubrica_id, valor_aprovado, valor_utilizado, etapa')
+                        .select('nome, rubrica_id, valor_aprovado, valor_utilizado, etapa, ativa')
                         .eq('project_id', pid)
                         .order('nome', { ascending: true }),
                     sbClient.from('despesas')
@@ -814,7 +814,8 @@
                 });
 
                 // Totais financeiros
-                const totalAprovado = rubricas.reduce((s, r) => s + Number(r.valor_aprovado || 0), 0);
+                // Rubrica removida da planilha (ativa = false): o aprovado dela não entra no total; o executado continua contando.
+                const totalAprovado = rubricas.filter(r => r.ativa !== false).reduce((s, r) => s + Number(r.valor_aprovado || 0), 0);
                 const totalExecutado = rubricas.reduce((s, r) => s + Number(r.valor_utilizado || 0), 0);
                 const saldo = totalAprovado - totalExecutado;
                 const percExec = totalAprovado > 0 ? ((totalExecutado / totalAprovado) * 100).toFixed(1) : '0';
@@ -862,7 +863,7 @@
 
                 // ABA 3 — Rubricas
                 const headerRubricas = ['Código', 'Rubrica', 'Valor Aprovado (R$)', 'Status'];
-                const dadosRubricas = rubricas.map(r => {
+                const dadosRubricas = rubricas.filter(r => r.ativa !== false).map(r => {
                     const aprov = Number(r.valor_aprovado || 0);
                     const util = Number(r.valor_utilizado || 0);
                     const sld = aprov - util;
