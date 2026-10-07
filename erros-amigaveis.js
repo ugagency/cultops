@@ -45,6 +45,12 @@
     const TRADUCOES = [
         // Mensagens específicas e úteis: antes caíam na frase genérica (ex.: "...no Supabase" ou "JSON").
         [/cr[a-z]*nciais (do )?salic n[aã]o encontradas/i, 'Suas credenciais do SALIC não foram encontradas. Cadastre-as em Configurações e tente novamente.'],
+        // Leitura de PDF no servidor ("OCR falhou (HTTP <codigo>)"): o código vira uma frase útil, sem citar provedor.
+        [/ocr_provider|gemini_api_key|mistral_api_key/i, 'A leitura automática de documentos não está configurada no servidor. Avise o suporte.'],
+        [/ocr falhou \(http 429\)/i, 'O serviço de leitura de documentos está com muitas solicitações. Aguarde um instante e tente novamente.'],
+        [/ocr falhou \(http 50[0234]\)/i, 'O serviço de leitura de documentos está indisponível no momento. Tente novamente em alguns minutos.'],
+        [/ocr falhou \(http 40[13]\)/i, 'A leitura automática de documentos não está disponível no momento. Avise o suporte.'],
+        [/ocr falhou \(http 4\d\d\)/i, 'Não foi possível ler este documento. Confira se o arquivo é um PDF válido e tente novamente.'],
         [/resposta vazia da ia|json retornado pela ia|interpretar o json/i, 'Não foi possível interpretar a leitura automática do documento. Tente novamente em instantes.'],
         [/invalid login credentials/i, 'E-mail ou senha incorretos.'],
         [/email not confirmed/i, 'Confirme seu e-mail antes de entrar.'],
