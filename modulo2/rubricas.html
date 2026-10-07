@@ -1080,8 +1080,9 @@
             }
         });
 
-        function showToast(msg, type = 'success') {
-            if (window.prestaiSuavizar) msg = window.prestaiSuavizar(msg, type);
+        function showToast(msg, type = 'success', literal = false) {
+            // literal = true: texto do servidor que não deve passar pela tradução (ex.: mensagem da importação de rubricas)
+            if (!literal && window.prestaiSuavizar) msg = window.prestaiSuavizar(msg, type);
             const t = document.getElementById('toast');
             t.innerText = msg;
             t.style.background = type === 'success' ? '#1547FF' : (type === 'error' ? '#FF5807' : '#1547FF');
@@ -1269,7 +1270,7 @@
                     console.error("Erro no processamento das rubricas:", result);
                     const mensagem = result.message || result.mensagem || MSG_IMPORTACAO_GENERICA;
                     showUploadError(mensagem);
-                    showToast(mensagem, 'error');
+                    showToast(mensagem, 'error', true);
                     await loadHistory();
                 }
             } catch (err) {
