@@ -269,6 +269,90 @@ function formatValorProjeto(v) {
     return 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Ocorrência 21 — quadro informativo "Conferência do valor da planilha orçamentária". Não bloqueia nada
+// e não mexe nos totais da tela. Compara: valor aprovado do projeto, total da planilha (última versão
+// que registrou total_planilha) e soma das rubricas ativas. Tolerância de R$ 1,00 (arredondamento do SALIC).
+// d = { valorProjetoBruto, totalPlanilha (number|null), versao, importadaEm, soma (number), qtd (ativas) }
+const TOLERANCIA_CONFERENCIA_PLANILHA = 1.00;
+
+function conferenciaValorPlanilhaHtml(d, esc) {
+    const projeto = parseValorProjeto(d.valorProjetoBruto);
+    const total = (d.totalPlanilha === null || d.totalPlanilha === undefined) ? null : Number(d.totalPlanilha);
+    const soma = d.soma;
+    const fmt = (n) => formatValorProjeto(n);
+    const fmtDif = (n) => (n < 0 ? '-' : '+') + ' R$ ' + Math.abs(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    let estado = 'neutro';
+    let mensagem = '';
+    let diferencas = [];
+
+    if (!d.qtd) {
+        mensagem = 'Nenhuma planilha importada para este projeto.';
+    } else if (projeto === null) {
+        mensagem = 'Valor aprovado do projeto não informado.';
+    } else {
+        const difSoma = Math.round((soma - projeto) * 100) / 100;
+        const difPlanilha = total === null ? null : Math.round((total - projeto) * 100) / 100;
+        const difSomaPlanilha = total === null ? null : Math.round((soma - total) * 100) / 100;
+        const tol = TOLERANCIA_CONFERENCIA_PLANILHA;
+        const diverge = Math.abs(difSoma) > tol || (difPlanilha !== null && Math.abs(difPlanilha) > tol) || (difSomaPlanilha !== null && Math.abs(difSomaPlanilha) > tol);
+        if (!diverge) {
+            estado = 'confere';
+            mensagem = 'Os valores conferem.';
+        } else {
+            estado = 'diverge';
+            diferencas.push('Soma das rubricas menos valor do projeto: ' + fmtDif(difSoma));
+            if (difPlanilha !== null) diferencas.push('Total da planilha menos valor do projeto: ' + fmtDif(difPlanilha));
+            if (Math.abs(difSoma) > tol) {
+                const causa = difSoma < 0
+                    ? 'Pode haver itens que não foram lidos no PDF ou uma readequação posterior.'
+                    : 'Pode haver itens lidos a mais ou uma readequação posterior.';
+                mensagem = 'A soma das rubricas difere do valor aprovado do projeto em ' + fmt(Math.abs(difSoma)) + '. ' + causa +
+                    ' Confira com a planilha do SALIC; se necessário, reimporte o PDF.';
+            } else {
+                mensagem = 'O total da planilha, a soma das rubricas e o valor do projeto não conferem entre si. ' +
+                    'Confira com a planilha do SALIC; se necessário, reimporte o PDF.';
+            }
+        }
+    }
+
+    const cor = estado === 'confere' ? 'var(--success)' : (estado === 'diverge' ? 'var(--warning)' : 'var(--border-light)');
+    const fundo = estado === 'confere' ? 'rgba(22, 163, 74, 0.07)' : (estado === 'diverge' ? 'rgba(255, 88, 7, 0.07)' : 'transparent');
+    const linha = (rotulo, valor, detalhe) => `
+        <div style="min-width: 0;">
+            <div style="font-size: 0.75rem; color: var(--text-secondary);">${esc(rotulo)}</div>
+            <div style="font-size: 1.05rem; font-weight: 700; overflow-wrap: anywhere;">${esc(valor)}</div>
+            ${detalhe ? `<div style="font-size: 0.75rem; color: var(--text-secondary); overflow-wrap: anywhere;">${esc(detalhe)}</div>` : ''}
+        </div>`;
+
+    const detalheTotal = total === null
+        ? ''
+        : (d.versao !== null && d.versao !== undefined
+            ? `versão ${d.versao}${d.importadaEm ? ', importada em ' + new Date(d.importadaEm).toLocaleDateString('pt-BR') : ''}`
+            : '');
+    const valorTotal = total === null
+        ? 'Não registrado'
+        : fmt(total);
+    const detalheTotalFinal = total === null
+        ? 'Importações anteriores não guardavam este valor; reimporte a planilha para registrar.'
+        : detalheTotal;
+
+    const mostrarLinhas = !!d.qtd;
+    return `
+        <section style="margin: 0 0 1.5rem; padding: 1rem 1.25rem; border: 1px solid var(--border-light); border-left: 4px solid ${cor}; border-radius: 8px; background: ${fundo};">
+            <h3 style="font-size: 1rem; margin: 0 0 ${mostrarLinhas ? '0.75rem' : '0.4rem'};">Conferência do valor da planilha orçamentária</h3>
+            ${mostrarLinhas ? `
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem 1.5rem;">
+                ${linha('Valor aprovado do projeto', projeto === null ? 'Não informado' : fmt(projeto), '')}
+                ${linha('Valor total da planilha orçamentária', valorTotal, detalheTotalFinal)}
+                ${linha('Soma das rubricas ativas', fmt(soma), d.qtd + (d.qtd === 1 ? ' rubrica' : ' rubricas'))}
+            </div>` : ''}
+            <p style="margin: ${mostrarLinhas ? '0.75rem' : '0'} 0 0; font-size: 0.875rem; line-height: 1.5; overflow-wrap: anywhere;">${esc(mensagem)}</p>
+            ${diferencas.length ? `<ul style="margin: 0.5rem 0 0; padding-left: 1.25rem; font-size: 0.8rem; color: var(--text-secondary);">${diferencas.map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
+        </section>
+    `;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // RUBRICAS — rótulo único e resolução inversa (os 3 seletores do M1)
 //
@@ -4800,6 +4884,20 @@ const OrcamentoView = () => {
         </div>
     `;
 
+    // Ocorrência 21: quadro de conferência. Usa o que a tela já carregou: projeto, versões (a mais recente que
+    // registrou total_planilha) e as rubricas ativas.
+    const projetoConferido = state.projects.find(p => p.id === state.filters.project);
+    const rubricasAtivasConferencia = (state.rubricas || []).filter(r => r.ativa !== false);
+    const versaoComTotal = (state.rubrica_versions || []).find(v => v.total_planilha !== null && v.total_planilha !== undefined);
+    const conferenciaContent = state.filters.project ? conferenciaValorPlanilhaHtml({
+        valorProjetoBruto: projetoConferido ? projetoConferido.valor_aprovado : null,
+        totalPlanilha: versaoComTotal ? Number(versaoComTotal.total_planilha) : null,
+        versao: versaoComTotal ? versaoComTotal.versao : null,
+        importadaEm: versaoComTotal ? versaoComTotal.created_at : null,
+        soma: Math.round(rubricasAtivasConferencia.reduce((s, r) => s + (Number(r.valor_aprovado) || 0), 0) * 100) / 100,
+        qtd: rubricasAtivasConferencia.length
+    }, escAttr) : '';
+
     // Importações novas marcam ativa=false nas rubricas que saíram da planilha (nunca apagam). As que ainda
     // têm despesa ou saldo utilizado aparecem aqui, recolhidas, com o saldo visível.
     const somaDespesasRubrica = (r) => (r.despesas || []).reduce((s, d) => s + (parseFloat(d.valor) || 0), 0);
@@ -4921,6 +5019,7 @@ const OrcamentoView = () => {
                 <div class="budget-container">
                     ${instructionsAndUpload}
                     ${progressContent}
+                    ${conferenciaContent}
                     ${rubricasContent}
                     ${removidasContent}
                     <div id="in23-panel-mount"></div>
