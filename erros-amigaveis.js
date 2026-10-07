@@ -37,12 +37,15 @@
     // Textos de negócio que o n8n/SALIC devolve e que já merecem frase própria.
     const CONHECIDOS = [
         [/j[aá] est[aá] importado/i, 'Projeto PRONAC já está importado para esta organização'],
-        [/cr[a-z]*nciais do salic n[aã]o encontradas/i, 'Suas credenciais do SALIC não foram encontradas. Cadastre-as em Configurações e tente novamente.'],
+        [/cr[a-z]*nciais (do )?salic n[aã]o encontradas/i, 'Suas credenciais do SALIC não foram encontradas. Cadastre-as em Configurações e tente novamente.'],
         [/projeto n[aã]o encontrado|n[aã]o encontrado no salic/i, 'Projeto não encontrado no SALIC. Verifique o número do PRONAC.']
     ];
 
     // Tradução específica de erros conhecidos de Supabase/Postgres/Storage/Auth, em ordem de prioridade.
     const TRADUCOES = [
+        // Mensagens específicas e úteis: antes caíam na frase genérica (ex.: "...no Supabase" ou "JSON").
+        [/cr[a-z]*nciais (do )?salic n[aã]o encontradas/i, 'Suas credenciais do SALIC não foram encontradas. Cadastre-as em Configurações e tente novamente.'],
+        [/resposta vazia da ia|json retornado pela ia|interpretar o json/i, 'Não foi possível interpretar a leitura automática do documento. Tente novamente em instantes.'],
         [/invalid login credentials/i, 'E-mail ou senha incorretos.'],
         [/email not confirmed/i, 'Confirme seu e-mail antes de entrar.'],
         [/user already registered|already been registered/i, 'Este e-mail já está cadastrado.'],
@@ -80,8 +83,9 @@
 
     // Devolve a frase amigável se o texto for técnico; null se já estiver escrito para o usuário.
     function traduzirTecnico(bruto, generico) {
-        const t = String(bruto || '');
-        if (!t) return null;
+        const original = String(bruto || '');
+        if (!original) return null;
+        const t = original.replace(/https?:\/\/\S+/gi, ''); // link é dado, não sinal de erro técnico
         for (const [regex, frase] of TRADUCOES) {
             if (regex.test(t)) return frase;
         }
@@ -101,7 +105,8 @@
             const prefixo = msg.slice(0, i).trim();
             const cauda = msg.slice(i + 2);
             const caudaTrad = traduzirTecnico(cauda, generico);
-            if (caudaTrad !== null && !/^erro$/i.test(prefixo) && !/erro t[eé]cnico|falha t[eé]cnica/i.test(prefixo)) {
+            const prefixoTecnico = traduzirTecnico(prefixo, generico) !== null;
+            if (caudaTrad !== null && !prefixoTecnico && !/^erro$/i.test(prefixo) && !/erro t[eé]cnico|falha t[eé]cnica/i.test(prefixo)) {
                 return prefixo + ': ' + caudaTrad;
             }
         }
