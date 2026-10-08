@@ -101,6 +101,29 @@ kbd { font-family: var(--font-mono); font-size: 0.8em; border: 1px solid var(--l
   nav.indice { position: static; max-height: none; border: 1px solid var(--linha); border-radius: var(--raio); padding: 0.75rem 1rem; }
   h1 { font-size: 1.9rem; }
 }
+/* Impressão / PDF: sem índice lateral, uma coluna, figuras e blocos sem quebra no meio. */
+@page { size: A4; margin: 16mm 14mm; }
+@media print {
+  :root, :root[data-theme="dark"] { --bg: #fff; --fg: #0B0E1A; --fg-2: #4A5068; --fg-3: #6A708A; --linha: #DCE2F5; --painel: #F7F8FC; --azul: #1547FF; --azul-claro: #E3E8FF; --laranja: #FF5807; --verde: #16A34A; --aviso-bg: #FFF1E9; --aviso-fg: #9A3412; --nota-bg: #EEF2FF; --ok-bg: #ECFDF3; color-scheme: light; }
+  html { scroll-behavior: auto; }
+  body { font-size: 11pt; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .casca { display: block; max-width: none; padding: 0; }
+  nav.indice { display: none; }
+  main { max-width: none; }
+  h1 { font-size: 26pt; }
+  h2 { border-top: none; padding-top: 0; margin-top: 1.6rem; font-size: 18pt; break-after: avoid; }
+  h2#projeto, h2#ficha, h2#acoes, h2#tudo, h2#catalogo { break-before: page; margin-top: 0; }
+  .tabela table { font-size: 8.5pt; }
+  .tabela th, .tabela td { padding: 0.35rem 0.45rem; }
+  h3, h4 { break-after: avoid; }
+  figure, .caixa, .acao, tr, .grade2 > div { break-inside: avoid; }
+  figure img { box-shadow: none; max-height: 160mm; width: auto; max-width: 100%; margin-inline: auto; }
+  .grade2 { grid-template-columns: 1fr 1fr; }
+  .grade2 figure img { max-height: 90mm; }
+  .tabela { overflow: visible; }
+  th { white-space: normal; }
+  a { color: inherit; text-decoration: none; }
+}
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
 html { scroll-behavior: smooth; }
 </style>
