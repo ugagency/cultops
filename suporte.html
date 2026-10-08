@@ -680,7 +680,8 @@
 
             corpo.innerHTML = `
                 <p class="text-sm" style="margin-bottom: 0.25rem;"><strong>${t.itens.length} documento${t.itens.length === 1 ? '' : 's'} na fila</strong> — ${esc(resumo)}.</p>
-                <p class="text-xs" style="color: var(--text-muted); margin-bottom: 0.75rem;">Um de cada vez, do mais antigo para o mais novo: o próximo só começa quando o anterior sai do status em que estava (até 3 min de espera por documento).${t.rodando || t.concluida ? ` Andamento: ${feitos} de ${t.itens.length}.` : ''}</p>
+                <p class="text-xs" style="color: var(--text-muted); margin-bottom: 0.75rem;">Um de cada vez, do mais antigo para o mais novo: o próximo só começa quando o anterior sai do status em que estava (até 3 min de espera por documento).</p>
+                ${barraProgressoTudo(feitos, t)}
                 <div class="data-table-container" style="max-height: 340px; overflow: auto;">
                     <table class="data-table" style="width: 100%;">
                         <thead><tr><th>Documento</th><th>Caminho</th><th>Situação</th></tr></thead>
@@ -698,6 +699,31 @@
                 </div>
                 ${ignoradosHtml}`;
             atualizarBotoesTudo();
+        }
+
+        // Barra de andamento: avança a cada documento que termina (ok, pulado,
+        // falhou ou cancelado). O documento em processamento aparece no texto.
+        function barraProgressoTudo(feitos, t) {
+            const total = t.itens.length;
+            const pct = total ? Math.round((feitos / total) * 100) : 0;
+            const atual = t.itens.find(i => i.estado === 'processando');
+            const texto = t.concluida
+                ? `Fila concluída: ${feitos} de ${total}`
+                : t.rodando
+                    ? `${feitos} de ${total}${atual ? ' — processando ' + (atual.name || atual.id) : ''}`
+                    : `${feitos} de ${total} — aguardando início`;
+            const falhas = t.itens.filter(i => i.estado === 'falhou').length;
+            const cor = t.concluida && falhas ? 'var(--error)' : (t.concluida ? 'var(--success)' : 'var(--color-primary)');
+            return `
+                <div style="margin-bottom: 0.9rem;">
+                    <div style="display: flex; justify-content: space-between; gap: 1rem; margin-bottom: 0.3rem;">
+                        <span class="text-xs" style="color: var(--text-secondary); word-break: break-word;">${esc(texto)}</span>
+                        <span class="text-xs" style="font-weight: 700;">${pct}%</span>
+                    </div>
+                    <div role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" style="width: 100%; height: 8px; background: var(--bg-sidebar); border-radius: 4px; overflow: hidden;">
+                        <div style="width: ${pct}%; height: 100%; background: ${cor}; border-radius: 4px; transition: width 0.4s ease;"></div>
+                    </div>
+                </div>`;
         }
 
         async function aguardarSaidaDoStatus(item, statusOrigem, limiteSeg) {
