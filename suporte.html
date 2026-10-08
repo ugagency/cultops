@@ -90,6 +90,23 @@
         .tab-btn:hover { color: var(--text-primary); }
         .tab-btn.active { color: var(--color-primary); border-bottom-color: var(--color-primary); }
 
+        .contador-fila {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            text-align: left;
+            padding: 0.85rem 1rem;
+            background: white;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .contador-fila:hover { border-color: var(--color-primary); }
+        .contador-fila.ativo { border-color: var(--color-primary); background: var(--color-blue-15); }
+        .contador-fila-numero { font-size: 1.75rem; font-weight: 700; color: var(--text-primary); line-height: 1; }
+        .contador-fila-rotulo { font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); }
+
         .modal {
             display: none;
             position: fixed;
@@ -121,15 +138,33 @@
 
         <header class="content-header">
             <h1>Suporte</h1>
-            <p class="page-subtitle">Interno SSYS — visão de qualquer organização para diagnóstico. Quase tudo aqui é só consulta; "Resetar acesso" e "Reprocessar OCR" são as únicas exceções de escrita, e ambas ficam registradas em audit_log.</p>
+            <p class="page-subtitle">Interno SSYS — visão de qualquer organização para diagnosticar e destravar documentos, extratos e integrações. As ações de escrita (reprocessar, avançar documento, refazer conciliação, resetar acesso e demais) exigem um motivo e ficam registradas em audit_log.</p>
         </header>
+
+        <div class="card" style="margin-bottom: 1.5rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem;">
+                <h3 class="h2">Fila de atenção <span id="fila-count" style="color: var(--text-muted); font-weight: 500;"></span></h3>
+                <button class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;" onclick="fetchFila()">Atualizar</button>
+            </div>
+            <div id="fila-contadores" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.75rem; margin-bottom: 1rem;"></div>
+            <div class="data-table-container">
+                <div id="fila-tabela-wrap" style="min-width: 0; overflow-x: auto;">
+                    <p class="text-sm" style="color: var(--text-muted); padding: 1rem;">Carregando…</p>
+                </div>
+            </div>
+            <div id="fila-paginacao"></div>
+            <p id="fila-observacoes" class="text-xs" style="color: var(--text-muted); margin-top: 0.75rem; line-height: 1.5;"></p>
+            <p class="text-xs" style="margin-top: 0.5rem; padding: 0.6rem 0.75rem; background: var(--bg-sidebar); border-radius: var(--radius-sm); color: var(--text-secondary); line-height: 1.5;">
+                <strong>O que o suporte não faz:</strong> não envia nada ao SALIC (nem "Tentar novamente", nem avançar a partir de Erro no Envio ou Pronto para envio), não corrige campos lidos e não troca rubrica. Isso fica com o cliente. A única ação que muda o estado de negócio de um documento é Avançar documento.
+            </p>
+        </div>
 
         <div class="card" style="margin-bottom: 1.5rem;">
             <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
                 <i data-lucide="search"></i>
                 <h3 class="h2">Busca global</h3>
             </div>
-            <input type="text" id="busca-input" placeholder="Nome do projeto, PRONAC, CNPJ ou razão social do fornecedor..." oninput="handleBuscaInput(this.value)" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem;">
+            <input type="text" id="busca-input" placeholder="Projeto, PRONAC, CNPJ, fornecedor, nome do arquivo, número da NF, id do documento ou e-mail..." oninput="handleBuscaInput(this.value)" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-size: 0.9rem;">
             <div id="busca-resultados" style="margin-top: 0.75rem;"></div>
         </div>
 
@@ -178,20 +213,40 @@
                     <h3 class="h2">Projeto — <span id="projeto-detalhe-nome">—</span></h3>
                 </div>
 
-                <div style="display: flex; gap: 0.25rem; border-bottom: 1px solid var(--border-subtle); margin-bottom: 1rem;">
+                <div style="display: flex; gap: 0.25rem; border-bottom: 1px solid var(--border-subtle); margin-bottom: 1rem; flex-wrap: wrap;">
                     <button class="tab-btn active" data-tab="documentos" onclick="trocarAbaProjeto('documentos')">Documentos</button>
+                    <button class="tab-btn" data-tab="extratos" onclick="trocarAbaProjeto('extratos')">Extratos</button>
+                    <button class="tab-btn" data-tab="evidencias" onclick="trocarAbaProjeto('evidencias')">Evidências</button>
+                    <button class="tab-btn" data-tab="saldo" onclick="trocarAbaProjeto('saldo')">Saldo SALIC</button>
                     <button class="tab-btn" data-tab="contratos" onclick="trocarAbaProjeto('contratos')">Contratos</button>
                     <button class="tab-btn" data-tab="guias" onclick="trocarAbaProjeto('guias')">Guias</button>
                     <button class="tab-btn" data-tab="auditoria" onclick="trocarAbaProjeto('auditoria')">Auditoria</button>
                 </div>
 
                 <div id="aba-documentos" class="aba-projeto">
-                    <p class="text-xs" style="color: var(--text-muted); margin-bottom: 1rem;">Todos os documentos do projeto, com o status de cada um. Linhas em destaque estão bloqueadas por conformidade ou têm erro registrado. Quando o reprocessamento não é permitido, o botão fica desativado e o motivo aparece ao passar o mouse.</p>
+                    <p class="text-xs" style="color: var(--text-muted); margin-bottom: 1rem;">Todos os documentos do projeto. Clique em uma linha para abrir a ficha com dados lidos, vínculos, linha do tempo e ações. Linhas em destaque estão bloqueadas por conformidade ou têm erro registrado.</p>
                     <div id="documentos-resumo-status" style="display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem;"></div>
                     <div class="data-table-container">
                         <div id="documentos-tabela-wrap" style="min-width: 0; overflow-x: auto;"></div>
                     </div>
                     <div id="documentos-paginacao"></div>
+                </div>
+                <div id="aba-extratos" class="aba-projeto" style="display: none;">
+                    <p class="text-xs" style="color: var(--text-muted); margin-bottom: 1rem;">Extratos bancários do projeto. Extratos antigos não guardam a data de envio: aparecem como "tempo desconhecido".</p>
+                    <div class="data-table-container">
+                        <div id="extratos-tabela-wrap" style="min-width: 0; overflow-x: auto;"></div>
+                    </div>
+                    <div id="extratos-paginacao"></div>
+                </div>
+                <div id="aba-evidencias" class="aba-projeto" style="display: none;">
+                    <p class="text-xs" style="color: var(--text-muted); margin-bottom: 1rem;">Somente leitura. O suporte não valida nem reenvia evidências.</p>
+                    <div class="data-table-container">
+                        <div id="evidencias-tabela-wrap" style="min-width: 0; overflow-x: auto;"></div>
+                    </div>
+                    <div id="evidencias-paginacao"></div>
+                </div>
+                <div id="aba-saldo" class="aba-projeto" style="display: none;">
+                    <div id="saldo-wrap"></div>
                 </div>
                 <div id="aba-contratos" class="aba-projeto" style="display: none;">
                     <div class="data-table-container">
@@ -216,10 +271,18 @@
         </div>
 
         <div class="card" style="margin-top: 1.5rem;">
-            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
-                <i data-lucide="activity"></i>
-                <h3 class="h2">Status do Sistema (crons/RPA)</h3>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem;">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <i data-lucide="activity"></i>
+                    <h3 class="h2">Saúde do sistema</h3>
+                </div>
+                <button class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;" onclick="fetchSaude()">Atualizar</button>
             </div>
+            <h4 class="text-sm" style="font-weight: 700; margin-bottom: 0.5rem;">Worker do SALIC</h4>
+            <div id="worker-wrap" class="text-sm" style="margin-bottom: 1.25rem;">Carregando…</div>
+            <h4 class="text-sm" style="font-weight: 700; margin-bottom: 0.5rem;">Falhas por destino (últimas 24 h)</h4>
+            <div id="falhas-wrap" style="margin-bottom: 1.25rem;"></div>
+            <h4 class="text-sm" style="font-weight: 700; margin-bottom: 0.5rem;">Crons</h4>
             <div class="data-table-container">
                 <div id="crons-tabela-wrap" style="min-width: 0; overflow-x: auto;">
                     <p class="text-sm" style="color: var(--text-muted); padding: 1rem;">Carregando…</p>
@@ -228,30 +291,17 @@
         </div>
     </div>
 
-    <!-- Modal: Resetar acesso (ESCRITA — auditada em audit_log) -->
+    <!-- Modal: senha resetada (o formulário passou a usar o modal único de ação) -->
     <div id="modal-resetar-senha" class="modal">
         <div class="modal-content">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem;">
-                <h3 style="font-size: 1.25rem; font-weight: 700;">Resetar acesso</h3>
+                <h3 style="font-size: 1.25rem; font-weight: 700;">Acesso resetado</h3>
                 <button type="button" class="btn btn-ghost" onclick="fecharModalResetarSenha()">
                     <i data-lucide="x"></i>
                 </button>
             </div>
 
-            <div id="resetar-senha-form-wrap">
-                <p class="text-sm" style="margin-bottom: 1rem; color: var(--text-secondary);">Usuário: <strong id="resetar-senha-email"></strong></p>
-                <input type="hidden" id="resetar-senha-user-id">
-                <div class="form-group">
-                    <label>Nova senha provisória (mín. 6 caracteres)</label>
-                    <input type="text" id="resetar-senha-valor" class="form-control" minlength="6" required>
-                </div>
-                <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem;">
-                    <button type="button" class="btn btn-secondary" onclick="fecharModalResetarSenha()">Cancelar</button>
-                    <button type="button" class="btn btn-primary" id="btn-resetar-senha-submit" onclick="handleResetarSenha()">Resetar acesso</button>
-                </div>
-            </div>
-
-            <div id="resetar-senha-sucesso-wrap" style="display: none;">
+            <div id="resetar-senha-sucesso-wrap">
                 <div style="padding: 1rem; background: var(--bg-sidebar); border-radius: var(--radius-md); margin-bottom: 1rem;">
                     <p class="text-sm" style="margin-bottom: 0.75rem;">Senha resetada. Anote e repasse ao usuário — não fica salva em nenhum lugar depois que esta janela for fechada:</p>
                     <p style="font-size: 0.9rem; margin-bottom: 0.25rem;"><strong>E-mail:</strong> <span id="resetar-senha-resultado-email"></span></p>
@@ -267,20 +317,43 @@
         </div>
     </div>
 
-    <!-- Modal: Confirmação genérica (reaproveitado por ações simples de
-         confirmar/cancelar que não justificam um modal próprio) -->
-    <div id="modal-confirm-generico" class="modal">
-        <div class="modal-content" style="max-width: 440px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem;">
-                <h3 id="confirm-generico-titulo" style="font-size: 1.25rem; font-weight: 700;">Confirmar ação</h3>
-                <button type="button" class="btn btn-ghost" onclick="fecharModalConfirmGenerico()">
+    <!-- Ficha do documento (modal grande) -->
+    <div id="modal-ficha" class="modal">
+        <div class="modal-content" style="max-width: 1040px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+                <h3 id="ficha-titulo" style="font-size: 1.25rem; font-weight: 700;">Documento</h3>
+                <button type="button" class="btn btn-ghost" onclick="fecharFicha()">
                     <i data-lucide="x"></i>
                 </button>
             </div>
-            <p id="confirm-generico-mensagem" style="color: var(--text-secondary); white-space: pre-line;"></p>
-            <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1.5rem;">
-                <button type="button" class="btn btn-secondary" onclick="fecharModalConfirmGenerico()">Cancelar</button>
-                <button type="button" class="btn btn-primary" id="btn-confirm-generico" onclick="_execConfirmGenerico()">Confirmar</button>
+            <div id="ficha-corpo"></div>
+        </div>
+    </div>
+
+    <!-- Modal único de ação: efeito em uma frase + motivo obrigatório (mín. 10
+         caracteres). Usado por todas as ações de escrita, inclusive resetar senha. -->
+    <div id="modal-acao" class="modal" style="z-index: 1100;">
+        <div class="modal-content" style="max-width: 500px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+                <h3 id="acao-titulo" style="font-size: 1.25rem; font-weight: 700;">Confirmar ação</h3>
+                <button type="button" class="btn btn-ghost" onclick="fecharModalAcao()">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+            <p id="acao-efeito" style="color: var(--text-secondary); line-height: 1.5; margin-bottom: 1rem;"></p>
+            <div id="acao-extra-wrap" class="form-group" style="display: none;">
+                <label id="acao-extra-label"></label>
+                <input type="text" id="acao-extra-input" class="form-control" autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label for="acao-motivo">Motivo (mínimo de 10 caracteres; pode ser o número da ocorrência do Notion)</label>
+                <textarea id="acao-motivo" class="form-control" rows="3" oninput="atualizarMotivoAcao()" style="width: 100%;"></textarea>
+                <span id="acao-motivo-contador" class="text-xs" style="color: var(--text-muted);">0/10</span>
+            </div>
+            <p id="acao-erro" class="text-sm" style="color: var(--error); display: none; margin-top: 0.5rem;"></p>
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1.25rem;">
+                <button type="button" class="btn btn-secondary" onclick="fecharModalAcao()">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="btn-acao-confirmar" onclick="confirmarAcao()" disabled>Confirmar</button>
             </div>
         </div>
     </div>
@@ -289,6 +362,7 @@
 
     <script src="config.js"></script>
     <script src="erros-amigaveis.js"></script>
+    <script src="status-catalogo.js"></script>
     <script>
         let sbClient = null;
         async function initSupabase() {
@@ -363,6 +437,259 @@
             `;
         }
 
+        // ── Catálogo de status (status-catalogo.js, o mesmo do servidor) ──────
+        // Todo status de qualquer tabela do painel sai por htmlStatus: rótulo do
+        // catálogo, código técnico pequeno embaixo e a explicação ao passar o mouse.
+        const GRUPO_LABELS = {
+            em_andamento: 'Em andamento', esperando_cliente: 'Esperando cliente', travado: 'Travado',
+            erro: 'Erro', finalizado: 'Finalizado', desconhecido: 'Desconhecido'
+        };
+        const GRUPO_BADGE = {
+            erro: 'status-error', travado: 'status-error', em_andamento: 'status-pending',
+            esperando_cliente: 'status-pending', finalizado: 'status-completed', desconhecido: 'status-pending'
+        };
+
+        function htmlStatus(entidade, status, desdeISO, grupoForcado) {
+            const it = StatusCatalogo.obter(entidade, status);
+            if (!it) return `<span style="font-weight: 600;">${esc(status || '—')}</span>`;
+            const grupo = grupoForcado || StatusCatalogo.grupoEfetivo(entidade, status, desdeISO);
+            const dica = `${it.explicacao}\nPróximo passo: ${it.proximo_passo}`;
+            return `<span title="${esc(dica)}" style="cursor: help;">
+                <span style="font-weight: 600;">${esc(it.rotulo)}</span>
+                <span class="badge ${GRUPO_BADGE[grupo] || 'status-pending'}" style="margin-left: 4px;"><span class="badge-dot"></span>${esc(GRUPO_LABELS[grupo] || grupo)}</span>
+                <div class="text-xs" style="color: var(--text-muted);">${esc(status)}</div>
+            </span>`;
+        }
+
+        function minutosDesde(iso) {
+            if (!iso) return null;
+            return (Date.now() - new Date(iso).getTime()) / 60000;
+        }
+        function fmtDuracao(min) {
+            if (min == null || Number.isNaN(min)) return 'tempo desconhecido';
+            if (min < 1) return 'menos de 1 min';
+            if (min < 60) return Math.floor(min) + ' min';
+            if (min < 1440) return Math.floor(min / 60) + ' h';
+            return Math.floor(min / 1440) + ' dias';
+        }
+        const haQuanto = (iso) => iso ? 'há ' + fmtDuracao(minutosDesde(iso)) : 'tempo desconhecido';
+        function fmtDateTime(iso) {
+            if (!iso) return '—';
+            return new Date(iso).toLocaleString('pt-BR');
+        }
+
+        async function authPost(url, body) {
+            const sb = await initSupabase();
+            const { data: { session } } = await sb.auth.getSession();
+            const resp = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+                body: JSON.stringify(body || {})
+            });
+            const json = await resp.json().catch(() => ({}));
+            if (!resp.ok) throw new Error(json.error || 'Falha na requisição.');
+            return json;
+        }
+
+        // ── Modal único de ação (efeito + motivo obrigatório) ──────────
+        let _acaoCfg = null;
+        let _acaoExecutando = false;
+        const MOTIVO_MINIMO = 10;
+
+        function abrirModalAcao(cfg) {
+            _acaoCfg = cfg;
+            _acaoExecutando = false;
+            document.getElementById('acao-titulo').textContent = cfg.titulo;
+            document.getElementById('acao-efeito').textContent = cfg.efeito;
+            document.getElementById('acao-motivo').value = '';
+            document.getElementById('acao-erro').style.display = 'none';
+            const extraWrap = document.getElementById('acao-extra-wrap');
+            extraWrap.style.display = cfg.campoExtra ? 'block' : 'none';
+            document.getElementById('acao-extra-input').value = '';
+            if (cfg.campoExtra) document.getElementById('acao-extra-label').textContent = cfg.campoExtra.rotulo;
+            const btn = document.getElementById('btn-acao-confirmar');
+            btn.textContent = cfg.confirmar || 'Confirmar';
+            atualizarMotivoAcao();
+            document.getElementById('modal-acao').style.display = 'flex';
+            document.getElementById('acao-motivo').focus();
+        }
+
+        function atualizarMotivoAcao() {
+            const n = document.getElementById('acao-motivo').value.trim().length;
+            const contador = document.getElementById('acao-motivo-contador');
+            contador.textContent = `${n}/${MOTIVO_MINIMO}`;
+            contador.style.color = n >= MOTIVO_MINIMO ? 'var(--success)' : 'var(--text-muted)';
+            document.getElementById('btn-acao-confirmar').disabled = n < MOTIVO_MINIMO || _acaoExecutando;
+        }
+
+        function fecharModalAcao() {
+            if (_acaoExecutando) return;
+            _acaoCfg = null;
+            document.getElementById('modal-acao').style.display = 'none';
+            document.getElementById('acao-extra-input').value = '';
+        }
+
+        async function confirmarAcao() {
+            const cfg = _acaoCfg;
+            if (!cfg || _acaoExecutando) return;
+            const motivo = document.getElementById('acao-motivo').value.trim();
+            if (motivo.length < MOTIVO_MINIMO) return;
+            const extra = document.getElementById('acao-extra-input').value;
+            const erroEl = document.getElementById('acao-erro');
+            erroEl.style.display = 'none';
+            if (cfg.campoExtra && (extra || '').length < (cfg.campoExtra.minimo || 1)) {
+                erroEl.textContent = `${cfg.campoExtra.rotulo}: preencha corretamente.`;
+                erroEl.style.display = 'block';
+                return;
+            }
+
+            const btn = document.getElementById('btn-acao-confirmar');
+            _acaoExecutando = true;
+            btn.disabled = true;
+            btn.textContent = 'Executando…';
+            try {
+                await cfg.onConfirm({ motivo, extra });
+                _acaoExecutando = false;
+                fecharModalAcao();
+            } catch (err) {
+                _acaoExecutando = false;
+                erroEl.textContent = err.message || 'Falha ao executar a ação.';
+                erroEl.style.display = 'block';
+                btn.textContent = cfg.confirmar || 'Confirmar';
+                atualizarMotivoAcao();
+            }
+        }
+
+        // ── Fila de atenção ───────────────────────────────────────────
+        const ENTIDADE_LABELS = {
+            documents: 'Documento', extratos: 'Extrato', exportacoes_log: 'Exportação',
+            saldo_salic_capturas: 'Saldo SALIC', physical_evidences: 'Evidência', project_salic_imports: 'Projeto SALIC'
+        };
+        let filaData = { itens: [], contadores: {}, observacoes: [] };
+        let filaFiltro = '';
+        let filaPagina = 1;
+
+        async function fetchFila() {
+            const wrap = document.getElementById('fila-tabela-wrap');
+            try {
+                filaData = await authFetch('/api/suporte/fila');
+                filaPagina = 1;
+                renderFila();
+            } catch (err) {
+                console.error('fetchFila:', err);
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(window.prestaiErroTexto(err))}</p>`;
+            }
+        }
+
+        function itemPassaFiltroFila(it) {
+            if (!filaFiltro) return true;
+            if (filaFiltro === 'integracoes') return it.entidade !== 'documents' && (it.grupo === 'erro' || it.grupo === 'travado');
+            return it.grupo === filaFiltro;
+        }
+
+        function filtrarFila(f) {
+            filaFiltro = filaFiltro === f ? '' : f;
+            filaPagina = 1;
+            renderFila();
+        }
+
+        function irParaPaginaFila(p) {
+            filaPagina = p;
+            renderFila();
+        }
+
+        function renderFila() {
+            const c = filaData.contadores || {};
+            const cartoes = [
+                ['erro', 'Erro', c.erro],
+                ['travado', 'Travado', c.travado],
+                ['esperando_cliente', 'Esperando cliente há mais de 7 dias', c.esperando_cliente_7d],
+                ['integracoes', 'Integrações com falha', c.integracoes_falha]
+            ];
+            document.getElementById('fila-contadores').innerHTML = cartoes.map(([chave, rotulo, n]) => `
+                <button type="button" class="contador-fila ${filaFiltro === chave ? 'ativo' : ''}" onclick="filtrarFila('${chave}')">
+                    <span class="contador-fila-numero">${n ?? 0}</span>
+                    <span class="contador-fila-rotulo">${esc(rotulo)}</span>
+                </button>
+            `).join('');
+            document.getElementById('fila-observacoes').textContent = (filaData.observacoes || []).join(' ');
+
+            const wrap = document.getElementById('fila-tabela-wrap');
+            const visiveis = (filaData.itens || []).filter(itemPassaFiltroFila);
+            document.getElementById('fila-count').textContent = `(${visiveis.length}${filaFiltro ? ` de ${(filaData.itens || []).length}` : ''})`;
+
+            if (!visiveis.length) {
+                wrap.innerHTML = `<p class="empty-state-inline">Nada na fila${filaFiltro ? ' para este filtro' : ''}.</p>`;
+                document.getElementById('fila-paginacao').innerHTML = '';
+                return;
+            }
+
+            const pagina = paginar(visiveis, filaPagina);
+            wrap.innerHTML = `
+                <table class="data-table" style="width: 100%;">
+                    <thead>
+                        <tr><th>Item</th><th>Organização / Projeto</th><th>Status</th><th>Há quanto tempo</th><th>Causa</th><th>Ação sugerida</th><th style="text-align: right;">Abrir</th></tr>
+                    </thead>
+                    <tbody>
+                        ${pagina.map(it => {
+                            const idx = filaData.itens.indexOf(it);
+                            return `
+                            <tr class="${it.grupo === 'erro' ? 'doc-row-atencao' : ''}">
+                                <td>
+                                    <div class="text-xs" style="color: var(--text-muted);">${esc(ENTIDADE_LABELS[it.entidade] || it.entidade)}</div>
+                                    <div style="font-weight: 600;">${esc(it.nome || '—')}</div>
+                                </td>
+                                <td class="text-sm">
+                                    <div>${esc(it.organizacao || '—')}</div>
+                                    <div class="text-xs" style="color: var(--text-muted);">${it.projeto ? esc((it.projeto.pronac || '') + ' · ' + (it.projeto.nome || '')) : '—'}</div>
+                                </td>
+                                <td class="text-sm">${htmlStatus(it.entidade, it.status, it.desde, it.grupo)}</td>
+                                <td class="text-sm">${it.tempo_desconhecido ? 'tempo desconhecido' : esc(haQuanto(it.desde))}</td>
+                                <td class="text-xs" style="max-width: 260px;">
+                                    ${it.causa ? esc(it.causa) : '<span style="color: var(--text-muted);">—</span>'}
+                                    ${it.detalhe_tecnico ? `<details><summary style="cursor: pointer; color: var(--text-muted);">Detalhe técnico</summary><div style="word-break: break-word;">${esc(it.detalhe_tecnico)}</div></details>` : ''}
+                                </td>
+                                <td class="text-xs" style="max-width: 220px;">${esc(it.acao_sugerida || '—')}</td>
+                                <td style="text-align: right; white-space: nowrap;">${botaoItemFila(it, idx)}</td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
+            `;
+            renderControlesPaginacao('fila-paginacao', filaPagina, visiveis.length, 'irParaPaginaFila');
+        }
+
+        function botaoItemFila(it, idx) {
+            const estilo = 'padding: 0.35rem 0.7rem; font-size: 0.75rem;';
+            if (it.entidade === 'documents') return `<button class="btn btn-secondary" style="${estilo}" onclick="abrirItemFila(${idx})">Abrir ficha</button>`;
+            if (it.entidade === 'exportacoes_log') return `<button class="btn btn-secondary" style="${estilo}" onclick="encerrarExportacao(${idx})">Encerrar exportação</button>`;
+            return `<button class="btn btn-secondary" style="${estilo}" onclick="abrirItemFila(${idx})">Abrir projeto</button>`;
+        }
+
+        async function abrirItemFila(idx) {
+            const it = filaData.itens[idx];
+            if (!it) return;
+            if (it.entidade === 'documents') return abrirFicha(it.id);
+            if (!it.projeto || !it.organization_id) return showToast('Item sem projeto vinculado.', 'error');
+            const aba = { extratos: 'extratos', saldo_salic_capturas: 'saldo', project_salic_imports: 'saldo', physical_evidences: 'evidencias' }[it.entidade];
+            await irParaProjetoBusca(it.organization_id, it.projeto.id, it.projeto.nome || '', aba);
+        }
+
+        function encerrarExportacao(idx) {
+            const it = filaData.itens[idx];
+            if (!it) return;
+            abrirModalAcao({
+                titulo: 'Encerrar exportação',
+                efeito: 'A exportação travada em "gerando" será marcada como erro; o cliente poderá gerar de novo. Só vale após 60 min.',
+                confirmar: 'Encerrar',
+                onConfirm: async ({ motivo }) => {
+                    await authPost(`/api/suporte/exportacoes/${it.id}/encerrar`, { motivo });
+                    showToast('Exportação encerrada.', 'success');
+                    await fetchFila();
+                }
+            });
+        }
+
         let orgs = [];
         let orgsFiltro = '';
         let orgsPagina = 1;
@@ -370,7 +697,7 @@
         let projetoSelecionadoId = null;
         // Marca, por aba, qual projeto foi carregado por último — evita refetch
         // ao trocar de aba no mesmo projeto, mas refaz a busca ao trocar de projeto.
-        const cacheAbaProjeto = { contratos: null, guias: null, auditoria: null };
+        const cacheAbaProjeto = { extratos: null, evidencias: null, saldo: null, contratos: null, guias: null, auditoria: null };
 
         // Dataset completo + página atual de cada aba do projeto.
         let documentosData = [];
@@ -408,7 +735,7 @@
                 return;
             }
 
-            await Promise.all([fetchOrgs(), fetchCrons()]);
+            await Promise.all([fetchFila(), fetchOrgs(), fetchSaude()]);
         });
 
         // ── Busca global ──────────────────────────────────────────────
@@ -429,15 +756,15 @@
             wrap.innerHTML = `<p class="text-sm" style="color: var(--text-muted);">Buscando…</p>`;
             try {
                 const json = await authFetch(`/api/suporte/buscar?q=${encodeURIComponent(termo)}`);
-                renderBuscaResultados(json.projetos || [], json.fornecedores || []);
+                renderBuscaResultados(json);
             } catch (err) {
                 wrap.innerHTML = `<p class="text-sm" style="color: var(--error);">Erro na busca: ${esc(window.prestaiErroTexto(err))}</p>`;
             }
         }
 
-        function renderBuscaResultados(projetos, fornecedores) {
+        function renderBuscaResultados({ projetos = [], fornecedores = [], documentos = [], usuarios = [] }) {
             const wrap = document.getElementById('busca-resultados');
-            if (!projetos.length && !fornecedores.length) {
+            if (!projetos.length && !fornecedores.length && !documentos.length && !usuarios.length) {
                 wrap.innerHTML = `<p class="text-sm" style="color: var(--text-muted);">Nenhum resultado.</p>`;
                 return;
             }
@@ -449,6 +776,18 @@
                         <div class="text-xs" style="color: var(--text-muted);">Projeto · ${esc(p.organizacao || 'organização desconhecida')}</div>
                     </div>
                 `).join('')}
+                ${documentos.map(d => `
+                    <div class="busca-resultado-item" onclick="abrirFicha('${d.id}')">
+                        <div style="font-weight: 600;">${esc(d.name || '—')} <span class="text-xs" style="color: var(--text-muted); font-weight: 400;">${d.numero_nf ? '— NF ' + esc(d.numero_nf) : ''}</span></div>
+                        <div class="text-xs" style="color: var(--text-muted);">Documento · ${esc((StatusCatalogo.obter('documents', d.status) || {}).rotulo || d.status)} · ${esc(d.organizacao || 'organização desconhecida')}${d.projeto ? ' · ' + esc(d.projeto.nome || '') : ''}</div>
+                    </div>
+                `).join('')}
+                ${usuarios.map(u => `
+                    <div class="busca-resultado-item" ${u.organization_id ? `onclick="irParaOrgBusca('${u.organization_id}')"` : ''}>
+                        <div style="font-weight: 600;">${esc(u.email)} <span class="text-xs" style="color: var(--text-muted); font-weight: 400;">— ${esc(ROLE_LABELS[u.role] || u.role || 'sem perfil')}</span></div>
+                        <div class="text-xs" style="color: var(--text-muted);">Usuário · ${esc(u.organizacao || 'sem organização')}</div>
+                    </div>
+                `).join('')}
                 ${fornecedores.map(f => `
                     <div class="busca-resultado-item" onclick="irParaOrgBusca('${f.organization_id}')">
                         <div style="font-weight: 600;">${esc(f.razao_social)} <span class="text-xs" style="color: var(--text-muted); font-weight: 400;">— ${esc(f.cnpj || '')}</span></div>
@@ -458,11 +797,12 @@
             `;
         }
 
-        async function irParaProjetoBusca(orgId, projetoId, nomeProjeto) {
+        async function irParaProjetoBusca(orgId, projetoId, nomeProjeto, aba) {
             document.getElementById('busca-resultados').innerHTML = '';
             document.getElementById('busca-input').value = '';
             await selecionarOrg(orgId);
             await selecionarProjeto(projetoId, nomeProjeto);
+            if (aba) trocarAbaProjeto(aba);
         }
 
         async function irParaOrgBusca(orgId) {
@@ -626,6 +966,9 @@
             document.querySelectorAll('.aba-projeto').forEach(el => el.style.display = 'none');
             document.getElementById('aba-' + aba).style.display = 'block';
 
+            if (aba === 'extratos' && cacheAbaProjeto.extratos !== projetoSelecionadoId) fetchExtratos(projetoSelecionadoId);
+            if (aba === 'evidencias' && cacheAbaProjeto.evidencias !== projetoSelecionadoId) fetchEvidencias(projetoSelecionadoId);
+            if (aba === 'saldo' && cacheAbaProjeto.saldo !== projetoSelecionadoId) fetchSaldo(projetoSelecionadoId);
             if (aba === 'contratos' && cacheAbaProjeto.contratos !== projetoSelecionadoId) fetchContratos(projetoSelecionadoId);
             if (aba === 'guias' && cacheAbaProjeto.guias !== projetoSelecionadoId) fetchGuias(projetoSelecionadoId);
             if (aba === 'auditoria' && cacheAbaProjeto.auditoria !== projetoSelecionadoId) fetchAuditoria(projetoSelecionadoId);
@@ -677,38 +1020,14 @@
 
         // ── Documentos ────────────────────────────────────────────────
 
-        // Mesmos rótulos de STATUS_MAP (app.js), para o suporte falar a mesma
-        // língua do cliente; o código técnico fica visível embaixo.
-        const DOC_STATUS_LABELS = {
-            uploaded: 'Enviado',
-            processing_ocr: 'Em Processamento',
-            validating: 'Validando',
-            validated: 'Validado',
-            aguardando_conformidade: 'Em Auditoria IA',
-            aguardando_comprovante: 'Falta Comprovante',
-            aguardando_conciliacao_bancaria: 'Falta Conciliação',
-            aguardando_d3: 'Em carência (D-3)',
-            liberado_rpa_airtop: 'Pronto para envio',
-            enviado_salic: 'Enviado ao SALIC',
-            concluido: 'Concluído',
-            erro_rpa: 'Erro no Envio',
-            bloqueado_conformidade: 'Bloqueado',
-            revisao_manual: 'Revisão Manual',
-            divergencia_valor: 'Divergência de Valor',
-            divergencia_beneficiario: 'Divergência de Beneficiário',
-            aguardando_rubrica: 'Aguardando Rubrica',
-            aguardando_aprovacao_fornecedor: 'Aguardando aprovação',
-            rejeitado_fornecedor: 'Rejeitada',
-            erro: 'Erro'
-        };
         const DOC_TIPO_LABELS = {
             nf: 'Nota fiscal',
             comprovante: 'Comprovante',
             planilha_orcamentaria: 'Planilha orçamentária',
             guia: 'Guia'
         };
-        const statusDocLabel = (s) => DOC_STATUS_LABELS[s] || s || '—';
         const tipoDocLabel = (t) => DOC_TIPO_LABELS[t || 'nf'] || t;
+        const rotuloStatusDoc = (s) => (StatusCatalogo.obter('documents', s) || {}).rotulo || s || '—';
 
         let documentosFiltroStatus = '';
 
@@ -751,7 +1070,7 @@
                 chip('', 'Todos', documentosData.length),
                 ...Object.entries(contagem)
                     .sort((a, b) => b[1] - a[1])
-                    .map(([s, n]) => chip(s, statusDocLabel(s), n))
+                    .map(([s, n]) => chip(s, rotuloStatusDoc(s), n))
             ].join('');
         }
 
@@ -779,14 +1098,14 @@
                             <th>Valor</th>
                             <th>Status</th>
                             <th>Criado em</th>
-                            <th style="text-align: right;">Ações</th>
+                            <th style="text-align: right;">Ficha</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${documentos.map(d => {
                             const precisaAtencao = d.status === 'bloqueado_conformidade' || !!d.just_erro;
                             return `
-                            <tr class="${precisaAtencao ? 'doc-row-atencao' : ''}">
+                            <tr class="clickable-row ${precisaAtencao ? 'doc-row-atencao' : ''}" onclick="abrirFicha('${d.id}')">
                                 <td style="font-weight: 600;">${esc(d.name || '—')}</td>
                                 <td class="text-sm">${esc(tipoDocLabel(d.tipo_documento))}</td>
                                 <td class="text-sm">
@@ -795,14 +1114,12 @@
                                 </td>
                                 <td class="text-sm">${fmtMoney(d.valor)}</td>
                                 <td class="text-sm">
-                                    <span style="font-weight: 600;">${esc(statusDocLabel(d.status))}</span>
-                                    ${precisaAtencao ? '<span class="badge status-error" style="margin-left: 4px;"><span class="badge-dot"></span>Atenção</span>' : ''}
-                                    <div class="text-xs" style="color: var(--text-muted);">${esc(d.status || '')}</div>
+                                    ${htmlStatus('documents', d.status, d.updated_at)}
                                     ${d.just_erro ? `<div class="text-xs" style="color: var(--error); margin-top: 0.25rem;">${esc(d.just_erro)}</div>` : ''}
                                 </td>
                                 <td class="text-sm">${fmtDate(d.created_at)}</td>
                                 <td style="text-align: right; white-space: nowrap;">
-                                    ${botaoReprocessar(d)}
+                                    <button class="btn btn-secondary" style="padding: 0.35rem 0.7rem; font-size: 0.75rem;" onclick="event.stopPropagation(); abrirFicha('${d.id}')">Abrir ficha</button>
                                 </td>
                             </tr>
                         `;
@@ -811,81 +1128,418 @@
                 </table>
             `;
             renderControlesPaginacao('documentos-paginacao', documentosPagina, filtrados.length, 'irParaPaginaDocumentos');
-            if (window.lucide) window.lucide.createIcons();
         }
 
-        // A regra de quando pode reprocessar mora no servidor (avaliarReprocesso);
-        // a tela só reflete o que veio em d.reprocesso.
-        function botaoReprocessar(d) {
-            const r = d.reprocesso || { permitido: false, motivo: 'Sem informação de reprocessamento.' };
-            const rotulo = d.tipo_documento === 'planilha_orcamentaria' ? 'Reimportar planilha' : 'Reprocessar OCR';
-            const estilo = 'padding: 0.35rem 0.7rem; font-size: 0.75rem;';
-            if (!r.permitido) {
-                // title no span: botão desabilitado não mostra tooltip em todos os navegadores.
-                return `<span title="${esc(r.motivo || '')}" style="display: inline-block; cursor: not-allowed;"><button class="btn btn-secondary" style="${estilo} pointer-events: none; opacity: 0.5;" disabled>${rotulo}</button></span>`;
+        // ── Ficha do documento ────────────────────────────────────────
+        let fichaAtual = null;
+
+        async function abrirFicha(id) {
+            const corpo = document.getElementById('ficha-corpo');
+            document.getElementById('ficha-titulo').textContent = 'Documento';
+            corpo.innerHTML = `<p class="text-sm" style="color: var(--text-muted);">Carregando…</p>`;
+            document.getElementById('busca-resultados').innerHTML = '';
+            document.getElementById('modal-ficha').style.display = 'flex';
+            try {
+                fichaAtual = await authFetch(`/api/suporte/documentos/${id}`);
+                renderFicha();
+            } catch (err) {
+                corpo.innerHTML = `<p class="text-sm" style="color: var(--error);">Erro ao carregar: ${esc(window.prestaiErroTexto(err))}</p>`;
             }
-            return `<button class="btn btn-secondary" style="${estilo}" onclick="handleReprocessarOcr('${d.id}', this)">${rotulo}</button>`;
         }
 
-        // SPEC-SUPORTE-02 (6) — ESCRITA, auditada em audit_log pelo endpoint.
-        async function handleReprocessarOcr(documentId, btnEl) {
-            const doc = documentosData.find(d => d.id === documentId) || {};
-            const ehPlanilha = doc.tipo_documento === 'planilha_orcamentaria';
-            const rotuloOriginal = btnEl.textContent;
-            abrirModalConfirmGenerico({
-                titulo: ehPlanilha ? 'Reimportar planilha orçamentária' : 'Reprocessar OCR',
-                mensagem: ehPlanilha
-                    ? 'Reimportar esta planilha? As rubricas do projeto serão importadas de novo a partir dela: cria uma nova versão, e rubricas que não constarem nela serão marcadas como removidas. Pode levar alguns minutos.'
-                    : 'Forçar o reprocessamento de OCR deste documento? Os dados lidos serão extraídos de novo e ele volta para o início da esteira.',
-                textoConfirmar: ehPlanilha ? 'Reimportar' : 'Reprocessar',
-                onConfirm: async () => {
-                    btnEl.disabled = true;
-                    btnEl.textContent = ehPlanilha ? 'Importando…' : 'Reprocessando…';
+        function fecharFicha() {
+            document.getElementById('modal-ficha').style.display = 'none';
+            fichaAtual = null;
+        }
 
-                    try {
-                        const sb = await initSupabase();
-                        const { data: { session } } = await sb.auth.getSession();
-                        const resp = await fetch(`/api/suporte/documentos/${documentId}/reprocessar-ocr`, {
-                            method: 'POST',
-                            headers: { Authorization: `Bearer ${session.access_token}` }
-                        });
-                        const json = await resp.json().catch(() => ({}));
-                        if (!resp.ok) throw new Error(json.error || 'Falha ao reprocessar.');
+        function linhaDado(rotulo, valor) {
+            return `<div style="padding: 0.35rem 0;"><div class="text-xs" style="color: var(--text-muted);">${esc(rotulo)}</div><div class="text-sm" style="word-break: break-word;">${valor == null || valor === '' ? '—' : valor}</div></div>`;
+        }
 
-                        showToast(json.mensagem || 'Reprocessamento disparado.', 'success');
-                        await fetchDocumentos(projetoSelecionadoId);
-                    } catch (err) {
-                        showToast(err.message, 'error');
-                        // Falha de importação muda o status (erro + motivo): recarrega para refletir.
-                        await fetchDocumentos(projetoSelecionadoId).catch(() => {});
-                        btnEl.disabled = false;
-                        btnEl.textContent = rotuloOriginal;
-                    }
+        function linkFicha(doc) {
+            return `<a href="#" onclick="abrirFicha('${doc.id}'); return false;">${esc(doc.name || doc.id)}</a> <span class="text-xs" style="color: var(--text-muted);">(${esc(rotuloStatusDoc(doc.status))})</span>`;
+        }
+
+        // Textos das confirmações: uma frase com o efeito da ação.
+        const ACOES_FICHA = [
+            {
+                chave: 'reprocessar_ocr', rotulo: 'Reprocessar OCR', rota: 'reprocessar-ocr',
+                efeito: () => 'O documento volta para Em Processamento e é enviado de novo ao OCR; os dados lidos serão extraídos outra vez.'
+            },
+            {
+                chave: 'reimportar_planilha', rotulo: 'Reimportar planilha', rota: 'reprocessar-ocr',
+                efeito: () => 'As rubricas do projeto serão importadas de novo a partir desta planilha: cria uma nova versão, e rubricas que não constarem nela serão marcadas como removidas. Pode levar alguns minutos.'
+            },
+            {
+                chave: 'revalidar_conformidade', rotulo: 'Revalidar conformidade', rota: 'revalidar-conformidade',
+                efeito: () => 'A conferência do CNAE do fornecedor contra a rubrica é disparada de novo no n8n; o status do documento não muda.'
+            },
+            {
+                chave: 'avancar', rotulo: 'Avançar documento', rota: 'avancar', perigoso: true,
+                efeito: (f) => `O documento sai de "${rotuloStatusDoc(f.documento.status)}" para "${rotuloStatusDoc(f.acoes.avancar.destino)}", marcado como [OVERRIDE SUPORTE]. ${f.acoes.avancar.efeito || ''}`
+            },
+            {
+                chave: 'refazer_conciliacao', rotulo: 'Refazer conciliação', rota: 'refazer-conciliacao',
+                efeito: (f) => `A conciliação do documento com o extrato é refeita (${f.acoes.refazer_conciliacao.extrato_usado || 'extrato do projeto'}). Em divergência, o documento volta para Falta Conciliação antes.`
+            }
+        ];
+
+        function renderFicha() {
+            const f = fichaAtual;
+            const d = f.documento;
+            const s = f.situacao;
+            document.getElementById('ficha-titulo').textContent = d.name || 'Documento';
+
+            const dadosLidos = `
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0 1.25rem;">
+                    ${linhaDado('Tipo', esc(tipoDocLabel(d.tipo_documento)))}
+                    ${linhaDado('Emissor', esc(d.nome_emissor))}
+                    ${linhaDado('CNPJ do emissor', esc(d.cnpj_emissor))}
+                    ${linhaDado('Número da NF', esc(d.numero_nf))}
+                    ${linhaDado('Valor', fmtMoney(d.valor))}
+                    ${linhaDado('Valor pago', fmtMoney(d.valor_pago))}
+                    ${linhaDado('Data de emissão', fmtDate(d.data_emissao))}
+                    ${linhaDado('Data de pagamento', fmtDate(d.data_pagamento))}
+                    ${linhaDado('Rubrica', esc(d.rubrica))}
+                    ${linhaDado('Confiança do OCR', esc(d.confianca_ocr))}
+                    ${linhaDado('Autenticação bancária', esc(d.autenticacao_bancaria))}
+                    ${linhaDado('Duplicidade', esc(d.nivel_duplicidade))}
+                    ${linhaDado('Motivo registrado (just_erro)', esc(d.just_erro))}
+                    ${linhaDado('Tentativas de OCR', esc(d.ocr_retry_count))}
+                </div>
+                <details style="margin-top: 0.5rem;">
+                    <summary class="text-sm" style="cursor: pointer; color: var(--text-secondary);">JSON extraído pelo OCR</summary>
+                    <pre style="max-height: 280px; overflow: auto; background: var(--bg-sidebar); padding: 0.75rem; border-radius: var(--radius-sm); font-size: 0.75rem;">${esc(d.json_extraido ? JSON.stringify(d.json_extraido, null, 2) : 'Sem JSON extraído.')}</pre>
+                </details>`;
+
+            const desp = f.despesa;
+            const lanc = (f.lancamentos_conciliados || [])[0];
+            const vinculos = `
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 1.25rem;">
+                    ${linhaDado('Projeto', f.projeto ? esc(`${f.projeto.pronac || ''} · ${f.projeto.nome || ''}`) : null)}
+                    ${linhaDado('Organização', esc(f.projeto?.organizacao))}
+                    ${linhaDado('Despesa', desp ? esc(`${desp.status || '—'} · conciliada: ${desp.conciliado ? 'sim' : 'não'} · liberada p/ robô: ${desp.liberado_rpa ? 'sim' : 'não'}${desp.motivo_bloqueio ? ' · bloqueio: ' + desp.motivo_bloqueio : ''}`) : 'Sem despesa gerada')}
+                    ${linhaDado('NF mãe', f.nf_mae ? linkFicha(f.nf_mae) : null)}
+                    ${linhaDado('Comprovantes filhos', (f.comprovantes_filhos || []).length ? f.comprovantes_filhos.map(linkFicha).join('<br>') : null)}
+                    ${linhaDado('Extrato de origem', f.extrato_origem ? esc(`${f.extrato_origem.periodo_inicio || '?'} a ${f.extrato_origem.periodo_fim || '?'} · ${rotuloStatusExtrato(f.extrato_origem.status)}`) : null)}
+                    ${linhaDado('Lançamento conciliado', lanc ? esc(`${fmtDate(lanc.data_lancamento)} · ${fmtMoney(lanc.valor)} · ${lanc.memo || ''}`) : 'Nenhum')}
+                    ${linhaDado('Fornecedor', f.fornecedor ? esc(`${f.fornecedor.razao_social || ''} · ${f.fornecedor.cnpj || ''} · CNAE ${f.fornecedor.cnae_codigo || '—'}`) : null)}
+                </div>`;
+
+            const acoesHtml = ACOES_FICHA.map(def => {
+                const a = f.acoes[def.chave] || { habilitada: false, motivo_bloqueio: 'Sem informação.' };
+                const classe = def.perigoso ? 'btn btn-primary' : 'btn btn-secondary';
+                return `
+                    <div style="display: flex; flex-direction: column; gap: 0.25rem; min-width: 180px; flex: 1;">
+                        <span ${a.habilitada ? '' : `title="${esc(a.motivo_bloqueio || '')}"`} style="display: inline-block; ${a.habilitada ? '' : 'cursor: not-allowed;'}">
+                            <button type="button" class="${classe}" style="width: 100%; ${a.habilitada ? '' : 'pointer-events: none; opacity: 0.5;'}" ${a.habilitada ? `onclick="executarAcaoFicha('${def.chave}')"` : 'disabled'}>${esc(def.rotulo)}</button>
+                        </span>
+                        ${a.habilitada ? '' : `<span class="text-xs" style="color: var(--text-muted); line-height: 1.4;">${esc(a.motivo_bloqueio || '')}</span>`}
+                    </div>`;
+            }).join('');
+
+            const tempo = (f.linha_do_tempo || []).length
+                ? `<table class="data-table" style="width: 100%;"><thead><tr><th>Quando</th><th>Quem</th><th>Origem</th><th>Campo</th><th>De → Para</th><th>Motivo</th></tr></thead><tbody>
+                    ${f.linha_do_tempo.map(t => `<tr>
+                        <td class="text-xs">${esc(fmtDateTime(t.quando))}</td>
+                        <td class="text-xs">${esc(t.quem || 'Sistema (automação)')}</td>
+                        <td class="text-xs">${esc(t.origem || '—')}</td>
+                        <td class="text-xs">${esc(t.tabela)} · ${esc(t.campo)}</td>
+                        <td class="text-xs" style="word-break: break-word;">${esc(t.de ?? '—')} → ${esc(t.para ?? '—')}</td>
+                        <td class="text-xs">${esc(t.motivo || '—')}</td>
+                    </tr>`).join('')}
+                  </tbody></table>`
+                : `<p class="empty-state-inline">Nenhum registro de auditoria.</p>`;
+
+            const eventos = (f.eventos_processamento || []).length
+                ? `<table class="data-table" style="width: 100%;"><thead><tr><th>Quando</th><th>Ação</th><th>Destino</th><th>Resultado</th><th>Duração</th><th>Detalhe</th></tr></thead><tbody>
+                    ${f.eventos_processamento.map(e => `<tr>
+                        <td class="text-xs">${esc(fmtDateTime(e.criado_em))}</td>
+                        <td class="text-xs">${esc(e.acao || '—')}</td>
+                        <td class="text-xs">${esc(e.destino || '—')}</td>
+                        <td class="text-xs">${e.ok ? 'OK' : 'Falhou'}${e.http_status ? ' · HTTP ' + esc(e.http_status) : ''}</td>
+                        <td class="text-xs">${e.duracao_ms != null ? esc(e.duracao_ms) + ' ms' : '—'}</td>
+                        <td class="text-xs" style="word-break: break-word;">${esc(e.detalhe || '')}</td>
+                    </tr>`).join('')}
+                  </tbody></table>`
+                : `<p class="text-xs" style="color: var(--text-muted);">Nenhuma chamada externa registrada para este documento.</p>`;
+
+            document.getElementById('ficha-corpo').innerHTML = `
+                <div style="padding: 1rem; background: var(--bg-sidebar); border-radius: var(--radius-md); margin-bottom: 1.25rem;">
+                    <div style="display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; align-items: flex-start;">
+                        <div>
+                            <div style="margin-bottom: 0.25rem;">${htmlStatus('documents', d.status, d.updated_at)}</div>
+                            <div class="text-sm" style="color: var(--text-secondary);">No status ${s.minutos_no_status == null ? 'há tempo desconhecido' : 'há ' + esc(fmtDuracao(s.minutos_no_status))} <span class="text-xs" style="color: var(--text-muted);">(contado a partir da última atualização do documento)</span></div>
+                        </div>
+                        ${f.arquivo_url
+                            ? `<a class="btn btn-secondary" href="${esc(f.arquivo_url)}" target="_blank" rel="noopener">Abrir arquivo</a>`
+                            : `<span title="Documento sem arquivo ou link indisponível" style="cursor: not-allowed;"><button class="btn btn-secondary" style="pointer-events: none; opacity: 0.5;" disabled>Abrir arquivo</button></span>`}
+                    </div>
+                    <p class="text-sm" style="margin-top: 0.75rem;"><strong>O que significa:</strong> ${esc(s.explicacao || 'Status fora do catálogo.')}</p>
+                    <p class="text-sm"><strong>Próximo passo:</strong> ${esc(s.proximo_passo || '—')}</p>
+                </div>
+
+                <h4 class="text-sm" style="font-weight: 700; margin-bottom: 0.5rem;">Ações</h4>
+                <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.5rem;">${acoesHtml}</div>
+                <p class="text-xs" style="color: var(--text-muted); margin-bottom: 1.25rem;">O suporte não envia ao SALIC. Toda ação exige motivo e fica registrada na linha do tempo.</p>
+
+                <h4 class="text-sm" style="font-weight: 700; margin-bottom: 0.5rem;">Dados lidos</h4>
+                <div style="margin-bottom: 1.25rem;">${dadosLidos}</div>
+
+                <h4 class="text-sm" style="font-weight: 700; margin-bottom: 0.5rem;">Vínculos</h4>
+                <div style="margin-bottom: 1.25rem;">${vinculos}</div>
+
+                <h4 class="text-sm" style="font-weight: 700; margin-bottom: 0.5rem;">Linha do tempo</h4>
+                <div class="data-table-container" style="margin-bottom: 1rem; overflow-x: auto;">${tempo}</div>
+
+                <h4 class="text-sm" style="font-weight: 700; margin-bottom: 0.5rem;">Chamadas externas deste documento</h4>
+                <div style="overflow-x: auto;">${eventos}</div>
+            `;
+        }
+
+        function mensagemDeResultado(def, r) {
+            if (r.aviso) return r.aviso;
+            if (r.mensagem) return r.mensagem;
+            if (r.conciliacao_auto_lote) return r.conciliacao_auto_lote.conciliado
+                ? 'Documento avançado e conciliado automaticamente com o extrato do lote.'
+                : `Documento avançado. Conciliação automática: ${r.conciliacao_auto_lote.motivo}.`;
+            if (r.via === 'auto-lote') return r.conciliado ? 'Conciliação refeita: documento conciliado.' : `Conciliação refeita, sem match: ${r.motivo}.`;
+            return `${def.rotulo}: concluído.`;
+        }
+
+        function executarAcaoFicha(chave) {
+            const f = fichaAtual;
+            const def = ACOES_FICHA.find(a => a.chave === chave);
+            if (!f || !def || !f.acoes[chave]?.habilitada) return;
+            const id = f.documento.id;
+            abrirModalAcao({
+                titulo: def.rotulo,
+                efeito: def.efeito(f),
+                confirmar: def.rotulo,
+                onConfirm: async ({ motivo }) => {
+                    const r = await authPost(`/api/suporte/documentos/${id}/${def.rota}`, { motivo });
+                    showToast(mensagemDeResultado(def, r), r.aviso ? 'error' : 'success');
+                    await abrirFicha(id);
+                    if (projetoSelecionadoId) fetchDocumentos(projetoSelecionadoId);
+                    fetchFila();
                 }
             });
         }
 
-        // Modal de confirmação genérico — evita criar um .modal dedicado pra
-        // cada ação simples de "tem certeza?" do arquivo.
-        let _confirmGenericoCallback = null;
+        // ── Extratos ──────────────────────────────────────────────────
+        let extratosData = [];
+        let extratosPagina = 1;
+        const rotuloStatusExtrato = (s) => (StatusCatalogo.obter('extratos', s) || {}).rotulo || s || '—';
 
-        function abrirModalConfirmGenerico({ titulo = 'Confirmar ação', mensagem, textoConfirmar = 'Confirmar', onConfirm }) {
-            document.getElementById('confirm-generico-titulo').textContent = titulo;
-            document.getElementById('confirm-generico-mensagem').textContent = mensagem;
-            document.getElementById('btn-confirm-generico').textContent = textoConfirmar;
-            _confirmGenericoCallback = onConfirm;
-            document.getElementById('modal-confirm-generico').style.display = 'flex';
+        async function fetchExtratos(projetoId) {
+            const wrap = document.getElementById('extratos-tabela-wrap');
+            wrap.innerHTML = `<p class="text-sm" style="color: var(--text-muted); padding: 1rem;">Carregando…</p>`;
+            try {
+                const json = await authFetch(`/api/suporte/projetos/${projetoId}/extratos`);
+                cacheAbaProjeto.extratos = projetoId;
+                extratosData = json.extratos || [];
+                extratosPagina = 1;
+                renderExtratos();
+            } catch (err) {
+                console.error('fetchExtratos:', err);
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(window.prestaiErroTexto(err))}</p>`;
+            }
         }
 
-        function fecharModalConfirmGenerico() {
-            _confirmGenericoCallback = null;
-            document.getElementById('modal-confirm-generico').style.display = 'none';
+        function irParaPaginaExtratos(p) { extratosPagina = p; renderExtratos(); }
+
+        function renderExtratos() {
+            const wrap = document.getElementById('extratos-tabela-wrap');
+            if (!extratosData.length) {
+                wrap.innerHTML = `<p class="empty-state-inline">Nenhum extrato neste projeto.</p>`;
+                document.getElementById('extratos-paginacao').innerHTML = '';
+                return;
+            }
+            const lista = paginar(extratosData, extratosPagina);
+            wrap.innerHTML = `
+                <table class="data-table" style="width: 100%;">
+                    <thead><tr><th>Arquivo</th><th>Período</th><th>Status</th><th>Desde</th><th>Lançamentos</th><th>Conciliados</th><th style="text-align: right;">Ação</th></tr></thead>
+                    <tbody>
+                        ${lista.map(x => `
+                            <tr class="${x.grupo === 'erro' || x.grupo === 'travado' ? 'doc-row-atencao' : ''}">
+                                <td class="text-sm" style="word-break: break-word;">${esc(x.arquivo || '—')} <span class="text-xs" style="color: var(--text-muted);">${esc((x.formato || '').toUpperCase())}</span></td>
+                                <td class="text-sm">${x.periodo_inicio || x.periodo_fim ? `${fmtDate(x.periodo_inicio)} → ${fmtDate(x.periodo_fim)}` : '—'}</td>
+                                <td class="text-sm">${htmlStatus('extratos', x.status, x.desde, x.grupo)}</td>
+                                <td class="text-sm">${x.tempo_desconhecido ? 'tempo desconhecido' : esc(haQuanto(x.desde))}</td>
+                                <td class="text-sm">${x.lancamentos}</td>
+                                <td class="text-sm">${x.conciliados}</td>
+                                <td style="text-align: right;">${botaoExtrato(x)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            renderControlesPaginacao('extratos-paginacao', extratosPagina, extratosData.length, 'irParaPaginaExtratos');
         }
 
-        async function _execConfirmGenerico() {
-            const callback = _confirmGenericoCallback;
-            fecharModalConfirmGenerico();
-            if (callback) await callback();
+        function botaoExtrato(x) {
+            const r = x.reprocessar || { habilitada: false, motivo_bloqueio: 'Sem informação.' };
+            const estilo = 'padding: 0.35rem 0.7rem; font-size: 0.75rem;';
+            if (!r.habilitada) {
+                return `<span title="${esc(r.motivo_bloqueio || '')}" style="display: inline-block; cursor: not-allowed;"><button class="btn btn-secondary" style="${estilo} pointer-events: none; opacity: 0.5;" disabled>Reprocessar extrato</button></span>
+                        <div class="text-xs" style="color: var(--text-muted); max-width: 200px; margin-left: auto;">${esc(r.motivo_bloqueio || '')}</div>`;
+            }
+            return `<button class="btn btn-secondary" style="${estilo}" onclick="reprocessarExtrato('${x.id}')">Reprocessar extrato</button>`;
+        }
+
+        function reprocessarExtrato(id) {
+            abrirModalAcao({
+                titulo: 'Reprocessar extrato',
+                efeito: 'O arquivo do extrato é reenviado ao n8n para ser lido de novo e conciliado contra as notas pendentes do projeto.',
+                confirmar: 'Reprocessar',
+                onConfirm: async ({ motivo }) => {
+                    await authPost(`/api/suporte/extratos/${id}/reprocessar`, { motivo });
+                    showToast('Extrato reenviado para processamento.', 'success');
+                    await fetchExtratos(projetoSelecionadoId);
+                    fetchFila();
+                }
+            });
+        }
+
+        // ── Evidências (somente leitura) ──────────────────────────────
+        let evidenciasData = [];
+        let evidenciasPagina = 1;
+
+        async function fetchEvidencias(projetoId) {
+            const wrap = document.getElementById('evidencias-tabela-wrap');
+            wrap.innerHTML = `<p class="text-sm" style="color: var(--text-muted); padding: 1rem;">Carregando…</p>`;
+            try {
+                const json = await authFetch(`/api/suporte/projetos/${projetoId}/evidencias`);
+                cacheAbaProjeto.evidencias = projetoId;
+                evidenciasData = json.evidencias || [];
+                evidenciasPagina = 1;
+                renderEvidencias();
+            } catch (err) {
+                console.error('fetchEvidencias:', err);
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(window.prestaiErroTexto(err))}</p>`;
+            }
+        }
+
+        function irParaPaginaEvidencias(p) { evidenciasPagina = p; renderEvidencias(); }
+
+        function renderEvidencias() {
+            const wrap = document.getElementById('evidencias-tabela-wrap');
+            if (!evidenciasData.length) {
+                wrap.innerHTML = `<p class="empty-state-inline">Nenhuma evidência neste projeto.</p>`;
+                document.getElementById('evidencias-paginacao').innerHTML = '';
+                return;
+            }
+            const lista = paginar(evidenciasData, evidenciasPagina);
+            wrap.innerHTML = `
+                <table class="data-table" style="width: 100%;">
+                    <thead><tr><th>Tipo</th><th>Arquivo</th><th>Status</th><th>Motivo</th><th>Categoria (IA)</th><th>Score (IA)</th><th>Enviada em</th></tr></thead>
+                    <tbody>
+                        ${lista.map(e => `
+                            <tr class="${e.status === 'erro_rpa' ? 'doc-row-atencao' : ''}">
+                                <td class="text-sm">${esc(e.tipo || '—')}</td>
+                                <td class="text-sm" style="word-break: break-word;">${esc(e.arquivo || '—')}</td>
+                                <td class="text-sm">${htmlStatus('physical_evidences', e.status, e.criado_em)}</td>
+                                <td class="text-xs" style="max-width: 260px;">${esc(e.motivo || '—')}</td>
+                                <td class="text-sm">${esc(e.ia_categoria || '—')}</td>
+                                <td class="text-sm">${e.ia_score != null ? esc(Number(e.ia_score).toFixed(2)) : '—'}</td>
+                                <td class="text-sm">${fmtDate(e.enviada_salic_em)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            renderControlesPaginacao('evidencias-paginacao', evidenciasPagina, evidenciasData.length, 'irParaPaginaEvidencias');
+        }
+
+        // ── Saldo SALIC e importação do projeto SALIC ─────────────────
+        async function fetchSaldo(projetoId) {
+            const wrap = document.getElementById('saldo-wrap');
+            wrap.innerHTML = `<p class="text-sm" style="color: var(--text-muted); padding: 1rem;">Carregando…</p>`;
+            try {
+                const json = await authFetch(`/api/suporte/projetos/${projetoId}/saldo-salic`);
+                cacheAbaProjeto.saldo = projetoId;
+                renderSaldo(json);
+            } catch (err) {
+                console.error('fetchSaldo:', err);
+                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(window.prestaiErroTexto(err))}</p>`;
+            }
+        }
+
+        function blocoCausa(causa, detalhe) {
+            if (!causa && !detalhe) return '<span style="color: var(--text-muted);">—</span>';
+            return `${causa ? esc(causa) : ''}
+                ${detalhe ? `<details><summary style="cursor: pointer; color: var(--text-muted);">Detalhe técnico</summary><div style="word-break: break-word;">${esc(detalhe)}</div></details>` : ''}`;
+        }
+
+        function botaoDesabilitadoComMotivo(rotulo, motivo) {
+            return `<span title="${esc(motivo || '')}" style="display: inline-block; cursor: not-allowed;"><button class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem; pointer-events: none; opacity: 0.5;" disabled>${esc(rotulo)}</button></span>
+                    <div class="text-xs" style="color: var(--text-muted); margin-top: 0.25rem; max-width: 420px; line-height: 1.4;">${esc(motivo || '')}</div>`;
+        }
+
+        function renderSaldo(j) {
+            const wrap = document.getElementById('saldo-wrap');
+            const caps = j.capturas || [];
+            const imp = j.importacao_projeto;
+            const recap = j.recaptura || { habilitada: false, motivo_bloqueio: 'Sem informação.' };
+
+            const capturasHtml = caps.length ? `
+                <table class="data-table" style="width: 100%;">
+                    <thead><tr><th>Status</th><th>Iniciada</th><th>Concluída</th><th>Linhas</th><th>Causa</th></tr></thead>
+                    <tbody>${caps.map(c => `
+                        <tr class="${c.status === 'erro' ? 'doc-row-atencao' : ''}">
+                            <td class="text-sm">${htmlStatus('saldo_salic_capturas', c.status, c.iniciada_em)}</td>
+                            <td class="text-sm">${esc(fmtDateTime(c.iniciada_em))}</td>
+                            <td class="text-sm">${esc(fmtDateTime(c.concluida_em))}</td>
+                            <td class="text-sm">${c.total_linhas ?? '—'}</td>
+                            <td class="text-xs" style="max-width: 360px;">${blocoCausa(c.causa, c.detalhe_tecnico)}</td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>` : `<p class="empty-state-inline">Nenhuma captura de saldo neste projeto.</p>`;
+
+            let impHtml = `<p class="empty-state-inline">Este projeto nunca teve importação de PDF do SALIC.</p>`;
+            if (imp) {
+                const r = imp.reimportar || { habilitada: false, motivo_bloqueio: 'Sem informação.' };
+                impHtml = `
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0 1.25rem; margin-bottom: 0.75rem;">
+                        ${linhaDado('Status', htmlStatus('project_salic_imports', imp.status, imp.updated_at || imp.created_at))}
+                        ${linhaDado('Enviada em', esc(fmtDateTime(imp.created_at)))}
+                        ${linhaDado('Causa', blocoCausa(imp.causa, imp.detalhe_tecnico))}
+                    </div>
+                    ${r.habilitada
+                        ? `<button class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;" onclick="reimportarProjetoSalic()">Reimportar projeto SALIC</button>`
+                        : botaoDesabilitadoComMotivo('Reimportar projeto SALIC', r.motivo_bloqueio)}`;
+            }
+
+            wrap.innerHTML = `
+                <div style="display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem;">
+                    <div>
+                        <div class="text-xs" style="color: var(--text-muted);">Divergências abertas (Prestaí x SALIC)</div>
+                        <div style="font-size: 1.5rem; font-weight: 700;">${j.divergencias_abertas ?? 0}</div>
+                    </div>
+                    <div>
+                        ${botaoDesabilitadoComMotivo('Recapturar saldo do SALIC', recap.motivo_bloqueio)}
+                    </div>
+                </div>
+                <h4 class="text-sm" style="font-weight: 700; margin-bottom: 0.5rem;">Últimas capturas</h4>
+                <div class="data-table-container" style="margin-bottom: 1.5rem; overflow-x: auto;">${capturasHtml}</div>
+                <h4 class="text-sm" style="font-weight: 700; margin-bottom: 0.5rem;">Importação do projeto SALIC (PDF)</h4>
+                <div>${impHtml}</div>
+            `;
+        }
+
+        function reimportarProjetoSalic() {
+            const projetoId = projetoSelecionadoId;
+            abrirModalAcao({
+                titulo: 'Reimportar projeto SALIC',
+                efeito: 'O PDF da última importação com erro é lido de novo e os dados do projeto (etapas, locais, divulgação) são regravados. Pode levar até 2 minutos.',
+                confirmar: 'Reimportar',
+                onConfirm: async ({ motivo }) => {
+                    await authPost(`/api/suporte/projetos/${projetoId}/reimportar-projeto-salic`, { motivo });
+                    showToast('Projeto SALIC reimportado.', 'success');
+                    await fetchSaldo(projetoId);
+                    fetchFila();
+                }
+            });
         }
 
         // ── Contratos ─────────────────────────────────────────────────
@@ -1070,60 +1724,28 @@
             renderControlesPaginacao('auditoria-paginacao', auditoriaPagina, auditoriaData.length, 'irParaPaginaAuditoria');
         }
 
-        // ── Resetar acesso (ESCRITA — auditada em audit_log) ─────────
+        // ── Resetar acesso (ESCRITA — auditada em audit_log, com motivo) ─
+        // Usa o modal único de ação: efeito + motivo obrigatório + nova senha.
 
         function abrirModalResetarSenha(userId, email) {
-            document.getElementById('resetar-senha-user-id').value = userId;
-            document.getElementById('resetar-senha-email').textContent = email;
-            document.getElementById('resetar-senha-valor').value = '';
-            document.getElementById('resetar-senha-resultado-email').textContent = '';
-            document.getElementById('resetar-senha-resultado-senha').textContent = '';
-            document.getElementById('resetar-senha-form-wrap').style.display = 'block';
-            document.getElementById('resetar-senha-sucesso-wrap').style.display = 'none';
-            document.getElementById('modal-resetar-senha').style.display = 'flex';
+            abrirModalAcao({
+                titulo: 'Resetar acesso',
+                efeito: `A senha de ${email} será trocada por uma provisória e a pessoa será obrigada a criar outra no próximo login.`,
+                confirmar: 'Resetar acesso',
+                campoExtra: { rotulo: 'Nova senha provisória (mín. 6 caracteres)', minimo: 6 },
+                onConfirm: async ({ motivo, extra }) => {
+                    await authPost(`/api/suporte/usuarios/${userId}/resetar-senha`, { password: extra, motivo });
+                    document.getElementById('resetar-senha-resultado-email').textContent = email;
+                    document.getElementById('resetar-senha-resultado-senha').textContent = extra;
+                    document.getElementById('modal-resetar-senha').style.display = 'flex';
+                }
+            });
         }
 
         function fecharModalResetarSenha() {
             document.getElementById('modal-resetar-senha').style.display = 'none';
             // A senha não deve sobreviver ao fechamento do modal em lugar nenhum da tela.
-            document.getElementById('resetar-senha-valor').value = '';
             document.getElementById('resetar-senha-resultado-senha').textContent = '';
-        }
-
-        async function handleResetarSenha() {
-            const userId = document.getElementById('resetar-senha-user-id').value;
-            const email = document.getElementById('resetar-senha-email').textContent;
-            const password = document.getElementById('resetar-senha-valor').value;
-            if (!password || password.length < 6) return showToast('Senha precisa ter pelo menos 6 caracteres.', 'error');
-
-            const btn = document.getElementById('btn-resetar-senha-submit');
-            btn.disabled = true;
-            btn.textContent = 'Resetando…';
-
-            try {
-                const sb = await initSupabase();
-                const { data: { session } } = await sb.auth.getSession();
-                const resp = await fetch(`/api/suporte/usuarios/${userId}/resetar-senha`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${session.access_token}`
-                    },
-                    body: JSON.stringify({ password })
-                });
-                const json = await resp.json().catch(() => ({}));
-                if (!resp.ok) throw new Error(json.error || 'Falha ao resetar acesso.');
-
-                document.getElementById('resetar-senha-resultado-email').textContent = email;
-                document.getElementById('resetar-senha-resultado-senha').textContent = password;
-                document.getElementById('resetar-senha-form-wrap').style.display = 'none';
-                document.getElementById('resetar-senha-sucesso-wrap').style.display = 'block';
-            } catch (err) {
-                showToast(err.message, 'error');
-            } finally {
-                btn.disabled = false;
-                btn.textContent = 'Resetar acesso';
-            }
         }
 
         function copiarCredenciaisReset() {
@@ -1133,7 +1755,7 @@
             showToast('Credenciais copiadas.', 'success');
         }
 
-        // ── Status do Sistema (crons/RPA) ────────────────────────────
+        // ── Saúde do sistema: worker, falhas por destino e crons ──────
 
         // Intervalo máximo esperado entre execuções, por job — só pra destacar
         // visualmente quando algo pode estar parado. Os *-vencidas/vencendo
@@ -1146,21 +1768,61 @@
             'cron-alerta-guias-vencendo': 24 * 60 + 30
         };
 
-        async function fetchCrons() {
-            const wrap = document.getElementById('crons-tabela-wrap');
+        async function fetchSaude() {
             try {
-                const json = await authFetch('/api/suporte/sistema/crons');
-                renderCrons(json.crons || []);
+                const json = await authFetch('/api/suporte/sistema/saude');
+                renderWorker(json.worker);
+                renderFalhas(json.falhas_24h);
+                renderCrons(json.crons || [], json.crons_erro);
             } catch (err) {
-                console.error('fetchCrons:', err);
-                wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(window.prestaiErroTexto(err))}</p>`;
+                console.error('fetchSaude:', err);
+                const msg = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(window.prestaiErroTexto(err))}</p>`;
+                document.getElementById('worker-wrap').innerHTML = msg;
+                document.getElementById('crons-tabela-wrap').innerHTML = msg;
             }
         }
 
-        function renderCrons(crons) {
+        function renderWorker(w) {
+            const el = document.getElementById('worker-wrap');
+            if (!w || !w.configurado) {
+                el.innerHTML = `<span class="badge status-error"><span class="badge-dot"></span>Não configurado</span> <span class="text-xs" style="color: var(--text-muted);">${esc(w?.detalhe || '')}</span>`;
+                return;
+            }
+            el.innerHTML = w.ok
+                ? `<span class="badge status-completed"><span class="badge-dot"></span>Respondendo</span> <span class="text-xs" style="color: var(--text-muted);">HTTP ${esc(w.http_status)} em ${esc(w.duracao_ms)} ms</span>`
+                : `<span class="badge status-error"><span class="badge-dot"></span>Sem resposta</span> <span class="text-xs" style="color: var(--text-muted);">${esc(w.http_status ? 'HTTP ' + w.http_status : '')} ${esc(w.detalhe || '')}</span>`;
+        }
+
+        function renderFalhas(f) {
+            const el = document.getElementById('falhas-wrap');
+            if (!f || !f.disponivel) {
+                el.innerHTML = `<p class="text-xs" style="color: var(--text-muted);">Registro de chamadas indisponível (a migration migration_suporte_painel.sql ainda não foi aplicada). ${esc(f?.detalhe || '')}</p>`;
+                return;
+            }
+            if (!f.destinos.length) {
+                el.innerHTML = `<p class="text-xs" style="color: var(--text-muted);">Nenhuma chamada externa feita pelo suporte nas últimas 24 h.</p>`;
+                return;
+            }
+            el.innerHTML = `
+                <div class="data-table-container" style="overflow-x: auto;">
+                    <table class="data-table" style="width: 100%;">
+                        <thead><tr><th>Destino</th><th>Chamadas</th><th>Falhas</th><th>Taxa de falha</th></tr></thead>
+                        <tbody>${f.destinos.map(d => `
+                            <tr class="${d.taxa_falha > 0.2 ? 'doc-row-atencao' : ''}">
+                                <td class="text-sm" style="font-weight: 600;">${esc(d.destino)}</td>
+                                <td class="text-sm">${d.total}</td>
+                                <td class="text-sm">${d.falhas}</td>
+                                <td class="text-sm">${(d.taxa_falha * 100).toFixed(0)}%</td>
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>`;
+        }
+
+        function renderCrons(crons, erro) {
             const wrap = document.getElementById('crons-tabela-wrap');
             if (!crons.length) {
-                wrap.innerHTML = `<p class="empty-state-inline">Nenhum cron encontrado.</p>`;
+                wrap.innerHTML = `<p class="empty-state-inline">${erro ? 'Crons indisponíveis: ' + esc(erro) : 'Nenhum cron encontrado.'}</p>`;
                 return;
             }
 

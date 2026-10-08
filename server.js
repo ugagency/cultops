@@ -126,6 +126,8 @@ app.use(express.json({ limit: '5mb' }));
 // o original vai para o log e o cliente recebe a tradução. Mensagens já escritas
 // em português para o usuário passam sem alteração.
 const { traduzirTecnico } = require('./erros-amigaveis.js');
+const Catalogo = require('./status-catalogo.js');
+const Regras = require('./suporte-regras.js');
 app.use((req, res, next) => {
     const jsonOriginal = res.json.bind(res);
     res.json = (body) => {
@@ -1711,19 +1713,16 @@ async function persistirDadosSalic(dados, ctx) {
     if (errComplem) throw new Error('Erro ao salvar dados complementares: ' + errComplem.message);
 }
 
-app.post('/api/m2/processar-pdf-salic', async (req, res) => {
-    req.setTimeout(120000);
-    res.setTimeout(120000);
-
-    const { project_id, file_path, user_id } = req.body || {};
-
+// Importação do PDF do projeto SALIC, reutilizada pela rota abaixo e pelo
+// painel de suporte (reimportar). Devolve { http, body } em vez de responder.
+async function processarPdfSalic({ project_id, file_path, user_id }) {
     if (!project_id || !file_path) {
-        return res.status(400).json({ error: 'Parâmetros obrigatórios: project_id, file_path.' });
+        return { http: 400, body: { error: 'Parâmetros obrigatórios: project_id, file_path.' } };
     }
 
     const ocr = configurarOcr('MISTRAL_API_KEY não configurada no servidor.');
     if (ocr.erro) {
-        return res.status(500).json({ error: ocr.erro });
+        return { http: 500, body: { error: ocr.erro } };
     }
 
     let import_id = null;
@@ -1795,7 +1794,7 @@ app.post('/api/m2/processar-pdf-salic', async (req, res) => {
         await persistirDadosSalic(jsonParsed, { project_id, organization_id, import_id });
 
         console.log(`[SALIC-PDF] Importação ${import_id} concluída com sucesso.`);
-        return res.json({ success: true, data: jsonParsed, import_id });
+        return { http: 200, body: { success: true, data: jsonParsed, import_id } };
 
     } catch (error) {
         console.error('[SALIC-PDF] Erro:', error.message);
@@ -1804,8 +1803,17 @@ app.post('/api/m2/processar-pdf-salic', async (req, res) => {
                 .update({ status: 'erro', erro_mensagem: error.message })
                 .eq('id', import_id);
         }
-        return res.status(500).json({ error: error.message });
+        return { http: 500, body: { error: error.message } };
     }
+}
+
+app.post('/api/m2/processar-pdf-salic', async (req, res) => {
+    req.setTimeout(120000);
+    res.setTimeout(120000);
+
+    const { project_id, file_path, user_id } = req.body || {};
+    const r = await processarPdfSalic({ project_id, file_path, user_id });
+    return res.status(r.http).json(r.body);
 });
 
 /**
@@ -3747,47 +3755,89 @@ app.get('/api/suporte/projetos/:id/guias', requireAuth, requireSuporte, async (r
     res.json({ guias: data || [] });
 });
 
-// SPEC-SUPORTE-02 (3) — busca global. organization_id costuma ser não-nulo,
-// mas o .filter(Boolean) evita passar null pro .in() se algum registro
-// legado não tiver.
+// SPEC-SUPORTE-02 (3) + SPEC-SUPORTE-03 (3.13) — busca global. organization_id
+// costuma ser não-nulo, mas o .filter(Boolean) evita passar null pro .in() se
+// algum registro legado não tiver. Acrescenta documentos (nome do arquivo,
+// número da NF, id) e usuários (e-mail).
 app.get('/api/suporte/buscar', requireAuth, requireSuporte, async (req, res) => {
     const q = (req.query.q || '').trim();
     if (q.length < 3) return res.json({ resultados: [] });
 
     const soDigitos = q.replace(/\D/g, '');
+    const ehUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(q);
+    const colsDoc = 'id, name, numero_nf, status, tipo_documento, project_id, organization_id';
 
     try {
         // .not('organization_id', 'is', null): existem projetos legados órfãos
         // em produção (organization_id nulo) — sem esse filtro, um resultado
         // clicável levaria pra uma organização inexistente e quebraria a
         // navegação (mesmo problema resolvido no endpoint de audit-log).
-        const [projetosPorNome, projetosPorPronac, fornecedoresPorCnpj, fornecedoresPorNome] = await Promise.all([
+        const [projetosPorNome, projetosPorPronac, fornecedoresPorCnpj, fornecedoresPorNome, docsPorNome, docsPorNf, docsPorId, usuarios] = await Promise.all([
             supabase.from('projects').select('id, pronac, nome, organization_id').not('organization_id', 'is', null).ilike('nome', `%${q}%`).limit(10),
             soDigitos ? supabase.from('projects').select('id, pronac, nome, organization_id').not('organization_id', 'is', null).ilike('pronac', `%${soDigitos}%`).limit(10) : Promise.resolve({ data: [] }),
             soDigitos.length >= 11 ? supabase.from('fornecedores').select('id, cnpj, razao_social, organization_id').not('organization_id', 'is', null).eq('cnpj', soDigitos).limit(10) : Promise.resolve({ data: [] }),
             supabase.from('fornecedores').select('id, cnpj, razao_social, organization_id').not('organization_id', 'is', null).ilike('razao_social', `%${q}%`).limit(10),
+            supabase.from('documents').select(colsDoc).ilike('name', `%${q}%`).limit(15),
+            supabase.from('documents').select(colsDoc).ilike('numero_nf', `%${q}%`).limit(15),
+            ehUuid ? supabase.from('documents').select(colsDoc).eq('id', q).limit(1) : Promise.resolve({ data: [] }),
+            buscarUsuariosPorEmail(q)
         ]);
+
+        const documentos = [];
+        const vistosDoc = new Set();
+        for (const d of [...(docsPorId.data || []), ...(docsPorNome.data || []), ...(docsPorNf.data || [])]) {
+            if (vistosDoc.has(d.id)) continue;
+            vistosDoc.add(d.id);
+            documentos.push(d);
+        }
 
         // Resolver organization_id -> nome da organização pra cada resultado,
         // buscando as organizações envolvidas de uma vez (evitar N+1).
+        const projDocs = await mapaProjetos(documentos.map(d => d.project_id));
         const orgIds = [...new Set([
             ...(projetosPorNome.data || []), ...(projetosPorPronac.data || []),
-            ...(fornecedoresPorCnpj.data || []), ...(fornecedoresPorNome.data || [])
-        ].map(r => r.organization_id).filter(Boolean))];
-        const { data: orgs } = orgIds.length
-            ? await supabase.from('organizations').select('id, nome').in('id', orgIds)
-            : { data: [] };
-        const nomeOrg = Object.fromEntries((orgs || []).map(o => [o.id, o.nome]));
+            ...(fornecedoresPorCnpj.data || []), ...(fornecedoresPorNome.data || []),
+            ...documentos.map(d => d.organization_id || projDocs[d.project_id]?.organization_id),
+            ...usuarios.map(u => u.organization_id)
+        ].map(r => (r && typeof r === 'object') ? r.organization_id : r).filter(Boolean))];
+        const nomeOrg = await mapaOrganizacoes(orgIds);
 
         res.json({
             projetos: [...(projetosPorNome.data || []), ...(projetosPorPronac.data || [])].map(p => ({ ...p, organizacao: nomeOrg[p.organization_id] })),
             fornecedores: [...(fornecedoresPorCnpj.data || []), ...(fornecedoresPorNome.data || [])].map(f => ({ ...f, organizacao: nomeOrg[f.organization_id] })),
+            documentos: documentos.map(d => {
+                const orgId = d.organization_id || projDocs[d.project_id]?.organization_id || null;
+                const p = projDocs[d.project_id];
+                return { ...d, organization_id: orgId, organizacao: nomeOrg[orgId] || null, projeto: p ? { id: p.id, pronac: p.pronac, nome: p.nome } : null };
+            }),
+            usuarios: usuarios.map(u => ({ ...u, organizacao: nomeOrg[u.organization_id] || null }))
         });
     } catch (err) {
         console.error('[SUPORTE] buscar:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
+
+// Usuários cujo e-mail contém o texto. O Auth não tem filtro por e-mail:
+// varre até 5 páginas de 1000 contas.
+async function buscarUsuariosPorEmail(q) {
+    if (!q.includes('@') && q.length < 4) return [];
+    const alvo = q.toLowerCase();
+    const achados = [];
+    for (let pagina = 1; pagina <= 5 && achados.length < 10; pagina++) {
+        const { data, error } = await supabase.auth.admin.listUsers({ page: pagina, perPage: 1000 });
+        if (error || !data?.users?.length) break;
+        for (const u of data.users) {
+            if ((u.email || '').toLowerCase().includes(alvo)) achados.push({ id: u.id, email: u.email, role: u.app_metadata?.role || null });
+            if (achados.length >= 10) break;
+        }
+        if (data.users.length < 1000) break;
+    }
+    if (!achados.length) return [];
+    const { data: vinculos } = await supabase.from('organization_users').select('user_id, organization_id').in('user_id', achados.map(a => a.id));
+    const orgDe = Object.fromEntries((vinculos || []).map(v => [v.user_id, v.organization_id]));
+    return achados.map(a => ({ ...a, organization_id: orgDe[a.id] || null }));
+}
 
 // SPEC-SUPORTE-02 (4) — status dos crons/RPA. cron.job_run_details vive fora
 // do schema public; suporte_status_crons() é a ponte (SQL aplicado à parte,
@@ -3802,7 +3852,7 @@ app.get('/api/suporte/sistema/crons', requireAuth, requireSuporte, async (req, r
 // Só é aceitável porque grava em audit_log quem fez, quando, em qual conta —
 // isso é o que torna a exceção aceitável. Mesmo padrão de
 // criar-analista/criar-acesso-fornecedor: senha temporária + must_change_password.
-app.post('/api/suporte/usuarios/:id/resetar-senha', requireAuth, requireSuporte, async (req, res) => {
+app.post('/api/suporte/usuarios/:id/resetar-senha', requireAuth, requireSuporte, exigirMotivo, async (req, res) => {
     const { password } = req.body || {};
     if (!password || password.length < 6) {
         return res.status(400).json({ error: 'Senha precisa ter pelo menos 6 caracteres.' });
@@ -3821,14 +3871,12 @@ app.post('/api/suporte/usuarios/:id/resetar-senha', requireAuth, requireSuporte,
         if (updateErr) throw updateErr;
 
         // Obrigatório — é isso que torna essa exceção de escrita aceitável.
-        await supabase.from('audit_log').insert({
+        await auditar(req, {
             tabela: 'auth.users',
             registro_id: userId,
             campo: 'senha_resetada_por_suporte',
             valor_anterior: null,
-            valor_novo: userData.user.email,
-            alterado_por: req.user.id,
-            origem: 'suporte_ui'
+            valor_novo: userData.user.email
         });
 
         res.json({ ok: true, email: userData.user.email });
@@ -3873,7 +3921,7 @@ async function payloadOcrNf(doc) {
 //   planilha_orcamentaria  -> uploadrubricas (síncrono; responde {success,...})
 // Reimportar planilha gera nova versão de rubricas e pode desativar rubricas
 // que saíram dela — por isso só a planilha mais recente do projeto é aceita.
-app.post('/api/suporte/documentos/:id/reprocessar-ocr', requireAuth, requireSuporte, async (req, res) => {
+app.post('/api/suporte/documentos/:id/reprocessar-ocr', requireAuth, requireSuporte, exigirMotivo, async (req, res) => {
     const documentId = req.params.id;
 
     try {
@@ -3891,15 +3939,14 @@ app.post('/api/suporte/documentos/:id/reprocessar-ocr', requireAuth, requireSupo
         });
         if (!avaliacao.permitido) return res.status(409).json({ error: avaliacao.motivo });
 
-        const registrarAuditoria = (valorNovo) => supabase.from('audit_log').insert({
+        const registrarAuditoria = (valorNovo) => auditar(req, {
             tabela: 'documents',
             registro_id: documentId,
             campo: 'ocr_reprocessado_por_suporte',
             valor_anterior: doc.status,
-            valor_novo: valorNovo,
-            alterado_por: req.user.id,
-            origem: 'suporte_ui'
+            valor_novo: valorNovo
         });
+        const ctxEv = { entidade: 'documents', registro_id: documentId, usuario_id: req.user.id, motivo: req.motivo };
 
         await supabase.from('documents').update({
             status: 'processing_ocr',
@@ -3908,32 +3955,32 @@ app.post('/api/suporte/documentos/:id/reprocessar-ocr', requireAuth, requireSupo
         }).eq('id', documentId);
 
         if (avaliacao.esteira === 'importacao_rubricas') {
+            const r = await chamarExterno({ ...ctxEv, acao: 'reimportar_planilha' }, {
+                url: WEBHOOK_IMPORTAR_RUBRICAS,
+                destino: 'n8n:uploadrubricas',
+                timeoutMs: 5 * 60 * 1000,
+                body: {
+                    document_id: doc.id,
+                    project_id: doc.project_id,
+                    user_id: doc.user_id,
+                    file_path: doc.file_path,
+                    bucket: 'documentos'
+                }
+            });
+
             let resultado = null;
             try {
-                const resp = await fetch(WEBHOOK_IMPORTAR_RUBRICAS, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        document_id: doc.id,
-                        project_id: doc.project_id,
-                        user_id: doc.user_id,
-                        file_path: doc.file_path,
-                        bucket: 'documentos'
-                    }),
-                    signal: AbortSignal.timeout(5 * 60 * 1000)
-                });
-                const corpo = await resp.text().catch(() => '');
-                try {
-                    const raw = JSON.parse(corpo);
-                    resultado = Array.isArray(raw) ? raw[0] : raw;
-                } catch (_) { /* corpo vazio ou não JSON */ }
-                if (!resultado || typeof resultado !== 'object' || !('success' in resultado)) {
-                    console.error('[SUPORTE] reimportar planilha: resposta sem corpo utilizável. HTTP', resp.status, corpo.slice(0, 300));
-                    resultado = { success: false, message: 'A importação não devolveu resultado. Verifique a execução no n8n.' };
-                }
-            } catch (e) {
-                console.error('[SUPORTE] reimportar planilha:', e.message);
-                resultado = { success: false, message: 'Sem resposta da importação de rubricas (n8n).' };
+                const raw = JSON.parse(r.corpo);
+                resultado = Array.isArray(raw) ? raw[0] : raw;
+            } catch (_) { /* corpo vazio ou não JSON */ }
+            if (!resultado || typeof resultado !== 'object' || !('success' in resultado)) {
+                console.error('[SUPORTE] reimportar planilha: resposta sem corpo utilizável. HTTP', r.status, (r.corpo || '').slice(0, 300), r.erro || '');
+                resultado = {
+                    success: false,
+                    message: r.status == null
+                        ? 'Sem resposta da importação de rubricas (n8n).'
+                        : 'A importação não devolveu resultado. Verifique a execução no n8n.'
+                };
             }
 
             const ok = resultado.success === true;
@@ -3950,13 +3997,13 @@ app.post('/api/suporte/documentos/:id/reprocessar-ocr', requireAuth, requireSupo
         }
 
         // esteira ocr_nf
-        const n8nResp = await fetch(WEBHOOK_OCR_NF, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(await payloadOcrNf(doc))
+        const r = await chamarExterno({ ...ctxEv, acao: 'reprocessar_ocr' }, {
+            url: WEBHOOK_OCR_NF,
+            destino: 'n8n:cultops-ocr',
+            body: await payloadOcrNf(doc)
         });
-        if (!n8nResp.ok) {
-            console.error('[SUPORTE] reprocessar-ocr: n8n respondeu', n8nResp.status);
+        if (!r.ok) {
+            console.error('[SUPORTE] reprocessar-ocr: n8n respondeu', r.status, r.erro || '');
             // Devolve o status anterior: o documento não entrou na esteira.
             await supabase.from('documents').update({ status: doc.status }).eq('id', documentId);
             return res.status(502).json({ error: 'Não foi possível reenviar o documento para o OCR agora. Tente novamente em instantes.' });
@@ -3973,6 +4020,938 @@ app.post('/api/suporte/documentos/:id/reprocessar-ocr', requireAuth, requireSupo
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SPEC-SUPORTE-03 — Painel de suporte: fila, ficha do documento e ações.
+// Decisões: a única ação que muda o estado de negócio de um documento do
+// cliente é AVANÇAR DOCUMENTO; o suporte nunca dispara envio ao SALIC; toda
+// ação exige motivo (>= 10 caracteres) e fica em audit_log com o motivo.
+// Rotas só de leitura ficam sem motivo. Tudo usa a service role.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const WEBHOOK_VALIDACAO = 'https://automacoes-n8n.infrassys.com/webhook/cultopsvalidation';
+const WEBHOOK_CONCILIACAO = 'https://automacoes-n8n.infrassys.com/webhook/prestai-conciliation';
+const WEBHOOK_CONCILIACAO_LOTE = 'https://automacoes-n8n.infrassys.com/webhook/prestai-conciliation-lote';
+
+// Aplicado a TODO POST de /api/suporte/*. 400 se o motivo tiver menos de 10
+// caracteres; o texto limpo fica em req.motivo.
+function exigirMotivo(req, res, next) {
+    const v = Regras.validarMotivo(req.body && req.body.motivo);
+    if (!v.ok) {
+        return res.status(400).json({
+            error: `Informe o motivo da ação (mínimo de ${Regras.MOTIVO_MINIMO} caracteres; pode ser o número da ocorrência).`
+        });
+    }
+    req.motivo = v.motivo;
+    next();
+}
+
+// Uma linha por chamada externa feita pelas ações do suporte. Nunca derruba a
+// ação: se a tabela ainda não existe (migration pendente), só registra no log.
+async function registrarEvento(ev) {
+    try {
+        const { error } = await supabase.from('processamento_eventos').insert({
+            origem: 'suporte_ui',
+            ...ev,
+            detalhe: ev.detalhe ? String(ev.detalhe).slice(0, 1000) : null
+        });
+        if (error) console.warn('[SUPORTE] registrarEvento:', error.message);
+    } catch (e) {
+        console.warn('[SUPORTE] registrarEvento:', e.message);
+    }
+}
+
+// POST JSON para o n8n com medição de tempo e registro do evento.
+// ctx: { entidade, registro_id, acao, usuario_id, motivo }.
+async function chamarExterno(ctx, { url, destino, body, timeoutMs = 30000 }) {
+    const t0 = Date.now();
+    let status = null, ok = false, detalhe = null, corpo = '';
+    try {
+        const resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(timeoutMs)
+        });
+        status = resp.status;
+        ok = resp.ok;
+        corpo = await resp.text().catch(() => '');
+        if (!ok) detalhe = corpo.slice(0, 300);
+    } catch (e) {
+        detalhe = e.message;
+    }
+    await registrarEvento({
+        entidade: ctx.entidade, registro_id: ctx.registro_id, acao: ctx.acao, destino,
+        usuario_id: ctx.usuario_id, motivo: ctx.motivo,
+        ok, http_status: status, duracao_ms: Date.now() - t0, detalhe
+    });
+    return { ok, status, corpo, erro: detalhe };
+}
+
+// audit_log com origem suporte_ui, quem fez e o motivo. Se a coluna motivo
+// ainda não existe (migration não aplicada), o motivo vai junto de valor_novo
+// para nunca se perder.
+async function auditar(req, a) {
+    const linha = {
+        tabela: a.tabela,
+        registro_id: a.registro_id,
+        campo: a.campo,
+        valor_anterior: a.valor_anterior ?? null,
+        valor_novo: a.valor_novo ?? null,
+        alterado_por: req.user.id,
+        origem: 'suporte_ui',
+        motivo: req.motivo
+    };
+    let { error } = await supabase.from('audit_log').insert(linha);
+    if (error && /motivo/i.test(error.message || '')) {
+        const { motivo, ...resto } = linha;
+        resto.valor_novo = `${resto.valor_novo ?? ''} [motivo: ${motivo}]`;
+        ({ error } = await supabase.from('audit_log').insert(resto));
+    }
+    if (error) console.error('[SUPORTE] auditar:', error.message);
+    return !error;
+}
+
+function dataBr() {
+    return new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+}
+
+// Lê todas as páginas de uma consulta (Postgrest corta em 1000 linhas).
+async function lerTudo(fabrica, pagina = 1000) {
+    const out = [];
+    for (let de = 0; ; de += pagina) {
+        const { data, error } = await fabrica(de, de + pagina - 1);
+        if (error) throw error;
+        out.push(...(data || []));
+        if (!data || data.length < pagina) break;
+    }
+    return out;
+}
+
+function emLotes(lista, tamanho = 150) {
+    const lotes = [];
+    for (let i = 0; i < lista.length; i += tamanho) lotes.push(lista.slice(i, i + tamanho));
+    return lotes;
+}
+
+async function mapaProjetos(ids) {
+    const unicos = [...new Set(ids.filter(Boolean))];
+    const mapa = {};
+    for (const lote of emLotes(unicos)) {
+        const { data } = await supabase.from('projects').select('id, pronac, nome, organization_id').in('id', lote);
+        (data || []).forEach(p => { mapa[p.id] = p; });
+    }
+    return mapa;
+}
+
+async function mapaOrganizacoes(ids) {
+    const unicos = [...new Set(ids.filter(Boolean))];
+    const mapa = {};
+    for (const lote of emLotes(unicos)) {
+        const { data } = await supabase.from('organizations').select('id, nome').in('id', lote);
+        (data || []).forEach(o => { mapa[o.id] = o.nome; });
+    }
+    return mapa;
+}
+
+async function mapaEmails(ids) {
+    const unicos = [...new Set(ids.filter(Boolean))];
+    const mapa = {};
+    await Promise.all(unicos.map(async (id) => {
+        try {
+            const { data } = await supabase.auth.admin.getUserById(id);
+            if (data?.user?.email) mapa[id] = data.user.email;
+        } catch (_) { /* usuário apagado */ }
+    }));
+    return mapa;
+}
+
+// Extrato processado mais recente do projeto (usado em "Refazer conciliação").
+async function extratoProcessadoDoProjeto(projectId) {
+    const { data } = await supabase
+        .from('extratos')
+        .select('id, file_path, periodo_inicio, periodo_fim')
+        .eq('project_id', projectId)
+        .eq('status', 'processado')
+        .order('periodo_fim', { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle();
+    return data || null;
+}
+
+// Nota e comprovante para o payload do webhook de conciliação, igual ao que o
+// app manda: NF em nf_id e o comprovante filho em comprovante_id.
+async function parNfComprovante(doc) {
+    if (doc.tipo_documento === 'comprovante') {
+        return { nf_id: doc.nf_vinculada_id || doc.id, comprovante_id: doc.id };
+    }
+    const { data: filho } = await supabase
+        .from('documents')
+        .select('id')
+        .eq('nf_vinculada_id', doc.id)
+        .eq('tipo_documento', 'comprovante')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+    return { nf_id: doc.id, comprovante_id: filho?.id || null };
+}
+
+function itemFila(entidade, reg, grupo, extra) {
+    const cat = Catalogo.obter(entidade, extra.status) || {};
+    return {
+        entidade,
+        id: reg.id,
+        status: extra.status,
+        rotulo: cat.rotulo || extra.status,
+        grupo,
+        desde: extra.desde || null,
+        tempo_desconhecido: !!extra.tempo_desconhecido,
+        causa: extra.causa || null,
+        detalhe_tecnico: extra.detalhe_tecnico || null,
+        acao_sugerida: cat.proximo_passo || null,
+        nome: extra.nome || null,
+        project_id: extra.project_id || null,
+        organization_id: extra.organization_id || null
+    };
+}
+
+// 3.2 — Fila de atenção, cross-org.
+// Limitação: documents não guarda "desde quando está no status"; usa-se
+// updated_at, que também muda em qualquer outro UPDATE (ex.: just_erro) e
+// portanto pode REINICIAR o relógio de um documento parado.
+app.get('/api/suporte/fila', requireAuth, requireSuporte, async (req, res) => {
+    try {
+        const agora = Date.now();
+        const itens = [];
+
+        const docs = await lerTudo((de, ate) => supabase
+            .from('documents')
+            .select('id, name, status, tipo_documento, project_id, organization_id, updated_at, just_erro')
+            .not('status', 'in', '(enviado_salic,rejeitado_fornecedor,concluido)')
+            .order('updated_at', { ascending: true })
+            .range(de, ate));
+        for (const d of docs) {
+            const grupo = Regras.classificarParaFila('documents', d.status, d.updated_at, agora);
+            if (!grupo) continue;
+            itens.push(itemFila('documents', d, grupo, {
+                status: d.status, desde: d.updated_at, causa: d.just_erro, nome: d.name,
+                project_id: d.project_id, organization_id: d.organization_id
+            }));
+        }
+
+        // select('*'): created_at/updated_at só existem depois da migration.
+        const { data: extratos, error: extErr } = await supabase.from('extratos').select('*').in('status', ['pendente', 'erro']);
+        if (extErr) throw extErr;
+        for (const x of extratos || []) {
+            const desde = x.updated_at || x.created_at || null;
+            let grupo, desconhecido = false;
+            if (x.status === 'erro') grupo = 'erro';
+            else if (!desde) { grupo = 'travado'; desconhecido = true; }
+            else grupo = Regras.classificarParaFila('extratos', x.status, desde, agora);
+            if (!grupo) continue;
+            itens.push(itemFila('extratos', x, grupo, {
+                status: x.status, desde, tempo_desconhecido: desconhecido,
+                nome: (x.file_path || '').split('/').pop(), project_id: x.project_id, organization_id: x.organization_id
+            }));
+        }
+
+        const { data: exps, error: expErr } = await supabase.from('exportacoes_log').select('id, tipo, status, project_id, organization_id, criado_em').eq('status', 'gerando');
+        if (expErr) throw expErr;
+        for (const e of exps || []) {
+            const grupo = Regras.classificarParaFila('exportacoes_log', e.status, e.criado_em, agora);
+            if (!grupo) continue;
+            itens.push(itemFila('exportacoes_log', e, grupo, {
+                status: e.status, desde: e.criado_em, nome: `Exportação ${e.tipo}`,
+                project_id: e.project_id, organization_id: e.organization_id
+            }));
+        }
+
+        // Última captura de saldo de cada projeto; só entra se for erro.
+        const capturas = await lerTudo((de, ate) => supabase
+            .from('saldo_salic_capturas')
+            .select('id, project_id, organization_id, status, erro_mensagem, created_at, concluida_em')
+            .order('created_at', { ascending: false })
+            .range(de, ate));
+        const vistos = new Set();
+        for (const c of capturas) {
+            if (vistos.has(c.project_id)) continue;
+            vistos.add(c.project_id);
+            if (c.status !== 'erro') continue;
+            const t = Regras.traduzirCausaSalic(c.erro_mensagem);
+            itens.push(itemFila('saldo_salic_capturas', c, 'erro', {
+                status: c.status, desde: c.concluida_em || c.created_at, causa: t.causa, detalhe_tecnico: t.detalhe_tecnico,
+                nome: 'Captura de saldo SALIC', project_id: c.project_id, organization_id: c.organization_id
+            }));
+        }
+
+        const { data: evs, error: evErr } = await supabase
+            .from('physical_evidences')
+            .select('id, project_id, organization_id, status_validacao, motivo_reprovacao, tipo_evidencia, file_name, validado_em, criado_em')
+            .eq('status_validacao', 'erro_rpa');
+        if (evErr) throw evErr;
+        for (const v of evs || []) {
+            itens.push(itemFila('physical_evidences', v, 'erro', {
+                status: v.status_validacao, desde: v.validado_em || v.criado_em, causa: v.motivo_reprovacao,
+                nome: `${v.tipo_evidencia || 'Evidência'} — ${v.file_name || ''}`,
+                project_id: v.project_id, organization_id: v.organization_id
+            }));
+        }
+
+        const { data: imps, error: impErr } = await supabase
+            .from('project_salic_imports')
+            .select('id, project_id, organization_id, status, erro_mensagem, created_at, updated_at')
+            .eq('status', 'erro');
+        if (impErr) throw impErr;
+        for (const i of imps || []) {
+            const t = Regras.traduzirCausaSalic(i.erro_mensagem);
+            itens.push(itemFila('project_salic_imports', i, 'erro', {
+                status: i.status, desde: i.updated_at || i.created_at, causa: t.causa, detalhe_tecnico: t.detalhe_tecnico,
+                nome: 'Importação do PDF do projeto SALIC', project_id: i.project_id, organization_id: i.organization_id
+            }));
+        }
+
+        const projetos = await mapaProjetos(itens.map(i => i.project_id));
+        const orgIds = itens.map(i => i.organization_id || projetos[i.project_id]?.organization_id);
+        const orgs = await mapaOrganizacoes(orgIds);
+        for (const it of itens) {
+            const p = projetos[it.project_id];
+            it.organization_id = it.organization_id || p?.organization_id || null;
+            it.organizacao = orgs[it.organization_id] || null;
+            it.projeto = p ? { id: p.id, pronac: p.pronac, nome: p.nome } : null;
+        }
+
+        const ordem = { erro: 0, travado: 1, esperando_cliente: 2 };
+        itens.sort((a, b) => {
+            if (ordem[a.grupo] !== ordem[b.grupo]) return ordem[a.grupo] - ordem[b.grupo];
+            const ta = a.desde ? new Date(a.desde).getTime() : 0;
+            const tb = b.desde ? new Date(b.desde).getTime() : 0;
+            return ta - tb;
+        });
+
+        const contadores = {
+            erro: itens.filter(i => i.grupo === 'erro').length,
+            travado: itens.filter(i => i.grupo === 'travado').length,
+            esperando_cliente_7d: itens.filter(i => i.grupo === 'esperando_cliente').length,
+            integracoes_falha: itens.filter(i => i.entidade !== 'documents' && (i.grupo === 'erro' || i.grupo === 'travado')).length,
+            total: itens.length
+        };
+
+        res.json({
+            itens,
+            contadores,
+            gerado_em: new Date(agora).toISOString(),
+            observacoes: [
+                'Documentos: "desde" é updated_at, que também muda em outras atualizações e pode reiniciar o relógio.',
+                'Extratos antigos não têm data (tempo desconhecido) e aparecem como travados.',
+                'Integrações com falha: extratos, exportações, captura de saldo, evidências e importação de projeto SALIC em erro ou travados.'
+            ]
+        });
+    } catch (err) {
+        console.error('[SUPORTE] fila:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 3.3 — Ficha do documento.
+app.get('/api/suporte/documentos/:id', requireAuth, requireSuporte, async (req, res) => {
+    const id = req.params.id;
+    try {
+        const { data: doc, error: docErr } = await supabase.from('documents').select('*').eq('id', id).maybeSingle();
+        if (docErr) throw docErr;
+        if (!doc) return res.status(404).json({ error: 'Documento não encontrado.' });
+
+        const [despesaR, maeR, filhosR, origemR, lancR, fornR, projR, extratoProc] = await Promise.all([
+            supabase.from('despesas').select('*').eq('document_id', id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+            doc.nf_vinculada_id
+                ? supabase.from('documents').select('id, name, status, tipo_documento, valor, numero_nf').eq('id', doc.nf_vinculada_id).maybeSingle()
+                : Promise.resolve({ data: null }),
+            supabase.from('documents').select('id, name, status, tipo_documento, valor, created_at').eq('nf_vinculada_id', id).order('created_at', { ascending: true }),
+            doc.extrato_origem_id
+                ? supabase.from('extratos').select('*').eq('id', doc.extrato_origem_id).maybeSingle()
+                : Promise.resolve({ data: null }),
+            supabase.from('extratos_lancamentos').select('*').eq('document_id', id).limit(5),
+            doc.fornecedor_id
+                ? supabase.from('fornecedores').select('id, cnpj, razao_social, nome_fantasia, situacao_cadastral, cnae_codigo, cnae_descricao, existe_no_salic, dados_completos').eq('id', doc.fornecedor_id).maybeSingle()
+                : Promise.resolve({ data: null }),
+            doc.project_id
+                ? supabase.from('projects').select('id, pronac, nome, organization_id').eq('id', doc.project_id).maybeSingle()
+                : Promise.resolve({ data: null }),
+            doc.project_id ? extratoProcessadoDoProjeto(doc.project_id) : Promise.resolve(null)
+        ]);
+        const despesa = despesaR.data || null;
+        const projeto = projR.data || null;
+        const orgNome = projeto?.organization_id ? (await mapaOrganizacoes([projeto.organization_id]))[projeto.organization_id] : null;
+
+        // Linha do tempo: auditoria do documento e da despesa.
+        const idsTempo = [id, despesa?.id].filter(Boolean);
+        const { data: audits } = await supabase.from('audit_log').select('*').in('registro_id', idsTempo).order('created_at', { ascending: true }).limit(500);
+        const emails = await mapaEmails((audits || []).map(a => a.alterado_por));
+        const linhaDoTempo = (audits || []).map(a => ({
+            quando: a.created_at,
+            tabela: a.tabela,
+            campo: a.campo,
+            de: a.valor_anterior,
+            para: a.valor_novo,
+            quem: a.alterado_por ? (emails[a.alterado_por] || a.alterado_por) : null,
+            origem: a.origem,
+            motivo: a.motivo || null
+        }));
+
+        // processamento_eventos pode ainda não existir (migration pendente).
+        let eventos = [];
+        try {
+            const { data: ev, error: evErr } = await supabase.from('processamento_eventos').select('*').eq('registro_id', id).order('criado_em', { ascending: true }).limit(200);
+            if (!evErr) eventos = ev || [];
+        } catch (_) { /* tabela ausente */ }
+
+        let arquivoUrl = null;
+        if (doc.file_path) {
+            if (/^https?:\/\//i.test(doc.file_path)) arquivoUrl = doc.file_path;
+            else {
+                const { data: assinada } = await supabase.storage.from('documentos').createSignedUrl(doc.file_path, 600);
+                arquivoUrl = assinada?.signedUrl || null;
+            }
+        }
+
+        // Ações: sempre listadas, com habilitada e motivo do bloqueio.
+        const agora = Date.now();
+        const ctxRep = await contextoReprocesso([doc]);
+        const rep = avaliarReprocesso(doc, { temDespesa: ctxRep.docsComDespesa.has(doc.id), planilhaMaisRecentePorProjeto: ctxRep.planilhaMaisRecentePorProjeto });
+        const ehPlanilha = doc.tipo_documento === 'planilha_orcamentaria';
+        const acaoOcr = ehPlanilha
+            ? { habilitada: false, motivo_bloqueio: 'Planilha orçamentária usa "Reimportar planilha".' }
+            : { habilitada: rep.permitido, motivo_bloqueio: rep.permitido ? null : rep.motivo };
+        const acaoPlanilha = !ehPlanilha
+            ? { habilitada: false, motivo_bloqueio: 'Só vale para planilha orçamentária.' }
+            : { habilitada: rep.permitido, motivo_bloqueio: rep.permitido ? null : rep.motivo };
+        const avancar = Regras.regraAvancar(doc);
+        const conc = Regras.avaliarRefazerConciliacao(doc, { existeExtratoProcessado: !!extratoProc });
+
+        const cat = Catalogo.obter('documents', doc.status);
+        const minutos = Catalogo.minutosDesde(doc.updated_at, agora);
+
+        res.json({
+            documento: doc,
+            situacao: {
+                status: doc.status,
+                rotulo: cat?.rotulo || doc.status,
+                grupo: Catalogo.grupoEfetivo('documents', doc.status, doc.updated_at, agora),
+                explicacao: cat?.explicacao || null,
+                proximo_passo: cat?.proximo_passo || null,
+                minutos_no_status: minutos == null ? null : Math.floor(minutos)
+            },
+            projeto: projeto ? { ...projeto, organizacao: orgNome } : null,
+            despesa,
+            nf_mae: maeR.data || null,
+            comprovantes_filhos: filhosR.data || [],
+            extrato_origem: origemR.data || null,
+            lancamentos_conciliados: lancR.data || [],
+            fornecedor: fornR.data || null,
+            linha_do_tempo: linhaDoTempo,
+            eventos_processamento: eventos,
+            arquivo_url: arquivoUrl,
+            acoes: {
+                reprocessar_ocr: acaoOcr,
+                reimportar_planilha: acaoPlanilha,
+                revalidar_conformidade: Regras.avaliarRevalidar(doc, agora),
+                avancar: { habilitada: avancar.habilitada, motivo_bloqueio: avancar.motivo_bloqueio, destino: avancar.destino, efeito: avancar.efeito },
+                refazer_conciliacao: {
+                    ...conc,
+                    extrato_usado: doc.extrato_origem_id ? 'extrato de origem do lote' : (extratoProc ? `extrato ${extratoProc.id} (${extratoProc.periodo_inicio || '?'} a ${extratoProc.periodo_fim || '?'})` : null)
+                }
+            }
+        });
+    } catch (err) {
+        console.error('[SUPORTE] ficha documento:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 3.4 — Avançar documento. Mapa permitido em Regras.MAPA_AVANCAR; nada fora dele.
+app.post('/api/suporte/documentos/:id/avancar', requireAuth, requireSuporte, exigirMotivo, async (req, res) => {
+    const id = req.params.id;
+    try {
+        const { data: doc, error: getErr } = await supabase
+            .from('documents')
+            .select('id, status, tipo_documento, cnpj_emissor, extrato_origem_id, project_id')
+            .eq('id', id)
+            .maybeSingle();
+        if (getErr) throw getErr;
+        if (!doc) return res.status(404).json({ error: 'Documento não encontrado.' });
+
+        const regra = Regras.regraAvancar(doc);
+        if (!regra.habilitada) return res.status(409).json({ error: regra.motivo_bloqueio });
+
+        const texto = `[OVERRIDE SUPORTE] Suporte avançou manualmente de "${doc.status}" para "${regra.destino}" em ${dataBr()}.`;
+        // .eq('status'): só avança se ninguém mexeu no documento entretanto.
+        const { data: atualizado, error: updErr } = await supabase
+            .from('documents')
+            .update({ status: regra.destino, just_erro: texto })
+            .eq('id', id)
+            .eq('status', doc.status)
+            .select('id, status');
+        if (updErr) throw updErr;
+        if (!atualizado || !atualizado.length) {
+            return res.status(409).json({ error: 'O status do documento mudou enquanto você confirmava. Recarregue a ficha.' });
+        }
+        // Um trigger pode converter o destino (aguardando_comprovante vira
+        // aguardando_conciliacao_bancaria): o status real é o devolvido.
+        const statusFinal = atualizado[0].status;
+
+        await auditar(req, {
+            tabela: 'documents', registro_id: id, campo: 'avanco_forcado_por_suporte',
+            valor_anterior: doc.status, valor_novo: statusFinal
+        });
+
+        const ctxEv = { entidade: 'documents', registro_id: id, acao: 'avancar', usuario_id: req.user.id, motivo: req.motivo };
+        const resposta = { ok: true, status_anterior: doc.status, status_novo: statusFinal };
+
+        if (doc.status === 'revisao_manual') {
+            // Mesmo payload de handleForcarAvanco (app.js): sem isto o documento
+            // fica "em auditoria" sem ser auditado.
+            const r = await chamarExterno(ctxEv, {
+                url: WEBHOOK_VALIDACAO, destino: 'n8n:cultopsvalidation',
+                body: { document_id: id, cnpj_fornecedor: doc.cnpj_emissor }
+            });
+            resposta.validacao_disparada = r.ok;
+            if (!r.ok) resposta.aviso = 'O documento avançou, mas o n8n não aceitou o disparo da validação. Use "Revalidar conformidade" após 5 min.';
+        }
+
+        if (doc.status === 'bloqueado_conformidade' && doc.extrato_origem_id) {
+            const t0 = Date.now();
+            let r;
+            try {
+                r = await conciliarNotaAutoLote(id, { actorId: req.user.id });
+            } catch (e) {
+                r = { http: 500, body: { error: e.message } };
+            }
+            await registrarEvento({
+                ...ctxEv, destino: 'interno:conciliacao-auto-lote', ok: r.http === 200,
+                http_status: r.http, duracao_ms: Date.now() - t0, detalhe: JSON.stringify(r.body)
+            });
+            resposta.conciliacao_auto_lote = r.body;
+            if (r.body?.conciliado) resposta.status_novo = 'aguardando_d3';
+        }
+
+        res.json(resposta);
+    } catch (err) {
+        console.error('[SUPORTE] avancar:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 3.5 — Revalidar conformidade. NÃO muda o status (o app muda para
+// processing_ocr, o que colide com os crons de OCR); só refaz o disparo.
+app.post('/api/suporte/documentos/:id/revalidar-conformidade', requireAuth, requireSuporte, exigirMotivo, async (req, res) => {
+    const id = req.params.id;
+    try {
+        const { data: doc, error: getErr } = await supabase
+            .from('documents')
+            .select('id, status, updated_at, cnpj_emissor, rubrica_id_fk, rubrica')
+            .eq('id', id)
+            .maybeSingle();
+        if (getErr) throw getErr;
+        if (!doc) return res.status(404).json({ error: 'Documento não encontrado.' });
+
+        const av = Regras.avaliarRevalidar(doc, Date.now());
+        if (!av.habilitada) return res.status(409).json({ error: av.motivo_bloqueio });
+
+        // Payload de handleReprocessarDocumentoTravado (app.js), caso aguardando_conformidade.
+        const r = await chamarExterno(
+            { entidade: 'documents', registro_id: id, acao: 'revalidar_conformidade', usuario_id: req.user.id, motivo: req.motivo },
+            {
+                url: WEBHOOK_VALIDACAO, destino: 'n8n:cultopsvalidation',
+                body: { document_id: id, cnpj_fornecedor: doc.cnpj_emissor, rubrica_id: doc.rubrica_id_fk, rubrica_nome: doc.rubrica }
+            }
+        );
+        if (!r.ok) {
+            return res.status(502).json({ error: 'Não foi possível reenviar o documento para a validação agora. Tente novamente em instantes.' });
+        }
+
+        await auditar(req, {
+            tabela: 'documents', registro_id: id, campo: 'conformidade_revalidada_por_suporte',
+            valor_anterior: doc.status, valor_novo: doc.status
+        });
+        res.json({ ok: true, status: doc.status });
+    } catch (err) {
+        console.error('[SUPORTE] revalidar-conformidade:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 3.6 — Refazer conciliação.
+//  - com extrato_origem_id: lógica de /api/conciliacao/auto-lote;
+//  - sem: webhook de conciliação com o payload que o app manda ao subir
+//    extrato, reaproveitando o extrato processado mais recente do projeto.
+app.post('/api/suporte/documentos/:id/refazer-conciliacao', requireAuth, requireSuporte, exigirMotivo, async (req, res) => {
+    const id = req.params.id;
+    try {
+        const { data: doc, error: getErr } = await supabase
+            .from('documents')
+            .select('id, status, project_id, tipo_documento, nf_vinculada_id, extrato_origem_id')
+            .eq('id', id)
+            .maybeSingle();
+        if (getErr) throw getErr;
+        if (!doc) return res.status(404).json({ error: 'Documento não encontrado.' });
+
+        const extrato = doc.project_id ? await extratoProcessadoDoProjeto(doc.project_id) : null;
+        const av = Regras.avaliarRefazerConciliacao(doc, { existeExtratoProcessado: !!extrato });
+        if (!av.habilitada) return res.status(409).json({ error: av.motivo_bloqueio });
+
+        const ctxEv = { entidade: 'documents', registro_id: id, acao: 'refazer_conciliacao', usuario_id: req.user.id, motivo: req.motivo };
+
+        if (doc.extrato_origem_id) {
+            const t0 = Date.now();
+            let r;
+            try {
+                r = await conciliarNotaAutoLote(id, { actorId: req.user.id });
+            } catch (e) {
+                r = { http: 500, body: { error: e.message } };
+            }
+            await registrarEvento({
+                ...ctxEv, destino: 'interno:conciliacao-auto-lote', ok: r.http === 200,
+                http_status: r.http, duracao_ms: Date.now() - t0, detalhe: JSON.stringify(r.body)
+            });
+            if (r.http !== 200) return res.status(r.http >= 500 ? 502 : r.http).json({ error: r.body?.error || 'Falha na conciliação.' });
+            await auditar(req, {
+                tabela: 'documents', registro_id: id, campo: 'conciliacao_refeita_por_suporte',
+                valor_anterior: doc.status, valor_novo: r.body.conciliado ? 'conciliado' : `sem conciliação: ${r.body.motivo}`
+            });
+            return res.json({ ok: true, via: 'auto-lote', ...r.body });
+        }
+
+        // Mesmo que o "Substituir Extrato" do app: a nota em divergência volta
+        // para aguardando_conciliacao_bancaria antes do disparo.
+        const divergente = doc.status !== 'aguardando_conciliacao_bancaria';
+        if (divergente) {
+            const { data: reset, error: resetErr } = await supabase
+                .from('documents')
+                .update({ status: 'aguardando_conciliacao_bancaria', just_erro: null })
+                .eq('id', id).eq('status', doc.status).select('id');
+            if (resetErr) throw resetErr;
+            if (!reset || !reset.length) return res.status(409).json({ error: 'O status do documento mudou. Recarregue a ficha.' });
+        }
+
+        const par = await parNfComprovante(doc);
+        const r = await chamarExterno(ctxEv, {
+            url: WEBHOOK_CONCILIACAO, destino: 'n8n:prestai-conciliation',
+            body: {
+                extrato_id: extrato.id,
+                document_id: extrato.id,
+                nf_id: par.nf_id,
+                comprovante_id: par.comprovante_id,
+                file_path: extrato.file_path,
+                bucket: 'documentos',
+                project_id: doc.project_id
+            }
+        });
+        if (!r.ok) {
+            if (divergente) await supabase.from('documents').update({ status: doc.status }).eq('id', id);
+            return res.status(502).json({ error: 'Não foi possível reenviar a conciliação ao n8n agora. Tente novamente em instantes.' });
+        }
+
+        await auditar(req, {
+            tabela: 'documents', registro_id: id, campo: 'conciliacao_refeita_por_suporte',
+            valor_anterior: doc.status, valor_novo: divergente ? 'aguardando_conciliacao_bancaria' : doc.status
+        });
+        res.json({ ok: true, via: 'webhook', extrato_id: extrato.id });
+    } catch (err) {
+        console.error('[SUPORTE] refazer-conciliacao:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 3.7 — Extratos do projeto.
+app.get('/api/suporte/projetos/:id/extratos', requireAuth, requireSuporte, async (req, res) => {
+    try {
+        const agora = Date.now();
+        const { data: extratos, error } = await supabase
+            .from('extratos')
+            .select('*')
+            .eq('project_id', req.params.id)
+            .order('periodo_fim', { ascending: false, nullsFirst: false });
+        if (error) throw error;
+
+        const lancs = await lerTudo((de, ate) => supabase
+            .from('extratos_lancamentos')
+            .select('extrato_id, status_conciliacao')
+            .eq('project_id', req.params.id)
+            .range(de, ate));
+        const total = {}, conciliados = {};
+        for (const l of lancs) {
+            total[l.extrato_id] = (total[l.extrato_id] || 0) + 1;
+            if (l.status_conciliacao === 'conciliado') conciliados[l.extrato_id] = (conciliados[l.extrato_id] || 0) + 1;
+        }
+
+        res.json({
+            extratos: (extratos || []).map(x => {
+                const desde = x.updated_at || x.created_at || null;
+                const av = Regras.avaliarReprocessarExtrato(x, agora);
+                return {
+                    id: x.id,
+                    arquivo: (x.file_path || '').split('/').pop(),
+                    formato: x.formato,
+                    periodo_inicio: x.periodo_inicio,
+                    periodo_fim: x.periodo_fim,
+                    status: x.status,
+                    grupo: x.status === 'pendente' && !desde ? 'travado' : Catalogo.grupoEfetivo('extratos', x.status, desde, agora),
+                    desde,
+                    tempo_desconhecido: !desde,
+                    lancamentos: total[x.id] || 0,
+                    conciliados: conciliados[x.id] || 0,
+                    reprocessar: { habilitada: av.habilitada, motivo_bloqueio: av.motivo_bloqueio, tempo_desconhecido: av.tempo_desconhecido }
+                };
+            })
+        });
+    } catch (err) {
+        console.error('[SUPORTE] extratos:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Reprocessar extrato: payload do upload em lote (extrato_id, project_id,
+// file_path, bucket). O app tem dois webhooks conforme o fluxo de origem, e o
+// banco não registra qual foi usado; o de lote é o único que não exige nota.
+app.post('/api/suporte/extratos/:id/reprocessar', requireAuth, requireSuporte, exigirMotivo, async (req, res) => {
+    const id = req.params.id;
+    try {
+        const { data: x, error: getErr } = await supabase.from('extratos').select('*').eq('id', id).maybeSingle();
+        if (getErr) throw getErr;
+        if (!x) return res.status(404).json({ error: 'Extrato não encontrado.' });
+
+        const av = Regras.avaliarReprocessarExtrato(x, Date.now());
+        if (!av.habilitada) return res.status(409).json({ error: av.motivo_bloqueio });
+
+        const r = await chamarExterno(
+            { entidade: 'extratos', registro_id: id, acao: 'reprocessar_extrato', usuario_id: req.user.id, motivo: req.motivo },
+            {
+                url: WEBHOOK_CONCILIACAO_LOTE, destino: 'n8n:prestai-conciliation-lote',
+                body: { extrato_id: id, project_id: x.project_id, file_path: x.file_path, bucket: 'documentos' }
+            }
+        );
+        if (!r.ok) return res.status(502).json({ error: 'Não foi possível reenviar o extrato ao n8n agora. Tente novamente em instantes.' });
+
+        // Volta a "pendente" (reinicia o relógio de 30 min); o n8n fecha em processado/erro.
+        await supabase.from('extratos').update({ status: 'pendente' }).eq('id', id);
+        await auditar(req, {
+            tabela: 'extratos', registro_id: id, campo: 'extrato_reprocessado_por_suporte',
+            valor_anterior: x.status, valor_novo: 'pendente'
+        });
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('[SUPORTE] extrato reprocessar:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 3.8 — Encerrar exportação travada.
+app.post('/api/suporte/exportacoes/:id/encerrar', requireAuth, requireSuporte, exigirMotivo, async (req, res) => {
+    const id = req.params.id;
+    try {
+        const { data: exp, error: getErr } = await supabase.from('exportacoes_log').select('id, status, criado_em, tipo').eq('id', id).maybeSingle();
+        if (getErr) throw getErr;
+        if (!exp) return res.status(404).json({ error: 'Exportação não encontrada.' });
+
+        const av = Regras.avaliarEncerrarExportacao(exp, Date.now());
+        if (!av.habilitada) return res.status(409).json({ error: av.motivo_bloqueio });
+
+        const { data: upd, error: updErr } = await supabase
+            .from('exportacoes_log').update({ status: 'erro' }).eq('id', id).eq('status', 'gerando').select('id');
+        if (updErr) throw updErr;
+        if (!upd || !upd.length) return res.status(409).json({ error: 'A exportação mudou de status. Recarregue.' });
+
+        await auditar(req, {
+            tabela: 'exportacoes_log', registro_id: id, campo: 'exportacao_encerrada_por_suporte',
+            valor_anterior: 'gerando', valor_novo: 'erro'
+        });
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('[SUPORTE] exportacao encerrar:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 3.9 — Saldo SALIC (leitura). A recaptura NÃO é uma rota: o worker usa a
+// credencial SALIC do usuário que aciona (decrypted_external_credentials
+// pelo user_id do token) e o suporte não tem uma. A ação aparece bloqueada,
+// com o motivo, em "recaptura".
+app.get('/api/suporte/projetos/:id/saldo-salic', requireAuth, requireSuporte, async (req, res) => {
+    try {
+        const agora = Date.now();
+        const { data: capturas, error } = await supabase
+            .from('saldo_salic_capturas')
+            .select('*')
+            .eq('project_id', req.params.id)
+            .order('created_at', { ascending: false })
+            .limit(10);
+        if (error) throw error;
+
+        const { count: abertas } = await supabase
+            .from('saldo_salic_divergencias')
+            .select('id', { count: 'exact', head: true })
+            .eq('project_id', req.params.id)
+            .eq('status', 'aberta');
+
+        // Última importação do PDF do projeto SALIC (causa traduzida + reimportar).
+        const { data: ultimaImp } = await supabase
+            .from('project_salic_imports')
+            .select('id, status, file_path, erro_mensagem, created_at, updated_at')
+            .eq('project_id', req.params.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        let importacao = null;
+        if (ultimaImp) {
+            const t = Regras.traduzirCausaSalic(ultimaImp.erro_mensagem);
+            const av = Regras.avaliarReimportarProjetoSalic(ultimaImp);
+            importacao = {
+                id: ultimaImp.id,
+                status: ultimaImp.status,
+                created_at: ultimaImp.created_at,
+                updated_at: ultimaImp.updated_at,
+                causa: t.causa,
+                detalhe_tecnico: t.detalhe_tecnico,
+                reimportar: av
+            };
+        }
+
+        const lista = (capturas || []).map(c => {
+            const t = Regras.traduzirCausaSalic(c.erro_mensagem);
+            return {
+                id: c.id,
+                status: c.status,
+                grupo: Catalogo.grupoEfetivo('saldo_salic_capturas', c.status, c.iniciada_em || c.created_at, agora),
+                iniciada_em: c.iniciada_em || c.created_at,
+                concluida_em: c.concluida_em,
+                total_linhas: c.total_linhas,
+                causa: t.causa,
+                detalhe_tecnico: t.detalhe_tecnico
+            };
+        });
+        res.json({
+            capturas: lista,
+            divergencias_abertas: abertas || 0,
+            importacao_projeto: importacao,
+            recaptura: Regras.avaliarRecapturaSaldo((capturas || [])[0])
+        });
+    } catch (err) {
+        console.error('[SUPORTE] saldo-salic:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 3.10 — Reimportar o PDF do projeto SALIC a partir da última importação.
+app.post('/api/suporte/projetos/:id/reimportar-projeto-salic', requireAuth, requireSuporte, exigirMotivo, async (req, res) => {
+    req.setTimeout(300000);
+    res.setTimeout(300000);
+    const projectId = req.params.id;
+    try {
+        const { data: ultima, error } = await supabase
+            .from('project_salic_imports')
+            .select('id, status, file_path, importado_por')
+            .eq('project_id', projectId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        if (error) throw error;
+
+        const av = Regras.avaliarReimportarProjetoSalic(ultima);
+        if (!av.habilitada) return res.status(409).json({ error: av.motivo_bloqueio });
+
+        const t0 = Date.now();
+        const r = await processarPdfSalic({ project_id: projectId, file_path: ultima.file_path, user_id: ultima.importado_por });
+        await registrarEvento({
+            entidade: 'project_salic_imports', registro_id: ultima.id, acao: 'reimportar_projeto_salic',
+            destino: 'interno:processar-pdf-salic', usuario_id: req.user.id, motivo: req.motivo,
+            ok: r.http === 200, http_status: r.http, duracao_ms: Date.now() - t0,
+            detalhe: r.http === 200 ? null : r.body?.error
+        });
+        await auditar(req, {
+            tabela: 'projects', registro_id: projectId, campo: 'projeto_salic_reimportado_por_suporte',
+            valor_anterior: ultima.status, valor_novo: r.http === 200 ? 'processado' : 'erro'
+        });
+        if (r.http !== 200) {
+            const t = Regras.traduzirCausaSalic(r.body?.error);
+            return res.status(502).json({ error: t.causa || 'A reimportação falhou.', detalhe_tecnico: t.detalhe_tecnico });
+        }
+        res.json({ ok: true, import_id: r.body.import_id });
+    } catch (err) {
+        console.error('[SUPORTE] reimportar-projeto-salic:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 3.11 — Evidências do projeto (somente leitura).
+app.get('/api/suporte/projetos/:id/evidencias', requireAuth, requireSuporte, async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('physical_evidences')
+            .select('id, tipo_evidencia, file_name, status_validacao, motivo_reprovacao, ia_categoria, ia_score, criado_em, enviada_salic_em')
+            .eq('project_id', req.params.id)
+            .order('criado_em', { ascending: false });
+        if (error) throw error;
+        res.json({
+            evidencias: (data || []).map(e => ({
+                id: e.id,
+                tipo: e.tipo_evidencia,
+                arquivo: e.file_name,
+                status: e.status_validacao,
+                motivo: e.motivo_reprovacao,
+                ia_categoria: e.ia_categoria,
+                ia_score: e.ia_score,
+                criado_em: e.criado_em,
+                enviada_salic_em: e.enviada_salic_em
+            }))
+        });
+    } catch (err) {
+        console.error('[SUPORTE] evidencias:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 3.12 — Saúde: crons, worker do SALIC e falhas por destino (24 h).
+app.get('/api/suporte/sistema/saude', requireAuth, requireSuporte, async (req, res) => {
+    try {
+        const [cronsR, worker, eventos] = await Promise.all([
+            supabase.rpc('suporte_status_crons'),
+            (async () => {
+                const url = process.env.RAILWAY_URL;
+                if (!url) return { configurado: false, ok: false, detalhe: 'RAILWAY_URL não configurada.' };
+                const t0 = Date.now();
+                try {
+                    const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
+                    return { configurado: true, ok: resp.ok, http_status: resp.status, duracao_ms: Date.now() - t0 };
+                } catch (e) {
+                    return { configurado: true, ok: false, duracao_ms: Date.now() - t0, detalhe: e.name === 'TimeoutError' ? 'Sem resposta em 5 s.' : e.message };
+                }
+            })(),
+            (async () => {
+                const desde = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+                const { data, error } = await supabase.from('processamento_eventos').select('destino, ok').gte('criado_em', desde).limit(10000);
+                if (error) return { disponivel: false, detalhe: error.message, destinos: [] };
+                const por = {};
+                (data || []).forEach(e => {
+                    const d = por[e.destino || '—'] || (por[e.destino || '—'] = { destino: e.destino || '—', total: 0, falhas: 0 });
+                    d.total++;
+                    if (e.ok === false) d.falhas++;
+                });
+                return {
+                    disponivel: true,
+                    destinos: Object.values(por).map(d => ({ ...d, taxa_falha: d.total ? d.falhas / d.total : 0 }))
+                };
+            })()
+        ]);
+        res.json({
+            crons: cronsR.error ? [] : (cronsR.data || []),
+            crons_erro: cronsR.error ? cronsR.error.message : null,
+            worker,
+            falhas_24h: eventos
+        });
+    } catch (err) {
+        console.error('[SUPORTE] saude:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/conciliacao/auto-lote
 // Concilia automaticamente uma nota que veio de um lote COM extrato vinculado
 // (documents.extrato_origem_id), dentro do universo fechado daquele extrato:
@@ -3981,134 +4960,143 @@ app.post('/api/suporte/documentos/:id/reprocessar-ocr', requireAuth, requireSupo
 // (o extrato faz as vezes do comprovante) e vai direto para aguardando_d3.
 // Falha segura: sem match ou com ambiguidade, a nota segue o fluxo manual.
 // ─────────────────────────────────────────────────────────────────────────────
+// Lógica da conciliação automática de nota de lote, reutilizada pela rota
+// abaixo e pelo painel de suporte. Devolve { http, body } em vez de responder.
+// actorId vai para o audit_log; callerOrg nulo (suporte) pula a checagem de org.
+async function conciliarNotaAutoLote(document_id, { callerOrg = null, actorId = null } = {}) {
+    const { data: nota, error: notaErr } = await supabase
+        .from('documents')
+        .select('id, status, valor, data_pagamento, autenticacao_bancaria, extrato_origem_id, organization_id')
+        .eq('id', document_id)
+        .maybeSingle();
+    if (notaErr) throw notaErr;
+    if (!nota) return { http: 404, body: { error: 'Documento não encontrado.' } };
+
+    // Este endpoint usa service role (ignora RLS) — sem esta checagem, uma
+    // conta válida poderia disparar conciliação em documento de outra org.
+    // Só bloqueia quando ambos os lados têm org definida (linhas legadas
+    // podem ter organization_id nulo e continuam funcionando).
+    if (nota.organization_id && callerOrg && nota.organization_id !== callerOrg) {
+        return { http: 403, body: { error: 'Documento não pertence à sua organização.' } };
+    }
+
+    if (!nota.extrato_origem_id) {
+        // Caso normal: nota que não veio de lote com extrato.
+        return { http: 200, body: { conciliado: false, motivo: 'nota sem extrato de lote' } };
+    }
+
+    // Idempotência real: o filtro document_id IS NULL abaixo impede reusar o
+    // MESMO lançamento, mas não impede casar a nota com um SEGUNDO lançamento
+    // numa chamada repetida. Esta checagem fecha isso.
+    const { data: jaConciliado, error: jaErr } = await supabase
+        .from('extratos_lancamentos')
+        .select('id')
+        .eq('document_id', nota.id)
+        .limit(1)
+        .maybeSingle();
+    if (jaErr) throw jaErr;
+    if (jaConciliado) {
+        return { http: 200, body: { conciliado: false, motivo: 'nota já conciliada anteriormente' } };
+    }
+
+    const { data: lancamentos, error: lancErr } = await supabase
+        .from('extratos_lancamentos')
+        .select('id, fitid, valor, data_lancamento')
+        .eq('extrato_id', nota.extrato_origem_id)
+        .eq('status_conciliacao', 'pendente')
+        .is('document_id', null);
+    if (lancErr) throw lancErr;
+
+    if (!lancamentos || !lancamentos.length) {
+        return { http: 200, body: { conciliado: false, motivo: 'extrato sem lançamentos pendentes' } };
+    }
+
+    // 1º critério: fitid === autenticacao_bancaria
+    let metodo = 'fitid';
+    let matches = [];
+    if (nota.autenticacao_bancaria) {
+        const auth = String(nota.autenticacao_bancaria).trim().toLowerCase();
+        matches = lancamentos.filter(l =>
+            l.fitid && String(l.fitid).trim().toLowerCase() === auth);
+    }
+
+    // 2º critério: valor ±0,01 e data ±3 dias (sem data_pagamento, só valor)
+    if (matches.length === 0) {
+        metodo = 'valor+data';
+        const valorNota = parseFloat(nota.valor || 0);
+        matches = lancamentos.filter(l => {
+            const v = parseFloat(l.valor || 0);
+            // Extrato traz saída de caixa como negativa; a nota é positiva.
+            if (Math.abs(Math.abs(v) - Math.abs(valorNota)) > 0.01) return false;
+            if (!nota.data_pagamento || !l.data_lancamento) return true;
+            // 'T12:00:00' nos dois lados: data pura não passa por new Date()
+            // cru (regra do projeto contra o deslocamento de fuso).
+            const diff = Math.abs(
+                (new Date(l.data_lancamento + 'T12:00:00')
+                    - new Date(nota.data_pagamento + 'T12:00:00')) / 86400000);
+            return diff <= 3;
+        });
+    }
+
+    if (matches.length === 0) {
+        return { http: 200, body: { conciliado: false, motivo: 'nenhum lançamento compatível' } };
+    }
+    if (matches.length > 1) {
+        // Regra inegociável: ambíguo nunca casa sozinho.
+        return { http: 200, body: {
+            conciliado: false,
+            motivo: 'múltiplos lançamentos compatíveis, revisar manualmente'
+        } };
+    }
+
+    const lancamento = matches[0];
+
+    // Casa o lançamento só se ele AINDA estiver livre (protege contra duas
+    // chamadas simultâneas para notas diferentes disputando o mesmo lançamento).
+    const { data: updLanc, error: updLancErr } = await supabase
+        .from('extratos_lancamentos')
+        .update({ status_conciliacao: 'conciliado', document_id: nota.id })
+        .eq('id', lancamento.id)
+        .is('document_id', null)
+        .select('id');
+    if (updLancErr) throw updLancErr;
+    if (!updLanc || !updLanc.length) {
+        return { http: 200, body: { conciliado: false, motivo: 'lançamento já foi conciliado por outra nota' } };
+    }
+
+    const { error: updDocErr } = await supabase
+        .from('documents')
+        .update({
+            status: 'aguardando_d3',
+            justification: `Conciliação automática via lote (${metodo})`
+        })
+        .eq('id', nota.id);
+    if (updDocErr) throw updDocErr;
+
+    await supabase.from('audit_log').insert({
+        tabela: 'documents',
+        registro_id: nota.id,
+        campo: 'status',
+        valor_anterior: nota.status,
+        valor_novo: 'aguardando_d3',
+        alterado_por: actorId,
+        origem: 'conciliacao_auto_lote'
+    });
+
+    return { http: 200, body: { conciliado: true, metodo, lancamento_id: lancamento.id } };
+}
+
 app.post('/api/conciliacao/auto-lote', requireAuth, async (req, res) => {
     try {
         const { document_id } = req.body || {};
         if (!document_id) {
             return res.status(400).json({ error: 'document_id é obrigatório.' });
         }
-
-        const { data: nota, error: notaErr } = await supabase
-            .from('documents')
-            .select('id, status, valor, data_pagamento, autenticacao_bancaria, extrato_origem_id, organization_id')
-            .eq('id', document_id)
-            .maybeSingle();
-        if (notaErr) throw notaErr;
-        if (!nota) return res.status(404).json({ error: 'Documento não encontrado.' });
-
-        // Este endpoint usa service role (ignora RLS) — sem esta checagem, uma
-        // conta válida poderia disparar conciliação em documento de outra org.
-        // Só bloqueia quando ambos os lados têm org definida (linhas legadas
-        // podem ter organization_id nulo e continuam funcionando).
-        const callerOrg = req.user?.app_metadata?.org_id || null;
-        if (nota.organization_id && callerOrg && nota.organization_id !== callerOrg) {
-            return res.status(403).json({ error: 'Documento não pertence à sua organização.' });
-        }
-
-        if (!nota.extrato_origem_id) {
-            // Caso normal: nota que não veio de lote com extrato.
-            return res.json({ conciliado: false, motivo: 'nota sem extrato de lote' });
-        }
-
-        // Idempotência real: o filtro document_id IS NULL abaixo impede reusar o
-        // MESMO lançamento, mas não impede casar a nota com um SEGUNDO lançamento
-        // numa chamada repetida. Esta checagem fecha isso.
-        const { data: jaConciliado, error: jaErr } = await supabase
-            .from('extratos_lancamentos')
-            .select('id')
-            .eq('document_id', nota.id)
-            .limit(1)
-            .maybeSingle();
-        if (jaErr) throw jaErr;
-        if (jaConciliado) {
-            return res.json({ conciliado: false, motivo: 'nota já conciliada anteriormente' });
-        }
-
-        const { data: lancamentos, error: lancErr } = await supabase
-            .from('extratos_lancamentos')
-            .select('id, fitid, valor, data_lancamento')
-            .eq('extrato_id', nota.extrato_origem_id)
-            .eq('status_conciliacao', 'pendente')
-            .is('document_id', null);
-        if (lancErr) throw lancErr;
-
-        if (!lancamentos || !lancamentos.length) {
-            return res.json({ conciliado: false, motivo: 'extrato sem lançamentos pendentes' });
-        }
-
-        // 1º critério: fitid === autenticacao_bancaria
-        let metodo = 'fitid';
-        let matches = [];
-        if (nota.autenticacao_bancaria) {
-            const auth = String(nota.autenticacao_bancaria).trim().toLowerCase();
-            matches = lancamentos.filter(l =>
-                l.fitid && String(l.fitid).trim().toLowerCase() === auth);
-        }
-
-        // 2º critério: valor ±0,01 e data ±3 dias (sem data_pagamento, só valor)
-        if (matches.length === 0) {
-            metodo = 'valor+data';
-            const valorNota = parseFloat(nota.valor || 0);
-            matches = lancamentos.filter(l => {
-                const v = parseFloat(l.valor || 0);
-                // Extrato traz saída de caixa como negativa; a nota é positiva.
-                if (Math.abs(Math.abs(v) - Math.abs(valorNota)) > 0.01) return false;
-                if (!nota.data_pagamento || !l.data_lancamento) return true;
-                // 'T12:00:00' nos dois lados: data pura não passa por new Date()
-                // cru (regra do projeto contra o deslocamento de fuso).
-                const diff = Math.abs(
-                    (new Date(l.data_lancamento + 'T12:00:00')
-                        - new Date(nota.data_pagamento + 'T12:00:00')) / 86400000);
-                return diff <= 3;
-            });
-        }
-
-        if (matches.length === 0) {
-            return res.json({ conciliado: false, motivo: 'nenhum lançamento compatível' });
-        }
-        if (matches.length > 1) {
-            // Regra inegociável: ambíguo nunca casa sozinho.
-            return res.json({
-                conciliado: false,
-                motivo: 'múltiplos lançamentos compatíveis, revisar manualmente'
-            });
-        }
-
-        const lancamento = matches[0];
-
-        // Casa o lançamento só se ele AINDA estiver livre (protege contra duas
-        // chamadas simultâneas para notas diferentes disputando o mesmo lançamento).
-        const { data: updLanc, error: updLancErr } = await supabase
-            .from('extratos_lancamentos')
-            .update({ status_conciliacao: 'conciliado', document_id: nota.id })
-            .eq('id', lancamento.id)
-            .is('document_id', null)
-            .select('id');
-        if (updLancErr) throw updLancErr;
-        if (!updLanc || !updLanc.length) {
-            return res.json({ conciliado: false, motivo: 'lançamento já foi conciliado por outra nota' });
-        }
-
-        const { error: updDocErr } = await supabase
-            .from('documents')
-            .update({
-                status: 'aguardando_d3',
-                justification: `Conciliação automática via lote (${metodo})`
-            })
-            .eq('id', nota.id);
-        if (updDocErr) throw updDocErr;
-
-        await supabase.from('audit_log').insert({
-            tabela: 'documents',
-            registro_id: nota.id,
-            campo: 'status',
-            valor_anterior: nota.status,
-            valor_novo: 'aguardando_d3',
-            alterado_por: req.user?.id || null,
-            origem: 'conciliacao_auto_lote'
+        const r = await conciliarNotaAutoLote(document_id, {
+            callerOrg: req.user?.app_metadata?.org_id || null,
+            actorId: req.user?.id || null
         });
-
-        return res.json({ conciliado: true, metodo, lancamento_id: lancamento.id });
+        return res.status(r.http).json(r.body);
     } catch (e) {
         console.error('[CONCILIACAO-AUTO-LOTE]', e);
         return res.status(500).json({ error: e.message });
@@ -4216,3 +5204,4 @@ if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
 }
 
 module.exports = app;
+module.exports.__teste = { avaliarReprocesso, exigirMotivo, MINUTOS_PROCESSAMENTO_EM_ANDAMENTO };
