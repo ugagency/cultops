@@ -335,12 +335,13 @@
     <div id="modal-reprocessar-tudo" class="modal" style="z-index: 1050;">
         <div class="modal-content" style="max-width: 760px;">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
-                <h3 style="font-size: 1.25rem; font-weight: 700;">Reprocessar tudo</h3>
+                <h3 style="font-size: 1.25rem; font-weight: 700;">Reprocessar tudo <span id="tudo-titulo-projeto" class="text-sm" style="color: var(--text-muted); font-weight: 500;"></span></h3>
                 <button type="button" class="btn btn-ghost" onclick="fecharReprocessarTudo()">
                     <i data-lucide="x"></i>
                 </button>
             </div>
             <div id="tudo-corpo"></div>
+            <p id="tudo-segundo-plano" class="text-xs" style="display: none; margin-top: 0.75rem; color: var(--text-secondary);">Pode fechar esta janela e continuar usando o painel: a fila segue rodando e o andamento fica no canto da tela. Só não saia desta página nem feche a aba, senão a fila para.</p>
             <div id="tudo-motivo-wrap" class="form-group" style="margin-top: 1rem;">
                 <label for="tudo-motivo">Motivo (opcional; se quiser registrar, pode ser o número da ocorrência do Notion)</label>
                 <textarea id="tudo-motivo" class="form-control" rows="2" style="width: 100%;"></textarea>
@@ -352,6 +353,9 @@
             </div>
         </div>
     </div>
+
+    <!-- Indicador da fila "Reprocessar tudo" quando a janela está fechada -->
+    <div id="tudo-mini" role="button" tabindex="0" onclick="reabrirReprocessarTudo()" style="display: none; position: fixed; right: 1rem; bottom: 1rem; z-index: 950; width: min(320px, calc(100vw - 2rem)); background: white; border: 1px solid var(--border-light); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); padding: 0.75rem 1rem; cursor: pointer;"></div>
 
     <!-- Modal único de ação: efeito em uma frase + motivo obrigatório (mín. 10
          caracteres). Usado por todas as ações de escrita, inclusive resetar senha. -->
@@ -374,6 +378,7 @@
                 <span id="acao-motivo-contador" class="text-xs" style="color: var(--text-muted);">0/10</span>
             </div>
             <p id="acao-erro" class="text-sm" style="color: var(--error); display: none; margin-top: 0.5rem;"></p>
+            <p id="acao-segundo-plano" class="text-xs" style="display: none; margin-top: 0.5rem; color: var(--text-secondary);">Pode fechar esta janela: a ação continua e o resultado aparece em um aviso.</p>
             <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1.25rem;">
                 <button type="button" class="btn btn-secondary" onclick="fecharModalAcao()">Cancelar</button>
                 <button type="button" class="btn btn-primary" id="btn-acao-confirmar" onclick="confirmarAcao()" disabled>Confirmar</button>
@@ -521,11 +526,17 @@
         // ── Modal único de ação (efeito + motivo obrigatório) ──────────
         let _acaoCfg = null;
         let _acaoExecutando = false;
+        // Cada abertura do modal tem um número; fechar invalida a abertura e a
+        // ação que estava rodando segue em segundo plano (resultado por aviso).
+        let _acaoSeq = 0;
+        let _acoesEmCurso = 0;
         const MOTIVO_MINIMO = 10;
 
         function abrirModalAcao(cfg) {
+            _acaoSeq++;
             _acaoCfg = cfg;
             _acaoExecutando = false;
+            document.getElementById('acao-segundo-plano').style.display = 'none';
             document.getElementById('acao-titulo').textContent = cfg.titulo;
             document.getElementById('acao-efeito').textContent = cfg.efeito;
             document.getElementById('acao-motivo').value = '';
@@ -554,7 +565,8 @@
         }
 
         function fecharModalAcao() {
-            if (_acaoExecutando) return;
+            _acaoSeq++;
+            _acaoExecutando = false;
             _acaoCfg = null;
             document.getElementById('modal-acao').style.display = 'none';
             document.getElementById('acao-extra-input').value = '';
@@ -575,19 +587,30 @@
             }
 
             const btn = document.getElementById('btn-acao-confirmar');
+            const minhaAbertura = _acaoSeq;
+            const aindaAberto = () => minhaAbertura === _acaoSeq;
             _acaoExecutando = true;
+            _acoesEmCurso++;
             btn.disabled = true;
             btn.textContent = 'Executando…';
+            document.getElementById('acao-segundo-plano').style.display = 'block';
             try {
                 await cfg.onConfirm({ motivo, extra });
-                _acaoExecutando = false;
-                fecharModalAcao();
+                if (aindaAberto()) fecharModalAcao();
             } catch (err) {
-                _acaoExecutando = false;
-                erroEl.textContent = err.message || 'Falha ao executar a ação.';
-                erroEl.style.display = 'block';
-                btn.textContent = cfg.confirmar || 'Confirmar';
-                atualizarMotivoAcao();
+                const msg = err.message || 'Falha ao executar a ação.';
+                if (aindaAberto()) {
+                    _acaoExecutando = false;
+                    document.getElementById('acao-segundo-plano').style.display = 'none';
+                    erroEl.textContent = msg;
+                    erroEl.style.display = 'block';
+                    btn.textContent = cfg.confirmar || 'Confirmar';
+                    atualizarMotivoAcao();
+                } else {
+                    showToast(`${cfg.titulo}: ${msg}`, 'error');
+                }
+            } finally {
+                _acoesEmCurso--;
             }
         }
 
@@ -607,17 +630,29 @@
             reimportar_planilha: 'reprocessar-ocr',
             revalidar_conformidade: 'revalidar-conformidade'
         };
-        let reprocTudo = { itens: [], ignorados: [], rodando: false, parar: false, concluida: false };
+        let reprocTudo = { itens: [], ignorados: [], rodando: false, parar: false, concluida: false, projetoId: null, projetoNome: '', dispensada: true };
+
+        const modalTudoAberto = () => document.getElementById('modal-reprocessar-tudo').style.display === 'flex';
 
         async function abrirReprocessarTudo() {
             if (!projetoSelecionadoId) return;
-            reprocTudo = { itens: [], ignorados: [], rodando: false, parar: false, concluida: false };
+            // Uma fila por vez: se há uma rodando (deste ou de outro projeto), reabre ela.
+            if (reprocTudo.rodando) return reabrirReprocessarTudo();
+            reprocTudo = {
+                itens: [], ignorados: [], rodando: false, parar: false, concluida: false,
+                projetoId: projetoSelecionadoId,
+                projetoNome: document.getElementById('projeto-detalhe-nome').textContent || '',
+                dispensada: false
+            };
+            document.getElementById('tudo-titulo-projeto').textContent = reprocTudo.projetoNome ? '— ' + reprocTudo.projetoNome : '';
+            document.getElementById('btn-tudo-parar').disabled = false;
+            document.getElementById('btn-tudo-parar').textContent = 'Parar';
             document.getElementById('tudo-motivo').value = '';
             document.getElementById('tudo-corpo').innerHTML = `<p class="text-sm" style="color: var(--text-muted);">Montando a fila…</p>`;
             document.getElementById('modal-reprocessar-tudo').style.display = 'flex';
             atualizarBotoesTudo();
             try {
-                const plano = await authFetch(`/api/suporte/projetos/${projetoSelecionadoId}/reprocessar-tudo/plano`);
+                const plano = await authFetch(`/api/suporte/projetos/${reprocTudo.projetoId}/reprocessar-tudo/plano`);
                 reprocTudo.itens = (plano.itens || []).map(i => ({ ...i, estado: 'aguardando', resultado: '' }));
                 reprocTudo.ignorados = plano.ignorados || [];
                 renderReprocessarTudo();
@@ -626,10 +661,47 @@
             }
         }
 
+        // Fechar nunca interrompe: a fila segue e o indicador no canto mostra o andamento.
         function fecharReprocessarTudo() {
-            if (reprocTudo.rodando) return;
             document.getElementById('modal-reprocessar-tudo').style.display = 'none';
+            if (!reprocTudo.rodando && !reprocTudo.concluida) reprocTudo.dispensada = true;
+            renderMiniTudo();
         }
+
+        function reabrirReprocessarTudo() {
+            document.getElementById('modal-reprocessar-tudo').style.display = 'flex';
+            renderReprocessarTudo();
+        }
+
+        function dispensarMiniTudo(ev) {
+            if (ev) ev.stopPropagation();
+            reprocTudo.dispensada = true;
+            renderMiniTudo();
+        }
+
+        function renderMiniTudo() {
+            const t = reprocTudo;
+            const mini = document.getElementById('tudo-mini');
+            const mostrar = !modalTudoAberto() && !t.dispensada && (t.rodando || t.concluida) && t.itens.length > 0;
+            mini.style.display = mostrar ? 'block' : 'none';
+            if (!mostrar) return;
+            const feitos = t.itens.filter(i => ['ok', 'pulado', 'falhou', 'cancelado'].includes(i.estado)).length;
+            mini.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem;">
+                    <strong class="text-sm" style="word-break: break-word;">Reprocessar tudo${t.projetoNome ? ' — ' + esc(t.projetoNome) : ''}</strong>
+                    ${t.concluida ? '<button type="button" class="btn btn-ghost" style="padding: 0 0.4rem; font-size: 1rem; line-height: 1;" title="Dispensar" onclick="dispensarMiniTudo(event)">×</button>' : ''}
+                </div>
+                ${barraProgressoTudo(feitos, t)}
+                <div class="text-xs" style="color: var(--text-muted); margin-top: -0.4rem;">Clique para ver os detalhes.</div>`;
+        }
+
+        // Sair da página interrompe a fila (e ações individuais em andamento): avisa antes.
+        window.addEventListener('beforeunload', (e) => {
+            if (reprocTudo.rodando || _acoesEmCurso > 0) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        });
 
         function pararReprocessarTudo() {
             reprocTudo.parar = true;
@@ -643,7 +715,9 @@
             document.getElementById('btn-tudo-iniciar').style.display = t.rodando || t.concluida ? 'none' : '';
             document.getElementById('btn-tudo-iniciar').disabled = !temItens;
             document.getElementById('btn-tudo-parar').style.display = t.rodando ? '' : 'none';
-            document.getElementById('btn-tudo-fechar').disabled = t.rodando;
+            document.getElementById('btn-tudo-fechar').disabled = false;
+            document.getElementById('btn-tudo-fechar').textContent = t.rodando ? 'Fechar (continua rodando)' : 'Fechar';
+            document.getElementById('tudo-segundo-plano').style.display = t.rodando ? 'block' : 'none';
             document.getElementById('tudo-motivo-wrap').style.display = t.rodando || t.concluida || !temItens ? 'none' : '';
         }
 
@@ -657,6 +731,7 @@
         };
 
         function renderReprocessarTudo() {
+            renderMiniTudo();
             const t = reprocTudo;
             const corpo = document.getElementById('tudo-corpo');
             const ignoradosHtml = t.ignorados.length ? `
@@ -779,7 +854,8 @@
             const ok = t.itens.filter(i => i.estado === 'ok').length;
             const falhas = t.itens.filter(i => i.estado === 'falhou').length;
             showToast(`Fila concluída: ${ok} concluído${ok === 1 ? '' : 's'}${falhas ? `, ${falhas} com falha` : ''}.`, falhas ? 'error' : 'success');
-            if (projetoSelecionadoId) { fetchDocumentos(projetoSelecionadoId); fetchFila(); }
+            // Só recarrega se o projeto da fila ainda é o que está aberto na tela.
+            if (projetoSelecionadoId && projetoSelecionadoId === t.projetoId) { fetchDocumentos(projetoSelecionadoId); fetchFila(); }
         }
 
         // ── Fila de atenção ───────────────────────────────────────────
@@ -1572,11 +1648,12 @@
                 efeito: def.efeito(f),
                 confirmar: def.rotulo,
                 onConfirm: async ({ motivo }) => {
+                    const projetoDaAcao = projetoSelecionadoId;
                     const r = await authPost(`/api/suporte/documentos/${id}/${def.rota}`, { motivo });
                     showToast(mensagemDeResultado(def, r), r.aviso ? 'error' : 'success');
-                    await abrirFicha(id);
-                    if (projetoSelecionadoId) fetchDocumentos(projetoSelecionadoId);
-                    fetchFila();
+                    // A ficha pode ter sido fechada (ou trocada) enquanto a ação rodava.
+                    if (fichaAtual?.documento?.id === id && document.getElementById('modal-ficha').style.display === 'flex') await abrirFicha(id);
+                    if (projetoDaAcao && projetoDaAcao === projetoSelecionadoId) { fetchDocumentos(projetoDaAcao); fetchFila(); }
                 }
             });
         }
@@ -1649,10 +1726,10 @@
                 efeito: 'O arquivo do extrato é reenviado ao n8n para ser lido de novo e conciliado contra as notas pendentes do projeto.',
                 confirmar: 'Reprocessar',
                 onConfirm: async ({ motivo }) => {
+                    const projetoDaAcao = projetoSelecionadoId;
                     await authPost(`/api/suporte/extratos/${id}/reprocessar`, { motivo });
                     showToast('Extrato reenviado para processamento.', 'success');
-                    await fetchExtratos(projetoSelecionadoId);
-                    fetchFila();
+                    if (projetoDaAcao === projetoSelecionadoId) { await fetchExtratos(projetoDaAcao); fetchFila(); }
                 }
             });
         }
@@ -1792,8 +1869,7 @@
                 onConfirm: async ({ motivo }) => {
                     await authPost(`/api/suporte/projetos/${projetoId}/reimportar-projeto-salic`, { motivo });
                     showToast('Projeto SALIC reimportado.', 'success');
-                    await fetchSaldo(projetoId);
-                    fetchFila();
+                    if (projetoId === projetoSelecionadoId) { await fetchSaldo(projetoId); fetchFila(); }
                 }
             });
         }
