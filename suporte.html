@@ -208,6 +208,9 @@
 
                 <div id="aba-atencao" class="aba-projeto">
                     <p class="text-xs" style="color: var(--text-muted); margin-bottom: 1rem;">O que precisa de atenção neste projeto. Clique em um contador para filtrar a lista.</p>
+                    <div style="display: flex; justify-content: flex-end; margin-bottom: 0.75rem;">
+                        <button class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;" onclick="abrirReprocessarTudo()">Reprocessar tudo</button>
+                    </div>
                     <div id="fila-contadores" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.75rem; margin-bottom: 1rem;"></div>
                     <div class="data-table-container">
                         <div id="fila-tabela-wrap" style="min-width: 0; overflow-x: auto;"></div>
@@ -220,6 +223,9 @@
                 </div>
                 <div id="aba-documentos" class="aba-projeto" style="display: none;">
                     <p class="text-xs" style="color: var(--text-muted); margin-bottom: 1rem;">Todos os documentos do projeto. Clique em uma linha para abrir a ficha com dados lidos, vínculos, linha do tempo e ações. Linhas em destaque estão bloqueadas por conformidade ou têm erro registrado.</p>
+                    <div style="display: flex; justify-content: flex-end; margin-bottom: 0.5rem;">
+                        <button class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;" onclick="abrirReprocessarTudo()">Reprocessar tudo</button>
+                    </div>
                     <div id="documentos-resumo-status" style="display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem;"></div>
                     <div class="data-table-container">
                         <div id="documentos-tabela-wrap" style="min-width: 0; overflow-x: auto;"></div>
@@ -322,6 +328,28 @@
                 </button>
             </div>
             <div id="ficha-corpo"></div>
+        </div>
+    </div>
+
+    <!-- Reprocessar tudo: fila de reprocessamento, um documento por vez -->
+    <div id="modal-reprocessar-tudo" class="modal" style="z-index: 1050;">
+        <div class="modal-content" style="max-width: 760px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+                <h3 style="font-size: 1.25rem; font-weight: 700;">Reprocessar tudo</h3>
+                <button type="button" class="btn btn-ghost" onclick="fecharReprocessarTudo()">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+            <div id="tudo-corpo"></div>
+            <div id="tudo-motivo-wrap" class="form-group" style="margin-top: 1rem;">
+                <label for="tudo-motivo">Motivo (opcional; se quiser registrar, pode ser o número da ocorrência do Notion)</label>
+                <textarea id="tudo-motivo" class="form-control" rows="2" style="width: 100%;"></textarea>
+            </div>
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1.25rem;">
+                <button type="button" class="btn btn-secondary" id="btn-tudo-fechar" onclick="fecharReprocessarTudo()">Fechar</button>
+                <button type="button" class="btn btn-secondary" id="btn-tudo-parar" onclick="pararReprocessarTudo()" style="display: none;">Parar</button>
+                <button type="button" class="btn btn-primary" id="btn-tudo-iniciar" onclick="iniciarReprocessarTudo()" disabled>Iniciar fila</button>
+            </div>
         </div>
     </div>
 
@@ -482,7 +510,11 @@
                 body: JSON.stringify(body || {})
             });
             const json = await resp.json().catch(() => ({}));
-            if (!resp.ok) throw new Error(json.error || 'Falha na requisição.');
+            if (!resp.ok) {
+                const e = new Error(json.error || 'Falha na requisição.');
+                e.status = resp.status;
+                throw e;
+            }
             return json;
         }
 
@@ -557,6 +589,171 @@
                 btn.textContent = cfg.confirmar || 'Confirmar';
                 atualizarMotivoAcao();
             }
+        }
+
+        // ── Reprocessar tudo: fila de reprocessamento, um documento por vez ──
+        // O plano vem do servidor (só documentos parados ou com erro, cada um
+        // com o caminho certo). O navegador executa a fila em sequência e
+        // espera cada documento sair do status antes de seguir para o próximo.
+        // Cada passo usa a rota individual, que revalida e audita o documento;
+        // se a aba for fechada, a fila para (o que já foi enviado continua).
+        const ROTULO_ACAO_TUDO = {
+            reprocessar_ocr: 'Reprocessar OCR',
+            reimportar_planilha: 'Reimportar planilha',
+            revalidar_conformidade: 'Revalidar conformidade'
+        };
+        const ROTA_ACAO_TUDO = {
+            reprocessar_ocr: 'reprocessar-ocr',
+            reimportar_planilha: 'reprocessar-ocr',
+            revalidar_conformidade: 'revalidar-conformidade'
+        };
+        let reprocTudo = { itens: [], ignorados: [], rodando: false, parar: false, concluida: false };
+
+        async function abrirReprocessarTudo() {
+            if (!projetoSelecionadoId) return;
+            reprocTudo = { itens: [], ignorados: [], rodando: false, parar: false, concluida: false };
+            document.getElementById('tudo-motivo').value = '';
+            document.getElementById('tudo-corpo').innerHTML = `<p class="text-sm" style="color: var(--text-muted);">Montando a fila…</p>`;
+            document.getElementById('modal-reprocessar-tudo').style.display = 'flex';
+            atualizarBotoesTudo();
+            try {
+                const plano = await authFetch(`/api/suporte/projetos/${projetoSelecionadoId}/reprocessar-tudo/plano`);
+                reprocTudo.itens = (plano.itens || []).map(i => ({ ...i, estado: 'aguardando', resultado: '' }));
+                reprocTudo.ignorados = plano.ignorados || [];
+                renderReprocessarTudo();
+            } catch (err) {
+                document.getElementById('tudo-corpo').innerHTML = `<p class="text-sm" style="color: var(--error);">Erro ao montar a fila: ${esc(window.prestaiErroTexto(err))}</p>`;
+            }
+        }
+
+        function fecharReprocessarTudo() {
+            if (reprocTudo.rodando) return;
+            document.getElementById('modal-reprocessar-tudo').style.display = 'none';
+        }
+
+        function pararReprocessarTudo() {
+            reprocTudo.parar = true;
+            document.getElementById('btn-tudo-parar').disabled = true;
+            document.getElementById('btn-tudo-parar').textContent = 'Parando após o documento atual…';
+        }
+
+        function atualizarBotoesTudo() {
+            const t = reprocTudo;
+            const temItens = t.itens.length > 0;
+            document.getElementById('btn-tudo-iniciar').style.display = t.rodando || t.concluida ? 'none' : '';
+            document.getElementById('btn-tudo-iniciar').disabled = !temItens;
+            document.getElementById('btn-tudo-parar').style.display = t.rodando ? '' : 'none';
+            document.getElementById('btn-tudo-fechar').disabled = t.rodando;
+            document.getElementById('tudo-motivo-wrap').style.display = t.rodando || t.concluida || !temItens ? 'none' : '';
+        }
+
+        const ESTADO_TUDO = {
+            aguardando: ['Na fila', 'var(--text-muted)'],
+            processando: ['Processando…', 'var(--color-primary)'],
+            ok: ['Concluído', 'var(--success)'],
+            pulado: ['Pulado', 'var(--text-muted)'],
+            falhou: ['Falhou', 'var(--error)'],
+            cancelado: ['Cancelado', 'var(--text-muted)']
+        };
+
+        function renderReprocessarTudo() {
+            const t = reprocTudo;
+            const corpo = document.getElementById('tudo-corpo');
+            const ignoradosHtml = t.ignorados.length ? `
+                <details style="margin-top: 1rem;">
+                    <summary class="text-sm" style="cursor: pointer; color: var(--text-secondary);">${t.ignorados.length} documento${t.ignorados.length === 1 ? '' : 's'} parado${t.ignorados.length === 1 ? '' : 's'} que não entra${t.ignorados.length === 1 ? '' : 'm'} na fila</summary>
+                    <table class="data-table" style="width: 100%; margin-top: 0.5rem;"><tbody>
+                        ${t.ignorados.map(i => `<tr><td class="text-xs" style="word-break: break-word;">${esc(i.name || i.id)}</td><td class="text-xs">${esc(i.motivo || '')}</td></tr>`).join('')}
+                    </tbody></table>
+                </details>` : '';
+
+            if (!t.itens.length) {
+                corpo.innerHTML = `<p class="empty-state-inline">Nenhum documento parado ou com erro que possa ser reprocessado neste projeto.</p>${ignoradosHtml}`;
+                atualizarBotoesTudo();
+                return;
+            }
+
+            const contagem = {};
+            t.itens.forEach(i => { contagem[i.acao] = (contagem[i.acao] || 0) + 1; });
+            const feitos = t.itens.filter(i => ['ok', 'pulado', 'falhou', 'cancelado'].includes(i.estado)).length;
+            const resumo = Object.entries(contagem).map(([a, n]) => `${n} × ${ROTULO_ACAO_TUDO[a]}`).join(' · ');
+
+            corpo.innerHTML = `
+                <p class="text-sm" style="margin-bottom: 0.25rem;"><strong>${t.itens.length} documento${t.itens.length === 1 ? '' : 's'} na fila</strong> — ${esc(resumo)}.</p>
+                <p class="text-xs" style="color: var(--text-muted); margin-bottom: 0.75rem;">Um de cada vez, do mais antigo para o mais novo: o próximo só começa quando o anterior sai do status em que estava (até 3 min de espera por documento).${t.rodando || t.concluida ? ` Andamento: ${feitos} de ${t.itens.length}.` : ''}</p>
+                <div class="data-table-container" style="max-height: 340px; overflow: auto;">
+                    <table class="data-table" style="width: 100%;">
+                        <thead><tr><th>Documento</th><th>Caminho</th><th>Situação</th></tr></thead>
+                        <tbody>
+                            ${t.itens.map(i => {
+                                const [rotulo, cor] = ESTADO_TUDO[i.estado];
+                                return `<tr>
+                                    <td class="text-sm" style="word-break: break-word;">${esc(i.name || i.id)}<div class="text-xs" style="color: var(--text-muted);">${esc(rotuloStatusDoc(i.status))}</div></td>
+                                    <td class="text-sm">${esc(ROTULO_ACAO_TUDO[i.acao])}</td>
+                                    <td class="text-sm"><span style="color: ${cor}; font-weight: 600;">${esc(rotulo)}</span>${i.resultado ? `<div class="text-xs" style="color: var(--text-muted); word-break: break-word;">${esc(i.resultado)}</div>` : ''}</td>
+                                </tr>`;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                ${ignoradosHtml}`;
+            atualizarBotoesTudo();
+        }
+
+        async function aguardarSaidaDoStatus(item, statusOrigem, limiteSeg) {
+            const fim = Date.now() + limiteSeg * 1000;
+            let ultimo = { status: statusOrigem };
+            while (Date.now() < fim) {
+                await new Promise(r => setTimeout(r, 5000));
+                try {
+                    ultimo = await authFetch(`/api/suporte/documentos/${item.id}/estado`);
+                } catch (_) { continue; }
+                if (ultimo.status !== statusOrigem) return { status: ultimo.status, esgotou: false };
+            }
+            return { status: ultimo.status, esgotou: true };
+        }
+
+        async function iniciarReprocessarTudo() {
+            const t = reprocTudo;
+            if (t.rodando || !t.itens.length) return;
+            const motivo = document.getElementById('tudo-motivo').value.trim();
+            t.rodando = true;
+            t.parar = false;
+            renderReprocessarTudo();
+
+            for (const it of t.itens) {
+                if (t.parar) { it.estado = 'cancelado'; continue; }
+                it.estado = 'processando';
+                renderReprocessarTudo();
+                try {
+                    const r = await authPost(`/api/suporte/documentos/${it.id}/${ROTA_ACAO_TUDO[it.acao]}`, { motivo });
+                    if (it.acao === 'reimportar_planilha') {
+                        it.estado = 'ok';
+                        it.resultado = r.mensagem || 'Planilha reimportada.';
+                    } else {
+                        // OCR e validação são assíncronos no n8n: espera o documento sair do status.
+                        const origem = it.acao === 'revalidar_conformidade' ? 'aguardando_conformidade' : 'processing_ocr';
+                        const esp = await aguardarSaidaDoStatus(it, origem, 180);
+                        const nome = rotuloStatusDoc(esp.status);
+                        if (esp.esgotou) { it.estado = 'ok'; it.resultado = `Enviado; continuava em "${nome}" após 3 min.`; }
+                        else if (['revisao_manual', 'erro', 'erro_rpa'].includes(esp.status)) { it.estado = 'falhou'; it.resultado = `Voltou para "${nome}".`; }
+                        else { it.estado = 'ok'; it.resultado = `Agora em "${nome}".`; }
+                    }
+                } catch (err) {
+                    // 409 = a regra individual não permite mais (status mudou, já gerou despesa etc.).
+                    it.estado = err.status === 409 ? 'pulado' : 'falhou';
+                    it.resultado = err.message || '';
+                }
+                renderReprocessarTudo();
+            }
+
+            t.rodando = false;
+            t.concluida = true;
+            renderReprocessarTudo();
+            const ok = t.itens.filter(i => i.estado === 'ok').length;
+            const falhas = t.itens.filter(i => i.estado === 'falhou').length;
+            showToast(`Fila concluída: ${ok} concluído${ok === 1 ? '' : 's'}${falhas ? `, ${falhas} com falha` : ''}.`, falhas ? 'error' : 'success');
+            if (projetoSelecionadoId) { fetchDocumentos(projetoSelecionadoId); fetchFila(); }
         }
 
         // ── Fila de atenção ───────────────────────────────────────────

@@ -11,7 +11,7 @@ process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:0';
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'teste';
 process.env.VERCEL = '1';
 process.env.NODE_ENV = 'production';
-const { avaliarReprocesso } = require('./server.js').__teste;
+const { avaliarReprocesso, planejarReprocessarTudo } = require('./server.js').__teste;
 
 let ok = 0, falhas = 0;
 function teste(nome, fn) {
@@ -300,6 +300,40 @@ teste('avaliarReprocesso: planilha só a mais recente do projeto', () => {
     assert.strictEqual(nova.esteira, 'importacao_rubricas');
     assert.strictEqual(avaliarReprocesso(pl('velha'), ctx).permitido, false);
     assert.strictEqual(avaliarReprocesso(pl('nova', { project_id: null }), ctx).permitido, false);
+});
+
+// ── Reprocessar tudo: plano da fila ─────────────────────────────────────────
+teste('reprocessar tudo: cada documento vai pelo caminho certo e o resto fica de fora', () => {
+    const doc = (id, status, extra = {}) => ({ id, name: id, status, tipo_documento: 'nf', project_id: 'p1', updated_at: atrasReal(60), ...extra });
+    const docs = [
+        doc('rev-nf', 'revisao_manual', { updated_at: atrasReal(300) }),
+        doc('rev-comp', 'revisao_manual', { tipo_documento: 'comprovante', updated_at: atrasReal(200) }),
+        doc('ocr-travado', 'processing_ocr', { updated_at: atrasReal(30) }),
+        doc('ocr-andando', 'processing_ocr', { updated_at: atrasReal(2) }),
+        doc('conf-travado', 'aguardando_conformidade', { updated_at: atrasReal(20) }),
+        doc('conf-normal', 'aguardando_conformidade', { updated_at: atrasReal(1) }),
+        doc('rev-com-despesa', 'revisao_manual'),
+        doc('planilha-nova', 'erro', { tipo_documento: 'planilha_orcamentaria' }),
+        doc('planilha-velha', 'erro', { tipo_documento: 'planilha_orcamentaria' }),
+        // nunca entram: esperando cliente, divergência, envio ao SALIC
+        doc('rubrica', 'aguardando_rubrica'), doc('bloq', 'bloqueado_conformidade'), doc('div', 'divergencia_valor'),
+        doc('rpa', 'erro_rpa'), doc('lib', 'liberado_rpa_airtop'), doc('env', 'enviado_salic')
+    ];
+    const ctx = { docsComDespesa: new Set(['rev-com-despesa']), planilhaMaisRecentePorProjeto: { p1: 'planilha-nova' } };
+    const { itens, ignorados } = planejarReprocessarTudo(docs, ctx);
+    const mapa = Object.fromEntries(itens.map(i => [i.id, i.acao]));
+    assert.deepStrictEqual(mapa, {
+        'rev-nf': 'reprocessar_ocr', 'rev-comp': 'reprocessar_ocr', 'ocr-travado': 'reprocessar_ocr',
+        'conf-travado': 'revalidar_conformidade', 'planilha-nova': 'reimportar_planilha'
+    });
+    // mais antigo primeiro
+    const tempos = itens.map(i => new Date(i.updated_at).getTime());
+    assert.deepStrictEqual(tempos, [...tempos].sort((a, b) => a - b));
+    // bloqueados aparecem como ignorados, com motivo; os que não são candidatos nem aparecem
+    assert.deepStrictEqual(ignorados.map(i => i.id).sort(), ['planilha-velha', 'rev-com-despesa']);
+    assert.ok(ignorados.every(i => i.motivo));
+    const todos = new Set([...itens, ...ignorados].map(i => i.id));
+    for (const naoEntra of ['ocr-andando', 'conf-normal', 'rubrica', 'bloq', 'div', 'rpa', 'lib', 'env']) assert.ok(!todos.has(naoEntra), naoEntra);
 });
 
 console.log(`\n${ok} testes passaram, ${falhas} falharam.`);

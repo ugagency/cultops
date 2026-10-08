@@ -4363,6 +4363,77 @@ app.get('/api/suporte/fila', requireAuth, requireSuporte, async (req, res) => {
     }
 });
 
+// Reprocessar tudo — plano da fila. Só entram documentos PARADOS ou com ERRO e
+// cada um recebe o caminho que a regra individual já permite:
+//   revisao_manual / processing_ocr travado -> OCR (NF, comprovante) ou
+//                                              reimportar (planilha mais recente)
+//   erro (planilha)                          -> reimportar planilha
+//   aguardando_conformidade há > 5 min       -> revalidar conformidade
+// Nunca entra: documento esperando cliente (ex.: aguardando_rubrica, que
+// ainda não deve passar pelo OCR), divergência, liberado/erro de envio ao
+// SALIC, nem nada que Avançar documento resolveria (muda estado de negócio).
+function planejarReprocessarTudo(documentos, ctx, agora = Date.now()) {
+    const itens = [];
+    const ignorados = [];
+    for (const d of documentos) {
+        const grupo = Catalogo.grupoEfetivo('documents', d.status, d.updated_at, agora);
+        let acao = null;
+        let bloqueio = null;
+
+        if (d.status === 'aguardando_conformidade') {
+            if (grupo !== 'travado') continue; // dentro do prazo: fluxo normal
+            const av = Regras.avaliarRevalidar(d, agora);
+            if (av.habilitada) acao = 'revalidar_conformidade';
+            else bloqueio = av.motivo_bloqueio;
+        } else if (d.status === 'revisao_manual' || d.status === 'erro' || (d.status === 'processing_ocr' && grupo === 'travado')) {
+            const r = avaliarReprocesso(d, {
+                temDespesa: ctx.docsComDespesa.has(d.id),
+                planilhaMaisRecentePorProjeto: ctx.planilhaMaisRecentePorProjeto
+            });
+            if (r.permitido) acao = r.esteira === 'importacao_rubricas' ? 'reimportar_planilha' : 'reprocessar_ocr';
+            else bloqueio = r.motivo;
+        } else {
+            continue;
+        }
+
+        if (acao) itens.push({ id: d.id, name: d.name, status: d.status, tipo_documento: d.tipo_documento || 'nf', acao, updated_at: d.updated_at });
+        else ignorados.push({ id: d.id, name: d.name, status: d.status, motivo: bloqueio });
+    }
+    // Mais antigo primeiro: quem está parado há mais tempo vai na frente.
+    itens.sort((a, b) => new Date(a.updated_at || 0) - new Date(b.updated_at || 0));
+    return { itens, ignorados };
+}
+
+app.get('/api/suporte/projetos/:id/reprocessar-tudo/plano', requireAuth, requireSuporte, async (req, res) => {
+    try {
+        const documentos = await lerTudo((de, ate) => supabase
+            .from('documents')
+            .select('id, project_id, name, status, tipo_documento, updated_at, created_at')
+            .eq('project_id', req.params.id)
+            .in('status', ['revisao_manual', 'processing_ocr', 'aguardando_conformidade', 'erro'])
+            .order('updated_at', { ascending: true })
+            .range(de, ate));
+        const ctx = await contextoReprocesso(documentos);
+        res.json(planejarReprocessarTudo(documentos, ctx));
+    } catch (err) {
+        console.error('[SUPORTE] reprocessar-tudo plano:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Estado leve de um documento (a fila de reprocessamento espera o documento
+// sair do status antes de seguir para o próximo).
+app.get('/api/suporte/documentos/:id/estado', requireAuth, requireSuporte, async (req, res) => {
+    const { data, error } = await supabase
+        .from('documents')
+        .select('id, status, updated_at, just_erro')
+        .eq('id', req.params.id)
+        .maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data) return res.status(404).json({ error: 'Documento não encontrado.' });
+    res.json(data);
+});
+
 // 3.3 — Ficha do documento.
 app.get('/api/suporte/documentos/:id', requireAuth, requireSuporte, async (req, res) => {
     const id = req.params.id;
@@ -4553,7 +4624,7 @@ app.post('/api/suporte/documentos/:id/avancar', requireAuth, requireSuporte, exi
 
 // 3.5 — Revalidar conformidade. NÃO muda o status (o app muda para
 // processing_ocr, o que colide com os crons de OCR); só refaz o disparo.
-app.post('/api/suporte/documentos/:id/revalidar-conformidade', requireAuth, requireSuporte, exigirMotivo, async (req, res) => {
+app.post('/api/suporte/documentos/:id/revalidar-conformidade', requireAuth, requireSuporte, motivoOpcional, async (req, res) => {
     const id = req.params.id;
     try {
         const { data: doc, error: getErr } = await supabase
@@ -5217,4 +5288,4 @@ if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
 }
 
 module.exports = app;
-module.exports.__teste = { avaliarReprocesso, exigirMotivo, motivoOpcional, MINUTOS_PROCESSAMENTO_EM_ANDAMENTO };
+module.exports.__teste = { avaliarReprocesso, planejarReprocessarTudo, exigirMotivo, motivoOpcional, MINUTOS_PROCESSAMENTO_EM_ANDAMENTO };
