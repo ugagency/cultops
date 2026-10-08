@@ -238,6 +238,16 @@ teste('exigirMotivo (middleware): 400 sem motivo, passa com motivo', () => {
     assert.strictEqual(seguiu, true);
     assert.strictEqual(req.motivo, 'ocorrência 4821');
 });
+teste('motivoOpcional (reprocessamentos): aceita vazio, guarda o texto quando vem', () => {
+    const { motivoOpcional } = require('./server.js').__teste;
+    for (const [corpo, esperado] of [[{}, null], [undefined, null], [{ motivo: '   ' }, null], [{ motivo: ' ocorrência 77 ' }, 'ocorrência 77'], [{ motivo: 123 }, null]]) {
+        const req = { body: corpo };
+        let seguiu = false;
+        motivoOpcional(req, {}, () => { seguiu = true; });
+        assert.strictEqual(seguiu, true);
+        assert.strictEqual(req.motivo, esperado);
+    }
+});
 teste('tradução de causas do SALIC preserva o original', () => {
     const casos = [
         'Link do PRONAC nao encontrado na tabela.',

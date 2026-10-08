@@ -3921,7 +3921,7 @@ async function payloadOcrNf(doc) {
 //   planilha_orcamentaria  -> uploadrubricas (síncrono; responde {success,...})
 // Reimportar planilha gera nova versão de rubricas e pode desativar rubricas
 // que saíram dela — por isso só a planilha mais recente do projeto é aceita.
-app.post('/api/suporte/documentos/:id/reprocessar-ocr', requireAuth, requireSuporte, exigirMotivo, async (req, res) => {
+app.post('/api/suporte/documentos/:id/reprocessar-ocr', requireAuth, requireSuporte, motivoOpcional, async (req, res) => {
     const documentId = req.params.id;
 
     try {
@@ -4044,6 +4044,15 @@ function exigirMotivo(req, res, next) {
     next();
 }
 
+// Reprocessamentos (OCR, planilha, extrato) não exigem explicação: o motivo
+// é aceito se vier, e fica na auditoria; sem ele a ação segue e a auditoria
+// registra quem fez e quando.
+function motivoOpcional(req, res, next) {
+    const m = typeof req.body?.motivo === 'string' ? req.body.motivo.trim() : '';
+    req.motivo = m || null;
+    next();
+}
+
 // Uma linha por chamada externa feita pelas ações do suporte. Nunca derruba a
 // ação: se a tabela ainda não existe (migration pendente), só registra no log.
 async function registrarEvento(ev) {
@@ -4097,11 +4106,12 @@ async function auditar(req, a) {
         valor_anterior: a.valor_anterior ?? null,
         valor_novo: a.valor_novo ?? null,
         alterado_por: req.user.id,
-        origem: 'suporte_ui',
-        motivo: req.motivo
+        origem: 'suporte_ui'
     };
+    // Sem motivo a chave nem é enviada (a coluna pode ainda não existir).
+    if (req.motivo) linha.motivo = req.motivo;
     let { error } = await supabase.from('audit_log').insert(linha);
-    if (error && /motivo/i.test(error.message || '')) {
+    if (error && req.motivo && /motivo/i.test(error.message || '')) {
         const { motivo, ...resto } = linha;
         resto.valor_novo = `${resto.valor_novo ?? ''} [motivo: ${motivo}]`;
         ({ error } = await supabase.from('audit_log').insert(resto));
@@ -4713,7 +4723,7 @@ app.get('/api/suporte/projetos/:id/extratos', requireAuth, requireSuporte, async
 // Reprocessar extrato: payload do upload em lote (extrato_id, project_id,
 // file_path, bucket). O app tem dois webhooks conforme o fluxo de origem, e o
 // banco não registra qual foi usado; o de lote é o único que não exige nota.
-app.post('/api/suporte/extratos/:id/reprocessar', requireAuth, requireSuporte, exigirMotivo, async (req, res) => {
+app.post('/api/suporte/extratos/:id/reprocessar', requireAuth, requireSuporte, motivoOpcional, async (req, res) => {
     const id = req.params.id;
     try {
         const { data: x, error: getErr } = await supabase.from('extratos').select('*').eq('id', id).maybeSingle();
@@ -5207,4 +5217,4 @@ if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
 }
 
 module.exports = app;
-module.exports.__teste = { avaliarReprocesso, exigirMotivo, MINUTOS_PROCESSAMENTO_EM_ANDAMENTO };
+module.exports.__teste = { avaliarReprocesso, exigirMotivo, motivoOpcional, MINUTOS_PROCESSAMENTO_EM_ANDAMENTO };

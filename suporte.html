@@ -341,7 +341,7 @@
                 <input type="text" id="acao-extra-input" class="form-control" autocomplete="off">
             </div>
             <div class="form-group">
-                <label for="acao-motivo">Motivo (mínimo de 10 caracteres; pode ser o número da ocorrência do Notion)</label>
+                <label id="acao-motivo-label" for="acao-motivo">Motivo (mínimo de 10 caracteres; pode ser o número da ocorrência do Notion)</label>
                 <textarea id="acao-motivo" class="form-control" rows="3" oninput="atualizarMotivoAcao()" style="width: 100%;"></textarea>
                 <span id="acao-motivo-contador" class="text-xs" style="color: var(--text-muted);">0/10</span>
             </div>
@@ -497,6 +497,9 @@
             document.getElementById('acao-titulo').textContent = cfg.titulo;
             document.getElementById('acao-efeito').textContent = cfg.efeito;
             document.getElementById('acao-motivo').value = '';
+            document.getElementById('acao-motivo-label').textContent = cfg.motivoOpcional
+                ? 'Motivo (opcional; se quiser registrar, pode ser o número da ocorrência do Notion)'
+                : 'Motivo (mínimo de 10 caracteres; pode ser o número da ocorrência do Notion)';
             document.getElementById('acao-erro').style.display = 'none';
             const extraWrap = document.getElementById('acao-extra-wrap');
             extraWrap.style.display = cfg.campoExtra ? 'block' : 'none';
@@ -512,9 +515,10 @@
         function atualizarMotivoAcao() {
             const n = document.getElementById('acao-motivo').value.trim().length;
             const contador = document.getElementById('acao-motivo-contador');
-            contador.textContent = `${n}/${MOTIVO_MINIMO}`;
+            const opcional = !!(_acaoCfg && _acaoCfg.motivoOpcional);
+            contador.textContent = opcional ? '' : `${n}/${MOTIVO_MINIMO}`;
             contador.style.color = n >= MOTIVO_MINIMO ? 'var(--success)' : 'var(--text-muted)';
-            document.getElementById('btn-acao-confirmar').disabled = n < MOTIVO_MINIMO || _acaoExecutando;
+            document.getElementById('btn-acao-confirmar').disabled = (!opcional && n < MOTIVO_MINIMO) || _acaoExecutando;
         }
 
         function fecharModalAcao() {
@@ -528,7 +532,7 @@
             const cfg = _acaoCfg;
             if (!cfg || _acaoExecutando) return;
             const motivo = document.getElementById('acao-motivo').value.trim();
-            if (motivo.length < MOTIVO_MINIMO) return;
+            if (!cfg.motivoOpcional && motivo.length < MOTIVO_MINIMO) return;
             const extra = document.getElementById('acao-extra-input').value;
             const erroEl = document.getElementById('acao-erro');
             erroEl.style.display = 'none';
@@ -1129,12 +1133,14 @@
 
         // ── Ficha do documento ────────────────────────────────────────
         let fichaAtual = null;
+        let fichaAba = 'resumo';
 
         async function abrirFicha(id) {
             const corpo = document.getElementById('ficha-corpo');
             document.getElementById('ficha-titulo').textContent = 'Documento';
             corpo.innerHTML = `<p class="text-sm" style="color: var(--text-muted);">Carregando…</p>`;
             document.getElementById('busca-resultados').innerHTML = '';
+            fichaAba = 'resumo';
             document.getElementById('modal-ficha').style.display = 'flex';
             try {
                 fichaAtual = await authFetch(`/api/suporte/documentos/${id}`);
@@ -1160,138 +1166,166 @@
         // Textos das confirmações: uma frase com o efeito da ação.
         const ACOES_FICHA = [
             {
-                chave: 'reprocessar_ocr', rotulo: 'Reprocessar OCR', rota: 'reprocessar-ocr',
+                chave: 'reprocessar_ocr', rotulo: 'Reprocessar OCR', rota: 'reprocessar-ocr', motivoOpcional: true,
+                descricao: 'Lê o arquivo de novo.',
                 efeito: () => 'O documento volta para Em Processamento e é enviado de novo ao OCR; os dados lidos serão extraídos outra vez.'
             },
             {
-                chave: 'reimportar_planilha', rotulo: 'Reimportar planilha', rota: 'reprocessar-ocr',
+                chave: 'reimportar_planilha', rotulo: 'Reimportar planilha', rota: 'reprocessar-ocr', motivoOpcional: true,
+                descricao: 'Importa as rubricas de novo.',
                 efeito: () => 'As rubricas do projeto serão importadas de novo a partir desta planilha: cria uma nova versão, e rubricas que não constarem nela serão marcadas como removidas. Pode levar alguns minutos.'
             },
             {
                 chave: 'revalidar_conformidade', rotulo: 'Revalidar conformidade', rota: 'revalidar-conformidade',
+                descricao: 'Refaz a conferência de CNAE.',
                 efeito: () => 'A conferência do CNAE do fornecedor contra a rubrica é disparada de novo no n8n; o status do documento não muda.'
             },
             {
                 chave: 'avancar', rotulo: 'Avançar documento', rota: 'avancar', perigoso: true,
+                descricao: 'Pula uma etapa, a pedido do cliente.',
                 efeito: (f) => `O documento sai de "${rotuloStatusDoc(f.documento.status)}" para "${rotuloStatusDoc(f.acoes.avancar.destino)}", marcado como [OVERRIDE SUPORTE]. ${f.acoes.avancar.efeito || ''}`
             },
             {
                 chave: 'refazer_conciliacao', rotulo: 'Refazer conciliação', rota: 'refazer-conciliacao',
+                descricao: 'Confere de novo com o extrato.',
                 efeito: (f) => `A conciliação do documento com o extrato é refeita (${f.acoes.refazer_conciliacao.extrato_usado || 'extrato do projeto'}). Em divergência, o documento volta para Falta Conciliação antes.`
             }
         ];
+
+        function trocarAbaFicha(aba) {
+            fichaAba = aba;
+            renderFicha();
+        }
+
+        // Tabela de duas colunas (rótulo | valor) usada nas abas da ficha.
+        // valor é HTML: quem chama escapa.
+        function tabelaDados(linhas) {
+            return `<table class="data-table" style="width: 100%;"><tbody>
+                ${linhas.map(([rotulo, valor]) => `
+                    <tr>
+                        <td class="text-sm" style="width: 32%; color: var(--text-muted);">${esc(rotulo)}</td>
+                        <td class="text-sm" style="word-break: break-word;">${valor == null || valor === '' ? '—' : valor}</td>
+                    </tr>`).join('')}
+            </tbody></table>`;
+        }
 
         function renderFicha() {
             const f = fichaAtual;
             const d = f.documento;
             const s = f.situacao;
+            const ehPlanilha = d.tipo_documento === 'planilha_orcamentaria';
             document.getElementById('ficha-titulo').textContent = d.name || 'Documento';
 
-            const dadosLidos = `
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0 1.25rem;">
-                    ${linhaDado('Tipo', esc(tipoDocLabel(d.tipo_documento)))}
-                    ${linhaDado('Emissor', esc(d.nome_emissor))}
-                    ${linhaDado('CNPJ do emissor', esc(d.cnpj_emissor))}
-                    ${linhaDado('Número da NF', esc(d.numero_nf))}
-                    ${linhaDado('Valor', fmtMoney(d.valor))}
-                    ${linhaDado('Valor pago', fmtMoney(d.valor_pago))}
-                    ${linhaDado('Data de emissão', fmtDate(d.data_emissao))}
-                    ${linhaDado('Data de pagamento', fmtDate(d.data_pagamento))}
-                    ${linhaDado('Rubrica', esc(d.rubrica))}
-                    ${linhaDado('Confiança do OCR', esc(d.confianca_ocr))}
-                    ${linhaDado('Autenticação bancária', esc(d.autenticacao_bancaria))}
-                    ${linhaDado('Duplicidade', esc(d.nivel_duplicidade))}
-                    ${linhaDado('Motivo registrado (just_erro)', esc(d.just_erro))}
-                    ${linhaDado('Tentativas de OCR', esc(d.ocr_retry_count))}
-                </div>
-                <details style="margin-top: 0.5rem;">
-                    <summary class="text-sm" style="cursor: pointer; color: var(--text-secondary);">JSON extraído pelo OCR</summary>
-                    <pre style="max-height: 280px; overflow: auto; background: var(--bg-sidebar); padding: 0.75rem; border-radius: var(--radius-sm); font-size: 0.75rem;">${esc(d.json_extraido ? JSON.stringify(d.json_extraido, null, 2) : 'Sem JSON extraído.')}</pre>
-                </details>`;
-
-            const desp = f.despesa;
-            const lanc = (f.lancamentos_conciliados || [])[0];
-            const vinculos = `
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 1.25rem;">
-                    ${linhaDado('Projeto', f.projeto ? esc(`${f.projeto.pronac || ''} · ${f.projeto.nome || ''}`) : null)}
-                    ${linhaDado('Organização', esc(f.projeto?.organizacao))}
-                    ${linhaDado('Despesa', desp ? esc(`${desp.status || '—'} · conciliada: ${desp.conciliado ? 'sim' : 'não'} · liberada p/ robô: ${desp.liberado_rpa ? 'sim' : 'não'}${desp.motivo_bloqueio ? ' · bloqueio: ' + desp.motivo_bloqueio : ''}`) : 'Sem despesa gerada')}
-                    ${linhaDado('NF mãe', f.nf_mae ? linkFicha(f.nf_mae) : null)}
-                    ${linhaDado('Comprovantes filhos', (f.comprovantes_filhos || []).length ? f.comprovantes_filhos.map(linkFicha).join('<br>') : null)}
-                    ${linhaDado('Extrato de origem', f.extrato_origem ? esc(`${f.extrato_origem.periodo_inicio || '?'} a ${f.extrato_origem.periodo_fim || '?'} · ${rotuloStatusExtrato(f.extrato_origem.status)}`) : null)}
-                    ${linhaDado('Lançamento conciliado', lanc ? esc(`${fmtDate(lanc.data_lancamento)} · ${fmtMoney(lanc.valor)} · ${lanc.memo || ''}`) : 'Nenhum')}
-                    ${linhaDado('Fornecedor', f.fornecedor ? esc(`${f.fornecedor.razao_social || ''} · ${f.fornecedor.cnpj || ''} · CNAE ${f.fornecedor.cnae_codigo || '—'}`) : null)}
-                </div>`;
-
-            const acoesHtml = ACOES_FICHA.map(def => {
-                const a = f.acoes[def.chave] || { habilitada: false, motivo_bloqueio: 'Sem informação.' };
-                const classe = def.perigoso ? 'btn btn-primary' : 'btn btn-secondary';
-                return `
-                    <div style="display: flex; flex-direction: column; gap: 0.25rem; min-width: 180px; flex: 1;">
-                        <span ${a.habilitada ? '' : `title="${esc(a.motivo_bloqueio || '')}"`} style="display: inline-block; ${a.habilitada ? '' : 'cursor: not-allowed;'}">
-                            <button type="button" class="${classe}" style="width: 100%; ${a.habilitada ? '' : 'pointer-events: none; opacity: 0.5;'}" ${a.habilitada ? `onclick="executarAcaoFicha('${def.chave}')"` : 'disabled'}>${esc(def.rotulo)}</button>
-                        </span>
-                        ${a.habilitada ? '' : `<span class="text-xs" style="color: var(--text-muted); line-height: 1.4;">${esc(a.motivo_bloqueio || '')}</span>`}
-                    </div>`;
-            }).join('');
-
-            const tempo = (f.linha_do_tempo || []).length
-                ? `<table class="data-table" style="width: 100%;"><thead><tr><th>Quando</th><th>Quem</th><th>Origem</th><th>Campo</th><th>De → Para</th><th>Motivo</th></tr></thead><tbody>
-                    ${f.linha_do_tempo.map(t => `<tr>
-                        <td class="text-xs">${esc(fmtDateTime(t.quando))}</td>
-                        <td class="text-xs">${esc(t.quem || 'Sistema (automação)')}</td>
-                        <td class="text-xs">${esc(t.origem || '—')}</td>
-                        <td class="text-xs">${esc(t.tabela)} · ${esc(t.campo)}</td>
-                        <td class="text-xs" style="word-break: break-word;">${esc(t.de ?? '—')} → ${esc(t.para ?? '—')}</td>
-                        <td class="text-xs">${esc(t.motivo || '—')}</td>
-                    </tr>`).join('')}
-                  </tbody></table>`
-                : `<p class="empty-state-inline">Nenhum registro de auditoria.</p>`;
-
-            const eventos = (f.eventos_processamento || []).length
-                ? `<table class="data-table" style="width: 100%;"><thead><tr><th>Quando</th><th>Ação</th><th>Destino</th><th>Resultado</th><th>Duração</th><th>Detalhe</th></tr></thead><tbody>
-                    ${f.eventos_processamento.map(e => `<tr>
-                        <td class="text-xs">${esc(fmtDateTime(e.criado_em))}</td>
-                        <td class="text-xs">${esc(e.acao || '—')}</td>
-                        <td class="text-xs">${esc(e.destino || '—')}</td>
-                        <td class="text-xs">${e.ok ? 'OK' : 'Falhou'}${e.http_status ? ' · HTTP ' + esc(e.http_status) : ''}</td>
-                        <td class="text-xs">${e.duracao_ms != null ? esc(e.duracao_ms) + ' ms' : '—'}</td>
-                        <td class="text-xs" style="word-break: break-word;">${esc(e.detalhe || '')}</td>
-                    </tr>`).join('')}
-                  </tbody></table>`
-                : `<p class="text-xs" style="color: var(--text-muted);">Nenhuma chamada externa registrada para este documento.</p>`;
-
-            document.getElementById('ficha-corpo').innerHTML = `
-                <div style="padding: 1rem; background: var(--bg-sidebar); border-radius: var(--radius-md); margin-bottom: 1.25rem;">
+            // ── 1. Situação: o que é, há quanto tempo, o que fazer ──
+            const noStatus = s.minutos_no_status == null ? 'tempo desconhecido' : 'há ' + fmtDuracao(s.minutos_no_status);
+            const situacao = `
+                <div style="padding: 1rem; background: var(--bg-sidebar); border-radius: var(--radius-md); margin-bottom: 1rem;">
                     <div style="display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; align-items: flex-start;">
                         <div>
-                            <div style="margin-bottom: 0.25rem;">${htmlStatus('documents', d.status, d.updated_at)}</div>
-                            <div class="text-sm" style="color: var(--text-secondary);">No status ${s.minutos_no_status == null ? 'há tempo desconhecido' : 'há ' + esc(fmtDuracao(s.minutos_no_status))} <span class="text-xs" style="color: var(--text-muted);">(contado a partir da última atualização do documento)</span></div>
+                            ${htmlStatus('documents', d.status, d.updated_at)}
+                            <div class="text-xs" style="color: var(--text-muted); margin-top: 0.25rem;">No status ${esc(noStatus)} · ${esc(tipoDocLabel(d.tipo_documento))}</div>
                         </div>
                         ${f.arquivo_url
                             ? `<a class="btn btn-secondary" href="${esc(f.arquivo_url)}" target="_blank" rel="noopener">Abrir arquivo</a>`
                             : `<span title="Documento sem arquivo ou link indisponível" style="cursor: not-allowed;"><button class="btn btn-secondary" style="pointer-events: none; opacity: 0.5;" disabled>Abrir arquivo</button></span>`}
                     </div>
-                    <p class="text-sm" style="margin-top: 0.75rem;"><strong>O que significa:</strong> ${esc(s.explicacao || 'Status fora do catálogo.')}</p>
-                    <p class="text-sm"><strong>Próximo passo:</strong> ${esc(s.proximo_passo || '—')}</p>
-                </div>
+                    <p class="text-sm" style="margin-top: 0.75rem;">${esc(s.explicacao || 'Status fora do catálogo.')}</p>
+                    <p class="text-sm" style="margin-top: 0.25rem;"><strong>Próximo passo:</strong> ${esc(s.proximo_passo || '—')}</p>
+                    ${d.just_erro ? `<p class="text-sm" style="margin-top: 0.5rem; color: var(--error);"><strong>Motivo registrado:</strong> ${esc(d.just_erro)}</p>` : ''}
+                </div>`;
 
-                <h4 class="text-sm" style="font-weight: 700; margin-bottom: 0.5rem;">Ações</h4>
-                <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.5rem;">${acoesHtml}</div>
-                <p class="text-xs" style="color: var(--text-muted); margin-bottom: 1.25rem;">O suporte não envia ao SALIC. Toda ação exige motivo e fica registrada na linha do tempo.</p>
+            // ── 2. Ações: só as que fazem sentido para o tipo do documento ──
+            const visiveis = ACOES_FICHA.filter(def =>
+                !(def.chave === 'reimportar_planilha' && !ehPlanilha) && !(def.chave === 'reprocessar_ocr' && ehPlanilha));
+            const acoes = visiveis.map(def => {
+                const a = f.acoes[def.chave] || { habilitada: false, motivo_bloqueio: 'Sem informação.' };
+                const classe = def.perigoso ? 'btn btn-primary' : 'btn btn-secondary';
+                return `
+                    <div style="display: flex; flex-direction: column; gap: 0.25rem; min-width: 170px; flex: 1;">
+                        <span ${a.habilitada ? '' : `title="${esc(a.motivo_bloqueio || '')}"`} style="display: inline-block; ${a.habilitada ? '' : 'cursor: not-allowed;'}">
+                            <button type="button" class="${classe}" style="width: 100%; ${a.habilitada ? '' : 'pointer-events: none; opacity: 0.5;'}" ${a.habilitada ? `onclick="executarAcaoFicha('${def.chave}')"` : 'disabled'}>${esc(def.rotulo)}</button>
+                        </span>
+                        <span class="text-xs" style="color: var(--text-muted); line-height: 1.4;">${esc(a.habilitada ? def.descricao : (a.motivo_bloqueio || ''))}</span>
+                    </div>`;
+            }).join('');
+            const blocoAcoes = `
+                <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.4rem;">${acoes}</div>
+                <p class="text-xs" style="color: var(--text-muted); margin-bottom: 1.25rem;">O suporte não envia ao SALIC. Avançar documento exige motivo e fica registrado no histórico.</p>`;
 
-                <h4 class="text-sm" style="font-weight: 700; margin-bottom: 0.5rem;">Dados lidos</h4>
-                <div style="margin-bottom: 1.25rem;">${dadosLidos}</div>
+            // ── 3. Abas ──
+            const ABAS = [['resumo', 'Resumo'], ['vinculos', 'Vínculos'], ['historico', 'Histórico'], ['ocr', 'Dados do OCR']];
+            const nav = `<div style="display: flex; gap: 0.25rem; border-bottom: 1px solid var(--border-subtle); margin-bottom: 1rem; flex-wrap: wrap;">
+                ${ABAS.map(([k, r]) => `<button type="button" class="tab-btn ${fichaAba === k ? 'active' : ''}" onclick="trocarAbaFicha('${k}')">${esc(r)}</button>`).join('')}
+            </div>`;
 
-                <h4 class="text-sm" style="font-weight: 700; margin-bottom: 0.5rem;">Vínculos</h4>
-                <div style="margin-bottom: 1.25rem;">${vinculos}</div>
+            let conteudo = '';
+            if (fichaAba === 'resumo') {
+                conteudo = tabelaDados([
+                    ['Emissor', esc(d.nome_emissor)],
+                    ['CNPJ do emissor', esc(d.cnpj_emissor)],
+                    ['Número da NF', esc(d.numero_nf)],
+                    ['Valor', fmtMoney(d.valor)],
+                    ['Data de emissão', fmtDate(d.data_emissao)],
+                    ['Data de pagamento', fmtDate(d.data_pagamento)],
+                    ['Rubrica', esc(d.rubrica)],
+                    ['Projeto', f.projeto ? esc(`${f.projeto.pronac || ''} · ${f.projeto.nome || ''}`) : null],
+                    ['Organização', esc(f.projeto?.organizacao)]
+                ]);
+            } else if (fichaAba === 'vinculos') {
+                const desp = f.despesa;
+                const lanc = (f.lancamentos_conciliados || [])[0];
+                conteudo = tabelaDados([
+                    ['Despesa', desp ? esc(`${desp.status || '—'} · conciliada: ${desp.conciliado ? 'sim' : 'não'} · liberada para o robô: ${desp.liberado_rpa ? 'sim' : 'não'}${desp.motivo_bloqueio ? ' · bloqueio: ' + desp.motivo_bloqueio : ''}`) : 'Sem despesa gerada'],
+                    ['NF mãe', f.nf_mae ? linkFicha(f.nf_mae) : 'Nenhuma'],
+                    ['Comprovantes filhos', (f.comprovantes_filhos || []).length ? f.comprovantes_filhos.map(linkFicha).join('<br>') : 'Nenhum'],
+                    ['Extrato de origem', f.extrato_origem ? esc(`${f.extrato_origem.periodo_inicio || '?'} a ${f.extrato_origem.periodo_fim || '?'} · ${rotuloStatusExtrato(f.extrato_origem.status)}`) : 'Nenhum'],
+                    ['Lançamento conciliado', lanc ? esc(`${fmtDate(lanc.data_lancamento)} · ${fmtMoney(lanc.valor)} · ${lanc.memo || ''}`) : 'Nenhum'],
+                    ['Fornecedor', f.fornecedor ? esc(`${f.fornecedor.razao_social || ''} · ${f.fornecedor.cnpj || ''} · CNAE ${f.fornecedor.cnae_codigo || '—'}`) : 'Não vinculado']
+                ]);
+            } else if (fichaAba === 'historico') {
+                const tempo = (f.linha_do_tempo || []).slice().reverse();
+                const tabTempo = tempo.length
+                    ? `<table class="data-table" style="width: 100%;"><thead><tr><th>Quando</th><th>Quem</th><th>O que mudou</th><th>Motivo</th></tr></thead><tbody>
+                        ${tempo.map(t => `<tr>
+                            <td class="text-xs" style="white-space: nowrap;">${esc(fmtDateTime(t.quando))}</td>
+                            <td class="text-xs">${esc(t.quem || 'Sistema (automação)')}<div style="color: var(--text-muted);">${esc(t.origem || '')}</div></td>
+                            <td class="text-xs" style="word-break: break-word;">${esc(t.campo)}: ${esc(t.de ?? '—')} → ${esc(t.para ?? '—')}</td>
+                            <td class="text-xs">${esc(t.motivo || '—')}</td>
+                        </tr>`).join('')}
+                      </tbody></table>`
+                    : `<p class="empty-state-inline">Nenhum registro de auditoria.</p>`;
+                const eventos = (f.eventos_processamento || []).slice().reverse();
+                const tabEventos = eventos.length
+                    ? `<table class="data-table" style="width: 100%;"><thead><tr><th>Quando</th><th>Ação</th><th>Destino</th><th>Resultado</th><th>Detalhe</th></tr></thead><tbody>
+                        ${eventos.map(e => `<tr>
+                            <td class="text-xs" style="white-space: nowrap;">${esc(fmtDateTime(e.criado_em))}</td>
+                            <td class="text-xs">${esc(e.acao || '—')}</td>
+                            <td class="text-xs">${esc(e.destino || '—')}</td>
+                            <td class="text-xs">${e.ok ? 'OK' : 'Falhou'}${e.http_status ? ' · HTTP ' + esc(e.http_status) : ''}${e.duracao_ms != null ? ' · ' + esc(e.duracao_ms) + ' ms' : ''}</td>
+                            <td class="text-xs" style="word-break: break-word;">${esc(e.detalhe || '')}</td>
+                        </tr>`).join('')}
+                      </tbody></table>`
+                    : `<p class="text-xs" style="color: var(--text-muted);">Nenhuma chamada externa registrada para este documento.</p>`;
+                conteudo = `
+                    <h4 class="text-sm" style="font-weight: 700; margin-bottom: 0.5rem;">Alterações</h4>
+                    <div style="overflow-x: auto; margin-bottom: 1.25rem;">${tabTempo}</div>
+                    <h4 class="text-sm" style="font-weight: 700; margin-bottom: 0.5rem;">Chamadas externas</h4>
+                    <div style="overflow-x: auto;">${tabEventos}</div>`;
+            } else {
+                conteudo = tabelaDados([
+                    ['Confiança do OCR', esc(d.confianca_ocr)],
+                    ['Valor pago', fmtMoney(d.valor_pago)],
+                    ['Autenticação bancária', esc(d.autenticacao_bancaria)],
+                    ['Duplicidade', esc(d.nivel_duplicidade)],
+                    ['Tentativas de OCR', esc(d.ocr_retry_count)]
+                ]) + `
+                    <details style="margin-top: 0.75rem;">
+                        <summary class="text-sm" style="cursor: pointer; color: var(--text-secondary);">JSON extraído pelo OCR</summary>
+                        <pre style="max-height: 320px; overflow: auto; background: var(--bg-sidebar); padding: 0.75rem; border-radius: var(--radius-sm); font-size: 0.75rem;">${esc(d.json_extraido ? JSON.stringify(d.json_extraido, null, 2) : 'Sem JSON extraído.')}</pre>
+                    </details>`;
+            }
 
-                <h4 class="text-sm" style="font-weight: 700; margin-bottom: 0.5rem;">Linha do tempo</h4>
-                <div class="data-table-container" style="margin-bottom: 1rem; overflow-x: auto;">${tempo}</div>
-
-                <h4 class="text-sm" style="font-weight: 700; margin-bottom: 0.5rem;">Chamadas externas deste documento</h4>
-                <div style="overflow-x: auto;">${eventos}</div>
-            `;
+            document.getElementById('ficha-corpo').innerHTML = situacao + blocoAcoes + nav + conteudo;
         }
 
         function mensagemDeResultado(def, r) {
@@ -1311,6 +1345,7 @@
             const id = f.documento.id;
             abrirModalAcao({
                 titulo: def.rotulo,
+                motivoOpcional: !!def.motivoOpcional,
                 efeito: def.efeito(f),
                 confirmar: def.rotulo,
                 onConfirm: async ({ motivo }) => {
@@ -1387,6 +1422,7 @@
         function reprocessarExtrato(id) {
             abrirModalAcao({
                 titulo: 'Reprocessar extrato',
+                motivoOpcional: true,
                 efeito: 'O arquivo do extrato é reenviado ao n8n para ser lido de novo e conciliado contra as notas pendentes do projeto.',
                 confirmar: 'Reprocessar',
                 onConfirm: async ({ motivo }) => {
