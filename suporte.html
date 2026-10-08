@@ -737,7 +737,7 @@
             const apagaveis = t.ignorados.filter(i => i.pode_apagar);
             const botaoApagar = apagaveis.length && !t.rodando ? `
                 <div style="margin-top: 0.75rem; padding: 0.6rem 0.75rem; background: var(--bg-sidebar); border-radius: var(--radius-sm);">
-                    <p class="text-xs" style="color: var(--text-secondary); margin-bottom: 0.5rem;">${apagaveis.length} planilha${apagaveis.length === 1 ? '' : 's'} antiga${apagaveis.length === 1 ? '' : 's'} ficou de fora porque existe uma mais recente no projeto. Pode apagá-la${apagaveis.length === 1 ? '' : 's'}; as rubricas atuais não mudam.</p>
+                    <p class="text-xs" style="color: var(--text-secondary); margin-bottom: 0.5rem;">${apagaveis.length} planilha${apagaveis.length === 1 ? '' : 's'} antiga${apagaveis.length === 1 ? '' : 's'} ${apagaveis.length === 1 ? 'ficou' : 'ficaram'} de fora porque existe uma mais recente no projeto. Pode apagá-la${apagaveis.length === 1 ? '' : 's'}; as rubricas atuais não mudam.</p>
                     <button type="button" class="btn btn-secondary" style="padding: 0.35rem 0.7rem; font-size: 0.75rem;" onclick="apagarPlanilhasAntigas()">Apagar ${apagaveis.length} planilha${apagaveis.length === 1 ? '' : 's'} antiga${apagaveis.length === 1 ? '' : 's'}</button>
                 </div>` : '';
             const ignoradosHtml = t.ignorados.length ? `

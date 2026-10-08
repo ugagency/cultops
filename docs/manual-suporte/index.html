@@ -1,0 +1,800 @@
+<title>Manual do Painel de Suporte</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: índice fixo à esquerda no desktop, texto em coluna de leitura; no celular o índice vira um bloco recolhível no topo. */
+:root {
+  --azul: #1547FF;        /* azul Prestaí */
+  --azul-claro: #E3E8FF;
+  --verde: #16A34A;
+  --laranja: #FF5807;     /* alerta Prestaí */
+  --bege: #F5F0E8;
+  --bg: #FFFFFF;
+  --fg: #0B0E1A;
+  --fg-2: #4A5068;
+  --fg-3: #8A90A6;
+  --linha: #DCE2F5;
+  --painel: #F7F8FC;
+  --aviso-bg: #FFF1E9;
+  --aviso-fg: #9A3412;
+  --nota-bg: #EEF2FF;
+  --ok-bg: #ECFDF3;
+  --font-corpo: 'Mona Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  --raio: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --azul: #7D97FF; --azul-claro: #1B2450; --verde: #4ADE80; --laranja: #FF8A4C; --bege: #24211C;
+    --bg: #0E111B; --fg: #ECEFF8; --fg-2: #B4BAD0; --fg-3: #7E85A0; --linha: #262C42; --painel: #151A28;
+    --aviso-bg: #2E1A10; --aviso-fg: #FDBA8C; --nota-bg: #172042; --ok-bg: #0F2A1C; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --azul: #7D97FF; --azul-claro: #1B2450; --verde: #4ADE80; --laranja: #FF8A4C; --bege: #24211C;
+  --bg: #0E111B; --fg: #ECEFF8; --fg-2: #B4BAD0; --fg-3: #7E85A0; --linha: #262C42; --painel: #151A28;
+  --aviso-bg: #2E1A10; --aviso-fg: #FDBA8C; --nota-bg: #172042; --ok-bg: #0F2A1C; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-corpo); font-size: 16px; line-height: 1.6; }
+.casca { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 3rem; max-width: 1180px; margin: 0 auto; padding-inline: 24px; padding-block: 2.5rem 5rem; }
+nav.indice { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 1.5rem); align-self: start; max-height: calc(100vh - 3rem); overflow-y: auto; font-size: 0.875rem; }
+nav.indice summary { font-weight: 700; cursor: pointer; list-style: none; margin-bottom: 0.5rem; }
+nav.indice summary::-webkit-details-marker { display: none; }
+nav.indice ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.15rem; }
+nav.indice ol ol { padding-left: 0.9rem; margin-block: 0.15rem 0.35rem; }
+nav.indice a { color: var(--fg-2); text-decoration: none; display: block; padding: 0.15rem 0.4rem; border-radius: 6px; }
+nav.indice a:hover, nav.indice a:focus-visible { color: var(--azul); background: var(--azul-claro); outline: none; }
+main { min-width: 0; max-width: 780px; }
+.marca { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--azul); }
+h1 { font-size: 2.4rem; line-height: 1.1; letter-spacing: -0.02em; margin: 0.4rem 0 0.75rem; text-wrap: balance; }
+h2 { font-size: 1.55rem; line-height: 1.2; letter-spacing: -0.01em; margin: 3.5rem 0 0.75rem; padding-top: 1rem; border-top: 1px solid var(--linha); text-wrap: balance; scroll-margin-top: 1rem; }
+h3 { font-size: 1.15rem; margin: 2rem 0 0.5rem; text-wrap: balance; scroll-margin-top: 1rem; }
+h4 { font-size: 1rem; margin: 1.4rem 0 0.4rem; }
+p, li { color: var(--fg); }
+p { margin: 0.6rem 0; }
+.lead { font-size: 1.12rem; color: var(--fg-2); }
+a { color: var(--azul); }
+code { font-family: var(--font-mono); font-size: 0.82em; background: var(--painel); border: 1px solid var(--linha); padding: 0.05em 0.35em; border-radius: 5px; word-break: break-word; }
+figure { margin: 1.4rem 0; }
+figure img { display: block; max-width: 100%; height: auto; border: 1px solid var(--linha); border-radius: var(--raio); box-shadow: 0 6px 18px -10px rgba(10, 20, 60, 0.25); background: #fff; }
+figcaption { font-size: 0.85rem; color: var(--fg-3); margin-top: 0.5rem; }
+.caixa { border-radius: var(--raio); padding: 0.9rem 1.1rem; margin: 1.2rem 0; border: 1px solid var(--linha); }
+.caixa > :first-child { margin-top: 0; } .caixa > :last-child { margin-bottom: 0; }
+.caixa strong.rotulo { display: block; font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 0.25rem; }
+.aviso { background: var(--aviso-bg); border-color: transparent; }
+.aviso strong.rotulo { color: var(--aviso-fg); }
+.nota { background: var(--nota-bg); border-color: transparent; }
+.nota strong.rotulo { color: var(--azul); }
+.ok { background: var(--ok-bg); border-color: transparent; }
+.ok strong.rotulo { color: var(--verde); }
+ol.passos { counter-reset: passo; list-style: none; padding: 0; display: grid; gap: 0.55rem; }
+ol.passos > li { counter-increment: passo; position: relative; padding-left: 2.3rem; }
+ol.passos > li::before { content: counter(passo); position: absolute; left: 0; top: 0.1rem; width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--azul-claro); color: var(--azul); font-weight: 700; font-size: 0.8rem; display: grid; place-items: center; font-variant-numeric: tabular-nums; }
+.tabela { overflow-x: auto; margin: 1rem 0; border: 1px solid var(--linha); border-radius: var(--raio); }
+table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+th, td { text-align: left; vertical-align: top; padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--linha); }
+th { background: var(--painel); font-size: 0.75rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-2); white-space: nowrap; }
+tr:last-child td { border-bottom: none; }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.g { display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; white-space: nowrap; }
+.g-em_andamento { background: var(--azul-claro); color: var(--azul); }
+.g-esperando_cliente { background: var(--azul-claro); color: var(--azul); }
+.g-travado, .g-erro { background: var(--laranja); color: #fff; }
+.g-finalizado { background: var(--azul); color: #fff; }
+.acao { border: 1px solid var(--linha); border-radius: var(--raio); padding: 1rem 1.2rem; margin: 1.2rem 0; }
+.acao h3 { margin-top: 0; }
+.acao dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.35rem 1rem; margin: 0.6rem 0; font-size: 0.92rem; }
+.acao dt { color: var(--fg-3); font-weight: 600; }
+.acao dd { margin: 0; }
+.tag { display: inline-block; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 0.1rem 0.5rem; border-radius: 5px; vertical-align: middle; margin-left: 0.4rem; }
+.tag-obrig { background: var(--aviso-bg); color: var(--aviso-fg); }
+.tag-opc { background: var(--ok-bg); color: var(--verde); }
+.tag-bloq { background: var(--painel); color: var(--fg-3); border: 1px solid var(--linha); }
+.grade2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
+.grade2 > div { min-width: 0; }
+kbd { font-family: var(--font-mono); font-size: 0.8em; border: 1px solid var(--linha); border-bottom-width: 2px; border-radius: 4px; padding: 0 0.3em; }
+.rodape { margin-top: 4rem; font-size: 0.85rem; color: var(--fg-3); }
+@media (max-width: 900px) {
+  .casca { grid-template-columns: minmax(0, 1fr); gap: 1rem; padding-inline: 16px; padding-block: 1.5rem 4rem; }
+  nav.indice { position: static; max-height: none; border: 1px solid var(--linha); border-radius: var(--raio); padding: 0.75rem 1rem; }
+  h1 { font-size: 1.9rem; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+html { scroll-behavior: smooth; }
+</style>
+
+<div class="casca">
+<nav class="indice" aria-label="Índice">
+  <details open id="indice-det">
+    <summary>Índice</summary>
+    <ol>
+      <li><a href="#comeco">Para que serve o painel</a></li>
+      <li><a href="#regras">Regras de ouro</a></li>
+      <li><a href="#tela-inicial">A tela inicial</a></li>
+      <li><a href="#encontrar">Encontrar o cliente</a></li>
+      <li><a href="#status">Como ler um status</a></li>
+      <li><a href="#projeto">As abas do projeto</a>
+        <ol>
+          <li><a href="#aba-atencao">Atenção</a></li>
+          <li><a href="#aba-documentos">Documentos</a></li>
+          <li><a href="#aba-extratos">Extratos</a></li>
+          <li><a href="#aba-evidencias">Evidências</a></li>
+          <li><a href="#aba-saldo">Saldo SALIC</a></li>
+          <li><a href="#aba-outras">Contratos, Guias e Auditoria</a></li>
+        </ol>
+      </li>
+      <li><a href="#ficha">A ficha do documento</a></li>
+      <li><a href="#janela-acao">A janela de confirmação</a></li>
+      <li><a href="#acoes">Todas as ações</a></li>
+      <li><a href="#tudo">Reprocessar tudo</a></li>
+      <li><a href="#segundo-plano">Ações em segundo plano</a></li>
+      <li><a href="#saude">Saúde do sistema</a></li>
+      <li><a href="#receitas">Casos do dia a dia</a></li>
+      <li><a href="#bloqueios">Mensagens de bloqueio</a></li>
+      <li><a href="#catalogo">Catálogo de status</a></li>
+      <li><a href="#glossario">Glossário</a></li>
+    </ol>
+  </details>
+</nav>
+
+<main>
+<div class="marca">Prestaí · Uso interno SSYS</div>
+<h1>Manual do Painel de Suporte</h1>
+<p class="lead">Como diagnosticar e destravar documentos, extratos e integrações de qualquer cliente pelo painel, sem abrir o banco, o n8n ou o código.</p>
+<p>Nos prints, os e-mails aparecem como <code>usuario@exemplo.com</code> de propósito. Os demais dados são do projeto real usado para fotografar a tela.</p>
+
+<!-- ============================================================ -->
+<h2 id="comeco">Para que serve o painel</h2>
+<p>O painel de suporte mostra qualquer organização do Prestaí, com seus projetos, usuários e documentos, e diz em português o que está acontecendo com cada documento: se está andando, se está parado, se deu erro ou se depende do cliente. Quando cabe ao suporte agir, o botão da ação aparece ali mesmo.</p>
+<h3>Quem acessa</h3>
+<p>Só quem tem o perfil interno de suporte (<code>is_suporte</code>) ou de administrador da plataforma (<code>is_platform_admin</code>). Qualquer outra conta é mandada de volta para a seleção de módulos. Não existem níveis diferentes dentro do suporte: quem entra vê tudo e pode usar todas as ações.</p>
+<h3>Como abrir</h3>
+<ol class="passos">
+  <li>Entre no Prestaí com a sua conta SSYS.</li>
+  <li>Abra o endereço <code>/suporte.html</code> do Prestaí (por exemplo, <code>https://&lt;endereço do Prestaí&gt;/suporte.html</code>).</li>
+  <li>Se a sessão tiver expirado, o painel leva você para o login. Entre de novo e volte ao endereço.</li>
+</ol>
+
+<!-- ============================================================ -->
+<h2 id="regras">Regras de ouro</h2>
+<div class="caixa aviso">
+  <strong class="rotulo">O suporte não envia nada ao SALIC</strong>
+  <p>Não existe no painel nenhum botão de enviar, de "Tentar novamente" ou de avançar a partir de <em>Pronto para envio</em> ou <em>Erro no Envio</em>. O envio usa a credencial gov.br do gestor, então é sempre o cliente que clica. Quando o documento está nessas etapas, o seu trabalho é avisar o cliente.</p>
+</div>
+<ul>
+  <li><strong>A única ação que muda o andamento de negócio de um documento é Avançar documento.</strong> Use só a pedido do cliente e sempre com motivo.</li>
+  <li><strong>O suporte não corrige campos lidos pelo OCR e não troca rubrica.</strong> Isso é feito pelo cliente, no Prestaí.</li>
+  <li><strong>Tudo o que você faz fica registrado:</strong> quem fez, quando, o que mudou e o motivo, quando houver um. Aparece na linha do tempo do documento e no audit_log.</li>
+  <li><strong>O motivo</strong> pode ser o número da ocorrência do Notion. Ele é obrigatório nas ações que mudam alguma coisa de forma relevante (avançar, refazer conciliação, apagar, encerrar exportação, reimportar projeto SALIC, resetar acesso) e opcional nos reprocessamentos.</li>
+  <li><strong>O botão desabilitado sempre diz por quê.</strong> O motivo do bloqueio aparece embaixo do botão e também ao passar o mouse. Se a ação está bloqueada, não tente contornar: leia o motivo e siga o próximo passo indicado.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="tela-inicial">A tela inicial</h2>
+<p>Ao abrir o painel você vê, de cima para baixo: a <strong>busca global</strong>, a lista de <strong>organizações</strong> e, no fim da página, a <strong>saúde do sistema</strong>.</p>
+<figure>
+  <img src="img/01-tela-inicial.png" alt="Tela inicial do painel de suporte com a busca global e a lista de organizações" loading="lazy">
+  <figcaption>Tela inicial: busca global e organizações. A lista mostra os módulos contratados, quantos projetos e usuários cada organização tem e se está ativa.</figcaption>
+</figure>
+<p>A lista de organizações tem um filtro por nome ou slug no canto superior direito. Clique numa organização para abrir os projetos e os usuários dela logo abaixo.</p>
+
+<!-- ============================================================ -->
+<h2 id="encontrar">Encontrar o cliente</h2>
+<h3>Pela busca global</h3>
+<p>A busca começa a responder a partir de 3 caracteres e aceita:</p>
+<div class="tabela"><table>
+  <thead><tr><th>O que digitar</th><th>O que encontra</th><th>Ao clicar no resultado</th></tr></thead>
+  <tbody>
+    <tr><td>Nome do projeto ou PRONAC</td><td>Projetos</td><td>Abre a organização e o projeto, já na aba Atenção</td></tr>
+    <tr><td>CNPJ (só números, 11 dígitos ou mais) ou razão social</td><td>Fornecedores</td><td>Abre a organização dona do fornecedor</td></tr>
+    <tr><td>Nome do arquivo ou número da NF</td><td>Documentos</td><td>Abre a ficha do documento</td></tr>
+    <tr><td>Id do documento (o código longo, com hífens)</td><td>O documento exato</td><td>Abre a ficha do documento</td></tr>
+    <tr><td>E-mail (ou parte dele, 4 caracteres ou mais)</td><td>Usuários</td><td>Abre a organização do usuário</td></tr>
+  </tbody>
+</table></div>
+<figure>
+  <img src="img/02-busca.png" alt="Busca pelo PRONAC 258804 mostrando o projeto e três documentos" loading="lazy">
+  <figcaption>Buscando pelo PRONAC: o primeiro resultado é o projeto; os outros são documentos cujo nome contém o número.</figcaption>
+</figure>
+<div class="caixa nota"><strong class="rotulo">Dica</strong><p>Quando o cliente manda o nome do arquivo que "não andou", busque pelo nome do arquivo: você cai direto na ficha.</p></div>
+
+<h3>Pela lista de organizações</h3>
+<ol class="passos">
+  <li>Clique na organização. Aparecem os <strong>Projetos</strong> e os <strong>Usuários</strong> dela.</li>
+  <li>Clique no projeto para abrir o detalhe do projeto com as abas.</li>
+</ol>
+<figure>
+  <img src="img/03-organizacao.png" alt="Projetos e usuários da organização selecionada" loading="lazy">
+  <figcaption>Organização selecionada: projetos à esquerda (o selecionado fica destacado) e usuários à direita, com o botão Resetar acesso.</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2 id="status">Como ler um status</h2>
+<p>Em todas as tabelas do painel o status aparece em três camadas:</p>
+<ol class="passos">
+  <li><strong>O rótulo em português</strong>, igual ao que o cliente vê no Prestaí (por exemplo, <em>Revisão Manual</em>).</li>
+  <li><strong>A etiqueta colorida do grupo</strong>, que diz em que situação ele está.</li>
+  <li><strong>O código técnico</strong>, pequeno embaixo (por exemplo, <code>revisao_manual</code>). Use-o quando falar com o desenvolvimento.</li>
+</ol>
+<p>Passando o mouse sobre o status aparece a explicação e o próximo passo, os mesmos que estão no <a href="#catalogo">catálogo de status</a>.</p>
+<div class="tabela"><table>
+  <thead><tr><th>Grupo</th><th>Quer dizer</th><th>O que o suporte faz</th></tr></thead>
+  <tbody>
+    <tr><td><span class="g g-em_andamento">Em andamento</span></td><td>O sistema está trabalhando e ainda está dentro do tempo normal.</td><td>Esperar.</td></tr>
+    <tr><td><span class="g g-travado">Travado</span></td><td>Estava em andamento e passou do prazo normal para aquela etapa.</td><td>Usar a ação indicada (reprocessar, revalidar etc.).</td></tr>
+    <tr><td><span class="g g-erro">Erro</span></td><td>A etapa falhou.</td><td>Ler a causa e usar a ação indicada, ou avisar o cliente.</td></tr>
+    <tr><td><span class="g g-esperando_cliente">Esperando cliente</span></td><td>Depende de uma decisão ou de um envio do cliente. Nunca vira travado.</td><td>Avisar o cliente. Se passou de 7 dias, ele aparece na aba Atenção.</td></tr>
+    <tr><td><span class="g g-finalizado">Finalizado</span></td><td>Terminou.</td><td>Nada.</td></tr>
+  </tbody>
+</table></div>
+<h3>Quando algo é considerado travado</h3>
+<div class="tabela"><table>
+  <thead><tr><th>Etapa</th><th>Vira travado após</th></tr></thead>
+  <tbody>
+    <tr><td>Documento em processamento (OCR)</td><td class="num">5 min</td></tr>
+    <tr><td>Documento em Auditoria IA (conformidade); o normal é menos de 1 min</td><td class="num">5 min</td></tr>
+    <tr><td>Documento em carência D-3 (72 h + 1 dia de folga)</td><td class="num">4 dias</td></tr>
+    <tr><td>Extrato pendente</td><td class="num">30 min</td></tr>
+    <tr><td>Importação de projeto SALIC pendente ou processando</td><td class="num">30 min</td></tr>
+    <tr><td>Captura de saldo SALIC executando</td><td class="num">30 min</td></tr>
+    <tr><td>Exportação gerando</td><td class="num">60 min</td></tr>
+  </tbody>
+</table></div>
+<div class="caixa nota">
+  <strong class="rotulo">"Há quanto tempo" é uma estimativa</strong>
+  <p>Para documentos, o tempo é contado a partir da última atualização do documento. Qualquer alteração (inclusive automática) reinicia esse relógio, então um documento pode estar parado há mais tempo do que o painel mostra. Extratos antigos não guardam data de envio: aparecem como <em>tempo desconhecido</em>, e os pendentes nessa situação são tratados como travados.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="projeto">As abas do projeto</h2>
+<p>Ao abrir um projeto aparecem oito abas: <strong>Atenção</strong>, <strong>Documentos</strong>, <strong>Extratos</strong>, <strong>Evidências</strong>, <strong>Saldo SALIC</strong>, <strong>Contratos</strong>, <strong>Guias</strong> e <strong>Auditoria</strong>. O projeto abre sempre na aba Atenção.</p>
+
+<h3 id="aba-atencao">Atenção</h3>
+<p>É a lista do que precisa de você naquele projeto. Ela junta documentos, extratos, exportações, capturas de saldo, evidências e importação de projeto SALIC. A ordem é: primeiro os erros, depois os travados, depois os que esperam o cliente há mais de 7 dias; dentro de cada grupo, os mais antigos primeiro.</p>
+<figure>
+  <img src="img/04-atencao.png" alt="Aba Atenção com quatro contadores e a lista de itens" loading="lazy">
+  <figcaption>Aba Atenção: contadores no topo e a lista com status, há quanto tempo, causa, ação sugerida e o botão para abrir.</figcaption>
+</figure>
+<h4>Os quatro contadores</h4>
+<ul>
+  <li><strong>Erro</strong>: itens cuja etapa falhou.</li>
+  <li><strong>Travado</strong>: itens em andamento que passaram do prazo.</li>
+  <li><strong>Esperando cliente há mais de 7 dias</strong>: dependem do cliente e estão parados há uma semana ou mais.</li>
+  <li><strong>Integrações com falha</strong>: tudo o que não é documento (extratos, exportações, saldo, evidências, importação de projeto) em erro ou travado.</li>
+</ul>
+<p>Clique num contador para filtrar a lista; clique de novo para tirar o filtro.</p>
+<figure>
+  <img src="img/05-atencao-filtro.png" alt="Aba Atenção filtrada por Travado mostrando dois extratos pendentes" loading="lazy">
+  <figcaption>Filtro "Travado" ligado: dois extratos pendentes sem data de envio.</figcaption>
+</figure>
+<h4>As colunas</h4>
+<ul>
+  <li><strong>Item</strong>: tipo (documento, extrato, projeto SALIC…) e nome.</li>
+  <li><strong>Causa</strong>: a mensagem de erro gravada. Nas integrações com o SALIC a causa vem traduzida; o texto original fica em <em>Detalhe técnico</em>, que abre ao clicar.</li>
+  <li><strong>Ação sugerida</strong>: o próximo passo do catálogo.</li>
+  <li><strong>Abrir</strong>: em documento abre a ficha; em exportação travada mostra <em>Encerrar exportação</em>; nos demais, <em>Ver na aba</em> leva à aba certa do projeto.</li>
+</ul>
+<p>O botão <strong>Reprocessar tudo</strong>, no canto superior direito, está explicado em <a href="#tudo">Reprocessar tudo</a>.</p>
+
+<h3 id="aba-documentos">Documentos</h3>
+<p>Todos os documentos do projeto, dos mais novos para os mais antigos, 15 por página. Os botões acima da tabela mostram quantos documentos há em cada status e servem de filtro. Linhas em destaque estão bloqueadas por conformidade ou têm erro registrado; o erro aparece em laranja embaixo do status.</p>
+<figure>
+  <img src="img/06-documentos.png" alt="Aba Documentos com filtros por status e a tabela de documentos" loading="lazy">
+  <figcaption>Aba Documentos. Clique em qualquer linha (ou em Abrir ficha) para abrir a ficha do documento.</figcaption>
+</figure>
+
+<h3 id="aba-extratos">Extratos</h3>
+<p>Os extratos bancários enviados no projeto, com período, status, desde quando, quantos lançamentos foram lidos e quantos já foram conciliados com notas. A coluna <strong>Ação</strong> tem o <strong>Reprocessar extrato</strong>, habilitado quando o extrato está pendente há mais de 30 min, pendente sem data ou com erro.</p>
+<figure>
+  <img src="img/16-extratos.png" alt="Aba Extratos com dois extratos pendentes travados e extratos processados" loading="lazy">
+  <figcaption>Os pendentes travados ficam em destaque e com o Reprocessar habilitado; nos processados o botão fica desabilitado e explica por quê.</figcaption>
+</figure>
+<div class="caixa aviso">
+  <strong class="rotulo">Atenção ao reprocessar extrato</strong>
+  <p>O extrato é reenviado ao fluxo de conciliação em lote, que lê o arquivo e tenta casar os lançamentos com todas as notas pendentes do projeto. Se um extrato com erro já tinha lançamentos lidos, confira depois na coluna Lançamentos se não houve duplicação, e avise o desenvolvimento se houver.</p>
+</div>
+
+<h3 id="aba-evidencias">Evidências</h3>
+<p>Somente leitura: tipo, arquivo, status, motivo da reprovação, categoria e nota da IA e data de envio ao SALIC. O suporte não valida, não reprova e não reenvia evidências.</p>
+<figure>
+  <img src="img/17-evidencias.png" alt="Aba Evidências com evidências pendentes, aprovadas e reprovadas" loading="lazy">
+  <figcaption>Evidências do projeto. Uma evidência em Erro no Envio também aparece na aba Atenção.</figcaption>
+</figure>
+
+<h3 id="aba-saldo">Saldo SALIC</h3>
+<p>Três blocos:</p>
+<ul>
+  <li><strong>Divergências abertas</strong>: quantas rubricas têm valor executado diferente entre o Prestaí e o SALIC.</li>
+  <li><strong>Últimas capturas</strong>: as 10 capturas mais recentes do relatório de execução do SALIC, com a causa do erro em português e o detalhe técnico.</li>
+  <li><strong>Importação do projeto SALIC (PDF)</strong>: a última importação do PDF do projeto, com status, causa e o botão <strong>Reimportar projeto SALIC</strong>.</li>
+</ul>
+<figure>
+  <img src="img/18-saldo-salic.png" alt="Aba Saldo SALIC com divergências, capturas e importação do projeto" loading="lazy">
+  <figcaption>Capturas com erro mostram a causa traduzida (por exemplo, "O navegador do robô fechou no meio da captura").</figcaption>
+</figure>
+<div class="caixa nota">
+  <strong class="rotulo">Por que o "Recapturar saldo do SALIC" fica sempre desabilitado</strong>
+  <p>A captura entra no SALIC com a credencial de quem clica, e a conta do suporte não tem credencial SALIC. Quando a última captura deu erro, oriente o cliente a clicar em <em>Atualizar do SALIC</em> na tela de saldo dele.</p>
+</div>
+
+<h3 id="aba-outras">Contratos, Guias e Auditoria</h3>
+<p><strong>Contratos</strong> e <strong>Guias</strong> são listas de consulta (número, objeto, valor, período e status; tipo de imposto, competência, valor, vencimento, pagamento e status). <strong>Auditoria</strong> mostra as últimas 500 alterações do projeto, com data, usuário, tipo, documento, ação e detalhe, igual ao PDF de auditoria do Módulo II.</p>
+<div class="grade2">
+  <div><figure><img src="img/19-contratos.png" alt="Aba Contratos" loading="lazy"><figcaption>Contratos do projeto.</figcaption></figure></div>
+  <div><figure><img src="img/20-auditoria.png" alt="Aba Auditoria" loading="lazy"><figcaption>Auditoria do projeto. "Sistema (automação)" são alterações feitas por crons e gatilhos.</figcaption></figure></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="ficha">A ficha do documento</h2>
+<p>A ficha é onde você entende e resolve um documento. Ela abre ao clicar num documento na aba Atenção, na aba Documentos, na busca ou num vínculo de outra ficha.</p>
+<figure>
+  <img src="img/07-ficha-resumo.png" alt="Ficha de uma nota fiscal enviada ao SALIC, aba Resumo" loading="lazy">
+  <figcaption>Ficha de uma nota fiscal, aba Resumo.</figcaption>
+</figure>
+<h3>As três partes da ficha</h3>
+<ol class="passos">
+  <li><strong>Situação</strong> (topo, fundo bege): status com grupo, há quanto tempo está nele, tipo do documento, o que o status significa, o próximo passo e o <em>motivo registrado</em> (o erro gravado no documento), quando houver. O botão <strong>Abrir arquivo</strong> abre o PDF ou imagem original numa nova aba; o link vale por 10 minutos, então se expirar feche e reabra a ficha.</li>
+  <li><strong>Ações</strong>: os botões das ações que fazem sentido para o tipo do documento. Embaixo de cada botão há uma linha: o que a ação faz, quando habilitada, ou por que está bloqueada.</li>
+  <li><strong>Abas</strong>: Resumo, Vínculos, Histórico e Dados do OCR.</li>
+</ol>
+<h3>Aba Resumo</h3>
+<p>Os dados principais: emissor, CNPJ, número da NF, valor, datas de emissão e pagamento, rubrica, projeto e organização.</p>
+<h3>Aba Vínculos</h3>
+<p>Tudo o que está ligado ao documento: a despesa gerada (com status, se está conciliada e se foi liberada para o robô), a NF mãe (se for um comprovante), os comprovantes filhos, o extrato de origem (para notas que vieram de upload em lote com extrato), o lançamento bancário conciliado e o fornecedor. NF mãe e comprovantes são links que abrem a ficha deles.</p>
+<figure>
+  <img src="img/08-ficha-vinculos.png" alt="Ficha, aba Vínculos" loading="lazy">
+  <figcaption>Aba Vínculos: despesa, lançamento conciliado e fornecedor.</figcaption>
+</figure>
+<h3>Aba Histórico</h3>
+<p><strong>Alterações</strong>: cada mudança no documento e na despesa, da mais recente para a mais antiga, com quem fez (ou "Sistema (automação)"), de onde veio, o que mudou (de → para) e o motivo. Ações do suporte aparecem com origem <code>suporte_ui</code>. <strong>Chamadas externas</strong>: cada chamada feita pelo painel ao n8n ou a serviços internos para este documento, com resultado (OK ou Falhou, código HTTP), duração e detalhe.</p>
+<figure>
+  <img src="img/09-ficha-historico.png" alt="Ficha, aba Histórico" loading="lazy">
+  <figcaption>Histórico: aqui se vê, por exemplo, que o documento foi de Erro no Envio para Pronto para envio por um avanço manual do gestor.</figcaption>
+</figure>
+<h3>Aba Dados do OCR</h3>
+<p>Confiança do OCR, valor pago, autenticação bancária, duplicidade, quantas vezes o OCR foi tentado e o JSON completo extraído (clique em "JSON extraído pelo OCR" para abrir). Útil para ver o que a IA leu quando o cliente diz que "o valor saiu errado".</p>
+<figure>
+  <img src="img/10-ficha-ocr.png" alt="Ficha, aba Dados do OCR com o JSON extraído" loading="lazy">
+  <figcaption>Dados do OCR com o JSON aberto.</figcaption>
+</figure>
+<h3>A ficha muda conforme o documento</h3>
+<div class="grade2">
+  <div><figure><img src="img/11-ficha-aguardando-rubrica.png" alt="Ficha de nota em Aguardando Rubrica" loading="lazy"><figcaption>Nota fiscal em <em>Aguardando Rubrica</em> (esperando cliente).</figcaption></figure></div>
+  <div><figure><img src="img/12-ficha-planilha-antiga.png" alt="Ficha de planilha orçamentária antiga" loading="lazy"><figcaption>Planilha orçamentária antiga: aparecem Reimportar planilha (bloqueada) e Apagar planilha antiga.</figcaption></figure></div>
+</div>
+<p>Em nota fiscal e comprovante aparece <strong>Reprocessar OCR</strong>; em planilha orçamentária aparecem <strong>Reimportar planilha</strong> e <strong>Apagar planilha antiga</strong> no lugar dele.</p>
+
+<!-- ============================================================ -->
+<h2 id="janela-acao">A janela de confirmação</h2>
+<p>Toda ação abre a mesma janela antes de executar. Ela tem o nome da ação, <strong>uma frase com o efeito</strong> (leia antes de confirmar), o campo de <strong>motivo</strong> e o botão de confirmar.</p>
+<div class="grade2">
+  <div><figure><img src="img/13-modal-motivo-vazio.png" alt="Janela com motivo obrigatório vazio" loading="lazy"><figcaption>Motivo obrigatório: o contador mostra 0/10 e a ação não executa enquanto o motivo não tiver 10 caracteres.</figcaption></figure></div>
+  <div><figure><img src="img/14-modal-motivo-preenchido.png" alt="Janela com motivo preenchido" loading="lazy"><figcaption>Com o motivo preenchido, o contador fica verde e o botão executa.</figcaption></figure></div>
+</div>
+<figure>
+  <img src="img/15-modal-motivo-opcional.png" alt="Janela de Reprocessar OCR com motivo opcional" loading="lazy">
+  <figcaption>Nos reprocessamentos o motivo é opcional: pode confirmar com o campo vazio.</figcaption>
+</figure>
+<div class="caixa aviso">
+  <strong class="rotulo">Confira o contador antes de clicar</strong>
+  <p>Nas ações com motivo obrigatório, o botão de confirmar tem a mesma cor com ou sem motivo. O que diz se dá para confirmar é o contador abaixo do campo: com menos de 10 caracteres ele fica cinza (por exemplo, 0/10) e o clique não faz nada.</p>
+</div>
+<p>Se a ação falhar com a janela aberta, o erro aparece em laranja na própria janela e você pode tentar de novo. Se você já tiver fechado a janela, o erro aparece num aviso no canto da tela (veja <a href="#segundo-plano">Ações em segundo plano</a>).</p>
+
+<!-- ============================================================ -->
+<h2 id="acoes">Todas as ações</h2>
+<p>Cada ação abaixo diz quando usar, quando ela fica bloqueada, o que acontece ao confirmar e o passo a passo. O servidor confere as regras de novo na hora de executar: se algo mudou desde que você abriu a ficha, a ação é recusada com a explicação.</p>
+
+<div class="acao" id="acao-ocr">
+<h3>Reprocessar OCR <span class="tag tag-opc">motivo opcional</span></h3>
+<dl>
+  <dt>Para</dt><dd>Nota fiscal, comprovante ou documento sem tipo.</dd>
+  <dt>Quando usar</dt><dd>Documento em <em>Revisão Manual</em> (o OCR não terminou ou falhou 3 vezes) ou travado em <em>Em Processamento</em> há mais de 5 min.</dd>
+  <dt>Fica bloqueada</dt><dd>Se o documento está em processamento há menos de 5 min; se já está em Pronto para envio, Enviado ao SALIC ou Concluído; se já gerou despesa (um OCR novo não atualizaria a despesa e os dois ficariam diferentes).</dd>
+  <dt>O que acontece</dt><dd>O documento volta para <em>Em Processamento</em>, o contador de tentativas zera e o arquivo é enviado de novo ao OCR com o mesmo pacote de dados que o app envia (inclusive o vínculo com a NF mãe, se for comprovante). Se o n8n recusar, o documento volta ao status anterior.</dd>
+</dl>
+<ol class="passos">
+  <li>Abra a ficha do documento.</li>
+  <li>Clique em <strong>Reprocessar OCR</strong>.</li>
+  <li>Se quiser, escreva o número da ocorrência no motivo e confirme.</li>
+  <li>Acompanhe: em alguns minutos o documento deve sair de <em>Em Processamento</em>. Reabra a ficha para ver o novo status.</li>
+</ol>
+<div class="caixa aviso"><strong class="rotulo">Não reprocesse documento em Aguardando Rubrica</strong><p>O botão aparece habilitado nesse status, mas a nota de upload em lote só deve passar pelo OCR depois que o cliente escolher a rubrica. Avise o cliente em vez de reprocessar.</p></div>
+</div>
+
+<div class="acao" id="acao-planilha">
+<h3>Reimportar planilha <span class="tag tag-opc">motivo opcional</span></h3>
+<dl>
+  <dt>Para</dt><dd>Planilha orçamentária.</dd>
+  <dt>Quando usar</dt><dd>A importação da planilha falhou (status <em>Erro</em>) ou ficou parada.</dd>
+  <dt>Fica bloqueada</dt><dd>Se existe uma planilha mais recente no mesmo projeto (reimportar a antiga voltaria as rubricas para uma versão antiga) ou se a planilha não tem projeto.</dd>
+  <dt>O que acontece</dt><dd>As rubricas do projeto são importadas de novo a partir desta planilha: cria uma nova versão de rubricas, e rubricas que não constarem nela são marcadas como removidas. Pode levar alguns minutos. Ao final o documento fica <em>Concluído</em> ou <em>Erro</em> com o motivo.</dd>
+</dl>
+<ol class="passos">
+  <li>Confirme com o cliente que esta é a planilha certa (a mais recente).</li>
+  <li>Na ficha da planilha, clique em <strong>Reimportar planilha</strong> e confirme.</li>
+  <li>Espere a mensagem de resultado (quantas rubricas foram importadas, ou o erro).</li>
+</ol>
+</div>
+
+<div class="acao" id="acao-apagar">
+<h3>Apagar planilha antiga <span class="tag tag-obrig">motivo obrigatório</span></h3>
+<dl>
+  <dt>Para</dt><dd>Planilha orçamentária que <strong>não</strong> é a mais recente do projeto.</dd>
+  <dt>Quando usar</dt><dd>Quando o Reimportar planilha está bloqueado com "Existe planilha mais recente neste projeto" e a planilha antiga está só poluindo a lista (por exemplo, parada em Revisão Manual).</dd>
+  <dt>Fica bloqueada</dt><dd>Se é a planilha mais recente do projeto; se tem despesa, guia ou parcela de contrato vinculada; se está sendo importada agora.</dd>
+  <dt>O que acontece</dt><dd>O documento sai do projeto. As rubricas atuais não mudam. O arquivo só é apagado do armazenamento se não for o PDF de alguma versão de rubricas; se for, ele é mantido para não quebrar o histórico de versões. O documento inteiro fica gravado na auditoria. Não dá para desfazer pelo painel.</dd>
+</dl>
+<ol class="passos">
+  <li>Abra a ficha da planilha antiga.</li>
+  <li>Clique em <strong>Apagar planilha antiga</strong>, escreva o motivo (pelo menos 10 caracteres) e confirme.</li>
+  <li>A ficha fecha e o aviso diz se o arquivo foi apagado ou mantido.</li>
+</ol>
+<p>Para apagar várias de uma vez, use o botão que aparece dentro do <a href="#tudo">Reprocessar tudo</a>.</p>
+</div>
+
+<div class="acao" id="acao-revalidar">
+<h3>Revalidar conformidade <span class="tag tag-opc">motivo opcional</span></h3>
+<dl>
+  <dt>Quando usar</dt><dd>Documento em <em>Em Auditoria IA</em> há mais de 5 min (o normal é menos de 1 min).</dd>
+  <dt>Fica bloqueada</dt><dd>Em qualquer outro status, ou se está em auditoria há 5 min ou menos.</dd>
+  <dt>O que acontece</dt><dd>A conferência do CNAE do fornecedor contra a rubrica é disparada de novo no n8n, com o mesmo pacote que o app usa. <strong>O status do documento não muda</strong>; quem tira o documento da auditoria é o próprio fluxo, quando termina.</dd>
+</dl>
+<ol class="passos">
+  <li>Na ficha, clique em <strong>Revalidar conformidade</strong> e confirme.</li>
+  <li>Espere um minuto e reabra a ficha: o documento deve ter ido para outra etapa (por exemplo, Falta Conciliação ou Bloqueado).</li>
+</ol>
+</div>
+
+<div class="acao" id="acao-avancar">
+<h3>Avançar documento <span class="tag tag-obrig">motivo obrigatório</span></h3>
+<p>É a única ação que muda o andamento de negócio de um documento. Use apenas a pedido do cliente, que assume a responsabilidade pela conformidade do documento. O documento fica marcado com <code>[OVERRIDE SUPORTE]</code> e a data.</p>
+<div class="tabela"><table>
+  <thead><tr><th>Está em</th><th>Vai para</th><th>O que mais acontece</th></tr></thead>
+  <tbody>
+    <tr><td>Revisão Manual</td><td>Em Auditoria IA</td><td>A validação de conformidade é disparada. Se o n8n recusar, o documento avança mesmo assim e o aviso pede para usar Revalidar conformidade depois de 5 min.</td></tr>
+    <tr><td>Bloqueado (conformidade)</td><td>Falta Conciliação</td><td>Se a nota veio de upload em lote com extrato, o painel tenta conciliar automaticamente com aquele extrato; casando, ela vai direto para Em carência (D-3).</td></tr>
+    <tr><td>Divergência de Valor</td><td>Em carência (D-3)</td><td><strong>Pula a conferência com o extrato.</strong> O documento segue mesmo com o valor diferente do lançamento.</td></tr>
+    <tr><td>Divergência de Beneficiário</td><td>Em carência (D-3)</td><td><strong>Pula a conferência com o extrato.</strong> O documento segue sem lançamento correspondente ao fornecedor.</td></tr>
+  </tbody>
+</table></div>
+<dl>
+  <dt>Fica bloqueada</dt><dd>Em qualquer outro status (inclusive Pronto para envio e Erro no Envio: o suporte não dispara envio ao SALIC) e para tipos que não sejam nota fiscal ou comprovante.</dd>
+</dl>
+<ol class="passos">
+  <li>Confirme com o cliente, por escrito, que ele quer seguir mesmo assim.</li>
+  <li>Na ficha, clique em <strong>Avançar documento</strong>.</li>
+  <li>Leia o efeito na janela (ele diz de onde para onde o documento vai).</li>
+  <li>Escreva o motivo com o número da ocorrência e confirme.</li>
+</ol>
+</div>
+
+<div class="acao" id="acao-conciliacao">
+<h3>Refazer conciliação <span class="tag tag-obrig">motivo obrigatório</span></h3>
+<dl>
+  <dt>Quando usar</dt><dd>Documento em <em>Falta Conciliação</em>, <em>Divergência de Valor</em> ou <em>Divergência de Beneficiário</em>, quando o projeto já tem extrato processado (por exemplo, o cliente subiu o extrato certo depois).</dd>
+  <dt>Fica bloqueada</dt><dd>Em outros status, ou se o projeto não tem nenhum extrato processado.</dd>
+  <dt>O que acontece</dt><dd>
+    <p>Nota que veio de upload em lote com extrato: o painel tenta casar a nota com um lançamento daquele extrato (primeiro pela autenticação bancária, depois por valor e data com até 3 dias de diferença). Se houver mais de um lançamento possível, não casa e avisa.</p>
+    <p>Demais notas: a conciliação é reenviada ao n8n com o extrato processado mais recente do projeto (a ficha mostra qual será usado). Em divergência, o documento volta antes para Falta Conciliação, como faz o "Substituir Extrato" do app.</p>
+  </dd>
+</dl>
+<ol class="passos">
+  <li>Na ficha, veja embaixo do botão qual extrato será usado.</li>
+  <li>Clique em <strong>Refazer conciliação</strong>, escreva o motivo e confirme.</li>
+  <li>Leia o aviso: ele diz se conciliou ou por que não casou.</li>
+</ol>
+</div>
+
+<div class="acao" id="acao-extrato">
+<h3>Reprocessar extrato <span class="tag tag-opc">motivo opcional</span></h3>
+<dl>
+  <dt>Onde</dt><dd>Aba Extratos do projeto.</dd>
+  <dt>Quando usar</dt><dd>Extrato pendente há mais de 30 min, pendente sem data ou com erro.</dd>
+  <dt>O que acontece</dt><dd>O arquivo é reenviado ao fluxo de conciliação em lote e o extrato volta para Pendente, reiniciando o relógio de 30 min.</dd>
+</dl>
+</div>
+
+<div class="acao" id="acao-exportacao">
+<h3>Encerrar exportação <span class="tag tag-obrig">motivo obrigatório</span></h3>
+<dl>
+  <dt>Onde</dt><dd>Aba Atenção, na linha da exportação travada.</dd>
+  <dt>Quando usar</dt><dd>Exportação em "gerando" há mais de 60 min.</dd>
+  <dt>O que acontece</dt><dd>A exportação é marcada como erro, o que libera o cliente para gerar de novo.</dd>
+</dl>
+</div>
+
+<div class="acao" id="acao-projeto-salic">
+<h3>Reimportar projeto SALIC <span class="tag tag-obrig">motivo obrigatório</span></h3>
+<dl>
+  <dt>Onde</dt><dd>Aba Saldo SALIC, bloco "Importação do projeto SALIC (PDF)".</dd>
+  <dt>Quando usar</dt><dd>A última importação do PDF do projeto terminou em erro.</dd>
+  <dt>O que acontece</dt><dd>O mesmo PDF é lido de novo e os dados do projeto (etapas, locais, deslocamentos, divulgação, dados complementares) são regravados. A importação anterior fica marcada como substituída. Pode levar até 2 minutos.</dd>
+</dl>
+</div>
+
+<div class="acao" id="acao-recaptura">
+<h3>Recapturar saldo do SALIC <span class="tag tag-bloq">sempre bloqueada</span></h3>
+<p>Aparece na aba Saldo SALIC só para mostrar o motivo: a captura usa a credencial SALIC de quem clica, e o suporte não tem uma. Oriente o cliente a clicar em <em>Atualizar do SALIC</em>.</p>
+</div>
+
+<div class="acao" id="acao-senha">
+<h3>Resetar acesso <span class="tag tag-obrig">motivo obrigatório</span></h3>
+<dl>
+  <dt>Onde</dt><dd>Lista de usuários da organização.</dd>
+  <dt>O que acontece</dt><dd>A senha do usuário é trocada por uma provisória que você define (mínimo de 6 caracteres) e ele é obrigado a criar outra no próximo login.</dd>
+</dl>
+<figure>
+  <img src="img/24-resetar-acesso.png" alt="Janela de Resetar acesso com senha provisória e motivo" loading="lazy">
+  <figcaption>Janela de resetar acesso: senha provisória e motivo.</figcaption>
+</figure>
+<ol class="passos">
+  <li>Abra a organização e clique em <strong>Resetar acesso</strong> na linha do usuário.</li>
+  <li>Digite a senha provisória e o motivo, e confirme.</li>
+  <li>A janela seguinte mostra o e-mail e a senha. Use <strong>Copiar</strong> e repasse ao usuário por um canal seguro.</li>
+  <li>Clique em <strong>Concluir</strong>. A senha some da tela e não fica salva em lugar nenhum.</li>
+</ol>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="tudo">Reprocessar tudo</h2>
+<p>Monta uma fila com os documentos do projeto que estão <strong>parados ou com erro</strong> e manda cada um pelo caminho certo, <strong>um de cada vez</strong>.</p>
+<h3>Quem entra na fila e por qual caminho</h3>
+<div class="tabela"><table>
+  <thead><tr><th>Documento</th><th>Caminho</th></tr></thead>
+  <tbody>
+    <tr><td>Nota ou comprovante em Revisão Manual, ou travado em Em Processamento</td><td>Reprocessar OCR</td></tr>
+    <tr><td>Planilha mais recente do projeto em Revisão Manual, Erro ou travada</td><td>Reimportar planilha</td></tr>
+    <tr><td>Documento em Auditoria IA há mais de 5 min</td><td>Revalidar conformidade</td></tr>
+  </tbody>
+</table></div>
+<p>Nunca entram: documentos esperando o cliente (como Aguardando Rubrica), bloqueados, em divergência, prontos para envio, com erro no envio ou já enviados, e nada que dependa de Avançar documento. Documentos parados que não podem ser reprocessados (por exemplo, porque já geraram despesa) aparecem numa lista à parte com o motivo.</p>
+<h3>Passo a passo</h3>
+<ol class="passos">
+  <li>No projeto, clique em <strong>Reprocessar tudo</strong> (abas Atenção ou Documentos).</li>
+  <li>Confira a fila: quantos documentos, por qual caminho cada um vai, e a lista dos que ficam de fora.</li>
+  <li>Se quiser, escreva o motivo (opcional; vale para todos).</li>
+  <li>Clique em <strong>Iniciar fila</strong>.</li>
+  <li>Acompanhe pela barra de progresso. Pode fechar a janela e continuar usando o painel.</li>
+</ol>
+<figure>
+  <img src="img/21-reprocessar-tudo-plano.png" alt="Janela Reprocessar tudo antes de iniciar, com a fila e os documentos que ficam de fora" loading="lazy">
+  <figcaption>Antes de iniciar: uma planilha na fila e oito planilhas antigas de fora, com o botão para apagá-las.</figcaption>
+</figure>
+<h3>Durante a execução</h3>
+<p>Depois de enviar cada documento, o painel espera ele sair do status em que estava (até 3 min) antes de passar ao próximo. Cada linha mostra o resultado:</p>
+<ul>
+  <li><strong>Concluído</strong>: saiu do status. O texto diz para onde foi.</li>
+  <li><strong>Pulado</strong>: a regra individual não permite mais (o status mudou, gerou despesa etc.).</li>
+  <li><strong>Falhou</strong>: o envio deu erro, ou o documento voltou para Revisão Manual ou Erro.</li>
+  <li><strong>Cancelado</strong>: você clicou em Parar antes de chegar a vez dele.</li>
+</ul>
+<p>A barra avança a cada documento que termina e mostra qual está sendo processado. Ao final fica verde se não houve falhas e laranja se houve. O botão <strong>Parar</strong> interrompe depois do documento atual.</p>
+<figure>
+  <img src="img/22-reprocessar-tudo-andamento.png" alt="Fila em andamento com barra de progresso em 50 por cento" loading="lazy">
+  <figcaption>Exemplo ilustrativo de uma fila em andamento (nomes fictícios): três concluídos, um em processamento, dois aguardando.</figcaption>
+</figure>
+<h3>Apagar as planilhas antigas que ficaram de fora</h3>
+<p>Quando há planilhas antigas fora da fila por existir uma mais recente, aparece o botão <strong>Apagar N planilhas antigas</strong>. Ele pede motivo, apaga uma por vez (cada uma conferida pelo servidor) e depois remonta a fila. As regras são as mesmas de <a href="#acao-apagar">Apagar planilha antiga</a>.</p>
+
+<!-- ============================================================ -->
+<h2 id="segundo-plano">Ações em segundo plano</h2>
+<p>Nenhuma janela de ação trava a tela. Você pode fechar a janela a qualquer momento e continuar usando o painel.</p>
+<ul>
+  <li><strong>Ações individuais</strong>: enquanto executa, a janela avisa que pode ser fechada. Fechando, a ação continua e o resultado (ou o erro) aparece num aviso no canto da tela.</li>
+  <li><strong>Reprocessar tudo</strong>: o botão vira "Fechar (continua rodando)". Com a janela fechada, um indicador no canto inferior direito mostra o projeto e a barra de progresso; clique nele para reabrir a fila. Ao terminar, o indicador mostra 100% e um "×" para dispensar.</li>
+  <li>Só existe uma fila por vez. Clicar em Reprocessar tudo enquanto uma fila roda, mesmo em outro projeto, reabre a que está rodando.</li>
+</ul>
+<figure>
+  <img src="img/23-indicador-canto.png" alt="Indicador no canto da tela com a barra de progresso da fila" loading="lazy">
+  <figcaption>Indicador da fila com a janela fechada (exemplo ilustrativo).</figcaption>
+</figure>
+<div class="caixa aviso">
+  <strong class="rotulo">Não saia da página com algo rodando</strong>
+  <p>A fila e as ações em andamento são comandadas pela própria página do suporte. Se você for para outra página do Prestaí, recarregar a página ou fechar a aba, a fila para. O documento que já tinha sido enviado continua no n8n, mas os seguintes não são enviados. O navegador pergunta "Sair do site?" quando há algo em andamento: responda <em>Cancelar</em>.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="saude">Saúde do sistema</h2>
+<p>No fim da tela inicial. Use o botão <strong>Atualizar</strong> para recarregar.</p>
+<figure>
+  <img src="img/25-saude.png" alt="Bloco Saúde do sistema com worker, falhas por destino e crons" loading="lazy">
+  <figcaption>Saúde do sistema: worker do SALIC, falhas por destino nas últimas 24 h e crons.</figcaption>
+</figure>
+<h3>Worker do SALIC</h3>
+<p>O robô que fala com o SALIC. <em>Respondendo</em> mostra o código HTTP e o tempo de resposta. <em>Sem resposta</em> significa que ele não respondeu em 5 segundos: as capturas de saldo e os envios ao SALIC vão falhar até ele voltar; avise o desenvolvimento. <em>Não configurado</em> aparece quando o servidor não tem o endereço do worker (normal em ambiente local).</p>
+<h3>Falhas por destino (últimas 24 h)</h3>
+<p>Quantas chamadas o painel fez a cada destino (por exemplo, <code>n8n:cultops-ocr</code>, <code>n8n:cultopsvalidation</code>, <code>n8n:prestai-conciliation-lote</code>) e quantas falharam. Linhas com mais de 20% de falha ficam em destaque. Se um destino está falhando sempre, não adianta repetir a ação: avise o desenvolvimento.</p>
+<h3>Crons</h3>
+<p>As rotinas automáticas, com a última execução, o status e a agenda. A linha fica em destaque com a etiqueta <em>Atrasado</em> quando passou do intervalo esperado:</p>
+<div class="tabela"><table>
+  <thead><tr><th>Cron</th><th>O que faz</th><th>Atrasado se não roda há</th></tr></thead>
+  <tbody>
+    <tr><td><code>revisao-ocr-travado</code></td><td>Move para Revisão Manual o documento que passou de 5 min no OCR.</td><td class="num">2 min</td></tr>
+    <tr><td><code>retry-ocr-stuck</code></td><td>Reenvia ao OCR documentos travados (até 3 tentativas).</td><td class="num">5 min</td></tr>
+    <tr><td><code>cron-guias-vencidas</code></td><td>Marca guias de imposto vencidas.</td><td class="num">24 h 30 min</td></tr>
+    <tr><td><code>cron-parcelas-vencidas</code></td><td>Marca parcelas de contrato vencidas.</td><td class="num">24 h 30 min</td></tr>
+    <tr><td><code>cron-alerta-guias-vencendo</code></td><td>Envia o alerta de guias que vencem em 7 dias.</td><td class="num">24 h 30 min</td></tr>
+  </tbody>
+</table></div>
+
+<!-- ============================================================ -->
+<h2 id="receitas">Casos do dia a dia</h2>
+
+<h3>"Subi a nota e ela não sai de Em Processamento"</h3>
+<ol class="passos">
+  <li>Busque pelo nome do arquivo e abra a ficha.</li>
+  <li>Se está em Em Processamento há menos de 5 min, peça para o cliente aguardar.</li>
+  <li>Se já foi para Revisão Manual (ou está travado), clique em <strong>Reprocessar OCR</strong>.</li>
+  <li>Se voltar para Revisão Manual de novo, veja em Histórico → Chamadas externas se o n8n respondeu. Se o arquivo está ilegível, peça ao cliente um arquivo melhor; se o cliente quiser seguir com os dados preenchidos à mão, use <strong>Avançar documento</strong> a pedido dele.</li>
+</ol>
+
+<h3>"A nota está em Auditoria IA há horas"</h3>
+<ol class="passos">
+  <li>Abra a ficha e clique em <strong>Revalidar conformidade</strong>.</li>
+  <li>Espere um minuto e reabra a ficha. Se continuar parada, veja em Chamadas externas se a chamada a <code>n8n:cultopsvalidation</code> foi OK e avise o desenvolvimento.</li>
+</ol>
+
+<h3>"Minha nota foi bloqueada"</h3>
+<ol class="passos">
+  <li>Na ficha, leia o <em>motivo registrado</em>: rubrica ausente, fora do projeto ou CNAE do fornecedor incompatível com a rubrica.</li>
+  <li>O caminho normal é o cliente trocar a rubrica no Prestaí.</li>
+  <li>Se o cliente pedir para seguir assim mesmo, use <strong>Avançar documento</strong> com o motivo. Se a nota veio de lote com extrato, o painel já tenta conciliar.</li>
+</ol>
+
+<h3>"Deu divergência de valor (ou de beneficiário)"</h3>
+<ol class="passos">
+  <li>Veja na aba Vínculos se existe lançamento conciliado e confira o valor.</li>
+  <li>Se o cliente subiu um extrato novo e correto, use <strong>Refazer conciliação</strong>.</li>
+  <li>Se o cliente confirma que está certo assim, use <strong>Avançar documento</strong> (lembrando que isso pula a conferência com o extrato).</li>
+</ol>
+
+<h3>"A planilha orçamentária não importou"</h3>
+<ol class="passos">
+  <li>Abra a ficha da planilha mais recente do projeto e clique em <strong>Reimportar planilha</strong>.</li>
+  <li>Se o projeto tem planilhas antigas paradas, apague-as com <strong>Apagar planilha antiga</strong> (ou pelo Reprocessar tudo).</li>
+</ol>
+
+<h3>"Subi o extrato e nada aconteceu"</h3>
+<ol class="passos">
+  <li>Na aba Extratos, veja se ele está Pendente há mais de 30 min.</li>
+  <li>Clique em <strong>Reprocessar extrato</strong>.</li>
+  <li>Depois de alguns minutos, confira se as colunas Lançamentos e Conciliados mudaram. Se o destino <code>n8n:prestai-conciliation-lote</code> estiver falhando na Saúde do sistema, avise o desenvolvimento.</li>
+</ol>
+
+<h3>"O saldo do SALIC não atualiza"</h3>
+<ol class="passos">
+  <li>Na aba Saldo SALIC, leia a causa da última captura.</li>
+  <li>Se for algo do SALIC (fora do ar, mudou de layout) ou do robô, confira o Worker na Saúde do sistema.</li>
+  <li>Peça ao cliente para clicar em <strong>Atualizar do SALIC</strong> quando o problema estiver resolvido. Se a causa for credencial, o cliente precisa atualizar a credencial SALIC dele.</li>
+</ol>
+
+<h3>"Está Pronto para envio (ou deu Erro no Envio) e não vai ao SALIC"</h3>
+<p>O suporte não envia. Explique ao cliente que o envio é feito por ele, com a credencial gov.br, pelo botão Enviar (ou Tentar novamente, no caso de erro). Se o erro se repetir, leia a mensagem na ficha e na Saúde do sistema e avise o desenvolvimento.</p>
+
+<h3>"Não consigo entrar"</h3>
+<ol class="passos">
+  <li>Busque pelo e-mail da pessoa e abra a organização.</li>
+  <li>Use <strong>Resetar acesso</strong> e repasse a senha provisória.</li>
+</ol>
+
+<!-- ============================================================ -->
+<h2 id="bloqueios">Mensagens de bloqueio</h2>
+<p>O que cada mensagem embaixo de um botão desabilitado quer dizer.</p>
+<div class="tabela"><table>
+  <thead><tr><th>Mensagem</th><th>O que fazer</th></tr></thead>
+  <tbody>
+    <tr><td>Em processamento agora. Aguarde alguns minutos.</td><td>O OCR ainda pode estar rodando. Espere passar de 5 min.</td></tr>
+    <tr><td>Já liberado para o robô enviar ao SALIC. / Já enviado ao SALIC.</td><td>Nada a reprocessar. O envio é do cliente.</td></tr>
+    <tr><td>Já gerou despesa: um OCR novo não atualiza a despesa existente…</td><td>Não reprocesse. Se os dados estão errados, o cliente corrige no Prestaí.</td></tr>
+    <tr><td>Existe planilha mais recente neste projeto…</td><td>Reimporte a mais recente; se quiser, apague esta com Apagar planilha antiga.</td></tr>
+    <tr><td>É a planilha mais recente do projeto; não pode ser apagada.</td><td>Use Reimportar planilha se ela deu erro.</td></tr>
+    <tr><td>A planilha tem despesa, guia ou parcela de contrato vinculada.</td><td>Não apague. Avise o desenvolvimento.</td></tr>
+    <tr><td>Só vale para documento em Auditoria IA…</td><td>Revalidar só serve para o status Em Auditoria IA.</td></tr>
+    <tr><td>Em auditoria há N min… Aguarde passar de 5 min.</td><td>Espere. O normal é menos de 1 min.</td></tr>
+    <tr><td>O status "…" não pode ser avançado pelo suporte.</td><td>Avançar só vale para Revisão Manual, Bloqueado e Divergências.</td></tr>
+    <tr><td>O suporte não dispara envio ao SALIC.</td><td>Avise o cliente.</td></tr>
+    <tr><td>Só notas fiscais e comprovantes podem ser avançados…</td><td>Planilhas e guias não são avançadas.</td></tr>
+    <tr><td>Só vale em Falta Conciliação ou Divergência…</td><td>Refazer conciliação não se aplica a este status.</td></tr>
+    <tr><td>O projeto não tem extrato processado…</td><td>O cliente precisa subir o extrato.</td></tr>
+    <tr><td>Só extrato pendente há mais de 30 min ou com erro…</td><td>O extrato está normal ou ainda no prazo.</td></tr>
+    <tr><td>Só quando a última importação/captura terminou em erro.</td><td>Nada a fazer.</td></tr>
+    <tr><td>A captura usa a credencial SALIC de quem aciona…</td><td>O cliente clica em Atualizar do SALIC.</td></tr>
+    <tr><td>O status do documento mudou enquanto você confirmava. Recarregue a ficha.</td><td>Feche e reabra a ficha; alguém (ou um cron) mexeu no documento.</td></tr>
+    <tr><td>Informe o motivo da ação (mínimo de 10 caracteres…)</td><td>Escreva um motivo mais longo, por exemplo o número da ocorrência.</td></tr>
+  </tbody>
+</table></div>
+
+<!-- ============================================================ -->
+<h2 id="catalogo">Catálogo de status</h2>
+<p>Todos os status que o painel conhece, por tipo de registro. É a mesma tabela que o painel usa para mostrar rótulos, grupos e explicações.</p>
+<h3 id="cat-documents">Documentos</h3>
+<div class="tabela"><table><thead><tr><th>Rótulo na tela</th><th>Código</th><th>Grupo</th><th>Vira travado após</th><th>O que significa</th><th>O que fazer</th></tr></thead><tbody>
+<tr><td><strong>Em Processamento</strong></td><td><code>processing_ocr</code></td><td><span class="g g-em_andamento">Em andamento</span></td><td class="num">5 min</td><td>O n8n está lendo o arquivo.</td><td>Aguardar; passando de 5 min o cron move para Revisão Manual.</td></tr>
+<tr><td><strong>Revisão Manual</strong></td><td><code>revisao_manual</code></td><td><span class="g g-erro">Erro</span></td><td class="num">—</td><td>O OCR não terminou em 5 min ou falhou 3 vezes.</td><td>Reprocessar OCR; ou Avançar documento a pedido do cliente.</td></tr>
+<tr><td><strong>Em Auditoria IA</strong></td><td><code>aguardando_conformidade</code></td><td><span class="g g-em_andamento">Em andamento</span></td><td class="num">5 min</td><td>O n8n confere o CNAE do fornecedor contra a rubrica; leva menos de 1 min.</td><td>Passou de 5 min: Revalidar conformidade.</td></tr>
+<tr><td><strong>Bloqueado</strong></td><td><code>bloqueado_conformidade</code></td><td><span class="g g-esperando_cliente">Esperando cliente</span></td><td class="num">—</td><td>Rubrica ausente, fora do projeto ou CNAE incompatível (o motivo está em just_erro).</td><td>O cliente troca a rubrica; ou Avançar documento a pedido dele.</td></tr>
+<tr><td><strong>Falta Conciliação</strong></td><td><code>aguardando_conciliacao_bancaria</code></td><td><span class="g g-esperando_cliente">Esperando cliente</span></td><td class="num">—</td><td>Falta o extrato com o lançamento deste pagamento.</td><td>Se já existe extrato do lote: Refazer conciliação.</td></tr>
+<tr><td><strong>Falta Comprovante</strong></td><td><code>aguardando_comprovante</code></td><td><span class="g g-em_andamento">Em andamento</span></td><td class="num">5 min</td><td>Um trigger converte este status na hora em Falta Conciliação; não deveria permanecer.</td><td>Se permanecer, tratar como travado e avisar o desenvolvimento.</td></tr>
+<tr><td><strong>Divergência de Valor</strong></td><td><code>divergencia_valor</code></td><td><span class="g g-esperando_cliente">Esperando cliente</span></td><td class="num">—</td><td>O valor da nota difere do lançamento no extrato.</td><td>Refazer conciliação; ou Avançar documento a pedido do cliente.</td></tr>
+<tr><td><strong>Divergência de Beneficiário</strong></td><td><code>divergencia_beneficiario</code></td><td><span class="g g-esperando_cliente">Esperando cliente</span></td><td class="num">—</td><td>Não foi encontrado lançamento para este fornecedor.</td><td>Refazer conciliação; ou Avançar documento a pedido do cliente.</td></tr>
+<tr><td><strong>Em carência (D-3)</strong></td><td><code>aguardando_d3</code></td><td><span class="g g-em_andamento">Em andamento</span></td><td class="num">4 dias</td><td>Conciliado; aguarda 72 h da data da transação.</td><td>Nenhuma.</td></tr>
+<tr><td><strong>Pronto para envio</strong></td><td><code>liberado_rpa_airtop</code></td><td><span class="g g-esperando_cliente">Esperando cliente</span></td><td class="num">—</td><td>Pode ir ao SALIC; o gestor precisa clicar em Enviar (usa a credencial gov.br dele).</td><td>Avisar o cliente. O suporte não envia.</td></tr>
+<tr><td><strong>Erro no Envio</strong></td><td><code>erro_rpa</code></td><td><span class="g g-erro">Erro</span></td><td class="num">—</td><td>O robô falhou ao lançar no SALIC.</td><td>Ver a mensagem; o cliente usa Tentar novamente. O suporte não reenvia.</td></tr>
+<tr><td><strong>Enviado ao SALIC</strong></td><td><code>enviado_salic</code></td><td><span class="g g-finalizado">Finalizado</span></td><td class="num">—</td><td>Lançado no SALIC.</td><td>Nenhuma.</td></tr>
+<tr><td><strong>Aguardando Rubrica</strong></td><td><code>aguardando_rubrica</code></td><td><span class="g g-esperando_cliente">Esperando cliente</span></td><td class="num">—</td><td>Veio do upload em lote; o cliente escolhe a rubrica antes do OCR.</td><td>Avisar o cliente.</td></tr>
+<tr><td><strong>Aguardando aprovação</strong></td><td><code>aguardando_aprovacao_fornecedor</code></td><td><span class="g g-esperando_cliente">Esperando cliente</span></td><td class="num">—</td><td>Nota enviada pelo fornecedor; o gestor aprova ou rejeita.</td><td>Avisar o cliente.</td></tr>
+<tr><td><strong>Rejeitada</strong></td><td><code>rejeitado_fornecedor</code></td><td><span class="g g-finalizado">Finalizado</span></td><td class="num">—</td><td>O gestor rejeitou; nunca sai deste status.</td><td>Nenhuma.</td></tr>
+<tr><td><strong>Concluído</strong></td><td><code>concluido</code></td><td><span class="g g-finalizado">Finalizado</span></td><td class="num">—</td><td>Planilha orçamentária importada.</td><td>Nenhuma.</td></tr>
+<tr><td><strong>Erro</strong></td><td><code>erro</code></td><td><span class="g g-erro">Erro</span></td><td class="num">—</td><td>Planilha orçamentária: a importação falhou (o motivo está em just_erro).</td><td>Reimportar planilha, só a mais recente do projeto.</td></tr>
+<tr><td><strong>Enviado</strong></td><td><code>uploaded</code></td><td><span class="g g-em_andamento">Em andamento</span></td><td class="num">5 min</td><td>Status sem gravador conhecido; não deveria existir.</td><td>Tratar como travado e avisar o desenvolvimento.</td></tr>
+<tr><td><strong>Validando</strong></td><td><code>validating</code></td><td><span class="g g-em_andamento">Em andamento</span></td><td class="num">5 min</td><td>Status sem gravador conhecido; não deveria existir.</td><td>Tratar como travado e avisar o desenvolvimento.</td></tr>
+<tr><td><strong>Validado</strong></td><td><code>validated</code></td><td><span class="g g-em_andamento">Em andamento</span></td><td class="num">5 min</td><td>Status sem gravador conhecido; não deveria existir.</td><td>Tratar como travado e avisar o desenvolvimento.</td></tr>
+</tbody></table></div>
+<h3 id="cat-extratos">Extratos</h3>
+<div class="tabela"><table><thead><tr><th>Rótulo na tela</th><th>Código</th><th>Grupo</th><th>Vira travado após</th><th>O que significa</th><th>O que fazer</th></tr></thead><tbody>
+<tr><td><strong>Pendente</strong></td><td><code>pendente</code></td><td><span class="g g-em_andamento">Em andamento</span></td><td class="num">30 min</td><td>O n8n está lendo o extrato e criando os lançamentos.</td><td>Passou de 30 min: Reprocessar extrato.</td></tr>
+<tr><td><strong>Processado</strong></td><td><code>processado</code></td><td><span class="g g-finalizado">Finalizado</span></td><td class="num">—</td><td>Extrato lido e lançamentos criados.</td><td>Nenhuma.</td></tr>
+<tr><td><strong>Erro</strong></td><td><code>erro</code></td><td><span class="g g-erro">Erro</span></td><td class="num">—</td><td>A leitura do extrato falhou.</td><td>Reprocessar extrato.</td></tr>
+</tbody></table></div>
+<h3 id="cat-exportacoes_log">Exportações</h3>
+<div class="tabela"><table><thead><tr><th>Rótulo na tela</th><th>Código</th><th>Grupo</th><th>Vira travado após</th><th>O que significa</th><th>O que fazer</th></tr></thead><tbody>
+<tr><td><strong>Gerando</strong></td><td><code>gerando</code></td><td><span class="g g-em_andamento">Em andamento</span></td><td class="num">60 min</td><td>O arquivo da exportação está sendo gerado.</td><td>Passou de 60 min: Encerrar exportação.</td></tr>
+<tr><td><strong>Pronto</strong></td><td><code>pronto</code></td><td><span class="g g-finalizado">Finalizado</span></td><td class="num">—</td><td>Exportação concluída.</td><td>Nenhuma.</td></tr>
+<tr><td><strong>Erro</strong></td><td><code>erro</code></td><td><span class="g g-erro">Erro</span></td><td class="num">—</td><td>A exportação falhou.</td><td>O cliente pode gerar de novo.</td></tr>
+</tbody></table></div>
+<h3 id="cat-saldo_salic_capturas">Capturas de saldo SALIC</h3>
+<div class="tabela"><table><thead><tr><th>Rótulo na tela</th><th>Código</th><th>Grupo</th><th>Vira travado após</th><th>O que significa</th><th>O que fazer</th></tr></thead><tbody>
+<tr><td><strong>Executando</strong></td><td><code>executando</code></td><td><span class="g g-em_andamento">Em andamento</span></td><td class="num">30 min</td><td>O robô está lendo o relatório de execução do SALIC.</td><td>Passou de 30 min: verificar a saúde do worker.</td></tr>
+<tr><td><strong>Sucesso</strong></td><td><code>sucesso</code></td><td><span class="g g-finalizado">Finalizado</span></td><td class="num">—</td><td>Captura concluída.</td><td>Nenhuma.</td></tr>
+<tr><td><strong>Erro</strong></td><td><code>erro</code></td><td><span class="g g-erro">Erro</span></td><td class="num">—</td><td>A captura do saldo falhou (o motivo está em erro_mensagem).</td><td>O cliente atualiza o saldo de novo (usa a credencial dele).</td></tr>
+</tbody></table></div>
+<h3 id="cat-physical_evidences">Evidências</h3>
+<div class="tabela"><table><thead><tr><th>Rótulo na tela</th><th>Código</th><th>Grupo</th><th>Vira travado após</th><th>O que significa</th><th>O que fazer</th></tr></thead><tbody>
+<tr><td><strong>Pendente</strong></td><td><code>pendente</code></td><td><span class="g g-esperando_cliente">Esperando cliente</span></td><td class="num">—</td><td>Evidência enviada, aguardando validação do gestor.</td><td>Avisar o cliente.</td></tr>
+<tr><td><strong>Pendente de complemento</strong></td><td><code>pendente_complemento</code></td><td><span class="g g-esperando_cliente">Esperando cliente</span></td><td class="num">—</td><td>O gestor pediu complemento da evidência.</td><td>Avisar o cliente.</td></tr>
+<tr><td><strong>Aprovada</strong></td><td><code>aprovada</code></td><td><span class="g g-finalizado">Finalizado</span></td><td class="num">—</td><td>Evidência aprovada.</td><td>Nenhuma.</td></tr>
+<tr><td><strong>Reprovada</strong></td><td><code>reprovada</code></td><td><span class="g g-finalizado">Finalizado</span></td><td class="num">—</td><td>Evidência reprovada (o motivo está em motivo_reprovacao).</td><td>Nenhuma.</td></tr>
+<tr><td><strong>Enviada ao SALIC</strong></td><td><code>enviada_salic</code></td><td><span class="g g-finalizado">Finalizado</span></td><td class="num">—</td><td>Evidência enviada ao SALIC.</td><td>Nenhuma.</td></tr>
+<tr><td><strong>Erro no Envio</strong></td><td><code>erro_rpa</code></td><td><span class="g g-erro">Erro</span></td><td class="num">—</td><td>O robô falhou ao enviar a evidência ao SALIC.</td><td>O cliente tenta novamente. O suporte não reenvia.</td></tr>
+</tbody></table></div>
+<h3 id="cat-project_salic_imports">Importação do projeto SALIC</h3>
+<div class="tabela"><table><thead><tr><th>Rótulo na tela</th><th>Código</th><th>Grupo</th><th>Vira travado após</th><th>O que significa</th><th>O que fazer</th></tr></thead><tbody>
+<tr><td><strong>Pendente</strong></td><td><code>pendente</code></td><td><span class="g g-em_andamento">Em andamento</span></td><td class="num">30 min</td><td>A importação do projeto SALIC vai começar.</td><td>Passou de 30 min: Reimportar projeto SALIC.</td></tr>
+<tr><td><strong>Processando</strong></td><td><code>processando</code></td><td><span class="g g-em_andamento">Em andamento</span></td><td class="num">30 min</td><td>O servidor está lendo o PDF do projeto.</td><td>Passou de 30 min: Reimportar projeto SALIC.</td></tr>
+<tr><td><strong>Processado</strong></td><td><code>processado</code></td><td><span class="g g-finalizado">Finalizado</span></td><td class="num">—</td><td>PDF lido e dados do projeto gravados.</td><td>Nenhuma.</td></tr>
+<tr><td><strong>Erro</strong></td><td><code>erro</code></td><td><span class="g g-erro">Erro</span></td><td class="num">—</td><td>A importação do PDF falhou (o motivo está em erro_mensagem).</td><td>Reimportar projeto SALIC.</td></tr>
+</tbody></table></div>
+
+
+<!-- ============================================================ -->
+<h2 id="glossario">Glossário</h2>
+<dl class="acao" style="display:grid; grid-template-columns: max-content minmax(0,1fr); gap: 0.5rem 1rem;">
+  <dt><strong>OCR</strong></dt><dd>Leitura automática do arquivo (nota, comprovante) pela IA para extrair emissor, valor, datas etc.</dd>
+  <dt><strong>Conformidade / Auditoria IA</strong></dt><dd>Conferência automática do CNAE do fornecedor contra a rubrica escolhida.</dd>
+  <dt><strong>Conciliação</strong></dt><dd>Casamento da nota com o lançamento correspondente no extrato bancário.</dd>
+  <dt><strong>Carência D-3</strong></dt><dd>Espera de 72 h a partir da data da transação antes de liberar o envio ao SALIC.</dd>
+  <dt><strong>Despesa</strong></dt><dd>Lançamento financeiro gerado a partir do documento; é o que vai ao SALIC.</dd>
+  <dt><strong>Rubrica</strong></dt><dd>Linha do orçamento do projeto em que a despesa é lançada.</dd>
+  <dt><strong>Planilha orçamentária</strong></dt><dd>PDF do orçamento do projeto, de onde as rubricas são importadas.</dd>
+  <dt><strong>Upload em lote</strong></dt><dd>Envio de várias notas de uma vez, opcionalmente com o extrato do período (extrato de origem).</dd>
+  <dt><strong>n8n</strong></dt><dd>Ferramenta que roda os fluxos automáticos (OCR, validação, conciliação, importação de rubricas).</dd>
+  <dt><strong>Worker do SALIC</strong></dt><dd>Robô que entra no SALIC para capturar saldo e lançar despesas.</dd>
+  <dt><strong>Cron</strong></dt><dd>Rotina automática que roda em horários fixos.</dd>
+  <dt><strong>audit_log</strong></dt><dd>Registro de todas as alterações: quem, quando, o que e o motivo.</dd>
+</dl>
+
+<p class="rodape">Manual do Painel de Suporte do Prestaí. Prints tirados em 08/10/2026 no ambiente local apontado para os dados de produção; e-mails ocultados. Os prints da fila em andamento e do indicador no canto são exemplos ilustrativos com nomes fictícios.</p>
+</main>
+</div>
+<script>
+// No celular o índice começa recolhido para não empurrar o conteúdo.
+(function () {
+  try {
+    var d = document.getElementById('indice-det');
+    if (window.matchMedia('(max-width: 900px)').matches) d.removeAttribute('open');
+  } catch (e) {}
+})();
+</script>
