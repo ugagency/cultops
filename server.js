@@ -4397,7 +4397,13 @@ function planejarReprocessarTudo(documentos, ctx, agora = Date.now()) {
         }
 
         if (acao) itens.push({ id: d.id, name: d.name, status: d.status, tipo_documento: d.tipo_documento || 'nf', acao, updated_at: d.updated_at });
-        else ignorados.push({ id: d.id, name: d.name, status: d.status, motivo: bloqueio });
+        else {
+            // Vínculos são checados de novo na hora de apagar.
+            const podeApagar = Regras.avaliarApagarPlanilha(d, {
+                maisRecenteId: ctx.planilhaMaisRecentePorProjeto[d.project_id], temReferencia: false
+            }, agora).habilitada;
+            ignorados.push({ id: d.id, name: d.name, status: d.status, motivo: bloqueio, pode_apagar: podeApagar });
+        }
     }
     // Mais antigo primeiro: quem está parado há mais tempo vai na frente.
     itens.sort((a, b) => new Date(a.updated_at || 0) - new Date(b.updated_at || 0));
@@ -4506,6 +4512,13 @@ app.get('/api/suporte/documentos/:id', requireAuth, requireSuporte, async (req, 
         const acaoPlanilha = !ehPlanilha
             ? { habilitada: false, motivo_bloqueio: 'Só vale para planilha orçamentária.' }
             : { habilitada: rep.permitido, motivo_bloqueio: rep.permitido ? null : rep.motivo };
+        let acaoApagar = { habilitada: false, motivo_bloqueio: 'Só para planilha orçamentária.' };
+        if (ehPlanilha) {
+            acaoApagar = Regras.avaliarApagarPlanilha(doc, {
+                maisRecenteId: ctxRep.planilhaMaisRecentePorProjeto[doc.project_id],
+                temReferencia: (await contarReferenciasRestritas(doc.id)) > 0
+            }, agora);
+        }
         const avancar = Regras.regraAvancar(doc);
         const conc = Regras.avaliarRefazerConciliacao(doc, { existeExtratoProcessado: !!extratoProc });
 
@@ -4535,6 +4548,7 @@ app.get('/api/suporte/documentos/:id', requireAuth, requireSuporte, async (req, 
             acoes: {
                 reprocessar_ocr: acaoOcr,
                 reimportar_planilha: acaoPlanilha,
+                apagar_planilha: acaoApagar,
                 revalidar_conformidade: Regras.avaliarRevalidar(doc, agora),
                 avancar: { habilitada: avancar.habilitada, motivo_bloqueio: avancar.motivo_bloqueio, destino: avancar.destino, efeito: avancar.efeito },
                 refazer_conciliacao: {
@@ -4739,6 +4753,72 @@ app.post('/api/suporte/documentos/:id/refazer-conciliacao', requireAuth, require
         res.json({ ok: true, via: 'webhook', extrato_id: extrato.id });
     } catch (err) {
         console.error('[SUPORTE] refazer-conciliacao:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Apagar planilha antiga. Só a planilha orçamentária que NÃO é a mais recente
+// do projeto (o caso em que reimportar é bloqueado). Antes de apagar: checa
+// vínculos (despesa, guia, parcela de contrato) e se o arquivo é o "PDF
+// importado" de alguma versão de rubricas; nesse caso o arquivo fica no
+// storage e só o documento sai. A linha completa vai para o audit_log.
+async function contarReferenciasRestritas(documentId) {
+    const contar = (tabela) => supabase.from(tabela).select('id', { count: 'exact', head: true }).eq('document_id', documentId);
+    const [despesas, guias, parcelas] = await Promise.all([contar('despesas'), contar('tax_guides'), contar('contract_parcelas')]);
+    for (const r of [despesas, guias, parcelas]) if (r.error) throw r.error;
+    return (despesas.count || 0) + (guias.count || 0) + (parcelas.count || 0);
+}
+
+async function arquivoUsadoEmVersaoRubricas(filePath) {
+    if (!filePath) return false;
+    const [porPdf, porArquivo] = await Promise.all([
+        supabase.from('rubricas_versions').select('id', { count: 'exact', head: true }).eq('pdf_path', filePath),
+        supabase.from('rubricas_versions').select('id', { count: 'exact', head: true }).eq('file_path', filePath)
+    ]);
+    if (porPdf.error) throw porPdf.error;
+    if (porArquivo.error) throw porArquivo.error;
+    return (porPdf.count || 0) + (porArquivo.count || 0) > 0;
+}
+
+app.post('/api/suporte/documentos/:id/apagar-planilha-antiga', requireAuth, requireSuporte, exigirMotivo, async (req, res) => {
+    const id = req.params.id;
+    try {
+        const { data: doc, error: getErr } = await supabase.from('documents').select('*').eq('id', id).maybeSingle();
+        if (getErr) throw getErr;
+        if (!doc) return res.status(404).json({ error: 'Documento não encontrado.' });
+
+        const ctx = await contextoReprocesso([doc]);
+        const referencias = await contarReferenciasRestritas(id);
+        const av = Regras.avaliarApagarPlanilha(doc, {
+            maisRecenteId: ctx.planilhaMaisRecentePorProjeto[doc.project_id],
+            temReferencia: referencias > 0
+        });
+        if (!av.habilitada) return res.status(409).json({ error: av.motivo_bloqueio });
+
+        const manterArquivo = await arquivoUsadoEmVersaoRubricas(doc.file_path);
+
+        const { data: apagado, error: delErr } = await supabase.from('documents').delete().eq('id', id).select('id');
+        if (delErr) throw delErr;
+        if (!apagado || !apagado.length) return res.status(409).json({ error: 'O documento não foi apagado (pode já ter sido removido). Recarregue.' });
+
+        let arquivo = 'mantido (usado no histórico de versões de rubricas)';
+        if (!manterArquivo && doc.file_path) {
+            const { error: stErr } = await supabase.storage.from('documentos').remove([doc.file_path]);
+            arquivo = stErr && stErr.message !== 'Object not found' ? `não apagado do storage: ${stErr.message}` : 'apagado';
+        } else if (!doc.file_path) {
+            arquivo = 'sem arquivo';
+        }
+
+        // O snapshot é o que permite reconstruir o documento, se preciso.
+        const { json_extraido, ...semJson } = doc;
+        await auditar(req, {
+            tabela: 'documents', registro_id: id, campo: 'planilha_apagada_por_suporte',
+            valor_anterior: JSON.stringify(semJson), valor_novo: `apagado; arquivo ${arquivo}`
+        });
+
+        res.json({ ok: true, arquivo, mensagem: `Planilha apagada (arquivo ${arquivo}).` });
+    } catch (err) {
+        console.error('[SUPORTE] apagar-planilha-antiga:', err);
         res.status(500).json({ error: err.message });
     }
 });

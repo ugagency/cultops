@@ -127,6 +127,29 @@ function avaliarReimportarProjetoSalic(ultimaImportacao) {
     return { habilitada: true, motivo_bloqueio: null };
 }
 
+// Apagar planilha antiga: só planilha orçamentária que não é a mais recente do
+// projeto (o caso em que reimportar é bloqueado), sem vínculos e fora de
+// processamento recente. A mais recente nunca é apagada pelo suporte.
+function avaliarApagarPlanilha(doc, { maisRecenteId, temReferencia }, agora) {
+    if (doc.tipo_documento !== 'planilha_orcamentaria') {
+        return { habilitada: false, motivo_bloqueio: 'Só planilha orçamentária antiga pode ser apagada pelo suporte.' };
+    }
+    if (!doc.project_id || !maisRecenteId) {
+        return { habilitada: false, motivo_bloqueio: 'Planilha sem projeto vinculado.' };
+    }
+    if (maisRecenteId === doc.id) {
+        return { habilitada: false, motivo_bloqueio: 'É a planilha mais recente do projeto; não pode ser apagada.' };
+    }
+    if (doc.status === 'processing_ocr') {
+        const min = minutosDesde(doc.updated_at, agora);
+        if (min == null || min <= 15) return { habilitada: false, motivo_bloqueio: 'A planilha está sendo importada agora.' };
+    }
+    if (temReferencia) {
+        return { habilitada: false, motivo_bloqueio: 'A planilha tem despesa, guia ou parcela de contrato vinculada.' };
+    }
+    return { habilitada: true, motivo_bloqueio: null };
+}
+
 // Decide se um item entra na fila e com qual grupo. Devolve null se não entra.
 // esperando_cliente só entra quando parado há mais de 7 dias.
 function classificarParaFila(entidade, status, desdeISO, agora) {
@@ -171,5 +194,5 @@ module.exports = {
     DIAS_ALERTA_ESPERANDO_CLIENTE, STATUS_CONCILIACAO,
     validarMotivo, regraAvancar, avaliarRevalidar, avaliarRefazerConciliacao,
     avaliarReprocessarExtrato, avaliarEncerrarExportacao, avaliarRecapturaSaldo,
-    avaliarReimportarProjetoSalic, classificarParaFila, traduzirCausaSalic
+    avaliarReimportarProjetoSalic, avaliarApagarPlanilha, classificarParaFila, traduzirCausaSalic
 };

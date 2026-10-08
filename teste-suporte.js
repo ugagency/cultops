@@ -217,6 +217,20 @@ teste('reimportar projeto SALIC: só última em erro com arquivo', () => {
     assert.strictEqual(Regras.avaliarReimportarProjetoSalic(null).habilitada, false);
 });
 
+// ── Apagar planilha antiga ──────────────────────────────────────────────────
+teste('apagar planilha: só a antiga, sem vínculo e fora de importação', () => {
+    const pl = (extra = {}) => ({ id: 'velha', tipo_documento: 'planilha_orcamentaria', project_id: 'p1', status: 'revisao_manual', updated_at: atras(600), ...extra });
+    const av = (doc, ctx) => Regras.avaliarApagarPlanilha(doc, { maisRecenteId: 'nova', temReferencia: false, ...ctx }, AGORA);
+    assert.strictEqual(av(pl()).habilitada, true);
+    assert.strictEqual(av(pl({ id: 'nova' })).habilitada, false, 'a mais recente nunca');
+    assert.match(av(pl({ id: 'nova' })).motivo_bloqueio, /mais recente/);
+    assert.strictEqual(av(pl(), { temReferencia: true }).habilitada, false, 'com vínculo');
+    assert.strictEqual(av(pl({ project_id: null }), { maisRecenteId: undefined }).habilitada, false, 'sem projeto');
+    assert.strictEqual(av(pl({ status: 'processing_ocr', updated_at: atras(5) })).habilitada, false, 'importando agora');
+    assert.strictEqual(av(pl({ status: 'processing_ocr', updated_at: atras(30) })).habilitada, true, 'importação travada');
+    for (const tipo of ['nf', 'comprovante', null, 'guia']) assert.strictEqual(av(pl({ tipo_documento: tipo })).habilitada, false, String(tipo));
+});
+
 // ── Motivo e tradução ───────────────────────────────────────────────────────
 teste('motivo: mínimo de 10 caracteres', () => {
     assert.strictEqual(Regras.validarMotivo('123456789').ok, false);
@@ -332,6 +346,7 @@ teste('reprocessar tudo: cada documento vai pelo caminho certo e o resto fica de
     // bloqueados aparecem como ignorados, com motivo; os que não são candidatos nem aparecem
     assert.deepStrictEqual(ignorados.map(i => i.id).sort(), ['planilha-velha', 'rev-com-despesa']);
     assert.ok(ignorados.every(i => i.motivo));
+    assert.deepStrictEqual(ignorados.filter(i => i.pode_apagar).map(i => i.id), ['planilha-velha'], 'só a planilha antiga pode ser apagada');
     const todos = new Set([...itens, ...ignorados].map(i => i.id));
     for (const naoEntra of ['ocr-andando', 'conf-normal', 'rubrica', 'bloq', 'div', 'rpa', 'lib', 'env']) assert.ok(!todos.has(naoEntra), naoEntra);
 });

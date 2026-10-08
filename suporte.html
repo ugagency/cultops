@@ -734,13 +734,19 @@
             renderMiniTudo();
             const t = reprocTudo;
             const corpo = document.getElementById('tudo-corpo');
+            const apagaveis = t.ignorados.filter(i => i.pode_apagar);
+            const botaoApagar = apagaveis.length && !t.rodando ? `
+                <div style="margin-top: 0.75rem; padding: 0.6rem 0.75rem; background: var(--bg-sidebar); border-radius: var(--radius-sm);">
+                    <p class="text-xs" style="color: var(--text-secondary); margin-bottom: 0.5rem;">${apagaveis.length} planilha${apagaveis.length === 1 ? '' : 's'} antiga${apagaveis.length === 1 ? '' : 's'} ficou de fora porque existe uma mais recente no projeto. Pode apagá-la${apagaveis.length === 1 ? '' : 's'}; as rubricas atuais não mudam.</p>
+                    <button type="button" class="btn btn-secondary" style="padding: 0.35rem 0.7rem; font-size: 0.75rem;" onclick="apagarPlanilhasAntigas()">Apagar ${apagaveis.length} planilha${apagaveis.length === 1 ? '' : 's'} antiga${apagaveis.length === 1 ? '' : 's'}</button>
+                </div>` : '';
             const ignoradosHtml = t.ignorados.length ? `
                 <details style="margin-top: 1rem;">
                     <summary class="text-sm" style="cursor: pointer; color: var(--text-secondary);">${t.ignorados.length} documento${t.ignorados.length === 1 ? '' : 's'} parado${t.ignorados.length === 1 ? '' : 's'} que não entra${t.ignorados.length === 1 ? '' : 'm'} na fila</summary>
                     <table class="data-table" style="width: 100%; margin-top: 0.5rem;"><tbody>
                         ${t.ignorados.map(i => `<tr><td class="text-xs" style="word-break: break-word;">${esc(i.name || i.id)}</td><td class="text-xs">${esc(i.motivo || '')}</td></tr>`).join('')}
                     </tbody></table>
-                </details>` : '';
+                </details>${botaoApagar}` : '';
 
             if (!t.itens.length) {
                 corpo.innerHTML = `<p class="empty-state-inline">Nenhum documento parado ou com erro que possa ser reprocessado neste projeto.</p>${ignoradosHtml}`;
@@ -799,6 +805,31 @@
                         <div style="width: ${pct}%; height: 100%; background: ${cor}; border-radius: 4px; transition: width 0.4s ease;"></div>
                     </div>
                 </div>`;
+        }
+
+        // Apaga, uma por vez, as planilhas antigas que o plano marcou (o servidor
+        // revalida cada uma e checa vínculos antes de apagar).
+        function apagarPlanilhasAntigas() {
+            const alvos = reprocTudo.ignorados.filter(i => i.pode_apagar);
+            if (!alvos.length || reprocTudo.rodando) return;
+            const projetoDaFila = reprocTudo.projetoId;
+            abrirModalAcao({
+                titulo: `Apagar ${alvos.length} planilha${alvos.length === 1 ? '' : 's'} antiga${alvos.length === 1 ? '' : 's'}`,
+                efeito: 'As planilhas antigas saem do projeto; a mais recente e as rubricas atuais não mudam. O arquivo só é apagado se não for o PDF de alguma versão de rubricas. Cada uma fica registrada na auditoria; não dá para desfazer pelo painel.',
+                confirmar: 'Apagar',
+                onConfirm: async ({ motivo }) => {
+                    let ok = 0;
+                    const falhas = [];
+                    for (const p of alvos) {
+                        try { await authPost(`/api/suporte/documentos/${p.id}/apagar-planilha-antiga`, { motivo }); ok++; }
+                        catch (err) { falhas.push(`${p.name || p.id}: ${err.message}`); }
+                    }
+                    showToast(`${ok} planilha${ok === 1 ? '' : 's'} apagada${ok === 1 ? '' : 's'}${falhas.length ? `; ${falhas.length} não: ${falhas.join(' | ')}` : '.'}`, falhas.length ? 'error' : 'success');
+                    if (projetoDaFila === projetoSelecionadoId) { fetchDocumentos(projetoDaFila); fetchFila(); }
+                    // Remonta a fila (sem as planilhas apagadas) se a janela ainda estiver aberta.
+                    if (modalTudoAberto() && !reprocTudo.rodando && reprocTudo.projetoId === projetoDaFila) abrirReprocessarTudo();
+                }
+            });
         }
 
         async function aguardarSaidaDoStatus(item, statusOrigem, limiteSeg) {
@@ -1475,6 +1506,11 @@
                 efeito: () => 'As rubricas do projeto serão importadas de novo a partir desta planilha: cria uma nova versão, e rubricas que não constarem nela serão marcadas como removidas. Pode levar alguns minutos.'
             },
             {
+                chave: 'apagar_planilha', rotulo: 'Apagar planilha antiga', rota: 'apagar-planilha-antiga', perigoso: true,
+                descricao: 'Remove esta planilha antiga do projeto.',
+                efeito: (f) => `A planilha "${f.documento.name || f.documento.id}" sai do projeto. Existe uma planilha mais recente e as rubricas atuais não mudam. O arquivo só é apagado se não for o PDF de alguma versão de rubricas. O registro completo fica na auditoria; não dá para desfazer pelo painel.`
+            },
+            {
                 chave: 'revalidar_conformidade', rotulo: 'Revalidar conformidade', rota: 'revalidar-conformidade',
                 descricao: 'Refaz a conferência de CNAE.',
                 efeito: () => 'A conferência do CNAE do fornecedor contra a rubrica é disparada de novo no n8n; o status do documento não muda.'
@@ -1535,7 +1571,7 @@
 
             // ── 2. Ações: só as que fazem sentido para o tipo do documento ──
             const visiveis = ACOES_FICHA.filter(def =>
-                !(def.chave === 'reimportar_planilha' && !ehPlanilha) && !(def.chave === 'reprocessar_ocr' && ehPlanilha));
+                !((def.chave === 'reimportar_planilha' || def.chave === 'apagar_planilha') && !ehPlanilha) && !(def.chave === 'reprocessar_ocr' && ehPlanilha));
             const acoes = visiveis.map(def => {
                 const a = f.acoes[def.chave] || { habilitada: false, motivo_bloqueio: 'Sem informação.' };
                 const classe = def.perigoso ? 'btn btn-primary' : 'btn btn-secondary';
@@ -1652,7 +1688,9 @@
                     const r = await authPost(`/api/suporte/documentos/${id}/${def.rota}`, { motivo });
                     showToast(mensagemDeResultado(def, r), r.aviso ? 'error' : 'success');
                     // A ficha pode ter sido fechada (ou trocada) enquanto a ação rodava.
-                    if (fichaAtual?.documento?.id === id && document.getElementById('modal-ficha').style.display === 'flex') await abrirFicha(id);
+                    const fichaAberta = fichaAtual?.documento?.id === id && document.getElementById('modal-ficha').style.display === 'flex';
+                    if (fichaAberta && def.chave === 'apagar_planilha') fecharFicha();
+                    else if (fichaAberta) await abrirFicha(id);
                     if (projetoDaAcao && projetoDaAcao === projetoSelecionadoId) { fetchDocumentos(projetoDaAcao); fetchFila(); }
                 }
             });
