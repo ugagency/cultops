@@ -1346,9 +1346,10 @@
 
                     setTimeout(() => { container.style.display = 'none'; }, aviso ? 9000 : 5000);
                 } else {
-                    await sb.from('documents').update({ status: 'erro' }).eq('id', docData.id);
-                    console.error("Erro no processamento das rubricas:", result);
                     const mensagem = result.message || result.mensagem || MSG_IMPORTACAO_GENERICA;
+                    // just_erro: é o que o painel de suporte mostra como motivo.
+                    await sb.from('documents').update({ status: 'erro', just_erro: mensagem }).eq('id', docData.id);
+                    console.error("Erro no processamento das rubricas:", result);
                     showUploadError(mensagem);
                     showToast(mensagem, 'error', true);
                     await loadHistory();

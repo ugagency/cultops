@@ -6684,6 +6684,14 @@ async function importarRubricasPdf(file, project) {
             result = { success: false, message: MSG_IMPORTACAO_GENERICA };
         }
 
+        // Mesmo fechamento do M2 (modulo2/rubricas.html): sem isto a planilha ficava
+        // em processing_ocr e os crons de OCR travado a mandavam para revisao_manual
+        // (e para a esteira de OCR de NF) como se tivesse falhado.
+        await supabaseClient.from('documents').update(result.success
+            ? { status: 'concluido', just_erro: null }
+            : { status: 'erro', just_erro: result.message || result.mensagem || MSG_IMPORTACAO_GENERICA }
+        ).eq('id', docData.id);
+
         if (result.success) {
             state.importState = 'concluido';
             state.importProgress = 100;

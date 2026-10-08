@@ -3465,18 +3465,131 @@ app.get('/api/suporte/organizacoes/:id/projetos', requireAuth, requireSuporte, a
     res.json({ projetos: data || [] });
 });
 
-// Documentos de um projeto — com o que mais importa pra diagnóstico
-// (status/just_erro), sem os campos financeiros/OCR completos que a tela de
-// gestor mostra.
+// ── Reprocessamento pelo suporte: regras por tipo de documento ──────────────
+// Cada tipo de documento tem a sua esteira no n8n. Antes desta regra, todo
+// reprocessamento ia para o OCR de NF (cultops-ocr), inclusive planilha
+// orçamentária, que tem esteira própria (uploadrubricas) e precisa de project_id.
+const WEBHOOK_OCR_NF = 'https://automacoes-n8n.infrassys.com/webhook/cultops-ocr';
+const WEBHOOK_IMPORTAR_RUBRICAS = 'https://automacoes-n8n.infrassys.com/webhook/uploadrubricas';
+
+// Mesmo intervalo dos crons revisar_ocr_travado/retry_ocr_stuck_documents:
+// antes disso o documento ainda pode estar sendo lido pelo n8n.
+const MINUTOS_PROCESSAMENTO_EM_ANDAMENTO = 5;
+
+// Documento com despesa já é lançamento financeiro. O trigger
+// trg_documents_cria_despesa não duplica (ON CONFLICT document_id), mas
+// também não regrava valor/rubrica/fornecedor de uma despesa existente: um OCR
+// novo deixaria documento e despesa divergentes. E a partir de
+// liberado_rpa_airtop o robô pode enviar a despesa ao SALIC.
+const STATUS_BLOQUEADOS_REPROCESSO = {
+    liberado_rpa_airtop: 'Já liberado para o robô enviar ao SALIC.',
+    enviado_salic: 'Já enviado ao SALIC.',
+    concluido: 'Processamento já concluído.'
+};
+
+// Devolve { permitido, motivo, esteira } para um documento.
+// planilhaMaisRecentePorProjeto: { project_id: document_id } da última planilha
+// enviada em cada projeto — só a última pode ser reimportada.
+function avaliarReprocesso(doc, { temDespesa, planilhaMaisRecentePorProjeto }) {
+    const tipo = doc.tipo_documento || 'nf';
+
+    if (doc.status === 'processing_ocr' && doc.updated_at) {
+        const minutos = (Date.now() - new Date(doc.updated_at).getTime()) / 60000;
+        if (minutos < MINUTOS_PROCESSAMENTO_EM_ANDAMENTO) {
+            return { permitido: false, motivo: 'Em processamento agora. Aguarde alguns minutos.', esteira: null };
+        }
+    }
+
+    if (tipo === 'planilha_orcamentaria') {
+        if (!doc.project_id) {
+            return { permitido: false, motivo: 'Planilha sem projeto vinculado.', esteira: null };
+        }
+        if (planilhaMaisRecentePorProjeto[doc.project_id] !== doc.id) {
+            return {
+                permitido: false,
+                motivo: 'Existe planilha mais recente neste projeto. Reimportar esta voltaria as rubricas para uma versão antiga.',
+                esteira: null
+            };
+        }
+        return { permitido: true, motivo: null, esteira: 'importacao_rubricas' };
+    }
+
+    if (tipo === 'nf' || tipo === 'comprovante') {
+        if (STATUS_BLOQUEADOS_REPROCESSO[doc.status]) {
+            return { permitido: false, motivo: STATUS_BLOQUEADOS_REPROCESSO[doc.status], esteira: null };
+        }
+        if (temDespesa) {
+            return { permitido: false, motivo: 'Já gerou despesa: um OCR novo não atualiza a despesa existente e documento e despesa ficariam divergentes.', esteira: null };
+        }
+        return { permitido: true, motivo: null, esteira: 'ocr_nf' };
+    }
+
+    return { permitido: false, motivo: `Tipo "${tipo}" não tem reprocessamento pelo suporte.`, esteira: null };
+}
+
+// Dados auxiliares de avaliarReprocesso para um conjunto de documentos.
+async function contextoReprocesso(documentos) {
+    const ids = documentos.map(d => d.id);
+    const projetos = [...new Set(documentos.filter(d => d.tipo_documento === 'planilha_orcamentaria').map(d => d.project_id).filter(Boolean))];
+
+    const docsComDespesa = new Set();
+    // Lotes de 150 ids: mesmo limite de URL do Postgrest tratado no audit-log.
+    for (let i = 0; i < ids.length; i += 150) {
+        const { data, error } = await supabase
+            .from('despesas')
+            .select('document_id')
+            .in('document_id', ids.slice(i, i + 150));
+        if (error) throw error;
+        (data || []).forEach(r => docsComDespesa.add(r.document_id));
+    }
+
+    const planilhaMaisRecentePorProjeto = {};
+    if (projetos.length) {
+        const { data, error } = await supabase
+            .from('documents')
+            .select('id, project_id, created_at')
+            .eq('tipo_documento', 'planilha_orcamentaria')
+            .in('project_id', projetos)
+            .order('created_at', { ascending: false });
+        if (error) throw error;
+        (data || []).forEach(p => {
+            if (!planilhaMaisRecentePorProjeto[p.project_id]) planilhaMaisRecentePorProjeto[p.project_id] = p.id;
+        });
+    }
+
+    return { docsComDespesa, planilhaMaisRecentePorProjeto };
+}
+
+// Documentos de um projeto — todos, com status, motivo de erro e se o suporte
+// pode reprocessar (e por quê não, quando não pode). Sem o teto de 200: o
+// maior projeto em produção já tem 136 documentos e a paginação é na tela.
 app.get('/api/suporte/projetos/:id/documentos', requireAuth, requireSuporte, async (req, res) => {
-    const { data, error } = await supabase
-        .from('documents')
-        .select('id, name, status, valor, tipo_documento, cnpj_emissor, nome_emissor, created_at, just_erro')
-        .eq('project_id', req.params.id)
-        .order('created_at', { ascending: false })
-        .limit(200);
-    if (error) return res.status(500).json({ error: error.message });
-    res.json({ documentos: data || [] });
+    try {
+        const documentos = [];
+        const PAGINA = 1000;
+        for (let de = 0; ; de += PAGINA) {
+            const { data, error } = await supabase
+                .from('documents')
+                .select('id, project_id, name, status, valor, tipo_documento, cnpj_emissor, nome_emissor, created_at, updated_at, just_erro')
+                .eq('project_id', req.params.id)
+                .order('created_at', { ascending: false })
+                .range(de, de + PAGINA - 1);
+            if (error) throw error;
+            documentos.push(...(data || []));
+            if (!data || data.length < PAGINA) break;
+        }
+
+        const ctx = await contextoReprocesso(documentos);
+        res.json({
+            documentos: documentos.map(d => {
+                const r = avaliarReprocesso(d, { temDespesa: ctx.docsComDespesa.has(d.id), planilhaMaisRecentePorProjeto: ctx.planilhaMaisRecentePorProjeto });
+                return { ...d, tem_despesa: ctx.docsComDespesa.has(d.id), reprocesso: r };
+            })
+        });
+    } catch (err) {
+        console.error('[SUPORTE] documentos:', err.message);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // Usuários de uma organização (mesma lógica de /api/gestor/usuarios, mas
@@ -3725,21 +3838,68 @@ app.post('/api/suporte/usuarios/:id/resetar-senha', requireAuth, requireSuporte,
     }
 });
 
-// SPEC-SUPORTE-02 (6) — ESCRITA, mesma exceção auditada do item 5. Mesmo
-// payload que retry_ocr_stuck_documents() usa pro mesmo webhook (confirmado
-// contra a função no banco), sem o limite de 3 tentativas — disparo manual
-// do suporte é decisão consciente de uma pessoa, não precisa da mesma trava
-// que existe pra o cron automático não martelar o mesmo documento pra sempre.
+// Payload do OCR de NF igual ao que o front envia em cada caminho de upload:
+// fornecedor (app.js, upload do fornecedor) manda fornecedor: true; comprovante
+// (handleVincularDocumento) manda tipo_vinculo e o lastro da NF mãe.
+async function payloadOcrNf(doc) {
+    const payload = {
+        document_id: doc.id,
+        file_path: doc.file_path,
+        user_id: doc.user_id,
+        bucket: 'documentos'
+    };
+    if (doc.fornecedor_id) payload.fornecedor = true;
+    if (doc.tipo_documento === 'comprovante' && doc.nf_vinculada_id) {
+        const { data: nf } = await supabase
+            .from('documents')
+            .select('id, name, valor, cnpj_emissor')
+            .eq('id', doc.nf_vinculada_id)
+            .maybeSingle();
+        payload.tipo_vinculo = 'comprovante';
+        payload.lastro = {
+            id: doc.nf_vinculada_id,
+            nome: nf?.name || '',
+            valor: nf?.valor || 0,
+            cnpj: nf?.cnpj_emissor || ''
+        };
+    }
+    return payload;
+}
+
+// SPEC-SUPORTE-02 (6) — ESCRITA, mesma exceção auditada do item 5, sem o
+// limite de 3 tentativas do cron: disparo manual é decisão de uma pessoa.
+// Cada tipo vai para a sua esteira (avaliarReprocesso):
+//   nf / comprovante       -> cultops-ocr (assíncrono; o n8n grava o resultado)
+//   planilha_orcamentaria  -> uploadrubricas (síncrono; responde {success,...})
+// Reimportar planilha gera nova versão de rubricas e pode desativar rubricas
+// que saíram dela — por isso só a planilha mais recente do projeto é aceita.
 app.post('/api/suporte/documentos/:id/reprocessar-ocr', requireAuth, requireSuporte, async (req, res) => {
     const documentId = req.params.id;
 
     try {
         const { data: doc, error: getErr } = await supabase
             .from('documents')
-            .select('id, file_path, user_id, status')
+            .select('id, project_id, file_path, user_id, status, updated_at, tipo_documento, fornecedor_id, nf_vinculada_id')
             .eq('id', documentId)
             .single();
         if (getErr || !doc) return res.status(404).json({ error: 'Documento não encontrado.' });
+
+        const ctx = await contextoReprocesso([doc]);
+        const avaliacao = avaliarReprocesso(doc, {
+            temDespesa: ctx.docsComDespesa.has(doc.id),
+            planilhaMaisRecentePorProjeto: ctx.planilhaMaisRecentePorProjeto
+        });
+        if (!avaliacao.permitido) return res.status(409).json({ error: avaliacao.motivo });
+
+        const registrarAuditoria = (valorNovo) => supabase.from('audit_log').insert({
+            tabela: 'documents',
+            registro_id: documentId,
+            campo: 'ocr_reprocessado_por_suporte',
+            valor_anterior: doc.status,
+            valor_novo: valorNovo,
+            alterado_por: req.user.id,
+            origem: 'suporte_ui'
+        });
 
         await supabase.from('documents').update({
             status: 'processing_ocr',
@@ -3747,31 +3907,65 @@ app.post('/api/suporte/documentos/:id/reprocessar-ocr', requireAuth, requireSupo
             just_erro: null
         }).eq('id', documentId);
 
-        const n8nResp = await fetch('https://automacoes-n8n.infrassys.com/webhook/cultops-ocr', {
+        if (avaliacao.esteira === 'importacao_rubricas') {
+            let resultado = null;
+            try {
+                const resp = await fetch(WEBHOOK_IMPORTAR_RUBRICAS, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        document_id: doc.id,
+                        project_id: doc.project_id,
+                        user_id: doc.user_id,
+                        file_path: doc.file_path,
+                        bucket: 'documentos'
+                    }),
+                    signal: AbortSignal.timeout(5 * 60 * 1000)
+                });
+                const corpo = await resp.text().catch(() => '');
+                try {
+                    const raw = JSON.parse(corpo);
+                    resultado = Array.isArray(raw) ? raw[0] : raw;
+                } catch (_) { /* corpo vazio ou não JSON */ }
+                if (!resultado || typeof resultado !== 'object' || !('success' in resultado)) {
+                    console.error('[SUPORTE] reimportar planilha: resposta sem corpo utilizável. HTTP', resp.status, corpo.slice(0, 300));
+                    resultado = { success: false, message: 'A importação não devolveu resultado. Verifique a execução no n8n.' };
+                }
+            } catch (e) {
+                console.error('[SUPORTE] reimportar planilha:', e.message);
+                resultado = { success: false, message: 'Sem resposta da importação de rubricas (n8n).' };
+            }
+
+            const ok = resultado.success === true;
+            const mensagem = resultado.message || resultado.mensagem
+                || (ok ? `${resultado.rubricas_importadas ?? ''} rubricas importadas.`.trim() : 'Falha na importação.');
+            await supabase.from('documents').update({
+                status: ok ? 'concluido' : 'erro',
+                just_erro: ok ? null : mensagem
+            }).eq('id', documentId);
+            await registrarAuditoria(ok ? 'concluido' : 'erro');
+
+            if (!ok) return res.status(502).json({ error: mensagem });
+            return res.json({ ok: true, esteira: avaliacao.esteira, mensagem, desativadas: Number(resultado.desativadas) || 0 });
+        }
+
+        // esteira ocr_nf
+        const n8nResp = await fetch(WEBHOOK_OCR_NF, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                document_id: doc.id, file_path: doc.file_path,
-                user_id: doc.user_id, bucket: 'documentos'
-            })
+            body: JSON.stringify(await payloadOcrNf(doc))
         });
         if (!n8nResp.ok) {
             console.error('[SUPORTE] reprocessar-ocr: n8n respondeu', n8nResp.status);
+            // Devolve o status anterior: o documento não entrou na esteira.
+            await supabase.from('documents').update({ status: doc.status }).eq('id', documentId);
             return res.status(502).json({ error: 'Não foi possível reenviar o documento para o OCR agora. Tente novamente em instantes.' });
         }
 
         // Obrigatório — mesma regra do item 5.
-        await supabase.from('audit_log').insert({
-            tabela: 'documents',
-            registro_id: documentId,
-            campo: 'ocr_reprocessado_por_suporte',
-            valor_anterior: doc.status,
-            valor_novo: 'processing_ocr',
-            alterado_por: req.user.id,
-            origem: 'suporte_ui'
-        });
+        await registrarAuditoria('processing_ocr');
 
-        res.json({ ok: true });
+        res.json({ ok: true, esteira: avaliacao.esteira, mensagem: 'Documento reenviado para o OCR.' });
     } catch (err) {
         console.error('[SUPORTE] reprocessar-ocr:', err);
         res.status(500).json({ error: err.message });

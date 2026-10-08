@@ -186,7 +186,8 @@
                 </div>
 
                 <div id="aba-documentos" class="aba-projeto">
-                    <p class="text-xs" style="color: var(--text-muted); margin-bottom: 1rem;">Linhas em destaque estão bloqueadas por conformidade ou têm erro registrado — cenário mais comum de precisar de suporte.</p>
+                    <p class="text-xs" style="color: var(--text-muted); margin-bottom: 1rem;">Todos os documentos do projeto, com o status de cada um. Linhas em destaque estão bloqueadas por conformidade ou têm erro registrado. Quando o reprocessamento não é permitido, o botão fica desativado e o motivo aparece ao passar o mouse.</p>
+                    <div id="documentos-resumo-status" style="display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem;"></div>
                     <div class="data-table-container">
                         <div id="documentos-tabela-wrap" style="min-width: 0; overflow-x: auto;"></div>
                     </div>
@@ -612,6 +613,7 @@
             document.getElementById('projeto-detalhe-nome').textContent = nomeProjeto || '—';
             trocarAbaProjeto('documentos');
             document.getElementById('documentos-tabela-wrap').innerHTML = `<p class="text-sm" style="color: var(--text-muted); padding: 1rem;">Carregando…</p>`;
+            document.getElementById('documentos-resumo-status').innerHTML = '';
             secao.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
             await fetchDocumentos(projetoId);
@@ -675,15 +677,52 @@
 
         // ── Documentos ────────────────────────────────────────────────
 
+        // Mesmos rótulos de STATUS_MAP (app.js), para o suporte falar a mesma
+        // língua do cliente; o código técnico fica visível embaixo.
+        const DOC_STATUS_LABELS = {
+            uploaded: 'Enviado',
+            processing_ocr: 'Em Processamento',
+            validating: 'Validando',
+            validated: 'Validado',
+            aguardando_conformidade: 'Em Auditoria IA',
+            aguardando_comprovante: 'Falta Comprovante',
+            aguardando_conciliacao_bancaria: 'Falta Conciliação',
+            aguardando_d3: 'Em carência (D-3)',
+            liberado_rpa_airtop: 'Pronto para envio',
+            enviado_salic: 'Enviado ao SALIC',
+            concluido: 'Concluído',
+            erro_rpa: 'Erro no Envio',
+            bloqueado_conformidade: 'Bloqueado',
+            revisao_manual: 'Revisão Manual',
+            divergencia_valor: 'Divergência de Valor',
+            divergencia_beneficiario: 'Divergência de Beneficiário',
+            aguardando_rubrica: 'Aguardando Rubrica',
+            aguardando_aprovacao_fornecedor: 'Aguardando aprovação',
+            rejeitado_fornecedor: 'Rejeitada',
+            erro: 'Erro'
+        };
+        const DOC_TIPO_LABELS = {
+            nf: 'Nota fiscal',
+            comprovante: 'Comprovante',
+            planilha_orcamentaria: 'Planilha orçamentária',
+            guia: 'Guia'
+        };
+        const statusDocLabel = (s) => DOC_STATUS_LABELS[s] || s || '—';
+        const tipoDocLabel = (t) => DOC_TIPO_LABELS[t || 'nf'] || t;
+
+        let documentosFiltroStatus = '';
+
         async function fetchDocumentos(projetoId) {
             const wrap = document.getElementById('documentos-tabela-wrap');
             try {
                 const json = await authFetch(`/api/suporte/projetos/${projetoId}/documentos`);
                 documentosData = json.documentos || [];
                 documentosPagina = 1;
+                documentosFiltroStatus = '';
                 renderDocumentos();
             } catch (err) {
                 console.error('fetchDocumentos:', err);
+                document.getElementById('documentos-resumo-status').innerHTML = '';
                 wrap.innerHTML = `<p class="text-sm" style="color: var(--error); padding: 1rem;">Erro ao carregar: ${esc(window.prestaiErroTexto(err))}</p>`;
             }
         }
@@ -693,8 +732,32 @@
             renderDocumentos();
         }
 
+        function filtrarDocumentosPorStatus(status) {
+            documentosFiltroStatus = documentosFiltroStatus === status ? '' : status;
+            documentosPagina = 1;
+            renderDocumentos();
+        }
+
+        function renderResumoStatusDocumentos() {
+            const el = document.getElementById('documentos-resumo-status');
+            if (!documentosData.length) { el.innerHTML = ''; return; }
+            const contagem = {};
+            documentosData.forEach(d => { contagem[d.status || '—'] = (contagem[d.status || '—'] || 0) + 1; });
+            const chip = (status, rotulo, qtd) => {
+                const ativo = documentosFiltroStatus === status;
+                return `<button class="btn ${ativo ? 'btn-primary' : 'btn-secondary'}" style="padding: 0.3rem 0.65rem; font-size: 0.75rem;" onclick="filtrarDocumentosPorStatus('${esc(status)}')">${esc(rotulo)} (${qtd})</button>`;
+            };
+            el.innerHTML = [
+                chip('', 'Todos', documentosData.length),
+                ...Object.entries(contagem)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([s, n]) => chip(s, statusDocLabel(s), n))
+            ].join('');
+        }
+
         function renderDocumentos() {
             const wrap = document.getElementById('documentos-tabela-wrap');
+            renderResumoStatusDocumentos();
 
             if (!documentosData.length) {
                 wrap.innerHTML = `<p class="empty-state-inline">Nenhum documento neste projeto.</p>`;
@@ -702,7 +765,10 @@
                 return;
             }
 
-            const documentos = paginar(documentosData, documentosPagina);
+            const filtrados = documentosFiltroStatus
+                ? documentosData.filter(d => (d.status || '—') === documentosFiltroStatus)
+                : documentosData;
+            const documentos = paginar(filtrados, documentosPagina);
             wrap.innerHTML = `
                 <table class="data-table" style="width: 100%;">
                     <thead>
@@ -722,20 +788,21 @@
                             return `
                             <tr class="${precisaAtencao ? 'doc-row-atencao' : ''}">
                                 <td style="font-weight: 600;">${esc(d.name || '—')}</td>
-                                <td class="text-sm">${esc(d.tipo_documento || '—')}</td>
+                                <td class="text-sm">${esc(tipoDocLabel(d.tipo_documento))}</td>
                                 <td class="text-sm">
                                     <div>${esc(d.nome_emissor || '—')}</div>
                                     <div class="text-xs" style="color: var(--text-muted);">${esc(d.cnpj_emissor || '')}</div>
                                 </td>
                                 <td class="text-sm">${fmtMoney(d.valor)}</td>
                                 <td class="text-sm">
-                                    ${esc(d.status || '—')}
+                                    <span style="font-weight: 600;">${esc(statusDocLabel(d.status))}</span>
                                     ${precisaAtencao ? '<span class="badge status-error" style="margin-left: 4px;"><span class="badge-dot"></span>Atenção</span>' : ''}
+                                    <div class="text-xs" style="color: var(--text-muted);">${esc(d.status || '')}</div>
                                     ${d.just_erro ? `<div class="text-xs" style="color: var(--error); margin-top: 0.25rem;">${esc(d.just_erro)}</div>` : ''}
                                 </td>
                                 <td class="text-sm">${fmtDate(d.created_at)}</td>
                                 <td style="text-align: right; white-space: nowrap;">
-                                    ${d.status === 'revisao_manual' ? `<button class="btn btn-secondary" style="padding: 0.35rem 0.7rem; font-size: 0.75rem;" onclick="handleReprocessarOcr('${d.id}', this)">Reprocessar OCR</button>` : ''}
+                                    ${botaoReprocessar(d)}
                                 </td>
                             </tr>
                         `;
@@ -743,19 +810,37 @@
                     </tbody>
                 </table>
             `;
-            renderControlesPaginacao('documentos-paginacao', documentosPagina, documentosData.length, 'irParaPaginaDocumentos');
+            renderControlesPaginacao('documentos-paginacao', documentosPagina, filtrados.length, 'irParaPaginaDocumentos');
             if (window.lucide) window.lucide.createIcons();
+        }
+
+        // A regra de quando pode reprocessar mora no servidor (avaliarReprocesso);
+        // a tela só reflete o que veio em d.reprocesso.
+        function botaoReprocessar(d) {
+            const r = d.reprocesso || { permitido: false, motivo: 'Sem informação de reprocessamento.' };
+            const rotulo = d.tipo_documento === 'planilha_orcamentaria' ? 'Reimportar planilha' : 'Reprocessar OCR';
+            const estilo = 'padding: 0.35rem 0.7rem; font-size: 0.75rem;';
+            if (!r.permitido) {
+                // title no span: botão desabilitado não mostra tooltip em todos os navegadores.
+                return `<span title="${esc(r.motivo || '')}" style="display: inline-block; cursor: not-allowed;"><button class="btn btn-secondary" style="${estilo} pointer-events: none; opacity: 0.5;" disabled>${rotulo}</button></span>`;
+            }
+            return `<button class="btn btn-secondary" style="${estilo}" onclick="handleReprocessarOcr('${d.id}', this)">${rotulo}</button>`;
         }
 
         // SPEC-SUPORTE-02 (6) — ESCRITA, auditada em audit_log pelo endpoint.
         async function handleReprocessarOcr(documentId, btnEl) {
+            const doc = documentosData.find(d => d.id === documentId) || {};
+            const ehPlanilha = doc.tipo_documento === 'planilha_orcamentaria';
+            const rotuloOriginal = btnEl.textContent;
             abrirModalConfirmGenerico({
-                titulo: 'Reprocessar OCR',
-                mensagem: 'Forçar o reprocessamento de OCR deste documento? O status volta para "processing_ocr" e ele entra de novo na esteira.',
-                textoConfirmar: 'Reprocessar',
+                titulo: ehPlanilha ? 'Reimportar planilha orçamentária' : 'Reprocessar OCR',
+                mensagem: ehPlanilha
+                    ? 'Reimportar esta planilha? As rubricas do projeto serão importadas de novo a partir dela: cria uma nova versão, e rubricas que não constarem nela serão marcadas como removidas. Pode levar alguns minutos.'
+                    : 'Forçar o reprocessamento de OCR deste documento? Os dados lidos serão extraídos de novo e ele volta para o início da esteira.',
+                textoConfirmar: ehPlanilha ? 'Reimportar' : 'Reprocessar',
                 onConfirm: async () => {
                     btnEl.disabled = true;
-                    btnEl.textContent = 'Reprocessando…';
+                    btnEl.textContent = ehPlanilha ? 'Importando…' : 'Reprocessando…';
 
                     try {
                         const sb = await initSupabase();
@@ -767,12 +852,14 @@
                         const json = await resp.json().catch(() => ({}));
                         if (!resp.ok) throw new Error(json.error || 'Falha ao reprocessar.');
 
-                        showToast('Reprocessamento disparado.', 'success');
+                        showToast(json.mensagem || 'Reprocessamento disparado.', 'success');
                         await fetchDocumentos(projetoSelecionadoId);
                     } catch (err) {
                         showToast(err.message, 'error');
+                        // Falha de importação muda o status (erro + motivo): recarrega para refletir.
+                        await fetchDocumentos(projetoSelecionadoId).catch(() => {});
                         btnEl.disabled = false;
-                        btnEl.textContent = 'Reprocessar OCR';
+                        btnEl.textContent = rotuloOriginal;
                     }
                 }
             });
