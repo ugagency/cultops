@@ -4213,7 +4213,8 @@ function itemFila(entidade, reg, grupo, extra) {
     };
 }
 
-// 3.2 — Fila de atenção, cross-org.
+// 3.2 — Fila de atenção. A tela usa por projeto (?project_id=); sem o
+// parâmetro devolve todas as organizações.
 // Limitação: documents não guarda "desde quando está no status"; usa-se
 // updated_at, que também muda em qualquer outro UPDATE (ex.: just_erro) e
 // portanto pode REINICIAR o relógio de um documento parado.
@@ -4221,11 +4222,13 @@ app.get('/api/suporte/fila', requireAuth, requireSuporte, async (req, res) => {
     try {
         const agora = Date.now();
         const itens = [];
+        const filtroProjeto = req.query.project_id || null;
+        const doProjeto = (q) => (filtroProjeto ? q.eq('project_id', filtroProjeto) : q);
 
-        const docs = await lerTudo((de, ate) => supabase
+        const docs = await lerTudo((de, ate) => doProjeto(supabase
             .from('documents')
             .select('id, name, status, tipo_documento, project_id, organization_id, updated_at, just_erro')
-            .not('status', 'in', '(enviado_salic,rejeitado_fornecedor,concluido)')
+            .not('status', 'in', '(enviado_salic,rejeitado_fornecedor,concluido)'))
             .order('updated_at', { ascending: true })
             .range(de, ate));
         for (const d of docs) {
@@ -4238,7 +4241,7 @@ app.get('/api/suporte/fila', requireAuth, requireSuporte, async (req, res) => {
         }
 
         // select('*'): created_at/updated_at só existem depois da migration.
-        const { data: extratos, error: extErr } = await supabase.from('extratos').select('*').in('status', ['pendente', 'erro']);
+        const { data: extratos, error: extErr } = await doProjeto(supabase.from('extratos').select('*').in('status', ['pendente', 'erro']));
         if (extErr) throw extErr;
         for (const x of extratos || []) {
             const desde = x.updated_at || x.created_at || null;
@@ -4253,7 +4256,7 @@ app.get('/api/suporte/fila', requireAuth, requireSuporte, async (req, res) => {
             }));
         }
 
-        const { data: exps, error: expErr } = await supabase.from('exportacoes_log').select('id, tipo, status, project_id, organization_id, criado_em').eq('status', 'gerando');
+        const { data: exps, error: expErr } = await doProjeto(supabase.from('exportacoes_log').select('id, tipo, status, project_id, organization_id, criado_em').eq('status', 'gerando'));
         if (expErr) throw expErr;
         for (const e of exps || []) {
             const grupo = Regras.classificarParaFila('exportacoes_log', e.status, e.criado_em, agora);
@@ -4265,9 +4268,9 @@ app.get('/api/suporte/fila', requireAuth, requireSuporte, async (req, res) => {
         }
 
         // Última captura de saldo de cada projeto; só entra se for erro.
-        const capturas = await lerTudo((de, ate) => supabase
+        const capturas = await lerTudo((de, ate) => doProjeto(supabase
             .from('saldo_salic_capturas')
-            .select('id, project_id, organization_id, status, erro_mensagem, created_at, concluida_em')
+            .select('id, project_id, organization_id, status, erro_mensagem, created_at, concluida_em'))
             .order('created_at', { ascending: false })
             .range(de, ate));
         const vistos = new Set();
@@ -4282,10 +4285,10 @@ app.get('/api/suporte/fila', requireAuth, requireSuporte, async (req, res) => {
             }));
         }
 
-        const { data: evs, error: evErr } = await supabase
+        const { data: evs, error: evErr } = await doProjeto(supabase
             .from('physical_evidences')
             .select('id, project_id, organization_id, status_validacao, motivo_reprovacao, tipo_evidencia, file_name, validado_em, criado_em')
-            .eq('status_validacao', 'erro_rpa');
+            .eq('status_validacao', 'erro_rpa'));
         if (evErr) throw evErr;
         for (const v of evs || []) {
             itens.push(itemFila('physical_evidences', v, 'erro', {
@@ -4295,10 +4298,10 @@ app.get('/api/suporte/fila', requireAuth, requireSuporte, async (req, res) => {
             }));
         }
 
-        const { data: imps, error: impErr } = await supabase
+        const { data: imps, error: impErr } = await doProjeto(supabase
             .from('project_salic_imports')
             .select('id, project_id, organization_id, status, erro_mensagem, created_at, updated_at')
-            .eq('status', 'erro');
+            .eq('status', 'erro'));
         if (impErr) throw impErr;
         for (const i of imps || []) {
             const t = Regras.traduzirCausaSalic(i.erro_mensagem);

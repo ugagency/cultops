@@ -142,24 +142,6 @@
         </header>
 
         <div class="card" style="margin-bottom: 1.5rem;">
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem;">
-                <h3 class="h2">Fila de atenção <span id="fila-count" style="color: var(--text-muted); font-weight: 500;"></span></h3>
-                <button class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;" onclick="fetchFila()">Atualizar</button>
-            </div>
-            <div id="fila-contadores" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.75rem; margin-bottom: 1rem;"></div>
-            <div class="data-table-container">
-                <div id="fila-tabela-wrap" style="min-width: 0; overflow-x: auto;">
-                    <p class="text-sm" style="color: var(--text-muted); padding: 1rem;">Carregando…</p>
-                </div>
-            </div>
-            <div id="fila-paginacao"></div>
-            <p id="fila-observacoes" class="text-xs" style="color: var(--text-muted); margin-top: 0.75rem; line-height: 1.5;"></p>
-            <p class="text-xs" style="margin-top: 0.5rem; padding: 0.6rem 0.75rem; background: var(--bg-sidebar); border-radius: var(--radius-sm); color: var(--text-secondary); line-height: 1.5;">
-                <strong>O que o suporte não faz:</strong> não envia nada ao SALIC (nem "Tentar novamente", nem avançar a partir de Erro no Envio ou Pronto para envio), não corrige campos lidos e não troca rubrica. Isso fica com o cliente. A única ação que muda o estado de negócio de um documento é Avançar documento.
-            </p>
-        </div>
-
-        <div class="card" style="margin-bottom: 1.5rem;">
             <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
                 <i data-lucide="search"></i>
                 <h3 class="h2">Busca global</h3>
@@ -214,7 +196,8 @@
                 </div>
 
                 <div style="display: flex; gap: 0.25rem; border-bottom: 1px solid var(--border-subtle); margin-bottom: 1rem; flex-wrap: wrap;">
-                    <button class="tab-btn active" data-tab="documentos" onclick="trocarAbaProjeto('documentos')">Documentos</button>
+                    <button class="tab-btn active" data-tab="atencao" onclick="trocarAbaProjeto('atencao')">Atenção</button>
+                    <button class="tab-btn" data-tab="documentos" onclick="trocarAbaProjeto('documentos')">Documentos</button>
                     <button class="tab-btn" data-tab="extratos" onclick="trocarAbaProjeto('extratos')">Extratos</button>
                     <button class="tab-btn" data-tab="evidencias" onclick="trocarAbaProjeto('evidencias')">Evidências</button>
                     <button class="tab-btn" data-tab="saldo" onclick="trocarAbaProjeto('saldo')">Saldo SALIC</button>
@@ -223,7 +206,19 @@
                     <button class="tab-btn" data-tab="auditoria" onclick="trocarAbaProjeto('auditoria')">Auditoria</button>
                 </div>
 
-                <div id="aba-documentos" class="aba-projeto">
+                <div id="aba-atencao" class="aba-projeto">
+                    <p class="text-xs" style="color: var(--text-muted); margin-bottom: 1rem;">O que precisa de atenção neste projeto. Clique em um contador para filtrar a lista.</p>
+                    <div id="fila-contadores" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.75rem; margin-bottom: 1rem;"></div>
+                    <div class="data-table-container">
+                        <div id="fila-tabela-wrap" style="min-width: 0; overflow-x: auto;"></div>
+                    </div>
+                    <div id="fila-paginacao"></div>
+                    <p id="fila-observacoes" class="text-xs" style="color: var(--text-muted); margin-top: 0.75rem; line-height: 1.5;"></p>
+                    <p class="text-xs" style="margin-top: 0.5rem; padding: 0.6rem 0.75rem; background: var(--bg-sidebar); border-radius: var(--radius-sm); color: var(--text-secondary); line-height: 1.5;">
+                        <strong>O que o suporte não faz:</strong> não envia nada ao SALIC (nem "Tentar novamente", nem avançar a partir de Erro no Envio ou Pronto para envio), não corrige campos lidos e não troca rubrica. Isso fica com o cliente. A única ação que muda o estado de negócio de um documento é Avançar documento.
+                    </p>
+                </div>
+                <div id="aba-documentos" class="aba-projeto" style="display: none;">
                     <p class="text-xs" style="color: var(--text-muted); margin-bottom: 1rem;">Todos os documentos do projeto. Clique em uma linha para abrir a ficha com dados lidos, vínculos, linha do tempo e ações. Linhas em destaque estão bloqueadas por conformidade ou têm erro registrado.</p>
                     <div id="documentos-resumo-status" style="display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem;"></div>
                     <div class="data-table-container">
@@ -570,9 +565,15 @@
         let filaPagina = 1;
 
         async function fetchFila() {
+            // A fila vive dentro do projeto: sem projeto selecionado não há o que carregar.
+            if (!projetoSelecionadoId) return;
+            const projetoId = projetoSelecionadoId;
             const wrap = document.getElementById('fila-tabela-wrap');
+            wrap.innerHTML = `<p class="text-sm" style="color: var(--text-muted); padding: 1rem;">Carregando…</p>`;
             try {
-                filaData = await authFetch('/api/suporte/fila');
+                const dados = await authFetch(`/api/suporte/fila?project_id=${encodeURIComponent(projetoId)}`);
+                if (projetoId !== projetoSelecionadoId) return; // trocou de projeto durante a consulta
+                filaData = dados;
                 filaPagina = 1;
                 renderFila();
             } catch (err) {
@@ -616,10 +617,9 @@
 
             const wrap = document.getElementById('fila-tabela-wrap');
             const visiveis = (filaData.itens || []).filter(itemPassaFiltroFila);
-            document.getElementById('fila-count').textContent = `(${visiveis.length}${filaFiltro ? ` de ${(filaData.itens || []).length}` : ''})`;
 
             if (!visiveis.length) {
-                wrap.innerHTML = `<p class="empty-state-inline">Nada na fila${filaFiltro ? ' para este filtro' : ''}.</p>`;
+                wrap.innerHTML = `<p class="empty-state-inline">Nada precisando de atenção${filaFiltro ? ' para este filtro' : ' neste projeto'}.</p>`;
                 document.getElementById('fila-paginacao').innerHTML = '';
                 return;
             }
@@ -628,7 +628,7 @@
             wrap.innerHTML = `
                 <table class="data-table" style="width: 100%;">
                     <thead>
-                        <tr><th>Item</th><th>Organização / Projeto</th><th>Status</th><th>Há quanto tempo</th><th>Causa</th><th>Ação sugerida</th><th style="text-align: right;">Abrir</th></tr>
+                        <tr><th>Item</th><th>Status</th><th>Há quanto tempo</th><th>Causa</th><th>Ação sugerida</th><th style="text-align: right;">Abrir</th></tr>
                     </thead>
                     <tbody>
                         ${pagina.map(it => {
@@ -638,10 +638,6 @@
                                 <td>
                                     <div class="text-xs" style="color: var(--text-muted);">${esc(ENTIDADE_LABELS[it.entidade] || it.entidade)}</div>
                                     <div style="font-weight: 600;">${esc(it.nome || '—')}</div>
-                                </td>
-                                <td class="text-sm">
-                                    <div>${esc(it.organizacao || '—')}</div>
-                                    <div class="text-xs" style="color: var(--text-muted);">${it.projeto ? esc((it.projeto.pronac || '') + ' · ' + (it.projeto.nome || '')) : '—'}</div>
                                 </td>
                                 <td class="text-sm">${htmlStatus(it.entidade, it.status, it.desde, it.grupo)}</td>
                                 <td class="text-sm">${it.tempo_desconhecido ? 'tempo desconhecido' : esc(haQuanto(it.desde))}</td>
@@ -663,16 +659,15 @@
             const estilo = 'padding: 0.35rem 0.7rem; font-size: 0.75rem;';
             if (it.entidade === 'documents') return `<button class="btn btn-secondary" style="${estilo}" onclick="abrirItemFila(${idx})">Abrir ficha</button>`;
             if (it.entidade === 'exportacoes_log') return `<button class="btn btn-secondary" style="${estilo}" onclick="encerrarExportacao(${idx})">Encerrar exportação</button>`;
-            return `<button class="btn btn-secondary" style="${estilo}" onclick="abrirItemFila(${idx})">Abrir projeto</button>`;
+            return `<button class="btn btn-secondary" style="${estilo}" onclick="abrirItemFila(${idx})">Ver na aba</button>`;
         }
 
         async function abrirItemFila(idx) {
             const it = filaData.itens[idx];
             if (!it) return;
             if (it.entidade === 'documents') return abrirFicha(it.id);
-            if (!it.projeto || !it.organization_id) return showToast('Item sem projeto vinculado.', 'error');
             const aba = { extratos: 'extratos', saldo_salic_capturas: 'saldo', project_salic_imports: 'saldo', physical_evidences: 'evidencias' }[it.entidade];
-            await irParaProjetoBusca(it.organization_id, it.projeto.id, it.projeto.nome || '', aba);
+            if (aba) trocarAbaProjeto(aba);
         }
 
         function encerrarExportacao(idx) {
@@ -735,7 +730,7 @@
                 return;
             }
 
-            await Promise.all([fetchFila(), fetchOrgs(), fetchSaude()]);
+            await Promise.all([fetchOrgs(), fetchSaude()]);
         });
 
         // ── Busca global ──────────────────────────────────────────────
@@ -951,12 +946,14 @@
             const secao = document.getElementById('secao-projeto-detalhe');
             secao.style.display = 'block';
             document.getElementById('projeto-detalhe-nome').textContent = nomeProjeto || '—';
-            trocarAbaProjeto('documentos');
+            filaData = { itens: [], contadores: {}, observacoes: [] };
+            filaFiltro = '';
+            trocarAbaProjeto('atencao');
             document.getElementById('documentos-tabela-wrap').innerHTML = `<p class="text-sm" style="color: var(--text-muted); padding: 1rem;">Carregando…</p>`;
             document.getElementById('documentos-resumo-status').innerHTML = '';
             secao.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-            await fetchDocumentos(projetoId);
+            await Promise.all([fetchFila(), fetchDocumentos(projetoId)]);
         }
 
         // ── Abas do projeto: Documentos / Contratos / Guias / Auditoria ─
