@@ -3233,12 +3233,12 @@ ${Sidebar()}
                 </div>
 
                 <div class="card">
-                    <h3 class="h2 mb-4">Análise de Conformidade</h3>
+                    <h3 class="h2 mb-4">Parecer da Análise</h3>
                     <div style="padding: 1rem; background: ${doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') ? 'rgba(239, 68, 68, 0.05)' : 'var(--bg-sidebar)'}; border-radius: var(--radius-sm); border-left: 3px solid ${doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') ? 'var(--error)' : (doc.justification ? 'var(--success)' : 'var(--primary)')};">
                         <p class="text-sm" style="line-height: 1.6; color: var(--text-primary);">
                             ${doc.status.includes('bloqueado') || doc.status.includes('divergencia') || doc.status === 'revisao_manual' ?
             `<strong style="color: var(--error);">Atenção:</strong><br>${doc.justification || window.prestaiSuavizar?.(doc.just_erro, 'error') || 'Documento requer análise manual devido a divergências ou baixa confiança no OCR.'}` :
-            (doc.justification ? `<strong style="color: var(--success);">✓ Aprovado</strong><br>${doc.justification}` : 'Aguardando processamento da IA para gerar a análise de conformidade...')
+            (doc.justification ? `<strong style="color: var(--success);">✓ Aprovado</strong><br>${doc.justification}` : 'Aguardando processamento da IA para gerar o parecer...')
         }
                         </p>
                     </div>
