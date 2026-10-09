@@ -2794,7 +2794,8 @@ ${Sidebar()}
     // comparações "já passou daqui", em vez de listas fixas que ficam
     // desatualizadas a cada novo status intermediário (BL fix status/cor).
     const posStatusAtual = statusOrder.indexOf(doc.status);
-    const jaPassouDaConciliacao = posStatusAtual !== -1 && posStatusAtual >= statusOrder.indexOf('aguardando_conciliacao_bancaria');
+    // Estritamente depois: o próprio aguardando_conciliacao_bancaria é a etapa em que o extrato ainda falta.
+    const jaPassouDaConciliacao = posStatusAtual !== -1 && posStatusAtual > statusOrder.indexOf('aguardando_conciliacao_bancaria');
     // Cor distinta por etapa pós-conciliação — evita tratar
     // liberado_rpa_airtop/enviado_salic/concluido como uma cor só.
     const corPosConciliacao = doc.status === 'concluido' ? 'var(--success)'
@@ -3310,7 +3311,7 @@ ${Sidebar()}
                         <div style="padding: 1rem; border: 1px dashed var(--border-light); border-radius: var(--radius-sm); background: ${doc.data_pagamento || jaPassouDaConciliacao || state.currentComprovante ? 'rgba(16, 185, 129, 0.05)' : 'transparent'};">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                                 <span class="text-xs" style="font-weight: 600; text-transform: uppercase;">2. Comprovante (Opcional)</span>
-                                ${doc.data_pagamento || jaPassouDaConciliacao || state.currentComprovante ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : (state.isUploadingComprovante ? '<i data-lucide="loader" class="spin" style="width: 16px; color: var(--primary);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>')}
+                                ${doc.data_pagamento || jaPassouDaConciliacao || state.currentComprovante ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : (state.isUploadingComprovante ? '<i data-lucide="loader" class="spin" style="width: 16px; color: var(--primary);"></i>' : '<i data-lucide="clock" style="width: 16px; color: ' + (doc.status === 'aguardando_conciliacao_bancaria' ? 'var(--text-muted)' : 'var(--warning)') + ';"></i>')}
                             </div>
                             ${(doc.data_pagamento || jaPassouDaConciliacao || state.currentComprovante) ?
             `<div style="display: flex; flex-direction: column; gap: 0.25rem;">
@@ -3331,7 +3332,9 @@ ${Sidebar()}
                         `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem;" onclick="document.getElementById('vincular-comprovante-input').click()">Anexar Comprovante</button>
                                  <input type="file" id="vincular-comprovante-input" style="display: none;" onchange="window.handleVincularDocumento('${doc.id}', this.files[0], 'comprovante', { id: '${doc.id}', nome: '${doc.name.replace(/'/g, "\\'")}', valor: ${doc.valor || 0}, cnpj: '${doc.cnpj_emissor || ''}' })" accept=".pdf,image/*">
                                  <p class="text-xs" style="color: var(--text-muted); font-style: italic; margin-top: 0.5rem; text-align: center;">Você pode pular direto para o Extrato</p>`) :
-                    `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando etapa anterior para liberar upload...</p>`))
+                    (doc.status === 'aguardando_conciliacao_bancaria' ?
+                        `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Etapa opcional. Nenhum comprovante enviado.</p>` :
+                        `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando etapa anterior para liberar upload...</p>`)))
         }
                         </div>
 
