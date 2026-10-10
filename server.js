@@ -4088,7 +4088,7 @@ async function chamarExterno(ctx, { url, destino, body, timeoutMs = 30000 }) {
     }
     await registrarEvento({
         entidade: ctx.entidade, registro_id: ctx.registro_id, acao: ctx.acao, destino,
-        usuario_id: ctx.usuario_id, motivo: ctx.motivo,
+        usuario_id: ctx.usuario_id, motivo: ctx.motivo, ...(ctx.origem ? { origem: ctx.origem } : {}),
         ok, http_status: status, duracao_ms: Date.now() - t0, detalhe
     });
     return { ok, status, corpo, erro: detalhe };
@@ -5258,6 +5258,105 @@ app.get('/api/suporte/sistema/saude', requireAuth, requireSuporte, async (req, r
     } catch (err) {
         console.error('[SUPORTE] saude:', err);
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/m1/cron-conciliacao-lote
+// Concilia sozinhas as notas de lote (documents.extrato_origem_id) paradas em
+// aguardando_comprovante / aguardando_conciliacao_bancaria, sem depender de
+// alguém abrir o app. É o mesmo disparo que o navegador faz (webhook
+// prestai-conciliation, com nf_id e o extrato de origem), mas feito daqui e UMA
+// NOTA POR VEZ: duas notas do mesmo extrato em paralelo disputam o mesmo
+// lançamento. Chamado a cada minuto pelo pg_cron (x-cron-secret / CRON_SECRET).
+//
+// Cada nota é tentada uma vez a cada "chegada" ao status: um marcador em
+// processamento_eventos mais novo que documents.updated_at impede repetir. A
+// carência de 5 min dá tempo ao disparo do navegador (que não deixa marcador)
+// e ao n8n de terminar antes de o servidor assumir a nota.
+// ─────────────────────────────────────────────────────────────────────────────
+const CONCILIACAO_LOTE_STATUS = ['aguardando_comprovante', 'aguardando_conciliacao_bancaria'];
+const CONCILIACAO_LOTE_CARENCIA_MS = 5 * 60 * 1000;
+// Nova nota só começa se ainda couber uma espera inteira do n8n (100 s + 180 s < 300 s).
+const CONCILIACAO_LOTE_ORCAMENTO_MS = 100000;
+let _conciliacaoLoteRodando = false;
+
+app.post('/api/m1/cron-conciliacao-lote', async (req, res) => {
+    if (!process.env.CRON_SECRET || req.headers['x-cron-secret'] !== process.env.CRON_SECRET) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+    if (_conciliacaoLoteRodando) return res.json({ ok: true, ignorado: 'execução anterior ainda em andamento' });
+    _conciliacaoLoteRodando = true;
+    try {
+        const limite = new Date(Date.now() - CONCILIACAO_LOTE_CARENCIA_MS).toISOString();
+        const { data: notas, error } = await supabase
+            .from('documents')
+            .select('id, status, project_id, extrato_origem_id, updated_at')
+            .in('status', CONCILIACAO_LOTE_STATUS)
+            .not('extrato_origem_id', 'is', null)
+            .lt('updated_at', limite)
+            .order('extrato_origem_id', { ascending: true })
+            .order('updated_at', { ascending: true })
+            .limit(50);
+        if (error) throw error;
+        if (!notas || !notas.length) return res.json({ ok: true, candidatas: 0, disparadas: 0 });
+
+        // Sem conseguir ler o registro de tentativas não há como evitar repetição:
+        // melhor não disparar nada (erro 500) do que disparar a cada minuto.
+        const maisAntiga = notas.reduce((m, n) => (n.updated_at < m ? n.updated_at : m), notas[0].updated_at);
+        const { data: marcas, error: marcaErr } = await supabase
+            .from('processamento_eventos')
+            .select('registro_id, criado_em')
+            .eq('acao', 'conciliacao_auto_lote_inicio')
+            .in('registro_id', notas.map(n => n.id))
+            .gt('criado_em', maisAntiga);
+        if (marcaErr) throw marcaErr;
+        const pendentes = notas.filter(n => !(marcas || []).some(m =>
+            m.registro_id === n.id && new Date(m.criado_em) > new Date(n.updated_at)));
+
+        const filePorExtrato = new Map();
+        const inicio = Date.now();
+        let disparadas = 0, falhas = 0, semArquivo = 0;
+        for (const nota of pendentes) {
+            if (Date.now() - inicio > CONCILIACAO_LOTE_ORCAMENTO_MS) break;
+            if (!filePorExtrato.has(nota.extrato_origem_id)) {
+                const { data: ex } = await supabase.from('extratos').select('file_path').eq('id', nota.extrato_origem_id).maybeSingle();
+                filePorExtrato.set(nota.extrato_origem_id, ex?.file_path || null);
+            }
+            const filePath = filePorExtrato.get(nota.extrato_origem_id);
+            // O marcador vem ANTES da chamada: uma execução que comece enquanto o
+            // n8n ainda trabalha nesta nota não a dispara de novo.
+            await registrarEvento({
+                entidade: 'documents', registro_id: nota.id, acao: 'conciliacao_auto_lote_inicio',
+                destino: 'n8n:prestai-conciliation', origem: 'cron', ok: null,
+                detalhe: filePath ? null : 'extrato de origem sem file_path; nada enviado'
+            });
+            if (!filePath) { semArquivo++; continue; }
+
+            const r = await chamarExterno(
+                { entidade: 'documents', registro_id: nota.id, acao: 'conciliacao_auto_lote', usuario_id: null, motivo: null, origem: 'cron' },
+                {
+                    url: WEBHOOK_CONCILIACAO, destino: 'n8n:prestai-conciliation', timeoutMs: 180000,
+                    body: {
+                        extrato_id: nota.extrato_origem_id,
+                        document_id: nota.extrato_origem_id, // compatibilidade, igual ao fluxo manual
+                        nf_id: nota.id,
+                        comprovante_id: null,
+                        file_path: filePath,
+                        bucket: 'documentos',
+                        project_id: nota.project_id
+                    }
+                }
+            );
+            if (r.ok) disparadas++; else falhas++;
+        }
+        console.log(`[cron-conciliacao-lote] candidatas=${notas.length} pendentes=${pendentes.length} disparadas=${disparadas} falhas=${falhas} sem_arquivo=${semArquivo}`);
+        res.json({ ok: true, candidatas: notas.length, pendentes: pendentes.length, disparadas, falhas, sem_arquivo: semArquivo });
+    } catch (err) {
+        console.error('[cron-conciliacao-lote] Erro:', err.message);
+        res.status(500).json({ error: err.message });
+    } finally {
+        _conciliacaoLoteRodando = false;
     }
 });
 
