@@ -4029,7 +4029,6 @@ app.post('/api/suporte/documentos/:id/reprocessar-ocr', requireAuth, requireSupo
 
 const WEBHOOK_VALIDACAO = 'https://automacoes-n8n.infrassys.com/webhook/cultopsvalidation';
 const WEBHOOK_CONCILIACAO = 'https://automacoes-n8n.infrassys.com/webhook/prestai-conciliation';
-const WEBHOOK_CONCILIACAO_LOTE = 'https://automacoes-n8n.infrassys.com/webhook/prestai-conciliation-lote';
 
 // Aplicado a TODO POST de /api/suporte/*. 400 se o motivo tiver menos de 10
 // caracteres; o texto limpo fica em req.motivo.
@@ -4871,11 +4870,56 @@ app.get('/api/suporte/projetos/:id/extratos', requireAuth, requireSuporte, async
     }
 });
 
-// Reprocessar extrato: payload do upload em lote (extrato_id, project_id,
-// file_path, bucket). O app tem dois webhooks conforme o fluxo de origem, e o
-// banco não registra qual foi usado; o de lote é o único que não exige nota.
+// Reprocessar extrato: usa o webhook 1-para-1 (prestai-conciliation), um
+// disparo por nota escolhida. O webhook de lote não é mais chamado daqui.
+// Status em que uma nota pode ser conciliada de novo a partir de um extrato:
+// os de conciliação/divergência e aguardando_d3 (já conciliada, ainda antes do
+// D-3 rodar). Depois disso (RPA, SALIC, concluído) não se mexe.
+const STATUS_REPROCESSAR_EXTRATO = [...Regras.STATUS_CONCILIACAO, 'aguardando_d3'];
+
+// Notas do projeto do extrato que podem ser conciliadas com ele (Falta
+// Conciliação, Divergência ou aguardando D-3). "vinculada" marca a nota já ligada ao extrato
+// por algum lançamento; o seletor do suporte a pré-seleciona.
+app.get('/api/suporte/extratos/:id/notas-candidatas', requireAuth, requireSuporte, async (req, res) => {
+    try {
+        const { data: x, error: getErr } = await supabase.from('extratos').select('id, project_id').eq('id', req.params.id).maybeSingle();
+        if (getErr) throw getErr;
+        if (!x) return res.status(404).json({ error: 'Extrato não encontrado.' });
+        const { data: ligados } = await supabase
+            .from('extratos_lancamentos').select('document_id')
+            .eq('extrato_id', x.id).not('document_id', 'is', null);
+        const vinculadas = new Set((ligados || []).map(l => l.document_id));
+        // extrato_conferido_id (migração nova) liga a nota ao extrato mesmo quando a
+        // conferência falhou. Se a coluna ainda não existe, cai para a consulta antiga.
+        const consultar = (cols) => supabase
+            .from('documents')
+            .select(cols)
+            .eq('project_id', x.project_id)
+            .in('status', STATUS_REPROCESSAR_EXTRATO)
+            .order('numero_nf', { ascending: true })
+            .limit(200);
+        let { data: notas, error } = await consultar('id, numero_nf, nome_emissor, valor, status, extrato_conferido_id');
+        if (error) ({ data: notas, error } = await consultar('id, numero_nf, nome_emissor, valor, status'));
+        if (error) throw error;
+        (notas || []).forEach(n => { if (n.extrato_conferido_id === x.id) vinculadas.add(n.id); });
+        res.json({ notas: (notas || []).map(n => ({ ...n, vinculada: vinculadas.has(n.id) })) });
+    } catch (err) {
+        console.error('[SUPORTE] notas-candidatas:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Cada nota é uma chamada ao n8n (espera até 3 min), uma depois da outra, e a
+// função do servidor tem teto de 300 s. Uma nova nota só começa se ainda couber
+// uma espera inteira (110 s + 180 s < 300 s); as demais ficam de fora e o envio
+// informa quais foram.
+const TIMEOUT_N8N_REPROCESSAR_EXTRATO_MS = 180000;
+const TEMPO_MAX_REPROCESSAR_EXTRATO_MS = 110000;
+
 app.post('/api/suporte/extratos/:id/reprocessar', requireAuth, requireSuporte, motivoOpcional, async (req, res) => {
     const id = req.params.id;
+    let docRestaurar = null;
+    const enviadas = [];
     try {
         const { data: x, error: getErr } = await supabase.from('extratos').select('*').eq('id', id).maybeSingle();
         if (getErr) throw getErr;
@@ -4884,25 +4928,127 @@ app.post('/api/suporte/extratos/:id/reprocessar', requireAuth, requireSuporte, m
         const av = Regras.avaliarReprocessarExtrato(x, Date.now());
         if (!av.habilitada) return res.status(409).json({ error: av.motivo_bloqueio });
 
-        const r = await chamarExterno(
-            { entidade: 'extratos', registro_id: id, acao: 'reprocessar_extrato', usuario_id: req.user.id, motivo: req.motivo },
-            {
-                url: WEBHOOK_CONCILIACAO_LOTE, destino: 'n8n:prestai-conciliation-lote',
-                body: { extrato_id: id, project_id: x.project_id, file_path: x.file_path, bucket: 'documentos' }
-            }
-        );
-        if (!r.ok) return res.status(502).json({ error: 'Não foi possível reenviar o extrato ao n8n agora. Tente novamente em instantes.' });
+        // O extrato é conciliado contra cada nota escolhida pelo suporte
+        // (nf_ids), UMA DE CADA VEZ, pelo mesmo webhook 1-para-1 que o app usa.
+        // Não há disparo em lote. Sem nf_ids, usa a nota já ligada ao extrato
+        // por lançamentos, se for uma só.
+        const bruto = Array.isArray(req.body?.nf_ids) ? req.body.nf_ids
+            : (typeof req.body?.nf_id === 'string' ? [req.body.nf_id] : []);
+        const nfIds = [...new Set(bruto.filter(v => typeof v === 'string').map(v => v.trim()).filter(Boolean))];
+        let consulta = supabase
+            .from('documents')
+            .select('id, status, project_id, tipo_documento, nf_vinculada_id, numero_nf')
+            .eq('project_id', x.project_id)
+            .in('status', STATUS_REPROCESSAR_EXTRATO);
+        if (nfIds.length) {
+            consulta = consulta.in('id', nfIds);
+        } else {
+            const { data: ligados, error: ligErr } = await supabase
+                .from('extratos_lancamentos').select('document_id')
+                .eq('extrato_id', id).not('document_id', 'is', null);
+            if (ligErr) throw ligErr;
+            const idsLigados = [...new Set((ligados || []).map(l => l.document_id))];
+            if (!idsLigados.length) return res.status(400).json({ error: 'Escolha a nota que deve ser conciliada com este extrato.' });
+            consulta = consulta.in('id', idsLigados);
+        }
+        const { data: notas, error: notasErr } = await consulta;
+        if (notasErr) throw notasErr;
+        if (!notas || !notas.length || (nfIds.length && notas.length !== nfIds.length)) {
+            return res.status(404).json({ error: 'Alguma nota escolhida não é deste projeto ou não está aguardando conciliação, em divergência nem aguardando D-3. Recarregue a lista.' });
+        }
+        if (!nfIds.length && notas.length > 1) {
+            return res.status(409).json({ error: `Há ${notas.length} notas ligadas a este extrato (${notas.map(n => n.numero_nf).join(', ')}). Escolha quais no seletor.` });
+        }
+        // Na ordem em que o suporte as marcou.
+        const fila = nfIds.length ? nfIds.map(i => notas.find(n => n.id === i)) : notas;
 
-        // Volta a "pendente" (reinicia o relógio de 30 min); o n8n fecha em processado/erro.
+        // O n8n responde só quando termina e ele mesmo fecha o extrato em
+        // processado/erro. Por isso o "pendente" (que reinicia o relógio de
+        // 30 min) vai ANTES do disparo: gravá-lo depois apagaria o resultado.
         await supabase.from('extratos').update({ status: 'pendente' }).eq('id', id);
-        await auditar(req, {
-            tabela: 'extratos', registro_id: id, campo: 'extrato_reprocessado_por_suporte',
-            valor_anterior: x.status, valor_novo: 'pendente'
-        });
-        res.json({ ok: true });
+
+        let falha = null;
+        let porTempo = false;
+        const inicio = Date.now();
+        for (const doc of fila) {
+            if (Date.now() - inicio > TEMPO_MAX_REPROCESSAR_EXTRATO_MS) { porTempo = true; break; }
+            // Mesmo que "Substituir Extrato" do app: a nota em divergência volta
+            // para aguardando_conciliacao_bancaria antes do disparo.
+            if (doc.status !== 'aguardando_conciliacao_bancaria') {
+                const { data: reset, error: resetErr } = await supabase
+                    .from('documents')
+                    .update({ status: 'aguardando_conciliacao_bancaria', just_erro: null })
+                    .eq('id', doc.id).eq('status', doc.status).select('id');
+                if (resetErr) throw resetErr;
+                if (!reset || !reset.length) { falha = { doc, motivo: 'o status da nota mudou nesse meio tempo' }; break; }
+                docRestaurar = doc;
+            }
+
+            const par = await parNfComprovante(doc);
+            const r = await chamarExterno(
+                { entidade: 'extratos', registro_id: id, acao: 'reprocessar_extrato', usuario_id: req.user.id, motivo: req.motivo },
+                {
+                    url: WEBHOOK_CONCILIACAO, destino: 'n8n:prestai-conciliation', timeoutMs: TIMEOUT_N8N_REPROCESSAR_EXTRATO_MS,
+                    body: {
+                        extrato_id: id,
+                        document_id: id,
+                        nf_id: par.nf_id,
+                        comprovante_id: par.comprovante_id,
+                        file_path: x.file_path,
+                        bucket: 'documentos',
+                        project_id: x.project_id
+                    }
+                }
+            );
+            if (!r.ok) {
+                if (r.status == null) {
+                    // Sem resposta (timeout ou rede): o n8n pode ter começado e ainda
+                    // estar processando. Não reverte a nota para não competir com ele.
+                    falha = { doc, emAndamento: true, motivo: 'o n8n não respondeu a tempo e a conciliação pode estar em andamento' };
+                } else {
+                    // Erro HTTP definitivo (ex.: 500 do workflow): nada ficou em andamento.
+                    if (docRestaurar) await supabase.from('documents').update({ status: docRestaurar.status }).eq('id', docRestaurar.id);
+                    falha = { doc, motivo: 'o n8n devolveu erro' };
+                }
+                docRestaurar = null;
+                break;
+            }
+            // Disparo aceito e concluído: a partir daqui o n8n é dono do status da nota.
+            docRestaurar = null;
+            enviadas.push(doc);
+        }
+
+        if (enviadas.length) {
+            await auditar(req, {
+                tabela: 'extratos', registro_id: id, campo: 'extrato_reprocessado_por_suporte',
+                valor_anterior: x.status, valor_novo: `pendente (nota${enviadas.length > 1 ? 's' : ''} ${enviadas.map(n => n.numero_nf).join(', ')})`
+            });
+        }
+
+        if (porTempo) {
+            const restantes = fila.filter(n => !enviadas.includes(n));
+            return res.status(504).json({ error: `Enviadas: ${enviadas.map(n => 'NF ' + n.numero_nf).join(', ')}. O envio parou para não passar do tempo do servidor. Não enviadas: ${restantes.map(n => 'NF ' + n.numero_nf).join(', ')}. Reprocessar de novo só com essas.` });
+        }
+
+        if (falha) {
+            // Nada chegou a rodar: devolve o extrato ao status em que estava.
+            if (!enviadas.length && !falha.emAndamento) {
+                await supabase.from('extratos').update({ status: x.status }).eq('id', id);
+            }
+            const restantes = fila.filter(n => n !== falha.doc && !enviadas.includes(n));
+            const partes = [];
+            if (enviadas.length) partes.push(`Enviadas: ${enviadas.map(n => 'NF ' + n.numero_nf).join(', ')}.`);
+            partes.push(`Falhou na NF ${falha.doc.numero_nf}: ${falha.motivo}.`);
+            if (restantes.length) partes.push(`Não enviadas: ${restantes.map(n => 'NF ' + n.numero_nf).join(', ')}.`);
+            if (falha.emAndamento) partes.push('Confira a nota em alguns minutos antes de tentar de novo.');
+            return res.status(falha.emAndamento ? 504 : 502).json({ error: partes.join(' ') });
+        }
+
+        res.json({ ok: true, enviadas: enviadas.map(n => ({ nf_id: n.id, numero_nf: n.numero_nf })) });
     } catch (err) {
+        if (docRestaurar) await supabase.from('documents').update({ status: docRestaurar.status }).eq('id', docRestaurar.id).then(() => {}, () => {});
         console.error('[SUPORTE] extrato reprocessar:', err);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: (enviadas.length ? `Enviadas antes do erro: ${enviadas.map(n => 'NF ' + n.numero_nf).join(', ')}. ` : '') + err.message });
     }
 });
 

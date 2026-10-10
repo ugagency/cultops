@@ -5854,7 +5854,10 @@ async function carregarExtratoDaNota(doc) {
         if (errDoc) throw errDoc;
 
         const lancamentoDaNota = (doDoc && doDoc[0]) || null;
-        const extratoId = lancamentoDaNota?.extrato_id || doc.extrato_origem_id || null;
+        // Caminho (c): extrato_conferido_id, gravado pelo n8n a cada conferência,
+        // inclusive nas que falham. É o que mostra ao cliente o extrato contra o qual a
+        // nota foi recusada. Tem prioridade por ser a conferência mais recente.
+        const extratoId = doc.extrato_conferido_id || lancamentoDaNota?.extrato_id || doc.extrato_origem_id || null;
         if (!extratoId) return;
 
         // Só as colunas que a tabela realmente tem: pedir uma inexistente faz o
@@ -5895,7 +5898,7 @@ async function carregarExtratoDaNota(doc) {
 
         state.currentExtrato = {
             extrato: extrato || null,
-            lancamentoDaNota: lancamentoDaNota || lista.find(l => l.document_id === doc.id) || null,
+            lancamentoDaNota: (lancamentoDaNota && lancamentoDaNota.extrato_id === extratoId ? lancamentoDaNota : null) || lista.find(l => l.document_id === doc.id) || null,
             lancamentos: lista,
             notasPorId,
         };

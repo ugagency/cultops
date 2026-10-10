@@ -128,6 +128,20 @@
             max-height: 90vh;
             overflow-y: auto;
         }
+        .lista-cabecalho { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.4rem; }
+        .lista-cabecalho label { margin-bottom: 0; }
+        #acao-lista-contador { color: var(--text-secondary); font-weight: 600; }
+        .nf-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.5rem; }
+        .nf-chip { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.2rem 0.3rem 0.2rem 0.65rem; font-size: 12px; font-weight: 600; color: var(--primary); background: var(--color-blue-15); border: 1px solid var(--border-light); border-radius: 999px; font-variant-numeric: tabular-nums; }
+        .nf-chip button { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: none; border-radius: 50%; background: transparent; color: var(--primary); font-size: 14px; line-height: 1; cursor: pointer; }
+        .nf-chip button:hover { background: var(--color-blue-30); }
+        .nf-item { padding-left: 0.75rem; align-items: center; justify-content: flex-start; }
+        .nf-item .rubrica-combo-valor { margin-left: auto; }
+        .nf-check { flex-shrink: 0; width: 16px; height: 16px; border: 1.5px solid var(--border-light); border-radius: 4px; background: var(--bg-card); display: inline-flex; align-items: center; justify-content: center; }
+        .nf-item.is-checked .nf-check { background: var(--primary); border-color: var(--primary); }
+        .nf-item.is-checked .nf-check::after { content: ''; width: 8px; height: 4px; margin-top: -2px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg); }
+        .nf-item.is-disabled { opacity: 0.45; cursor: not-allowed; }
+        .nf-tag { margin-left: 0.5rem; padding: 0.05rem 0.45rem; font-size: 10px; font-weight: 700; border-radius: 999px; background: var(--color-accent); color: var(--color-black); white-space: nowrap; }
     </style>
 </head>
 <body>
@@ -372,6 +386,16 @@
                 <label id="acao-extra-label"></label>
                 <input type="text" id="acao-extra-input" class="form-control" autocomplete="off">
             </div>
+            <div id="acao-lista-wrap" class="form-group" style="display: none;">
+                <div class="lista-cabecalho">
+                    <label id="acao-lista-label" for="acao-sel-input"></label>
+                    <span id="acao-lista-contador" class="text-xs"></span>
+                </div>
+                <input type="text" id="acao-sel-input" class="form-control" autocomplete="off" role="combobox" aria-expanded="false"
+                       placeholder="Buscar por número, emissor ou valor…"
+                       onfocus="_selAbrir()" oninput="_selAbrir()" onkeydown="_selTecla(event)">
+                <div id="acao-sel-chips" class="nf-chips"></div>
+            </div>
             <div class="form-group">
                 <label id="acao-motivo-label" for="acao-motivo">Motivo (mínimo de 10 caracteres; pode ser o número da ocorrência do Notion)</label>
                 <textarea id="acao-motivo" class="form-control" rows="3" oninput="atualizarMotivoAcao()" style="width: 100%;"></textarea>
@@ -548,11 +572,228 @@
             extraWrap.style.display = cfg.campoExtra ? 'block' : 'none';
             document.getElementById('acao-extra-input').value = '';
             if (cfg.campoExtra) document.getElementById('acao-extra-label').textContent = cfg.campoExtra.rotulo;
+            const listaWrap = document.getElementById('acao-lista-wrap');
+            listaWrap.style.display = cfg.campoLista ? 'block' : 'none';
+            if (cfg.campoLista) montarListaAcao(cfg.campoLista);
             const btn = document.getElementById('btn-acao-confirmar');
             btn.textContent = cfg.confirmar || 'Confirmar';
             atualizarMotivoAcao();
             document.getElementById('modal-acao').style.display = 'flex';
             document.getElementById('acao-motivo').focus();
+        }
+
+        // ── Seletor de notas: o combobox das rubricas (M1), com várias escolhas ──
+        // Reaproveita as classes .rubrica-combo-* do style.css: grupos como
+        // cabeçalho, busca por digitação sem acento e destaque do trecho achado.
+        // O painel vive no <body> (position: fixed) para não ser cortado pelo modal.
+        let _selItens = [];
+        let _selMarcadas = [];   // ids, na ordem em que foram marcadas
+        let _selVisiveis = [];
+        let _selAtivo = -1;
+        let _selMax = Infinity;
+        let _selPainel = null;
+        let _selPronto = false;
+
+        function _selNorm(s) {
+            return Array.from(String(s == null ? '' : s)).map(ch => {
+                const n = ch.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+                return n.length === 1 ? n : ch;
+            }).join('');
+        }
+
+        function _selDestacar(texto, tokens) {
+            const original = String(texto == null ? '' : texto);
+            if (!tokens.length) return esc(original);
+            const alvo = _selNorm(original);
+            const marcado = new Array(original.length).fill(false);
+            tokens.forEach(t => {
+                let de = alvo.indexOf(t);
+                while (de !== -1) {
+                    for (let i = de; i < de + t.length; i++) marcado[i] = true;
+                    de = alvo.indexOf(t, de + t.length);
+                }
+            });
+            let html = '';
+            let i = 0;
+            while (i < original.length) {
+                const inicio = i;
+                const dentro = marcado[i];
+                while (i < original.length && marcado[i] === dentro) i++;
+                const trecho = esc(original.slice(inicio, i));
+                html += dentro ? `<mark>${trecho}</mark>` : trecho;
+            }
+            return html;
+        }
+
+        function _selPainelEl() {
+            if (_selPainel && document.body.contains(_selPainel)) return _selPainel;
+            _selPainel = document.createElement('div');
+            _selPainel.className = 'rubrica-combo-panel';
+            _selPainel.setAttribute('role', 'listbox');
+            _selPainel.setAttribute('aria-multiselectable', 'true');
+            document.body.appendChild(_selPainel);
+            return _selPainel;
+        }
+
+        function _selAberto() {
+            return !!(_selPainel && _selPainel.classList.contains('is-open'));
+        }
+
+        function _selPosicionar() {
+            const input = document.getElementById('acao-sel-input');
+            if (!input || !_selPainel) return;
+            const rect = input.getBoundingClientRect();
+            const largura = Math.min(Math.max(rect.width, 340), window.innerWidth - 16);
+            _selPainel.style.width = `${largura}px`;
+            _selPainel.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - largura - 8))}px`;
+            const abaixo = window.innerHeight - rect.bottom - 12;
+            const acima = rect.top - 12;
+            const paraCima = abaixo < 200 && acima > abaixo;
+            _selPainel.style.maxHeight = `${Math.max(140, Math.min(320, paraCima ? acima : abaixo))}px`;
+            if (paraCima) {
+                _selPainel.style.top = 'auto';
+                _selPainel.style.bottom = `${window.innerHeight - rect.top + 4}px`;
+            } else {
+                _selPainel.style.bottom = 'auto';
+                _selPainel.style.top = `${rect.bottom + 4}px`;
+            }
+        }
+
+        function _selRenderizar() {
+            const painel = _selPainelEl();
+            const rolagem = painel.scrollTop;
+            const tokens = _selNorm(document.getElementById('acao-sel-input').value).split(/\s+/).filter(Boolean);
+            _selVisiveis = _selItens.filter(it => tokens.every(t => it._alvo.includes(t)));
+            if (!_selVisiveis.length) {
+                painel.innerHTML = '<div class="rubrica-combo-empty">Nenhuma nota encontrada para esta busca.</div>';
+                _selAtivo = -1;
+                return;
+            }
+            const cheio = _selMarcadas.length >= _selMax;
+            let grupoAtual = null;
+            let html = '';
+            _selVisiveis.forEach((it, idx) => {
+                if (it.grupo !== grupoAtual) {
+                    grupoAtual = it.grupo;
+                    html += `<div class="rubrica-combo-group">${esc(it.grupo)}</div>`;
+                }
+                const marcada = _selMarcadas.includes(it.valor);
+                const travada = !marcada && cheio;
+                html += `<div class="rubrica-combo-item nf-item${marcada ? ' is-checked' : ''}${travada ? ' is-disabled' : ''}" role="option" aria-selected="${marcada}" data-idx="${idx}">`
+                    + `<span class="nf-check"></span>`
+                    + `<span class="rubrica-combo-nome"><span class="rubrica-combo-num">${_selDestacar('NF ' + it.numero + ' - ', tokens)}</span>${_selDestacar(it.emissor, tokens)}${it.etiqueta ? `<span class="nf-tag">${esc(it.etiqueta)}</span>` : ''}</span>`
+                    + `<span class="rubrica-combo-valor">${_selDestacar(it.valorFmt, tokens)}</span>`
+                    + `</div>`;
+            });
+            painel.innerHTML = html;
+            painel.scrollTop = rolagem;
+            _selMarcarAtivo(false);
+        }
+
+        function _selMarcarAtivo(rolar = true) {
+            if (!_selPainel) return;
+            const itens = _selPainel.querySelectorAll('.rubrica-combo-item');
+            itens.forEach(el => el.classList.remove('is-active'));
+            if (_selAtivo < 0 || _selAtivo >= itens.length) return;
+            itens[_selAtivo].classList.add('is-active');
+            if (rolar) itens[_selAtivo].scrollIntoView({ block: 'nearest' });
+        }
+
+        function _selAbrir() {
+            const painel = _selPainelEl();
+            _selAtivo = -1;
+            _selRenderizar();
+            painel.classList.add('is-open');
+            document.getElementById('acao-sel-input').setAttribute('aria-expanded', 'true');
+            _selPosicionar();
+        }
+
+        function _selFechar() {
+            if (_selPainel) _selPainel.classList.remove('is-open');
+            const input = document.getElementById('acao-sel-input');
+            if (input) input.setAttribute('aria-expanded', 'false');
+            _selAtivo = -1;
+        }
+
+        function _selAtualizarResumo() {
+            const chips = document.getElementById('acao-sel-chips');
+            chips.innerHTML = _selMarcadas.map(v => {
+                const it = _selItens.find(i => i.valor === v);
+                if (!it) return '';
+                return `<span class="nf-chip">NF ${esc(it.numero)} · ${esc(it.valorFmt)}`
+                    + `<button type="button" aria-label="Remover NF ${esc(it.numero)}" onclick="_selRemover('${esc(v)}')">×</button></span>`;
+            }).join('') || '<span class="text-xs" style="color: var(--text-muted);">Nenhuma nota selecionada.</span>';
+            const n = _selMarcadas.length;
+            document.getElementById('acao-lista-contador').textContent =
+                `${n} selecionada${n === 1 ? '' : 's'}${isFinite(_selMax) ? ` (máx. ${_selMax})` : ''}`;
+        }
+
+        function _selAlternar(idx) {
+            const it = _selVisiveis[idx];
+            if (!it) return;
+            const i = _selMarcadas.indexOf(it.valor);
+            if (i >= 0) _selMarcadas.splice(i, 1);
+            else if (_selMarcadas.length < _selMax) _selMarcadas.push(it.valor);
+            else return;
+            _selAtualizarResumo();
+            _selRenderizar();
+        }
+
+        function _selRemover(valor) {
+            _selMarcadas = _selMarcadas.filter(v => v !== valor);
+            _selAtualizarResumo();
+            if (_selAberto()) _selRenderizar();
+        }
+
+        function _selTecla(e) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (!_selAberto()) { _selAbrir(); return; }
+                if (!_selVisiveis.length) return;
+                const passo = e.key === 'ArrowDown' ? 1 : -1;
+                _selAtivo = _selAtivo === -1
+                    ? (passo > 0 ? 0 : _selVisiveis.length - 1)
+                    : (_selAtivo + passo + _selVisiveis.length) % _selVisiveis.length;
+                _selMarcarAtivo();
+            } else if (e.key === 'Enter') {
+                if (_selAberto() && _selAtivo >= 0) { e.preventDefault(); _selAlternar(_selAtivo); }
+            } else if (e.key === 'Escape') {
+                if (_selAberto()) { e.preventDefault(); e.stopPropagation(); _selFechar(); }
+            } else if (e.key === 'Tab') {
+                _selFechar();
+            }
+        }
+
+        function montarListaAcao(campo) {
+            _selMax = campo.maximo || Infinity;
+            _selItens = (campo.itens || []).map(it => Object.assign({}, it, {
+                _alvo: _selNorm(`${it.grupo || ''} ${it.numero || ''} ${it.emissor || ''} ${it.valorFmt || ''}`)
+            }));
+            _selMarcadas = _selItens.filter(it => it.selecionada).map(it => it.valor).slice(0, _selMax);
+            document.getElementById('acao-lista-label').textContent = campo.rotulo;
+            document.getElementById('acao-sel-input').value = '';
+            _selFechar();
+            _selAtualizarResumo();
+            if (_selPronto) return;
+            _selPronto = true;
+            // mousedown (não click): dispara antes do blur do input, então o painel ainda existe.
+            document.addEventListener('mousedown', e => {
+                if (!e.target || !e.target.closest) return;
+                const item = e.target.closest('.nf-item');
+                if (item && _selPainel && _selPainel.contains(item)) {
+                    e.preventDefault();
+                    if (!item.classList.contains('is-disabled')) _selAlternar(Number(item.dataset.idx));
+                    return;
+                }
+                if (_selAberto() && !e.target.closest('.rubrica-combo-panel') && e.target.id !== 'acao-sel-input') _selFechar();
+            });
+            const reposicionar = () => { if (_selAberto()) _selPosicionar(); };
+            window.addEventListener('scroll', reposicionar, true);
+            window.addEventListener('resize', reposicionar);
+        }
+
+        function valoresListaAcao() {
+            return _selMarcadas.slice();
         }
 
         function atualizarMotivoAcao() {
@@ -565,6 +806,7 @@
         }
 
         function fecharModalAcao() {
+            _selFechar();
             _acaoSeq++;
             _acaoExecutando = false;
             _acaoCfg = null;
@@ -577,9 +819,14 @@
             if (!cfg || _acaoExecutando) return;
             const motivo = document.getElementById('acao-motivo').value.trim();
             if (!cfg.motivoOpcional && motivo.length < MOTIVO_MINIMO) return;
-            const extra = document.getElementById('acao-extra-input').value;
+            const extra = cfg.campoLista ? valoresListaAcao() : document.getElementById('acao-extra-input').value;
             const erroEl = document.getElementById('acao-erro');
             erroEl.style.display = 'none';
+            if (cfg.campoLista && !extra.length) {
+                erroEl.textContent = `${cfg.campoLista.rotulo}: marque pelo menos uma.`;
+                erroEl.style.display = 'block';
+                return;
+            }
             if (cfg.campoExtra && (extra || '').length < (cfg.campoExtra.minimo || 1)) {
                 erroEl.textContent = `${cfg.campoExtra.rotulo}: preencha corretamente.`;
                 erroEl.style.display = 'block';
@@ -1757,15 +2004,38 @@
             return `<button class="btn btn-secondary" style="${estilo}" onclick="reprocessarExtrato('${x.id}')">Reprocessar extrato</button>`;
         }
 
-        function reprocessarExtrato(id) {
+        async function reprocessarExtrato(id) {
+            let notas = [];
+            try {
+                const json = await authFetch(`/api/suporte/extratos/${id}/notas-candidatas`);
+                notas = json.notas || [];
+            } catch (err) {
+                showToast(`Não foi possível carregar as notas do projeto: ${window.prestaiErroTexto ? window.prestaiErroTexto(err) : err.message}`, 'error');
+                return;
+            }
+            if (!notas.length) {
+                showToast('Este projeto não tem nota aguardando conciliação, em divergência ou aguardando D-3.', 'error');
+                return;
+            }
+            const brl = v => v != null ? 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : 'sem valor';
+            const itens = notas.map(n => ({
+                valor: n.id,
+                numero: n.numero_nf || '—',
+                emissor: n.nome_emissor || 'sem emissor',
+                valorFmt: brl(n.valor),
+                grupo: rotuloStatusDoc(n.status),
+                etiqueta: [n.vinculada ? 'vinculada' : '', n.status === 'aguardando_d3' ? 'já conciliada' : ''].filter(Boolean).join(' · '),
+                selecionada: !!n.vinculada
+            }));
             abrirModalAcao({
                 titulo: 'Reprocessar extrato',
                 motivoOpcional: true,
-                efeito: 'O arquivo do extrato é reenviado ao n8n para ser lido de novo e conciliado contra as notas pendentes do projeto.',
+                efeito: 'O arquivo do extrato é reenviado ao n8n e conciliado com cada nota marcada, uma de cada vez. Com várias notas pode levar alguns minutos.',
                 confirmar: 'Reprocessar',
-                onConfirm: async ({ motivo }) => {
+                campoLista: { rotulo: 'Notas a conciliar', itens },
+                onConfirm: async ({ motivo, extra }) => {
                     const projetoDaAcao = projetoSelecionadoId;
-                    await authPost(`/api/suporte/extratos/${id}/reprocessar`, { motivo });
+                    await authPost(`/api/suporte/extratos/${id}/reprocessar`, { motivo, nf_ids: extra });
                     showToast('Extrato reenviado para processamento.', 'success');
                     if (projetoDaAcao === projetoSelecionadoId) { await fetchExtratos(projetoDaAcao); fetchFila(); }
                 }
