@@ -1,6 +1,7 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const { localizarPronac, mascararCpf } = require('./salic_proponente.cjs');
+const { exigirSaidaDoLogin } = require('./salic_verificacoes.cjs');
 
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -155,6 +156,9 @@ async function capturarExecucaoSalic(config) {
         if (loginCheck.temErro) {
             throw new Error('Falha no login SALIC: credenciais invalidas ou usuario bloqueado.');
         }
+        // Login recusado sem mensagem: a página fica em /autenticacao/ (ver
+        // salic_verificacoes.cjs). Falha aqui com causa clara.
+        await exigirSaidaDoLogin(page, mascararCpf(usuario));
 
         // ── NAVEGAÇÃO POR PRONAC (origem: salic_insertion.cjs linhas 156-183) ──
         console.log('[SALIC-CAPTURA] Navegando para a lista de projetos...');
