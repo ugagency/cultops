@@ -4,7 +4,7 @@
 // puppeteer conseguir abrir um Chrome/Chromium local; senão é pulada.
 const assert = require('node:assert/strict');
 const {
-    urlIndicaLoginRecusado, exigirSaidaDoLogin, regexPronac, avaliarConferencia,
+    urlIndicaLoginRecusado, exigirSaidaDoLogin, aguardarFimDoSalvamento, regexPronac, avaliarConferencia,
     lerTelaProjeto, conferirPronacNaTela
 } = require('./salic_verificacoes.cjs');
 
@@ -163,6 +163,71 @@ const URL_LISTA = 'https://salic.cultura.gov.br/projeto/#/listar-projetos-propon
             await pageLogin.goto('https://salic.invalido/comunicados-proponente/#/home-comunicados-proponente');
             await exigirSaidaDoLogin(pageLogin, '896***97', 500);
         });
+
+
+        // ── espera do salvamento (tempos curtos; HTML fixo, sem SALIC) ──
+        // O aviso é um <div id="aviso"> inserido/removido por timers na página.
+        const montarAviso = async (aparecerEm, sumirEm) => {
+            await page.setContent('<main><div id="modal">Cadastrar novo comprovante</div></main>');
+            await page.evaluate((a, b) => {
+                const t = 'Salvando Comprovação Financeira';
+                if (a !== null) setTimeout(() => {
+                    const d = document.createElement('div'); d.id = 'aviso'; d.textContent = t;
+                    document.body.appendChild(d);
+                }, a);
+                if (b !== null) setTimeout(() => { const d = document.getElementById('aviso'); if (d) d.remove(); }, b);
+            }, aparecerEm, sumirEm);
+        };
+
+        await caso('salvando: aviso aparece em 0,3s e some em 1,5s -> conclui quando some', async () => {
+            await montarAviso(300, 1500);
+            const r = await aguardarFimDoSalvamento(page, { timeoutMs: 6000, intervaloMs: 100, graceSemAvisoMs: 800, log: () => { } });
+            assert.equal(r.concluido, true);
+            assert.equal(r.motivo, 'aviso_sumiu');
+            assert.equal(r.avisoVisto, true);
+            assert.ok(r.ms >= 1400 && r.ms < 2500, 'concluiu em ' + r.ms + 'ms');
+        });
+        await caso('salvando: aviso nunca aparece -> conclui pela regra da folga', async () => {
+            await montarAviso(null, null);
+            const r = await aguardarFimDoSalvamento(page, { timeoutMs: 6000, intervaloMs: 100, graceSemAvisoMs: 600, log: () => { } });
+            assert.equal(r.concluido, true);
+            assert.equal(r.motivo, 'aviso_nao_apareceu');
+            assert.ok(r.ms >= 600 && r.ms < 1500, 'concluiu em ' + r.ms + 'ms');
+        });
+        await caso('salvando: aviso nunca some -> estoura o prazo e não conclui', async () => {
+            await montarAviso(200, null);
+            const linhas = [];
+            const r = await aguardarFimDoSalvamento(page, { timeoutMs: 1500, intervaloMs: 100, graceSemAvisoMs: 600, log: (m) => linhas.push(m) });
+            assert.equal(r.concluido, false);
+            assert.equal(r.motivo, 'prazo_esgotado');
+            assert.equal(r.avisoVisto, true);
+            assert.ok(r.ms >= 1500 && r.ms < 2500, 'estourou em ' + r.ms + 'ms');
+            assert.ok(r.trecho.includes('Salvando'), 'trecho do texto visível');
+            assert.ok(linhas.some(l => l.includes('url:') && l.includes('texto:')), 'log com url e trecho');
+        });
+        await caso('salvando: o aviso aparecendo depois da folga ainda é aguardado até sumir', async () => {
+            await montarAviso(500, 1200);
+            const r = await aguardarFimDoSalvamento(page, { timeoutMs: 6000, intervaloMs: 100, graceSemAvisoMs: 1000, log: () => { } });
+            assert.equal(r.motivo, 'aviso_sumiu');
+        });
+        await caso('salvando: erro de leitura da página não conclui por engano', async () => {
+            const falsa = { evaluate: async () => { throw new Error('Execution context was destroyed'); } };
+            const r = await aguardarFimDoSalvamento(falsa, { timeoutMs: 600, intervaloMs: 100, graceSemAvisoMs: 200, log: () => { } });
+            assert.equal(r.motivo, 'prazo_esgotado');
+        });
+
+        // (d) aviso que aparece e some em menos de um ciclo de leitura. Não
+        // afirma nada sobre perder ou não: mede a taxa de perda para o relatório.
+        {
+            let perdidos = 0, vistos = 0; const N = 12;
+            for (let k = 0; k < N; k++) {
+                await montarAviso(150 + k * 17, 150 + k * 17 + 30);   // 30ms de duração, fase variável
+                const r = await aguardarFimDoSalvamento(page, { timeoutMs: 3000, intervaloMs: 200, graceSemAvisoMs: 600, log: () => { } });
+                if (r.avisoVisto) vistos++; else perdidos++;
+                assert.equal(r.concluido, true);   // nunca trava: cai na regra da folga
+            }
+            console.log(`info  - aviso de 30ms com leitura a cada 200ms: visto em ${vistos}/${N}, perdido em ${perdidos}/${N} (o robô conclui nos dois casos)`);
+        }
 
         await browser.close();
     }
