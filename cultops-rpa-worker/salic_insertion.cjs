@@ -4,7 +4,7 @@ const https = require('https');
 const path = require('path');
 const os = require('os');
 const { localizarPronac, mascararCpf } = require('./salic_proponente.cjs');
-const { conferirPronacNaTela } = require('./salic_verificacoes.cjs');
+const { exigirSaidaDoLogin, conferirPronacNaTela } = require('./salic_verificacoes.cjs');
 
 // tpDocumento values descobertos no SALIC:
 //   '1' = Cupom Fiscal
@@ -154,6 +154,10 @@ async function executarInsercaoSalic(config) {
         if (loginCheck.temErro) {
             throw new Error('Falha no login SALIC: credenciais invalidas ou usuario bloqueado.');
         }
+        // O SALIC pode recusar o login sem mostrar mensagem: a página só
+        // fica em /autenticacao/. Sem isto o erro aparecia como timeout em
+        // "Proponentes" (ocorrência #58, 13/10/2026).
+        await exigirSaidaDoLogin(page, mascararCpf(usuario));
 
         console.log(`[SALIC] Navegando para a lista de projetos...`);
         // 2. IR PARA A LISTAGEM
