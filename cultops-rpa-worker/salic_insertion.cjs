@@ -4,6 +4,7 @@ const https = require('https');
 const path = require('path');
 const os = require('os');
 const { localizarPronac, mascararCpf } = require('./salic_proponente.cjs');
+const { conferirPronacNaTela } = require('./salic_verificacoes.cjs');
 
 // tpDocumento values descobertos no SALIC:
 //   '1' = Cupom Fiscal
@@ -182,22 +183,12 @@ async function executarInsercaoSalic(config) {
         // do projeto antes de prosseguir. Se não bater, aborta sem tentar
         // inserir nada. Palavra inteira (\b...\b), não includes() — um
         // "includes" bateria também dentro de "1248504" ou "2485040".
-        // (Verificação por texto solto na página, não um seletor
-        // específico do campo PRONAC — ainda aguardando o HTML da tela de
-        // detalhe pra trocar por algo mais preciso.)
-        const pronacConfere = await targetPage.evaluate((p) => {
-            if (!document.body) return false;
-            const escapado = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const re = new RegExp(`\\b${escapado}\\b`);
-            return re.test(document.body.innerText);
-        }, pronac);
-        if (!pronacConfere) {
-            throw new Error(
-                `Abortando insercao: PRONAC ${pronac} nao aparece na tela do projeto aberto ` +
-                `(proponente "${proponente}"). Pode ser um link errado ou a pagina nao carregou.`
-            );
-        }
-        console.log('[SALIC] PRONAC confirmado na tela do projeto — prosseguindo.');
+        // Espera a SPA renderizar (até 20s): rodar logo após o goto
+        // abortava com a tela ainda vazia (ocorrência #58, 14/10/2026).
+        // Célula PRONAC primeiro, texto da página como fallback — ver
+        // salic_verificacoes.cjs.
+        console.log(`[SALIC] Conferindo PRONAC na tela do projeto (proponente "${proponente}")...`);
+        await conferirPronacNaTela(targetPage, pronac, { log: (msg) => console.log(msg) });
 
         // Funcao auxiliar para achar o botao nos frames/side-nav
         async function encontrarBotaoNoSidenav(p) {
