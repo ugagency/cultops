@@ -4,7 +4,7 @@ const https = require('https');
 const path = require('path');
 const os = require('os');
 const { localizarPronac, mascararCpf } = require('./salic_proponente.cjs');
-const { exigirSaidaDoLogin, conferirPronacNaTela } = require('./salic_verificacoes.cjs');
+const { exigirSaidaDoLogin, conferirPronacNaTela, aguardarFimDoSalvamento } = require('./salic_verificacoes.cjs');
 
 // tpDocumento values descobertos no SALIC:
 //   '1' = Cupom Fiscal
@@ -856,7 +856,20 @@ async function executarInsercaoSalic(config) {
 
         // 9. VERIFICACAO POS-SAVE: Aguarda e analisa o resultado
         console.log('[SALIC] Aguardando resposta do servidor apos salvar...');
-        await wait(6000); // Espera generosa para o servidor processar
+        // Espera ativa pelo aviso "Salvando Comprovacao Financeira" (antes: 6s
+        // fixos, que liam o estado com o modal ainda aberto). Ver
+        // salic_verificacoes.cjs.
+        const fimSalvamento = await aguardarFimDoSalvamento(targetPage, { log: (msg) => console.log(msg) });
+        if (!fimSalvamento.concluido) {
+            // Nao e "resultado ambiguo" e nao reenvia: o comprovante pode ja
+            // ter sido gravado no SALIC.
+            return {
+                sucesso: false,
+                erro: 'Tempo esgotado (60s) aguardando o SALIC concluir o salvamento. ' +
+                    'O comprovante pode ter sido gravado: conferir no SALIC antes de reenviar.'
+            };
+        }
+        await wait(1000); // deixa a tela assentar antes de ler o estado
 
         // Checa mensagens de sucesso ou erro na pagina
         const resultadoSalvamento = await targetPage.evaluate(() => {

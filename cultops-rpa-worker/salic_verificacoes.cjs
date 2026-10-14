@@ -139,7 +139,74 @@ async function conferirPronacNaTela(page, pronac, { timeoutMs = 20000, intervalo
     );
 }
 
+// ── 3. ESPERA O SALIC TERMINAR DE SALVAR ─────────────────────────────────
+//
+// Teste real (PRONAC 2414072): depois de clicar em Salvar o robô esperava
+// 6s fixos e lia o estado. A captura de tela desse instante mostrava o modal
+// "Cadastrar novo comprovante" ainda aberto, com o aviso "Salvando
+// Comprovação Financeira". O item foi gravado, mas só depois da leitura.
+//
+// Agora o robô acompanha o aviso: termina quando ele APARECEU e depois
+// SUMIU, ou quando passam graceSemAvisoMs sem ele aparecer (salvamento tão
+// rápido que o aviso nem foi visto, ou texto do aviso diferente do esperado).
+// A folga padrão é de 6s, igual à espera fixa que esta função substituiu: se o
+// texto do aviso não bater, a versão nova não pode esperar menos que a antiga.
+// O prazo máximo evita ficar preso.
+// Estourar o prazo NÃO é "resultado ambíguo": quem chama deve devolver erro
+// e não reenviar, porque o comprovante pode ter sido gravado.
+
+const RE_SALVANDO = /Salvando\s+Comprova/i;
+
+/**
+ * @returns {Promise<{concluido: boolean, motivo: 'aviso_sumiu'|'aviso_nao_apareceu'|'prazo_esgotado',
+ *   ms: number, avisoVisto: boolean, url: string, trecho: string}>}
+ */
+async function aguardarFimDoSalvamento(page, {
+    timeoutMs = 60000,
+    intervaloMs = 500,
+    graceSemAvisoMs = 6000,
+    log = console.log
+} = {}) {
+    const inicio = Date.now();
+    let avisoVisto = false;
+    let texto = '';
+    let url = '';
+    while (true) {
+        // Se a leitura falhar (ex.: página navegando), conta como "sem
+        // informação": segue no polling em vez de concluir por engano.
+        let leu = true;
+        try {
+            const r = await page.evaluate(() => ({
+                texto: document.body ? document.body.innerText : '',
+                url: window.location.href
+            }));
+            texto = r.texto; url = r.url;
+        } catch (e) { leu = false; }
+
+        const ms = Date.now() - inicio;
+        if (leu) {
+            const presente = RE_SALVANDO.test(texto);
+            if (presente) {
+                avisoVisto = true;
+            } else if (avisoVisto) {
+                log(`[SALIC] salvamento concluido em ${ms}ms (aviso "Salvando Comprovacao" apareceu e sumiu).`);
+                return { concluido: true, motivo: 'aviso_sumiu', ms, avisoVisto, url, trecho: '' };
+            } else if (ms >= graceSemAvisoMs) {
+                log(`[SALIC] salvamento concluido em ${ms}ms (aviso nao apareceu em ${graceSemAvisoMs}ms; salvamento rapido).`);
+                return { concluido: true, motivo: 'aviso_nao_apareceu', ms, avisoVisto, url, trecho: '' };
+            }
+        }
+        if (ms >= timeoutMs) break;
+        await wait(intervaloMs);
+    }
+    const ms = Date.now() - inicio;
+    const trecho = String(texto || '').replace(/\s+/g, ' ').trim().slice(0, 400);
+    log(`[SALIC] Prazo de ${Math.round(timeoutMs / 1000)}s esgotado aguardando o salvamento | url: ${url} | aviso visto: ${avisoVisto} | texto: "${trecho}"`);
+    return { concluido: false, motivo: 'prazo_esgotado', ms, avisoVisto, url, trecho };
+}
+
 module.exports = {
+    aguardarFimDoSalvamento,
     urlIndicaLoginRecusado,
     exigirSaidaDoLogin,
     regexPronac,
