@@ -148,7 +148,10 @@ async function conferirPronacNaTela(page, pronac, { timeoutMs = 20000, intervalo
 //
 // Agora o robô acompanha o aviso: termina quando ele APARECEU e depois
 // SUMIU, ou quando passam graceSemAvisoMs sem ele aparecer (salvamento tão
-// rápido que o aviso nem foi visto). O prazo máximo evita ficar preso.
+// rápido que o aviso nem foi visto, ou texto do aviso diferente do esperado).
+// A folga padrão é de 6s, igual à espera fixa que esta função substituiu: se o
+// texto do aviso não bater, a versão nova não pode esperar menos que a antiga.
+// O prazo máximo evita ficar preso.
 // Estourar o prazo NÃO é "resultado ambíguo": quem chama deve devolver erro
 // e não reenviar, porque o comprovante pode ter sido gravado.
 
@@ -161,7 +164,7 @@ const RE_SALVANDO = /Salvando\s+Comprova/i;
 async function aguardarFimDoSalvamento(page, {
     timeoutMs = 60000,
     intervaloMs = 500,
-    graceSemAvisoMs = 3000,
+    graceSemAvisoMs = 6000,
     log = console.log
 } = {}) {
     const inicio = Date.now();

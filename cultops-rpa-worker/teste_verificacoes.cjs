@@ -194,6 +194,13 @@ const URL_LISTA = 'https://salic.cultura.gov.br/projeto/#/listar-projetos-propon
             assert.equal(r.motivo, 'aviso_nao_apareceu');
             assert.ok(r.ms >= 600 && r.ms < 1500, 'concluiu em ' + r.ms + 'ms');
         });
+        await caso('salvando: folga padrao e de 6s (nao espera menos que a espera fixa antiga)', async () => {
+            await montarAviso(null, null);
+            // so o intervalo e encurtado; a folga fica no padrao (leva ~6s)
+            const r = await aguardarFimDoSalvamento(page, { intervaloMs: 250, log: () => { } });
+            assert.equal(r.motivo, 'aviso_nao_apareceu');
+            assert.ok(r.ms >= 6000 && r.ms < 7000, 'concluiu em ' + r.ms + 'ms');
+        });
         await caso('salvando: aviso nunca some -> estoura o prazo e não conclui', async () => {
             await montarAviso(200, null);
             const linhas = [];
