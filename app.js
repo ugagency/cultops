@@ -813,6 +813,7 @@ const state = {
     salicLoteRunning: false,
     salicLoteCancelled: false,
     salicLoteProgress: { current: 0, total: 0 },
+    salicLoteDesmarcados: [],    // IDs desmarcados na seleção do Envio SALIC em Lote (o padrão é marcado)
     in23ProjectFinanceiro: null,
     in23DocumentosConferidos: [],
     juntarPdfFiles: [],
@@ -2102,6 +2103,7 @@ function limparFilaSalic() {
     state.salicLoteProgress = { current: 0, total: 0 };
     state.salicLoteRunning = false;
     state.salicLoteCancelled = false;
+    state.salicLoteDesmarcados = [];
 }
 
 const EnvioLoteSalicView = () => {
@@ -2118,6 +2120,11 @@ const EnvioLoteSalicView = () => {
         // auditoria de conformidade, erro_rpa não é).
         const readyDocs = state.documents.filter(doc => ['liberado_rpa_airtop', 'erro_rpa'].includes(doc.status));
         const projetoSelecionado = state.filters.project || '';
+        // A marcação vem do estado, não do HTML: render() troca a tela inteira
+        // e, com "checked" fixo, devolvia tudo ao marcado (inclusive documentos
+        // com erro_rpa que o usuário tinha tirado de propósito do envio).
+        const desmarcados = state.salicLoteDesmarcados || [];
+        const todosMarcados = readyDocs.every(doc => !desmarcados.includes(doc.id));
 
         return `
         ${Sidebar()}
@@ -2163,7 +2170,7 @@ const EnvioLoteSalicView = () => {
                             <thead>
                                 <tr>
                                     <th style="width: 40px; text-align: center;">
-                                        <input type="checkbox" id="chk-salic-select-all" onchange="window.handleSelectAllSalicDocs(this.checked)" checked>
+                                        <input type="checkbox" id="chk-salic-select-all" onchange="window.handleSelectAllSalicDocs(this.checked)" ${todosMarcados ? 'checked' : ''}>
                                     </th>
                                     <th>Documento</th>
                                     <th>Projeto</th>
@@ -2178,7 +2185,7 @@ const EnvioLoteSalicView = () => {
                                     return `
                                     <tr>
                                         <td style="text-align: center;">
-                                            <input type="checkbox" class="chk-salic-doc" data-id="${doc.id}" data-name="${doc.name}" data-project="${projLabel}" checked>
+                                            <input type="checkbox" class="chk-salic-doc" data-id="${doc.id}" data-name="${doc.name}" data-project="${projLabel}" onchange="window.handleToggleSalicDoc(this)" ${desmarcados.includes(doc.id) ? '' : 'checked'}>
                                         </td>
                                         <td style="font-weight: 600; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${doc.name}</td>
                                         <td style="font-size: 13px; color: var(--text-secondary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${projLabel}</td>
@@ -2305,15 +2312,56 @@ const EnvioLoteSalicView = () => {
     `;
 };
 
-window.handleSelectAllSalicDocs = function (checked) {
+// Marca ou desmarca um documento no estado e acompanha o cabeçalho, sem render().
+function definirSalicDocMarcado(id, marcado) {
+    const lista = state.salicLoteDesmarcados || [];
+    const idx = lista.indexOf(id);
+    if (marcado && idx !== -1) lista.splice(idx, 1);
+    if (!marcado && idx === -1) lista.push(id);
+    state.salicLoteDesmarcados = lista;
+}
+
+function atualizarCabecalhoSalicDocs() {
+    const headerChk = document.getElementById('chk-salic-select-all');
+    if (!headerChk) return;
     const checkboxes = document.querySelectorAll('.chk-salic-doc');
-    checkboxes.forEach(chk => chk.checked = checked);
+    headerChk.checked = Array.from(checkboxes).every(chk => chk.checked);
+}
+
+window.handleToggleSalicDoc = function (chk) {
+    definirSalicDocMarcado(chk.getAttribute('data-id'), chk.checked);
+    atualizarCabecalhoSalicDocs();
+};
+
+window.handleSelectAllSalicDocs = function (checked) {
+    // Só os documentos visíveis (do filtro atual) entram; os de outros projetos
+    // mantêm a marcação que já tinham.
+    const checkboxes = document.querySelectorAll('.chk-salic-doc');
+    checkboxes.forEach(chk => {
+        chk.checked = checked;
+        definirSalicDocMarcado(chk.getAttribute('data-id'), checked);
+    });
     const headerChk = document.getElementById('chk-salic-select-all');
     if (headerChk) headerChk.checked = checked;
 };
 
 window.handleIniciarEnvioLote = async function () {
     if (!supabaseClient || !state.user) return;
+
+    // A seleção é lida AGORA, antes de qualquer await ou render(): os render()
+    // abaixo trocam o HTML da tela e a leitura do DOM depois deles pegaria
+    // caixas já recriadas.
+    const queue = Array.from(document.querySelectorAll('.chk-salic-doc:checked')).map(chk => ({
+        id: chk.getAttribute('data-id'),
+        name: chk.getAttribute('data-name'),
+        project: chk.getAttribute('data-project'),
+        status: 'pending',
+        error: null
+    }));
+    if (queue.length === 0) {
+        window.showToast("Por favor, selecione pelo menos um documento para enviar.", 'error');
+        return;
+    }
 
     // Verificar credenciais SALIC
     try {
@@ -2340,23 +2388,7 @@ window.handleIniciarEnvioLote = async function () {
         render();
     }
 
-    const checkboxes = document.querySelectorAll('.chk-salic-doc:checked');
-    if (checkboxes.length === 0) {
-        window.showToast("Por favor, selecione pelo menos um documento para enviar.", 'error');
-        return;
-    }
-
-    const queue = [];
-    checkboxes.forEach(chk => {
-        queue.push({
-            id: chk.getAttribute('data-id'),
-            name: chk.getAttribute('data-name'),
-            project: chk.getAttribute('data-project'),
-            status: 'pending',
-            error: null
-        });
-    });
-
+    state.salicLoteDesmarcados = [];
     state.salicLoteQueue = queue;
     state.salicLoteProgress = { current: 0, total: queue.length };
     state.salicLoteRunning = true;
