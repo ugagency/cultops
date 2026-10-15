@@ -8937,15 +8937,12 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
     state.extratoUiDocId = documentId;
     render();
 
-    try {
-        if (isReplace) {
-            const { error: resetError } = await supabaseClient
-                .from('documents')
-                .update({ status: 'aguardando_conciliacao_bancaria', just_erro: null })
-                .eq('id', documentId);
-            if (resetError) throw resetError;
-        }
+    // Substituição: status e just_erro originais, para devolver se o fluxo falhar
+    // depois de o status ter sido alterado. Só preenchidos quando o UPDATE roda.
+    let originalSubstituicao = null;
+    let statusAlterado = false;
 
+    try {
         const fileName = `extrato_${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
         const filePath = `${state.user.id}/${fileName}`;
 
@@ -8970,6 +8967,36 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
             .single();
 
         if (dbError) throw dbError;
+
+        // Substituição: o status só muda agora, com o arquivo já no Storage e o
+        // registro em 'extratos' criado. Se o upload falhasse antes, o alerta de
+        // divergência do documento ficaria intacto.
+        if (isReplace) {
+            const atual = state.currentDocument?.id === documentId ? state.currentDocument : null;
+            originalSubstituicao = atual
+                ? { status: atual.status, just_erro: atual.just_erro ?? null }
+                : null;
+            if (!originalSubstituicao) {
+                const { data: docOriginal, error: origError } = await supabaseClient
+                    .from('documents')
+                    .select('status, just_erro')
+                    .eq('id', documentId)
+                    .single();
+                if (origError) throw origError;
+                originalSubstituicao = { status: docOriginal.status, just_erro: docOriginal.just_erro ?? null };
+            }
+
+            const { error: resetError } = await supabaseClient
+                .from('documents')
+                .update({ status: 'aguardando_conciliacao_bancaria', just_erro: null })
+                .eq('id', documentId);
+            if (resetError) throw resetError;
+            statusAlterado = true;
+            if (state.currentDocument?.id === documentId) {
+                state.currentDocument.status = 'aguardando_conciliacao_bancaria';
+                state.currentDocument.just_erro = null;
+            }
+        }
 
         // 3. Notificar o n8n sobre o novo extrato
         console.log(`Notificando n8n sobre o novo extrato ${extratoData.id}...`);
@@ -9018,6 +9045,21 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
         }, 2500);
 
     } catch (error) {
+        // Falhou depois de o status ter mudado (ex.: webhook): devolve status e
+        // just_erro originais para o alerta de divergência não se perder.
+        if (statusAlterado && originalSubstituicao) {
+            const { error: restoreError } = await supabaseClient
+                .from('documents')
+                .update({ status: originalSubstituicao.status, just_erro: originalSubstituicao.just_erro })
+                .eq('id', documentId);
+            if (restoreError) {
+                console.error('[handleUploadExtrato] falha ao restaurar o status original:', restoreError);
+                showToast('Não foi possível restaurar o status do documento. Recarregue a página e confira antes de continuar.', 'error');
+            } else if (state.currentDocument?.id === documentId) {
+                state.currentDocument.status = originalSubstituicao.status;
+                state.currentDocument.just_erro = originalSubstituicao.just_erro;
+            }
+        }
         showToast(window.prestaiErroAmigavel(error, 'conciliacao'), 'error');
     } finally {
         state.loading = false;
