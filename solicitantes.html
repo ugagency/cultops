@@ -118,6 +118,17 @@
 
         .solic-table tr:hover td { background: var(--bg-sidebar); }
 
+        /* Entre 901px e 1400px a coluna Ações (botões em linha, nowrap inline) estourava
+           o .glass-card e ficava cortada. Aqui a célula quebra, os botões empilham e a
+           coluna deixa de ser sticky. Até 900px a tabela já vira cartões (style.css);
+           acima de 1400px nada muda. */
+        @media (min-width: 901px) and (max-width: 1400px) {
+            .solic-table th, .solic-table td { padding: 0.75rem 0.6rem; }
+            .solic-table td:last-child { white-space: normal !important; }
+            .solic-table td:last-child .btn { display: block; width: 100%; margin: 3px 0 !important; white-space: nowrap; }
+            .solic-table th:last-child, .solic-table td:last-child { position: static; box-shadow: none; min-width: 150px; }
+        }
+
         .empty-state-inline {
             text-align: center;
             padding: 3rem 1rem;
