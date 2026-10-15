@@ -264,6 +264,7 @@ app.post('/api/salic/inserir', exigirUsuarioAutenticado, async (req, res) => {
                 recibo: doc.recibo,   // flag de tipo: 'yes' = Recibo, 'no' = NF (NÃO é caminho de arquivo)
                 numero_extrato: formatarNrDocPagamento(numeroExtrato),
                 numero_guia: doc.json_extraido?.guia?.numero_guia || null,   // sinal de Guia de Recolhimento p/ o worker
+                justificativa_salic: (doc.justificativa_salic || '').toString().trim() || null,   // rubrica excedida: preenche #dsJustificativa
             }
         };
 
