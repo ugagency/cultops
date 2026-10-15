@@ -3331,7 +3331,9 @@ ${Sidebar()}
                                 <p class="text-xs" style="color: var(--text-muted); line-height: 1.4;">${window.prestaiSuavizar?.(doc.just_erro, 'error') || 'Verifique o extrato bancário e a nota fiscal manualmente antes de prosseguir.'}</p>
                                 <div style="padding: 0.6rem; background: rgba(245, 158, 11, 0.1); border-radius: 4px; border: 1px solid rgba(245, 158, 11, 0.3);">
                                     <p class="text-xs" style="color: #d97706; font-weight: 600; margin-bottom: 0.25rem;">📋 Revisão Manual Necessária</p>
-                                    <p class="text-xs" style="color: var(--text-secondary); line-height: 1.4;">Compare o valor e CNPJ do extrato com os dados extraídos da nota fiscal. Se estiver correto, use o botão abaixo para continuar.</p>
+                                    <p class="text-xs" style="color: var(--text-secondary); line-height: 1.4;">${userCanDelete()
+                                        ? 'Clique em Visualizar extrato e confira se o pagamento desta nota consta nele (valor, data e CNPJ ou nome do fornecedor). Se confirmar, use Assumir risco e continuar, no quadro Continuar por Conta e Risco do Parecer da Análise. Se não encontrar, use Substituir Extrato e envie o extrato correto.'
+                                        : 'Clique em Visualizar extrato e confira se o pagamento desta nota consta nele (valor, data e CNPJ ou nome do fornecedor). Se confirmar, peça a um administrador para continuar por conta e risco. Se não encontrar, use Substituir Extrato e envie o extrato correto.'}</p>
                                 </div>
                                 ${state.isUploadingExtrato ?
                 `<div style="padding: 0.5rem; text-align: center;">
