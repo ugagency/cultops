@@ -2837,7 +2837,11 @@ ${Sidebar()}
     // desatualizadas a cada novo status intermediário (BL fix status/cor).
     const posStatusAtual = statusOrder.indexOf(doc.status);
     // Estritamente depois: o próprio aguardando_conciliacao_bancaria é a etapa em que o extrato ainda falta.
-    const jaPassouDaConciliacao = posStatusAtual !== -1 && posStatusAtual > statusOrder.indexOf('aguardando_conciliacao_bancaria');
+    // erro_rpa fica fora de statusOrder (posição -1), mas só chega ali depois da
+    // conciliação: com extrato vinculado, as caixas da conciliação devem refletir isso.
+    const temVinculoExtrato = !!(doc.extrato_origem_id || doc.extrato_conferido_id || state.currentExtrato?.extrato);
+    const jaPassouDaConciliacao = (posStatusAtual !== -1 && posStatusAtual > statusOrder.indexOf('aguardando_conciliacao_bancaria'))
+        || (doc.status === 'erro_rpa' && temVinculoExtrato);
     // Cor distinta por etapa pós-conciliação — evita tratar
     // liberado_rpa_airtop/enviado_salic/concluido como uma cor só.
     const corPosConciliacao = doc.status === 'concluido' ? 'var(--success)'
@@ -2845,7 +2849,8 @@ ${Sidebar()}
             : 'var(--primary)';
     const bgPosConciliacao = doc.status === 'concluido' ? 'rgba(22, 163, 74, 0.05)'
         : doc.status === 'liberado_rpa_airtop' ? 'rgba(217, 119, 6, 0.05)'
-            : 'rgba(37, 99, 235, 0.05)';
+            : doc.status === 'erro_rpa' ? 'rgba(21, 71, 255, 0.05)'
+                : 'rgba(37, 99, 235, 0.05)';
 
     const camposPendentes = {
         cnpj:   !doc.cnpj_emissor,
