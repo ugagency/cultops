@@ -807,6 +807,12 @@ const state = {
     // window.showConfirmModal / ConfirmModal(). null = fechado.
     confirmModal: null,
     isUploadingComprovante: false,
+    // Documento a que pertencem os flags de upload de extrato (isUploadingExtrato,
+    // uploadConcluidoExtrato, mostrarUploadManualExtrato). Eles só zeram quando o
+    // usuário abre OUTRO documento — ver fetchDocumentDetails.
+    extratoUiDocId: null,
+    uploadExtratoSubstituicao: false, // o upload concluído foi uma substituição de extrato
+    uploadExtratoStatusRef: null,     // status do documento ao concluir; se mudar, a confirmação sai
     rubrica_versions: [],
     equipe: [],
     salicLoteQueue: [],          // [{id, name, status, error, project_name}]
@@ -2890,7 +2896,10 @@ ${Sidebar()}
                         <p class="text-xs" style="color: var(--primary); font-weight: 600;">Enviando extrato...</p>
                      </div>`;
     } else if (state.uploadConcluidoExtrato) {
-        extratoBoxHtml = `<p class="text-xs mt-2" style="color: var(--success); font-weight: bold; text-align: center;">✓ Upload do extrato já foi realizado.</p>`;
+        extratoBoxHtml = `<div style="display: flex; flex-direction: column; gap: 0.25rem; text-align: center;">
+                                    <p class="text-xs" style="color: var(--success); font-weight: bold;">✓ Upload do extrato já foi realizado.</p>
+                                    <p class="text-xs" style="color: var(--text-muted); font-style: italic;">${state.uploadExtratoSubstituicao ? 'A conciliação está sendo reprocessada com o novo extrato.' : 'A conciliação está em andamento.'}</p>
+                                 </div>`;
     } else if (extratoDoLote && !state.mostrarUploadManualExtrato) {
         extratoBoxHtml = `<div style="display: flex; flex-direction: column; gap: 0.25rem;">
                                     <p class="text-xs" style="color: var(--success); font-weight: bold;">✓ Extrato vinculado no upload em lote.</p>
@@ -5166,6 +5175,9 @@ window.handleAbrirDocumentoRelacionado = async function (id) {
 };
 
 window.navigate = async function (view, id = null) {
+    // Vindo de outra tela, abrir o documento é abrir "de novo": os flags do
+    // upload de extrato da visita anterior não devem reaparecer.
+    if (view === 'details' && state.currentView !== 'details') state.extratoUiDocId = null;
     state.currentView = view;
     state.error = null; // Limpa erros ao navegar
 
@@ -5970,12 +5982,18 @@ async function fetchDocumentDetails(id, silent = false) {
         render();
     }
 
+    // Os flags do upload de extrato pertencem ao documento aberto: só zeram numa
+    // carga não silenciosa de OUTRO documento. O refresh silencioso (realtime,
+    // pós-upload) não pode apagar "enviando"/"enviado" no meio do fluxo.
+    if (!silent && state.extratoUiDocId !== id) {
+        state.uploadConcluidoExtrato = false;
+        state.isUploadingExtrato = false;
+        state.mostrarUploadManualExtrato = false;
+        state.extratoUiDocId = id;
+    }
     state.uploadConcluidoComprovante = false;
-    state.uploadConcluidoExtrato = false;
-    state.isUploadingExtrato = false;
     state.isUploadingComprovante = false;
     state.isSalicRunning = false;
-    state.mostrarUploadManualExtrato = false;
 
     try {
         // Tenta buscar com join completo
@@ -5991,6 +6009,14 @@ async function fetchDocumentDetails(id, silent = false) {
         }
 
         state.currentDocument = data;
+
+        // A confirmação "extrato enviado" vale enquanto o status do documento for
+        // o do momento do envio; quando a conciliação andar, ela dá lugar ao
+        // estado real do documento.
+        if (state.uploadConcluidoExtrato && state.extratoUiDocId === id && data
+            && state.uploadExtratoStatusRef && data.status !== state.uploadExtratoStatusRef) {
+            state.uploadConcluidoExtrato = false;
+        }
 
         // Busca comprovante vinculado se existir
         const { data: compList } = await supabaseClient
@@ -8906,17 +8932,17 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
 
     state.loading = true;
     state.isUploadingExtrato = true;
+    // Novo envio: a confirmação de um envio anterior não vale mais.
+    state.uploadConcluidoExtrato = false;
+    state.extratoUiDocId = documentId;
     render();
 
-    try {
-        if (isReplace) {
-            const { error: resetError } = await supabaseClient
-                .from('documents')
-                .update({ status: 'aguardando_conciliacao_bancaria', just_erro: null })
-                .eq('id', documentId);
-            if (resetError) throw resetError;
-        }
+    // Substituição: status e just_erro originais, para devolver se o fluxo falhar
+    // depois de o status ter sido alterado. Só preenchidos quando o UPDATE roda.
+    let originalSubstituicao = null;
+    let statusAlterado = false;
 
+    try {
         const fileName = `extrato_${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
         const filePath = `${state.user.id}/${fileName}`;
 
@@ -8941,6 +8967,36 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
             .single();
 
         if (dbError) throw dbError;
+
+        // Substituição: o status só muda agora, com o arquivo já no Storage e o
+        // registro em 'extratos' criado. Se o upload falhasse antes, o alerta de
+        // divergência do documento ficaria intacto.
+        if (isReplace) {
+            const atual = state.currentDocument?.id === documentId ? state.currentDocument : null;
+            originalSubstituicao = atual
+                ? { status: atual.status, just_erro: atual.just_erro ?? null }
+                : null;
+            if (!originalSubstituicao) {
+                const { data: docOriginal, error: origError } = await supabaseClient
+                    .from('documents')
+                    .select('status, just_erro')
+                    .eq('id', documentId)
+                    .single();
+                if (origError) throw origError;
+                originalSubstituicao = { status: docOriginal.status, just_erro: docOriginal.just_erro ?? null };
+            }
+
+            const { error: resetError } = await supabaseClient
+                .from('documents')
+                .update({ status: 'aguardando_conciliacao_bancaria', just_erro: null })
+                .eq('id', documentId);
+            if (resetError) throw resetError;
+            statusAlterado = true;
+            if (state.currentDocument?.id === documentId) {
+                state.currentDocument.status = 'aguardando_conciliacao_bancaria';
+                state.currentDocument.just_erro = null;
+            }
+        }
 
         // 3. Notificar o n8n sobre o novo extrato
         console.log(`Notificando n8n sobre o novo extrato ${extratoData.id}...`);
@@ -8974,11 +9030,36 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
             ? "Novo extrato enviado! Reprocessando a conciliação..."
             : "Extrato enviado com sucesso! O processamento e conciliação IA foram iniciados.", 'success');
         state.uploadConcluidoExtrato = true;
+        state.uploadExtratoSubstituicao = isReplace;
+        state.uploadExtratoStatusRef = isReplace
+            ? 'aguardando_conciliacao_bancaria'
+            : (state.currentDocument?.id === documentId ? state.currentDocument.status : null);
 
-        // Recarrega os detalhes para mostrar o status (que será atualizado via Realtime/Fetch)
-        setTimeout(() => fetchDocumentDetails(documentId), 2500);
+        // Recarrega os detalhes para mostrar o status (que será atualizado via Realtime/Fetch).
+        // Silencioso e só se o usuário ainda estiver neste documento: uma carga
+        // não silenciosa apagaria a confirmação acima.
+        setTimeout(() => {
+            if (state.currentView === 'details' && state.currentDocument?.id === documentId) {
+                fetchDocumentDetails(documentId, true);
+            }
+        }, 2500);
 
     } catch (error) {
+        // Falhou depois de o status ter mudado (ex.: webhook): devolve status e
+        // just_erro originais para o alerta de divergência não se perder.
+        if (statusAlterado && originalSubstituicao) {
+            const { error: restoreError } = await supabaseClient
+                .from('documents')
+                .update({ status: originalSubstituicao.status, just_erro: originalSubstituicao.just_erro })
+                .eq('id', documentId);
+            if (restoreError) {
+                console.error('[handleUploadExtrato] falha ao restaurar o status original:', restoreError);
+                showToast('Não foi possível restaurar o status do documento. Recarregue a página e confira antes de continuar.', 'error');
+            } else if (state.currentDocument?.id === documentId) {
+                state.currentDocument.status = originalSubstituicao.status;
+                state.currentDocument.just_erro = originalSubstituicao.just_erro;
+            }
+        }
         showToast(window.prestaiErroAmigavel(error, 'conciliacao'), 'error');
     } finally {
         state.loading = false;
