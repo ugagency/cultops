@@ -820,6 +820,7 @@ const state = {
     salicLoteCancelled: false,
     salicLoteProgress: { current: 0, total: 0 },
     salicLoteDesmarcados: [],    // IDs desmarcados na seleção do Envio SALIC em Lote (o padrão é marcado)
+    justificativaSalicRascunho: null, // { docId, texto }: o que foi digitado e ainda não foi gravado em documents.justificativa_salic
     in23ProjectFinanceiro: null,
     in23DocumentosConferidos: [],
     juntarPdfFiles: [],
@@ -2124,13 +2125,59 @@ const EnvioLoteSalicView = () => {
         // direto aqui, sem exigir o "Assumir risco" que o avanço manual de
         // status pede para os outros casos de erro (esses SIM são achados da
         // auditoria de conformidade, erro_rpa não é).
-        const readyDocs = state.documents.filter(doc => ['liberado_rpa_airtop', 'erro_rpa'].includes(doc.status));
+        const prontosParaEnvio = state.documents.filter(doc => ['liberado_rpa_airtop', 'erro_rpa'].includes(doc.status));
+        // Rubrica excedida: o SALIC exige justificativa, que só existe na tela de
+        // detalhes. Esses documentos não entram na seleção do lote (nem no
+        // "Selecionar Todos" nem no contador) e vão para a seção de envio individual.
+        const exigemJustificativa = prontosParaEnvio.filter(doc => rubricaExigeJustificativaSalic(doc));
+        const readyDocs = prontosParaEnvio.filter(doc => !exigemJustificativa.includes(doc));
         const projetoSelecionado = state.filters.project || '';
         // A marcação vem do estado, não do HTML: render() troca a tela inteira
         // e, com "checked" fixo, devolvia tudo ao marcado (inclusive documentos
         // com erro_rpa que o usuário tinha tirado de propósito do envio).
         const desmarcados = state.salicLoteDesmarcados || [];
         const todosMarcados = readyDocs.every(doc => !desmarcados.includes(doc.id));
+
+        const secaoEnvioIndividual = exigemJustificativa.length === 0 ? '' : `
+                <div class="card" style="margin-top: 1.5rem;">
+                    <h3 class="h2" style="margin: 0 0 0.5rem 0;">Envio individual obrigatório (rubrica excedida) (${exigemJustificativa.length})</h3>
+                    <p class="text-xs" style="color: var(--text-secondary); line-height: 1.5; margin-bottom: 1rem;">O saldo da rubrica destes documentos está excedido e o SALIC só aceita o comprovante com justificativa. Abra os detalhes de cada um, preencha a Justificativa SALIC e envie um a um.</p>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Documento</th>
+                                <th>Projeto</th>
+                                <th>Rubrica</th>
+                                <th>Status</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${exigemJustificativa.map(doc => {
+                                const proj = state.projects.find(p => p.id === doc.project_id);
+                                const projLabel = proj ? `${proj.pronac} - ${proj.nome}` : 'Projeto não encontrado';
+                                return `
+                            <tr>
+                                <td style="font-weight: 600; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${doc.name}</td>
+                                <td style="font-size: 13px; color: var(--text-secondary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${projLabel}</td>
+                                <td style="font-size: 13px; font-weight: 500;">
+                                    ${doc.rubrica_nome || doc.rubrica || '-'}
+                                    ${renderSaldoBadgeHtml(doc.rubrica_id_fk)}
+                                </td>
+                                <td>
+                                    ${doc.status === 'erro_rpa'
+                                        ? '<span class="status-badge status-error">Reenvio (erro anterior)</span>'
+                                        : '<span class="status-badge status-completed">Pronto</span>'}
+                                </td>
+                                <td style="text-align: right;">
+                                    <button class="btn btn-secondary" style="font-size: 11px; padding: 0.4rem 0.75rem;" onclick="window.navigate('details', '${doc.id}')">Abrir detalhes</button>
+                                </td>
+                            </tr>
+                            `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>`;
 
         return `
         ${Sidebar()}
@@ -2210,7 +2257,7 @@ const EnvioLoteSalicView = () => {
                             </tbody>
                         </table>
                     `}
-                </div>
+                </div>${secaoEnvioIndividual}
             </div>
         </main>
         `;
@@ -2357,7 +2404,7 @@ window.handleIniciarEnvioLote = async function () {
     // A seleção é lida AGORA, antes de qualquer await ou render(): os render()
     // abaixo trocam o HTML da tela e a leitura do DOM depois deles pegaria
     // caixas já recriadas.
-    const queue = Array.from(document.querySelectorAll('.chk-salic-doc:checked')).map(chk => ({
+    let queue = Array.from(document.querySelectorAll('.chk-salic-doc:checked')).map(chk => ({
         id: chk.getAttribute('data-id'),
         name: chk.getAttribute('data-name'),
         project: chk.getAttribute('data-project'),
@@ -2392,6 +2439,22 @@ window.handleIniciarEnvioLote = async function () {
     } finally {
         state.loading = false;
         render();
+    }
+
+    // Defesa em profundidade: documento de rubrica excedida só pode ser enviado
+    // individualmente (precisa de justificativa). Recarrega o saldo e filtra de novo,
+    // porque a tela pode estar desatualizada ou ter sido adulterada. A seleção já foi
+    // lida acima, antes de qualquer await.
+    try { await atualizarSaldoEnvioLote(); } catch (err) { console.error('[lote-salic] saldo antes de montar a fila:', err); }
+    const idsIndividuais = new Set(state.documents.filter(doc => rubricaExigeJustificativaSalic(doc)).map(doc => doc.id));
+    const retiradosDaFila = queue.filter(item => idsIndividuais.has(item.id));
+    if (retiradosDaFila.length > 0) {
+        queue = queue.filter(item => !idsIndividuais.has(item.id));
+        showToast(`${retiradosDaFila.length} documento(s) com rubrica excedida foram retirados da fila: envie individualmente pela tela de detalhes, com justificativa.`, 'warning');
+        if (queue.length === 0) {
+            render();
+            return;
+        }
     }
 
     state.salicLoteDesmarcados = [];
@@ -2920,6 +2983,26 @@ ${Sidebar()}
                                      ${extratoDoLote ? `<p class="text-xs" style="color: var(--text-muted); font-style: italic; margin-top: 0.5rem; text-align: center; cursor: pointer;" onclick="window.toggleUploadManualExtrato()">Cancelar e usar o extrato do lote</p>` : ''}`;
     }
 
+    // Justificativa SALIC: o SALIC recusa comprovante em rubrica excedida sem ela.
+    // Aparece só nos status em que o envio é possível. Se o documento já tem texto
+    // gravado (ou rascunho) mas a rubrica não exige mais, o campo continua visível:
+    // o robô envia o que está na coluna, então o dado não pode ficar escondido.
+    const justificativaSalicStatusOk = doc.status === 'liberado_rpa_airtop' || doc.status === 'erro_rpa';
+    const exigeJustificativaSalic = justificativaSalicStatusOk && rubricaExigeJustificativaSalic(doc);
+    const rascunhoJustificativa = state.justificativaSalicRascunho && state.justificativaSalicRascunho.docId === doc.id
+        ? state.justificativaSalicRascunho : null;
+    const textoJustificativaSalic = rascunhoJustificativa ? rascunhoJustificativa.texto : (doc.justificativa_salic || '');
+    const blocoJustificativaSalic = (justificativaSalicStatusOk && (exigeJustificativaSalic || doc.justificativa_salic || rascunhoJustificativa)) ? `
+                            <div style="display: flex; flex-direction: column; gap: 0.375rem; margin-bottom: 0.5rem;">
+                                ${exigeJustificativaSalic ? `
+                                <div style="padding: 0.6rem; background: rgba(220, 38, 38, 0.08); border: 1px solid rgba(220, 38, 38, 0.35); border-radius: 4px;">
+                                    <p class="text-xs" style="color: #DC2626; font-weight: 600; line-height: 1.4;">Rubrica excedida: o SALIC exige justificativa para aceitar este documento.</p>
+                                </div>` : ''}
+                                <label class="text-xs" for="justificativa-salic-input" style="font-weight: 600;">Justificativa SALIC</label>
+                                <textarea id="justificativa-salic-input" rows="4" maxlength="4000" style="width: 100%; font-size: 12px; padding: 0.5rem; border: 1px solid var(--border-light); border-radius: 4px; resize: vertical;" oninput="window.handleJustificativaSalicInput(this, '${doc.id}')" onblur="window.handleJustificativaSalicBlur('${doc.id}')">${escAttr(textoJustificativaSalic)}</textarea>
+                                <span id="justificativa-salic-contador" class="text-xs" style="color: var(--text-muted); text-align: right;">${textoJustificativaSalic.length}/4000</span>
+                            </div>` : '';
+
     const flashClass = state.flashDocumentSwitch ? ' details-flash' : '';
     state.flashDocumentSwitch = false;
 
@@ -3409,7 +3492,7 @@ ${Sidebar()}
                     </div>
                     <p class="text-xs" style="color: var(--primary); font-weight: 600;">Robô em processo...</p>
                  </div>` :
-                (faltaDadoObrigatorioSalic ?
+                (blocoJustificativaSalic + (faltaDadoObrigatorioSalic ?
                     `<div style="display: flex; flex-direction: column; gap: 0.375rem;">
                                         <button class="btn btn-primary" style="width: 100%; font-size: 11px; padding: 0.5rem; opacity: 0.5; cursor: not-allowed;" disabled>
                                             <i data-lucide="plus-circle" style="width: 14px;"></i>
@@ -3420,7 +3503,7 @@ ${Sidebar()}
                     `<button class="btn btn-primary" style="width: 100%; font-size: 11px; padding: 0.5rem; background: linear-gradient(135deg, #059669 0%, #10b981 100%); border: none; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);" onclick="window.handleEnviarSalic('${doc.id}')" ${state.loading ? 'disabled' : ''}>
                                         <i data-lucide="plus-circle" style="width: 14px;"></i>
                                         Adicionar documento no SALIC
-                                     </button>`)) :
+                                     </button>`))) :
             (doc.status === 'enviado_salic' || doc.status === 'concluido' ?
                 `<div style="display: flex; flex-direction: column; gap: 0.25rem;">
                                     <p class="text-xs" style="color: var(--success); font-weight: 600;">Comprovado com sucesso!</p>
@@ -3437,7 +3520,7 @@ ${Sidebar()}
                         `<div style="display: flex; flex-direction: column; gap: 0.5rem;">
                                             <p class="text-xs" style="color: var(--error); font-weight: 500;">Falha no envio automático:</p>
                                             <p class="text-xs" style="color: var(--text-muted); font-style: italic;">${window.prestaiSuavizar?.(doc.just_erro, 'error') || 'Erro no robô SALIC'}</p>
-                                            ${faltaDadoObrigatorioSalic ?
+                                            ${blocoJustificativaSalic}${faltaDadoObrigatorioSalic ?
                         `<button class="btn btn-secondary" style="width: 100%; font-size: 10px; padding: 0.3rem; opacity: 0.5; cursor: not-allowed;" disabled>Tentar Novamente</button>
                                             <p class="text-xs" style="color: var(--text-secondary); font-style: italic;">Preencha os dados obrigatórios (destacados acima) antes de tentar novamente.</p>` :
                         `<button class="btn btn-secondary" style="width: 100%; font-size: 10px; padding: 0.3rem;" onclick="window.handleEnviarSalic('${doc.id}')">Tentar Novamente</button>`}
@@ -5482,6 +5565,32 @@ function renderSaldoBadgeDestaque(rubricaId) {
             <div style="font-size: 12px; color: var(--text-secondary);">Disponível projetado: ${dispTxt}</div>
         </div>
     </div>`;
+}
+
+// O SALIC recusa comprovante em rubrica excedida sem justificativa (#dsJustificativa).
+// O documento vincula a rubrica por doc.rubrica_id_fk (mesmo vínculo usado pelos
+// badges de saldo); state.saldoRubricas é indexado por esse id. Sem dado
+// suficiente (saldo desligado, rubrica não carregada, valor ausente) devolve false
+// e não bloqueia nada.
+//  - "Excedida" (executado_salic > valor_aprovado): vale para qualquer status.
+//  - liberado_rpa_airtop: a nota já está contada em em_transito, então basta o
+//    disponível projetado ser negativo.
+//  - demais status (inclusive erro_rpa): a nota NÃO está contada no saldo, então
+//    compara o valor da nota com o disponível projetado.
+function rubricaExigeJustificativaSalic(doc) {
+    if (!doc || !state.saldoRubricasHabilitado || !doc.rubrica_id_fk) return false;
+    const s = (state.saldoRubricas || {})[doc.rubrica_id_fk];
+    if (!s) return false;
+    if (classificarStatusSaldoM1(s).label === 'Excedida') return true;
+    if (s.disponivel_projetado === null || s.disponivel_projetado === undefined) return false;
+    const TOL = 0.01; // mesma tolerância de classificarStatusSaldoM1 (ruído de ponto flutuante)
+    const disponivel = Number(s.disponivel_projetado);
+    if (!Number.isFinite(disponivel)) return false;
+    if (doc.status === 'liberado_rpa_airtop') return disponivel < -TOL;
+    if (doc.valor === null || doc.valor === undefined || doc.valor === '') return false;
+    const valor = Number(doc.valor);
+    if (!Number.isFinite(valor)) return false;
+    return valor > disponivel + TOL;
 }
 
 // Versão DOM: usada pelo listener de 'change' dos comboboxes de rubrica, que
@@ -8024,6 +8133,57 @@ window.handleExcluirLoteItem = async function (documentId, filePath) {
     });
 };
 
+// Justificativa SALIC (rubrica excedida). O texto digitado fica em
+// state.justificativaSalicRascunho (render() recria o HTML e não pode perder o
+// que está sendo digitado) e é gravado em documents.justificativa_salic ao sair do
+// campo e, de novo, antes de qualquer envio ao robô — que lê a coluna do banco.
+// Vazio grava null. Lança erro se o update falhar.
+let _justificativaSalicSalvando = null;
+async function salvarJustificativaSalic(docId) {
+    // Se um blur acabou de iniciar a gravação, espera ela terminar antes de decidir.
+    if (_justificativaSalicSalvando) {
+        try { await _justificativaSalicSalvando; } catch (e) { /* quem gravou já tratou; recalcula abaixo */ }
+    }
+    const rascunho = state.justificativaSalicRascunho;
+    if (!rascunho || rascunho.docId !== docId) return;
+
+    const valor = (rascunho.texto || '').trim() || null;
+    const gravado = state.currentDocument?.id === docId ? (state.currentDocument.justificativa_salic || null) : null;
+
+    const gravar = (async () => {
+        if (valor !== gravado) {
+            const { error } = await supabaseClient
+                .from('documents')
+                .update({ justificativa_salic: valor })
+                .eq('id', docId);
+            if (error) throw error;
+            if (state.currentDocument?.id === docId) state.currentDocument.justificativa_salic = valor;
+        }
+        // Só descarta o rascunho se o usuário não digitou mais nada nesse meio tempo.
+        if (state.justificativaSalicRascunho === rascunho) state.justificativaSalicRascunho = null;
+    })();
+    _justificativaSalicSalvando = gravar;
+    try {
+        await gravar;
+    } finally {
+        if (_justificativaSalicSalvando === gravar) _justificativaSalicSalvando = null;
+    }
+}
+
+window.handleJustificativaSalicInput = function (campo, docId) {
+    state.justificativaSalicRascunho = { docId, texto: campo.value };
+    const contador = document.getElementById('justificativa-salic-contador');
+    if (contador) contador.textContent = `${campo.value.length}/4000`;
+};
+
+window.handleJustificativaSalicBlur = async function (docId) {
+    try {
+        await salvarJustificativaSalic(docId);
+    } catch (err) {
+        showToast('Não foi possível gravar a justificativa SALIC: ' + (err.message || err), 'error');
+    }
+};
+
 window.handleEnviarSalic = async function (documentId) {
     if (!supabaseClient || !state.user) return;
 
@@ -8039,6 +8199,15 @@ window.handleEnviarSalic = async function (documentId) {
     ].filter(Boolean) : [];
     if (camposFaltandoSalic.length > 0) {
         showToast(`Faltam dados obrigatórios para enviar ao SALIC: ${camposFaltandoSalic.join(', ')}.`, 'error');
+        return;
+    }
+
+    // O robô lê a justificativa da coluna do banco: o texto precisa estar gravado
+    // ANTES da chamada. Se não gravar, não envia (o SALIC recusaria sem ela).
+    try {
+        await salvarJustificativaSalic(documentId);
+    } catch (err) {
+        showToast('Envio interrompido: não foi possível gravar a justificativa SALIC (' + (err.message || err) + ').', 'error');
         return;
     }
 
@@ -8779,10 +8948,24 @@ function render() {
             content = LoginView();
     }
 
+    // render() troca todo o HTML: guarda foco e cursor da justificativa SALIC para
+    // o realtime/refresh silencioso não tirar o usuário do campo enquanto digita.
+    const focoAtivo = document.activeElement;
+    const manterFocoJustificativa = focoAtivo && focoAtivo.id === 'justificativa-salic-input'
+        ? { ini: focoAtivo.selectionStart, fim: focoAtivo.selectionEnd } : null;
+
     app.innerHTML = content;
     if (state.showRubricaInstructions) app.innerHTML += RubricaInstructionsModal();
     if (state.showCapturedProjectModal) app.innerHTML += CapturedProjectModal();
     if (state.confirmModal) app.innerHTML += ConfirmModal();
+
+    if (manterFocoJustificativa) {
+        const campoJust = document.getElementById('justificativa-salic-input');
+        if (campoJust) {
+            campoJust.focus();
+            try { campoJust.setSelectionRange(manterFocoJustificativa.ini, manterFocoJustificativa.fim); } catch (e) { }
+        }
+    }
 
     lucide.createIcons();
 
