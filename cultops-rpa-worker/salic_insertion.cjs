@@ -14,6 +14,67 @@ const { exigirSaidaDoLogin, conferirPronacNaTela, aguardarFimDoSalvamento } = re
 //   '5' = RPA
 const TP_DOCUMENTO_RECIBO = '4';
 
+// Helper: dispara TODOS os eventos que o Materialize CSS precisa para reconhecer um campo
+// (movido para o escopo do módulo, sem alteração, para poder ser testado com HTML fixo).
+async function setMaterializeField(pageRef, selector, value) {
+    await pageRef.evaluate((sel, val) => {
+        const el = document.querySelector(sel);
+        if (!el) { console.warn('[RPA] Campo nao encontrado:', sel); return; }
+
+        // Foca o campo (ativa o label do Materialize)
+        el.focus();
+        el.dispatchEvent(new Event('focus', { bubbles: true }));
+
+        // Limpa valor anterior
+        el.value = '';
+
+        // Define o novo valor
+        el.value = val;
+
+        // Dispara toda a cadeia de eventos que o Materialize/jQuery escutam
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        el.dispatchEvent(new Event('keyup', { bubbles: true }));
+        el.dispatchEvent(new Event('blur', { bubbles: true }));
+
+        // Ativa o label do Materialize (evita sobreposicao de texto)
+        const label = document.querySelector('label[for="' + el.id + '"]');
+        if (label) label.classList.add('active');
+
+        console.log('[RPA] Campo preenchido:', sel, '=', val);
+    }, selector, value);
+}
+
+// #dsJustificativa: o SALIC exige justificativa para aceitar comprovante em rubrica
+// excedida (documents.justificativa_salic, gravada pela tela antes do envio).
+// Sem justificativa o campo continua vazio, como antes. Com justificativa, confere
+// o valor lido de volta e LANCA erro se o campo faltar ou divergir: enviar sem a
+// justificativa faria o SALIC recusar o comprovante.
+async function preencherJustificativaSalic(pageRef, justificativa, log = console.log) {
+    const texto = (justificativa || '').toString().trim();
+    if (!texto) {
+        log('[SALIC] Justificativa: campo opcional, deixado vazio (não preenchido).');
+        return false;
+    }
+
+    await setMaterializeField(pageRef, '#dsJustificativa', texto);
+
+    const lido = await pageRef.evaluate(() => {
+        const el = document.querySelector('#dsJustificativa');
+        return el ? el.value : null;
+    });
+    // O textarea normaliza quebras de linha para \n ao receber o valor.
+    const normalizar = (s) => String(s).replace(/\r\n?/g, '\n');
+    if (lido === null) {
+        throw new Error('Justificativa fornecida mas o campo #dsJustificativa não foi preenchido (campo não encontrado).');
+    }
+    if (normalizar(lido) !== normalizar(texto)) {
+        throw new Error(`Justificativa fornecida mas o campo #dsJustificativa não foi preenchido (valor lido com ${lido.length} caracteres, esperado ${texto.length}).`);
+    }
+    log(`[SALIC] Justificativa preenchida e conferida (${texto.length} caracteres).`);
+    return true;
+}
+
 /**
  * Script de Inserção de Comprovação Financeira no SALIC
  * @param {Object} config - Objeto com credenciais e dados da despesa
@@ -472,36 +533,6 @@ async function executarInsercaoSalic(config) {
         await targetPage.waitForSelector('#modal1.open', { timeout: 10000 });
         await wait(1500); // Aguarda animacao de abertura do modal
 
-        // Helper: dispara TODOS os eventos que o Materialize CSS precisa para reconhecer um campo
-        async function setMaterializeField(pageRef, selector, value) {
-            await pageRef.evaluate((sel, val) => {
-                const el = document.querySelector(sel);
-                if (!el) { console.warn('[RPA] Campo nao encontrado:', sel); return; }
-
-                // Foca o campo (ativa o label do Materialize)
-                el.focus();
-                el.dispatchEvent(new Event('focus', { bubbles: true }));
-
-                // Limpa valor anterior
-                el.value = '';
-
-                // Define o novo valor
-                el.value = val;
-
-                // Dispara toda a cadeia de eventos que o Materialize/jQuery escutam
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-                el.dispatchEvent(new Event('change', { bubbles: true }));
-                el.dispatchEvent(new Event('keyup', { bubbles: true }));
-                el.dispatchEvent(new Event('blur', { bubbles: true }));
-
-                // Ativa o label do Materialize (evita sobreposicao de texto)
-                const label = document.querySelector('label[for="' + el.id + '"]');
-                if (label) label.classList.add('active');
-
-                console.log('[RPA] Campo preenchido:', sel, '=', val);
-            }, selector, value);
-        }
-
         // Helper: seleciona opcao em <select> compativel com Materialize
         async function setMaterializeSelect(pageRef, selector, value) {
             await pageRef.evaluate((sel, val) => {
@@ -796,9 +827,9 @@ async function executarInsercaoSalic(config) {
         }
         await wait(300);
 
-        // #dsJustificativa é opcional no formulário do SALIC — decisão de não
-        // preencher com nada, pra nenhum tipo de documento (NF, recibo ou guia).
-        console.log('[SALIC] Justificativa: campo opcional, deixado vazio (não preenchido).');
+        // #dsJustificativa é opcional no formulário do SALIC: fica vazio, a não ser
+        // que o documento traga justificativa (rubrica excedida) — ver preencherJustificativaSalic.
+        await preencherJustificativaSalic(targetPage, documento.justificativa_salic);
 
         // Log de auditoria: mostra o estado de todos os campos antes de salvar
         const estadoCampos = await targetPage.evaluate(() => {
@@ -979,7 +1010,7 @@ async function executarInsercaoSalic(config) {
     }
 }
 
-module.exports = { executarInsercaoSalic };
+module.exports = { executarInsercaoSalic, preencherJustificativaSalic };
 
 // --- AREA DE TESTE (Para rodar direto no terminal) ---
 if (require.main === module) {
