@@ -2429,9 +2429,13 @@ window.handleLimparFilaSalic = function () {
         message: 'Tem certeza que deseja descartar a fila atual?',
         confirmLabel: 'Descartar',
         variant: 'danger',
-        onConfirm: () => {
+        onConfirm: async () => {
             limparFilaSalic();
-            fetchDocuments().then(render);
+            await fetchDocuments();
+            // O saldo só era carregado ao entrar na tela (navigate); sem recarregar
+            // aqui, o badge de saldo da rubrica sumia depois de Limpar / Voltar.
+            await atualizarSaldoEnvioLote();
+            render();
         }
     });
 };
@@ -9138,6 +9142,10 @@ async function init() {
                         showToast(`Você tem um envio em lote do SALIC pendente (${pendingCount} documentos).`, 'warning');
                     }, 1000);
                 }
+
+                // No F5 a tela é aberta direto por aqui, sem passar por navigate(),
+                // que é quem carrega o saldo das rubricas do Envio SALIC em Lote.
+                if (state.currentView === 'envio_lote_salic') await atualizarSaldoEnvioLote();
             }
         }
     }
