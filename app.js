@@ -807,6 +807,10 @@ const state = {
     // window.showConfirmModal / ConfirmModal(). null = fechado.
     confirmModal: null,
     isUploadingComprovante: false,
+    // Documento a que pertencem os flags de upload de extrato (isUploadingExtrato,
+    // uploadConcluidoExtrato, mostrarUploadManualExtrato). Eles só zeram quando o
+    // usuário abre OUTRO documento — ver fetchDocumentDetails.
+    extratoUiDocId: null,
     rubrica_versions: [],
     equipe: [],
     salicLoteQueue: [],          // [{id, name, status, error, project_name}]
@@ -5166,6 +5170,9 @@ window.handleAbrirDocumentoRelacionado = async function (id) {
 };
 
 window.navigate = async function (view, id = null) {
+    // Vindo de outra tela, abrir o documento é abrir "de novo": os flags do
+    // upload de extrato da visita anterior não devem reaparecer.
+    if (view === 'details' && state.currentView !== 'details') state.extratoUiDocId = null;
     state.currentView = view;
     state.error = null; // Limpa erros ao navegar
 
@@ -5970,12 +5977,18 @@ async function fetchDocumentDetails(id, silent = false) {
         render();
     }
 
+    // Os flags do upload de extrato pertencem ao documento aberto: só zeram numa
+    // carga não silenciosa de OUTRO documento. O refresh silencioso (realtime,
+    // pós-upload) não pode apagar "enviando"/"enviado" no meio do fluxo.
+    if (!silent && state.extratoUiDocId !== id) {
+        state.uploadConcluidoExtrato = false;
+        state.isUploadingExtrato = false;
+        state.mostrarUploadManualExtrato = false;
+        state.extratoUiDocId = id;
+    }
     state.uploadConcluidoComprovante = false;
-    state.uploadConcluidoExtrato = false;
-    state.isUploadingExtrato = false;
     state.isUploadingComprovante = false;
     state.isSalicRunning = false;
-    state.mostrarUploadManualExtrato = false;
 
     try {
         // Tenta buscar com join completo
