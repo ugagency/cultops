@@ -811,6 +811,8 @@ const state = {
     // uploadConcluidoExtrato, mostrarUploadManualExtrato). Eles só zeram quando o
     // usuário abre OUTRO documento — ver fetchDocumentDetails.
     extratoUiDocId: null,
+    uploadExtratoSubstituicao: false, // o upload concluído foi uma substituição de extrato
+    uploadExtratoStatusRef: null,     // status do documento ao concluir; se mudar, a confirmação sai
     rubrica_versions: [],
     equipe: [],
     salicLoteQueue: [],          // [{id, name, status, error, project_name}]
@@ -2894,7 +2896,10 @@ ${Sidebar()}
                         <p class="text-xs" style="color: var(--primary); font-weight: 600;">Enviando extrato...</p>
                      </div>`;
     } else if (state.uploadConcluidoExtrato) {
-        extratoBoxHtml = `<p class="text-xs mt-2" style="color: var(--success); font-weight: bold; text-align: center;">✓ Upload do extrato já foi realizado.</p>`;
+        extratoBoxHtml = `<div style="display: flex; flex-direction: column; gap: 0.25rem; text-align: center;">
+                                    <p class="text-xs" style="color: var(--success); font-weight: bold;">✓ Upload do extrato já foi realizado.</p>
+                                    <p class="text-xs" style="color: var(--text-muted); font-style: italic;">${state.uploadExtratoSubstituicao ? 'A conciliação está sendo reprocessada com o novo extrato.' : 'A conciliação está em andamento.'}</p>
+                                 </div>`;
     } else if (extratoDoLote && !state.mostrarUploadManualExtrato) {
         extratoBoxHtml = `<div style="display: flex; flex-direction: column; gap: 0.25rem;">
                                     <p class="text-xs" style="color: var(--success); font-weight: bold;">✓ Extrato vinculado no upload em lote.</p>
@@ -6005,6 +6010,14 @@ async function fetchDocumentDetails(id, silent = false) {
 
         state.currentDocument = data;
 
+        // A confirmação "extrato enviado" vale enquanto o status do documento for
+        // o do momento do envio; quando a conciliação andar, ela dá lugar ao
+        // estado real do documento.
+        if (state.uploadConcluidoExtrato && state.extratoUiDocId === id && data
+            && state.uploadExtratoStatusRef && data.status !== state.uploadExtratoStatusRef) {
+            state.uploadConcluidoExtrato = false;
+        }
+
         // Busca comprovante vinculado se existir
         const { data: compList } = await supabaseClient
             .from('documents')
@@ -8919,6 +8932,9 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
 
     state.loading = true;
     state.isUploadingExtrato = true;
+    // Novo envio: a confirmação de um envio anterior não vale mais.
+    state.uploadConcluidoExtrato = false;
+    state.extratoUiDocId = documentId;
     render();
 
     try {
@@ -8987,9 +9003,19 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
             ? "Novo extrato enviado! Reprocessando a conciliação..."
             : "Extrato enviado com sucesso! O processamento e conciliação IA foram iniciados.", 'success');
         state.uploadConcluidoExtrato = true;
+        state.uploadExtratoSubstituicao = isReplace;
+        state.uploadExtratoStatusRef = isReplace
+            ? 'aguardando_conciliacao_bancaria'
+            : (state.currentDocument?.id === documentId ? state.currentDocument.status : null);
 
-        // Recarrega os detalhes para mostrar o status (que será atualizado via Realtime/Fetch)
-        setTimeout(() => fetchDocumentDetails(documentId), 2500);
+        // Recarrega os detalhes para mostrar o status (que será atualizado via Realtime/Fetch).
+        // Silencioso e só se o usuário ainda estiver neste documento: uma carga
+        // não silenciosa apagaria a confirmação acima.
+        setTimeout(() => {
+            if (state.currentView === 'details' && state.currentDocument?.id === documentId) {
+                fetchDocumentDetails(documentId, true);
+            }
+        }, 2500);
 
     } catch (error) {
         showToast(window.prestaiErroAmigavel(error, 'conciliacao'), 'error');
