@@ -2992,11 +2992,17 @@ ${Sidebar()}
     const rascunhoJustificativa = state.justificativaSalicRascunho && state.justificativaSalicRascunho.docId === doc.id
         ? state.justificativaSalicRascunho : null;
     const textoJustificativaSalic = rascunhoJustificativa ? rascunhoJustificativa.texto : (doc.justificativa_salic || '');
+    // Rubrica excedida sem justificativa: o envio é proibido (botão desabilitado aqui e
+    // recusa em handleEnviarSalic). Fora desse caso as strings abaixo ficam vazias.
+    const envioBloqueadoPorJustificativa = exigeJustificativaSalic && !textoJustificativaSalic.trim();
+    const atributosBotaoEnvioJustificativa = exigeJustificativaSalic ? ` data-exige-justificativa="1"${envioBloqueadoPorJustificativa ? ' disabled' : ''}` : '';
+    const estiloBotaoEnvioBloqueado = envioBloqueadoPorJustificativa ? ' opacity: 0.5; cursor: not-allowed;' : '';
     const blocoJustificativaSalic = (justificativaSalicStatusOk && (exigeJustificativaSalic || doc.justificativa_salic || rascunhoJustificativa)) ? `
                             <div style="display: flex; flex-direction: column; gap: 0.375rem; margin-bottom: 0.5rem;">
                                 ${exigeJustificativaSalic ? `
                                 <div style="padding: 0.6rem; background: rgba(220, 38, 38, 0.08); border: 1px solid rgba(220, 38, 38, 0.35); border-radius: 4px;">
                                     <p class="text-xs" style="color: #DC2626; font-weight: 600; line-height: 1.4;">Rubrica excedida: o SALIC exige justificativa para aceitar este documento.</p>
+                                    <p id="justificativa-salic-aviso" class="text-xs" style="color: #DC2626; line-height: 1.4; margin-top: 0.25rem;${envioBloqueadoPorJustificativa ? '' : ' display: none;'}">Preencha a justificativa para liberar o envio.</p>
                                 </div>` : ''}
                                 <label class="text-xs" for="justificativa-salic-input" style="font-weight: 600;">Justificativa SALIC</label>
                                 <textarea id="justificativa-salic-input" rows="4" maxlength="4000" style="width: 100%; font-size: 12px; padding: 0.5rem; border: 1px solid var(--border-light); border-radius: 4px; resize: vertical;" oninput="window.handleJustificativaSalicInput(this, '${doc.id}')" onblur="window.handleJustificativaSalicBlur('${doc.id}')">${escAttr(textoJustificativaSalic)}</textarea>
@@ -3500,7 +3506,7 @@ ${Sidebar()}
                                          </button>
                                         <p class="text-xs" style="color: var(--text-secondary); font-style: italic;">Preencha os dados obrigatórios (destacados acima) antes de enviar ao SALIC.</p>
                                      </div>` :
-                    `<button class="btn btn-primary" style="width: 100%; font-size: 11px; padding: 0.5rem; background: linear-gradient(135deg, #059669 0%, #10b981 100%); border: none; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);" onclick="window.handleEnviarSalic('${doc.id}')" ${state.loading ? 'disabled' : ''}>
+                    `<button class="btn btn-primary" style="width: 100%; font-size: 11px; padding: 0.5rem; background: linear-gradient(135deg, #059669 0%, #10b981 100%); border: none; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);${estiloBotaoEnvioBloqueado}" onclick="window.handleEnviarSalic('${doc.id}')" ${state.loading ? 'disabled' : ''}${atributosBotaoEnvioJustificativa}>
                                         <i data-lucide="plus-circle" style="width: 14px;"></i>
                                         Adicionar documento no SALIC
                                      </button>`))) :
@@ -3523,7 +3529,7 @@ ${Sidebar()}
                                             ${blocoJustificativaSalic}${faltaDadoObrigatorioSalic ?
                         `<button class="btn btn-secondary" style="width: 100%; font-size: 10px; padding: 0.3rem; opacity: 0.5; cursor: not-allowed;" disabled>Tentar Novamente</button>
                                             <p class="text-xs" style="color: var(--text-secondary); font-style: italic;">Preencha os dados obrigatórios (destacados acima) antes de tentar novamente.</p>` :
-                        `<button class="btn btn-secondary" style="width: 100%; font-size: 10px; padding: 0.3rem;" onclick="window.handleEnviarSalic('${doc.id}')">Tentar Novamente</button>`}
+                        `<button class="btn btn-secondary" style="width: 100%; font-size: 10px; padding: 0.3rem;${estiloBotaoEnvioBloqueado}" onclick="window.handleEnviarSalic('${doc.id}')"${atributosBotaoEnvioJustificativa}>Tentar Novamente</button>`}
                                          </div>`) :
                     `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando liberação financeira (D+3)...</p>`))
         }
@@ -8174,6 +8180,16 @@ window.handleJustificativaSalicInput = function (campo, docId) {
     state.justificativaSalicRascunho = { docId, texto: campo.value };
     const contador = document.getElementById('justificativa-salic-contador');
     if (contador) contador.textContent = `${campo.value.length}/4000`;
+    // Rubrica excedida: o envio só é liberado com justificativa. Atualiza o botão e o
+    // aviso direto no DOM (sem render(), que tiraria o foco do campo).
+    const vazio = !campo.value.trim();
+    document.querySelectorAll('[data-exige-justificativa]').forEach(botao => {
+        botao.disabled = vazio || !!state.loading;
+        botao.style.opacity = vazio ? '0.5' : '';
+        botao.style.cursor = vazio ? 'not-allowed' : '';
+    });
+    const aviso = document.getElementById('justificativa-salic-aviso');
+    if (aviso) aviso.style.display = vazio ? '' : 'none';
 };
 
 window.handleJustificativaSalicBlur = async function (docId) {
@@ -8200,6 +8216,17 @@ window.handleEnviarSalic = async function (documentId) {
     if (camposFaltandoSalic.length > 0) {
         showToast(`Faltam dados obrigatórios para enviar ao SALIC: ${camposFaltandoSalic.join(', ')}.`, 'error');
         return;
+    }
+
+    // Rubrica excedida: sem justificativa o envio é proibido (o botão já fica
+    // desabilitado; isto cobre disparo direto e telas desatualizadas).
+    if (docParaValidar && docParaValidar.id === documentId && rubricaExigeJustificativaSalic(docParaValidar)) {
+        const rascunho = state.justificativaSalicRascunho;
+        const textoJustificativa = (rascunho && rascunho.docId === documentId ? rascunho.texto : docParaValidar.justificativa_salic) || '';
+        if (!textoJustificativa.trim()) {
+            showToast('Rubrica excedida: preencha a Justificativa SALIC antes de enviar ao SALIC.', 'error');
+            return;
+        }
     }
 
     // O robô lê a justificativa da coluna do banco: o texto precisa estar gravado
