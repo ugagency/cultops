@@ -880,6 +880,7 @@ const state = {
     // window.showConfirmModal / ConfirmModal(). null = fechado.
     confirmModal: null,
     isUploadingComprovante: false,
+    validandoSalic: false, // teste de login do SALIC em andamento (tela de configuracoes)
     // Documento a que pertencem os flags de upload de extrato (isUploadingExtrato,
     // uploadConcluidoExtrato, mostrarUploadManualExtrato). Eles só zeram quando o
     // usuário abre OUTRO documento — ver fetchDocumentDetails.
@@ -7084,9 +7085,10 @@ ${Sidebar()}
                     </p>
                 </div>
 
-                <button class="btn btn-primary">
-                    ${state.loading ? 'Salvando...' : 'Salvar credenciais SALIC'}
+                <button class="btn btn-primary" id="salic-salvar-btn" ${state.loading || state.validandoSalic ? 'disabled' : ''}>
+                    ${state.validandoSalic ? 'Validando no SALIC (pode levar até 30 s)...' : state.loading ? 'Salvando...' : 'Salvar credenciais SALIC'}
                 </button>
+                <p id="salic-credencial-aviso" class="text-xs" style="display: none; margin-top: 1rem; padding: 0.75rem 1rem; border-radius: var(--radius-sm); line-height: 1.5;"></p>
             </form>
         </div>
 
@@ -7618,12 +7620,91 @@ window.handleSaveBBSettings = async function () {
     }
 };
 
-window.handleSaveSettings = async function () {
-    if (!supabaseClient || !state.user) return;
+// CPF com 11 dígitos e dígitos verificadores (aceita pontos e traço).
+function cpfValido(valor) {
+    const d = String(valor || '').replace(/\D/g, '');
+    if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+    const dv = (base) => {
+        let soma = 0;
+        for (let i = 0; i < base; i++) soma += Number(d[i]) * (base + 1 - i);
+        const resto = (soma * 10) % 11;
+        return resto === 10 ? 0 : resto;
+    };
+    return dv(9) === Number(d[9]) && dv(10) === Number(d[10]);
+}
 
-    const salicUser = document.getElementById('salic-user').value.trim();
-    const salicPass = document.getElementById('salic-pass').value.trim();
+// Mesma base do worker que o front usa para /api/salic/inserir (CONFIG.SALIC_API_URL).
+// null se a URL configurada não termina em /inserir (não dá para derivar com segurança).
+function urlValidarCredencialSalic() {
+    const atual = String(CONFIG.SALIC_API_URL || '');
+    if (!/\/inserir\/?$/.test(atual)) return null;
+    const url = atual.replace(/\/inserir\/?$/, '/validar-credencial');
+    return url.startsWith('/') ? window.location.origin + url : url;
+}
 
+// Pede ao worker para testar o login no SALIC (ocorrência #64). Devolve
+// { status: 'ok' | 'invalida' | 'indeterminada' | 'ocupado' | 'limite' | 'indisponivel', tentarEm? }.
+// 'indisponivel' = não deu para falar com o serviço (rede, 404 de worker ainda sem a rota,
+// erro do servidor, resposta fora do formato, tempo esgotado). A senha só vai no corpo do
+// POST: nunca em URL, storage ou log.
+async function validarCredencialSalicNoWorker(usuario, senha) {
+    const url = urlValidarCredencialSalic();
+    if (!url) return { status: 'indisponivel' };
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (!session) return { status: 'sem_sessao' };
+
+    const controle = new AbortController();
+    const limite = setTimeout(() => controle.abort(), 100000); // o worker tem 90 s de teto
+    try {
+        const resposta = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
+            mode: 'cors',
+            signal: controle.signal,
+            body: JSON.stringify({ usuario, senha })
+        });
+        const corpo = await resposta.json().catch(() => null);
+        if (resposta.status === 429 && corpo && (corpo.status === 'ocupado' || corpo.status === 'limite')) {
+            return { status: corpo.status, tentarEm: Number(corpo.tentarEm) || null };
+        }
+        if (resposta.ok && corpo && ['ok', 'invalida', 'indeterminada'].includes(corpo.status)) {
+            return { status: corpo.status };
+        }
+        return { status: 'indisponivel' };
+    } catch (err) {
+        return { status: 'indisponivel' };
+    } finally {
+        clearTimeout(limite);
+    }
+}
+
+// Aviso persistente sob o formulário SALIC (escrito direto no DOM, sem render(), para não
+// apagar o que o usuário digitou).
+function mostrarAvisoCredencialSalic(texto, tipo) {
+    const el = document.getElementById('salic-credencial-aviso');
+    if (!el) return;
+    el.textContent = texto || '';
+    el.style.display = texto ? 'block' : 'none';
+    el.style.background = tipo === 'erro' ? 'rgba(220, 38, 38, 0.08)' : 'var(--bg-sidebar)';
+    el.style.border = tipo === 'erro' ? '1px solid rgba(220, 38, 38, 0.35)' : '1px solid var(--border-light)';
+    el.style.color = tipo === 'erro' ? '#DC2626' : 'var(--text-secondary)';
+}
+
+// Estado "validando": trava o botão e os campos sem render() (que recriaria os campos).
+function definirValidandoSalic(ligado) {
+    state.validandoSalic = ligado;
+    const botao = document.getElementById('salic-salvar-btn');
+    if (botao) {
+        botao.disabled = ligado;
+        botao.textContent = ligado ? 'Validando no SALIC (pode levar até 30 s)...' : 'Salvar credenciais SALIC';
+    }
+    ['salic-user', 'salic-pass'].forEach(id => {
+        const campo = document.getElementById(id);
+        if (campo) campo.readOnly = ligado;
+    });
+}
+
+async function salvarCredencialSalic(salicUser, salicPass) {
     state.loading = true;
     render();
 
@@ -7645,6 +7726,75 @@ window.handleSaveSettings = async function () {
         state.loading = false;
         render();
     }
+}
+
+window.handleSaveSettings = async function () {
+    if (!supabaseClient || !state.user) return;
+    if (state.validandoSalic || state.loading) return; // duplo clique
+
+    const salicUser = document.getElementById('salic-user').value.trim();
+    const salicPass = document.getElementById('salic-pass').value.trim();
+    mostrarAvisoCredencialSalic('');
+
+    // 1) CPF no navegador: nem chama o worker com CPF malformado.
+    if (!cpfValido(salicUser)) {
+        mostrarAvisoCredencialSalic('CPF inválido. Confira os 11 dígitos do CPF e tente de novo.', 'erro');
+        showToast('CPF inválido. Confira os 11 dígitos.', 'error');
+        return;
+    }
+
+    // Senha ainda mascarada: não há senha nova para testar, segue o salvamento de sempre.
+    if (salicPass === '********') {
+        await salvarCredencialSalic(salicUser, salicPass);
+        return;
+    }
+
+    // 2) Testa o login no SALIC antes de salvar (pode levar até cerca de 30 s).
+    definirValidandoSalic(true);
+    let resultado;
+    try {
+        resultado = await validarCredencialSalicNoWorker(salicUser, salicPass);
+    } finally {
+        definirValidandoSalic(false);
+    }
+
+    if (resultado.status === 'sem_sessao') {
+        showToast('Sessão expirada. Faça login novamente.', 'error');
+        return;
+    }
+    if (resultado.status === 'ok') {
+        await salvarCredencialSalic(salicUser, salicPass);
+        return;
+    }
+    if (resultado.status === 'invalida') {
+        // Não salva. A mensagem fica na tela até a próxima tentativa.
+        mostrarAvisoCredencialSalic('O SALIC recusou este CPF e senha, e a credencial não foi salva. Confira os dados: o robô usa a senha própria do SALIC, não a entrada pelo gov.br. Evite repetir muitas vezes seguidas, porque isso pode bloquear o seu acesso ao SALIC.', 'erro');
+        showToast('O SALIC recusou o login. Credencial não salva.', 'error');
+        return;
+    }
+
+    // 3) Não foi possível confirmar: só salva com confirmação explícita.
+    let motivo = 'Não foi possível testar o login no SALIC agora (o serviço de validação não respondeu).';
+    if (resultado.status === 'indeterminada') motivo = 'O teste não conseguiu concluir o login no SALIC agora (o SALIC pode estar lento ou fora do ar).';
+    if (resultado.status === 'ocupado') motivo = 'O robô está ocupado com outro processo e não pôde testar o login agora.';
+    if (resultado.status === 'limite') {
+        const minutos = resultado.tentarEm ? Math.max(1, Math.ceil(resultado.tentarEm / 60)) : null;
+        motivo = 'Você já testou o login várias vezes em pouco tempo. Para não bloquear seu acesso ao SALIC, o teste só poderá ser repetido ' + (minutos ? 'em cerca de ' + minutos + ' minuto' + (minutos > 1 ? 's' : '') : 'mais tarde') + '.';
+    }
+    window.showConfirmModal({
+        title: 'Não foi possível confirmar o login no SALIC',
+        message: motivo + ' Se a senha estiver incorreta, o robô só vai falhar no primeiro envio. Deseja salvar mesmo assim?',
+        confirmLabel: 'Salvar mesmo assim',
+        cancelLabel: 'Não salvar',
+        onConfirm: () => salvarCredencialSalic(salicUser, salicPass),
+        // O modal recria a tela: devolve o que o usuário tinha digitado.
+        onCancel: () => {
+            const campoUser = document.getElementById('salic-user');
+            const campoPass = document.getElementById('salic-pass');
+            if (campoUser) campoUser.value = salicUser;
+            if (campoPass) campoPass.value = salicPass;
+        }
+    });
 };
 
 
