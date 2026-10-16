@@ -7704,7 +7704,16 @@ function definirValidandoSalic(ligado) {
     });
 }
 
+const SENHA_MASCARADA = '********';
+
 async function salvarCredencialSalic(salicUser, salicPass) {
+    // Defesa: a máscara é só o que a tela mostra quando já existe senha salva. O RPC grava
+    // qualquer valor recebido, então a máscara NUNCA pode chegar nele (sobrescreveria a
+    // senha real).
+    if (salicPass === SENHA_MASCARADA) {
+        showToast('Digite a senha para salvar a credencial SALIC.', 'error');
+        return;
+    }
     state.loading = true;
     render();
 
@@ -7743,9 +7752,25 @@ window.handleSaveSettings = async function () {
         return;
     }
 
-    // Senha ainda mascarada: não há senha nova para testar, segue o salvamento de sempre.
-    if (salicPass === '********') {
-        await salvarCredencialSalic(salicUser, salicPass);
+    // Senha ainda mascarada (já existe credencial e a senha não foi retocada): não há senha
+    // para testar nem para gravar. Mandar a máscara ao RPC sobrescreveria a senha real.
+    if (salicPass === SENHA_MASCARADA) {
+        const soDigitos = (v) => String(v || '').replace(/\D/g, '');
+        if (soDigitos(salicUser) === soDigitos(state.settings && state.settings.salic_user)) {
+            mostrarAvisoCredencialSalic('Nenhuma alteração: a senha não foi modificada.', 'info');
+            showToast('Nenhuma alteração: a senha não foi modificada.', 'info');
+            return;
+        }
+        // CPF novo exige a senha daquele CPF: limpa a máscara, destaca o campo e pede de novo.
+        mostrarAvisoCredencialSalic('Você alterou o CPF. Digite a senha do SALIC deste CPF novamente para salvar.', 'erro');
+        showToast('Digite a senha do SALIC para o novo CPF.', 'error');
+        const campoSenha = document.getElementById('salic-pass');
+        if (campoSenha) {
+            campoSenha.value = '';
+            campoSenha.style.borderColor = 'var(--error)';
+            campoSenha.addEventListener('input', () => { campoSenha.style.borderColor = ''; }, { once: true });
+            campoSenha.focus();
+        }
         return;
     }
 
