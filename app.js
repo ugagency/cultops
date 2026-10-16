@@ -408,6 +408,17 @@ function rotuloRubrica(r) {
     return `${prod}${num}${r.nome || ''}${val}`;
 }
 
+// Rubrica vinculada ao documento (doc.rubrica_id_fk = rubricas.id). Procura primeiro
+// em state.rubricas_disponiveis (só ativas) e, se não estiver lá (ex.: rubrica
+// inativa), no registro buscado por id em fetchDocumentDetails. null se não achar.
+function rubricaVinculadaDoDocumento(doc) {
+    if (!doc || !doc.rubrica_id_fk) return null;
+    const naLista = (state.rubricas_disponiveis || []).find(r => r.id === doc.rubrica_id_fk);
+    if (naLista) return naLista;
+    const extra = state.rubricaDocForaDaLista;
+    return extra && extra.id === doc.rubrica_id_fk ? extra.dados : null;
+}
+
 // Ordena por produto e depois por rubrica_id (numérico quando possível, para que
 // 9 venha antes de 10). Rubricas sem produto vão para o fim da lista.
 function ordenarRubricas(lista) {
@@ -769,6 +780,7 @@ const state = {
     planilhasPorProjeto: {}, // project_id -> { name, file_path } da planilha orçamentária
     documents: [],
     rubricas_disponiveis: [],
+    rubricaDocForaDaLista: null, // { id, dados|null }: rubrica do documento aberto que não está em rubricas_disponiveis (ex.: inativa)
     catalogo_rubricas: [],
     currentDocument: null,
     // Documento apontado por currentDocument.duplicata_de_id, para o comparativo.
@@ -3009,6 +3021,23 @@ ${Sidebar()}
                                 <span id="justificativa-salic-contador" class="text-xs" style="color: var(--text-muted); text-align: right;">${textoJustificativaSalic.length}/4000</span>
                             </div>` : '';
 
+    // Caixa "Rubrica Orçamentária": o nome sozinho não distingue rubricas homônimas no
+    // mesmo PRONAC (ex.: "Monitores" em vários produtos), então mostra também o produto
+    // e a numeração da rubrica vinculada. Sem vínculo, sem rubrica encontrada ou sem
+    // esses campos, fica como antes. O texto do produto vem de PDF/OCR: sempre escapado.
+    const rubricaVinculada = rubricaVinculadaDoDocumento(doc);
+    const produtoRubricaDoc = rubricaVinculada && rubricaVinculada.produto != null ? String(rubricaVinculada.produto).trim() : '';
+    const numeroRubricaDoc = rubricaVinculada && rubricaVinculada.rubrica_id != null ? String(rubricaVinculada.rubrica_id).trim() : '';
+    const detalheRubricaDoc = [
+        produtoRubricaDoc ? `Produto: ${escAttr(produtoRubricaDoc)}` : '',
+        numeroRubricaDoc ? `Rubrica nº ${escAttr(numeroRubricaDoc)}` : ''
+    ].filter(Boolean).join(' · ');
+    const nomeRubricaDocHtml = doc.rubrica
+        || (rubricaVinculada && rubricaVinculada.nome ? escAttr(rubricaVinculada.nome) : '<span style="color: var(--primary); font-weight: 500;">Identificada pela IA</span>');
+    const blocoNomeRubricaDoc = detalheRubricaDoc
+        ? `<div style="display: flex; flex-direction: column; gap: 0.15rem; min-width: 0;"><span class="text-sm" style="font-weight: 600;">${nomeRubricaDocHtml}</span><span class="text-xs" style="color: var(--text-muted);">${detalheRubricaDoc}</span></div>`
+        : `<span class="text-sm" style="font-weight: 600;">${nomeRubricaDocHtml}</span>`;
+
     const flashClass = state.flashDocumentSwitch ? ' details-flash' : '';
     state.flashDocumentSwitch = false;
 
@@ -3350,7 +3379,7 @@ ${Sidebar()}
                         <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem; padding: 1rem; background: var(--bg-sidebar); border-radius: var(--radius-sm); border: 1px solid var(--border-light);">
                             <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
                                 <i data-lucide="tag" style="width: 16px; color: var(--primary);"></i>
-                                <span class="text-sm" style="font-weight: 600;">${doc.rubrica || '<span style="color: var(--primary); font-weight: 500;">Identificada pela IA</span>'}</span>
+                                ${blocoNomeRubricaDoc}
                             </div>
 
                             <!-- Só permite vincular/alterar se houver bloqueio -->
@@ -6165,6 +6194,21 @@ async function fetchDocumentDetails(id, silent = false) {
             // do envio ao SALIC (individual). Só na carga completa (!silent) — os
             // polls silenciosos de status não precisam repetir esta consulta.
             if (!silent) await carregarSaldoRubricasSeHabilitado(data.project_id);
+        }
+
+        // Rubrica do documento fora da lista de ativas (ex.: inativa): busca só ela, por
+        // id, para mostrar produto e numeração. O resultado fica em estado (inclusive
+        // "não encontrada") para não consultar a cada refresh. A lista usada pelo
+        // combobox continua só com ativa = true.
+        if (data && data.rubrica_id_fk
+            && !(state.rubricas_disponiveis || []).some(r => r.id === data.rubrica_id_fk)
+            && !(state.rubricaDocForaDaLista && state.rubricaDocForaDaLista.id === data.rubrica_id_fk)) {
+            const { data: rubDoc, error: rubDocErro } = await supabaseClient
+                .from('rubricas')
+                .select('id, nome, rubrica_id, produto, valor_aprovado')
+                .eq('id', data.rubrica_id_fk)
+                .maybeSingle();
+            if (!rubDocErro) state.rubricaDocForaDaLista = { id: data.rubrica_id_fk, dados: rubDoc || null };
         }
 
         // Extrato bancário e seus lançamentos (somente leitura).
