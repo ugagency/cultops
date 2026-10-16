@@ -1039,7 +1039,7 @@
             if (aba) aba.opener = null;
             try {
                 const sb = await initSupabase();
-                const { data, error } = await sb.storage.from(v.pdf_bucket || 'documentos').createSignedUrl(v.pdf_path, 3600);
+                const { data, error } = await sb.storage.from(v.pdf_bucket || 'documentos').createSignedUrl(String(v.pdf_path).trim(), 3600);
                 if (error || !data || !data.signedUrl) throw error || new Error('URL assinada vazia');
                 if (aba) aba.location.href = data.signedUrl;
                 else window.location.href = data.signedUrl;
@@ -1299,12 +1299,23 @@
                 }, 1000);
 
                 // 3. Notify Webhook
+                // file_url: URL assinada (1h) do mesmo arquivo. Se a assinatura falhar o envio segue sem
+                // ela (o n8n tem fallback); nunca loga a URL nem o token.
+                let fileUrl;
+                try {
+                    const { data: assinada, error: assinaturaErro } = await sb.storage.from('documentos').createSignedUrl(String(filePath).trim(), 3600);
+                    if (assinaturaErro || !assinada || !assinada.signedUrl) throw assinaturaErro || new Error('URL assinada vazia');
+                    fileUrl = assinada.signedUrl;
+                } catch (_) {
+                    console.warn('[webhook] não foi possível assinar o arquivo do bucket documentos; enviando sem file_url.');
+                }
                 const payload = {
                     document_id: docData.id,
                     project_id: currentProjectId,
                     user_id: user.id,
                     file_path: filePath,
-                    bucket: 'documentos'
+                    bucket: 'documentos',
+                    file_url: fileUrl
                 };
 
                 const N8N_URL = CONFIG.N8N_WEBHOOK_SALIC_IMPORT_RUBRICAS_URL || "https://automacoes-n8n.infrassys.com/webhook/uploadrubricas";

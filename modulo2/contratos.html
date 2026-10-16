@@ -1735,7 +1735,7 @@
         async function openContractFile(path) {
             event.stopPropagation && event.stopPropagation();
             if (!path) return;
-            const { data, error } = await sb.storage.from('contracts').createSignedUrl(path, 3600);
+            const { data, error } = await sb.storage.from('contracts').createSignedUrl(String(path).trim(), 3600);
             if (error || !data) {
                 showToast('Erro ao gerar link do arquivo: ' + (error?.message || ''), 'error');
                 return;
