@@ -2905,6 +2905,27 @@ function renderDadosGuia(doc, esc) {
     ].join('');
 }
 
+// Título do quadro "1. Extrato Bancário" na divergência. A causa real vem no
+// texto do n8n (just_erro); o título é sempre texto fixo, nunca o just_erro.
+function normalizarJustErro(doc) {
+    return String(doc && doc.just_erro != null ? doc.just_erro : '')
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+function extratoDeOutroProjeto(doc) {
+    return !!doc && doc.status === 'divergencia_beneficiario'
+        && normalizarJustErro(doc).includes('extrato de outro projeto');
+}
+
+function tituloDivergenciaExtrato(doc) {
+    if (doc.status === 'divergencia_valor') return '⚠ Divergência de valor detectada entre a NF e o extrato.';
+    const t = normalizarJustErro(doc);
+    if (t.includes('extrato de outro projeto')) return '⚠  Extrato incorreto detectado para o documento';
+    if (t.includes('lancamentos que atendem') || t.includes('nao e possivel saber qual')) return '⚠  Mais de um lançamento possível no extrato';
+    if (t.includes('pagamento nao localizado') || t.includes('nao localizado no extrato')) return '⚠  Transação não encontrada no extrato. Verifique manualmente';
+    return '⚠  Divergência na conciliação com o extrato. Verifique manualmente';
+}
+
 const DetailsView = () => {
     const doc = state.currentDocument;
     if (!doc) {
@@ -3500,12 +3521,14 @@ ${Sidebar()}
                             ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? `
                             <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                                 <p class="text-xs" style="color: var(--error); font-weight: 600;">
-                                    ${doc.status === 'divergencia_valor' ? '⚠ Divergência de valor detectada entre a NF e o extrato.' : '⚠  Transação não encontrada no extrato. Verifique manualmente'}
+                                    ${tituloDivergenciaExtrato(doc)}
                                 </p>
                                 <p class="text-xs" style="color: var(--text-muted); line-height: 1.4;">${window.prestaiSuavizar?.(doc.just_erro, 'error') || 'Verifique o extrato bancário e a nota fiscal manualmente antes de prosseguir.'}</p>
                                 <div style="padding: 0.6rem; background: rgba(245, 158, 11, 0.1); border-radius: 4px; border: 1px solid rgba(245, 158, 11, 0.3);">
                                     <p class="text-xs" style="color: #d97706; font-weight: 600; margin-bottom: 0.25rem;">📋 Revisão Manual Necessária</p>
-                                    <p class="text-xs" style="color: var(--text-secondary); line-height: 1.4;">${userCanDelete()
+                                    <p class="text-xs" style="color: var(--text-secondary); line-height: 1.4;">${extratoDeOutroProjeto(doc)
+                                        ? 'Este extrato pertence a outro projeto. Use Substituir Extrato e envie o extrato da conta do projeto correto.'
+                                        : userCanDelete()
                                         ? 'Clique em Visualizar extrato e confira se o pagamento desta nota consta nele (valor, data e CNPJ ou nome do fornecedor). Se confirmar, use Assumir risco e continuar, no quadro Continuar por Conta e Risco do Parecer da Análise. Se não encontrar, use Substituir Extrato e envie o extrato correto.'
                                         : 'Clique em Visualizar extrato e confira se o pagamento desta nota consta nele (valor, data e CNPJ ou nome do fornecedor). Se confirmar, peça a um administrador para continuar por conta e risco. Se não encontrar, use Substituir Extrato e envie o extrato correto.'}</p>
                                 </div>
