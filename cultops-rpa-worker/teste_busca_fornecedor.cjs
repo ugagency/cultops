@@ -15,7 +15,7 @@ async function caso(nome, fn) {
 }
 
 // Tempos curtos nos testes; o comportamento e o mesmo com os padroes (500ms/20s/60s).
-const TEMPOS = { intervaloMs: 100, timeoutTentativaMs: 1500, limiteTotalMs: 4500, margemMinimaMs: 600, atrasoDigitacaoMs: 5 };
+const TEMPOS = { intervaloMs: 100, timeoutTentativaMs: 1500, limiteTotalMs: 4500, margemMinimaMs: 600, atrasoDigitacaoMs: 5, estabilizacaoMs: 150 };
 
 // Modal parecido com o do SALIC: campo do documento (id CNPJCPF), lupa e campo do nome.
 // A lupa conta cliques em window.__cliques e responde conforme window.__roteiro:
@@ -43,6 +43,8 @@ async function montar(page, html, roteiro) {
                 if (r.nome) document.querySelector('#Descricao').value = r.nome;
                 if (r.mensagem) { const m = document.querySelector('#msg'); m.textContent = r.mensagem; m.style.display = 'block'; }
             }, r.apos);
+            if (r.apagarApos) setTimeout(() => { document.querySelector('#Descricao').value = ''; }, r.apagarApos);
+            if (r.mudarPara) setTimeout(() => { document.querySelector('#Descricao').value = r.mudarPara; }, r.mudarApos);
         });
     }, roteiro);
 }
@@ -106,6 +108,45 @@ const cliques = (page) => page.evaluate(() => window.__cliques);
         assert.equal(r.nome, 'VIA NMFORNECEDOR');
     });
 
+    // ── estabilizacao depois de achar o nome ──
+    await caso('nome aparece e e apagado logo em seguida: nao conclui; a busca seguinte encontra', async () => {
+        await montar(page, pagina(), [{ apos: 100, nome: 'PISCOU', apagarApos: 400 }, { apos: 200, nome: 'DEFINITIVO' }]);
+        await clicar(page);
+        const r = await buscar({ estabilizacaoMs: 1000 });
+        assert.equal(r.nome, 'DEFINITIVO');
+        assert.equal(await cliques(page), 2, 'a 1a tentativa foi descartada e a lupa foi clicada de novo');
+        assert.ok(r.linhas.some(l => l.includes('o nome apareceu e foi apagado')), 'log do nome apagado');
+        assert.ok(r.linhas.some(l => l.includes('na 2a tentativa') && l.includes('total')), 'log do tempo total na 2a tentativa');
+    });
+
+    await caso('nome aparece e e apagado em todas as tentativas: nao conclui e falha com a mensagem (b)', async () => {
+        await montar(page, pagina(), [{ apos: 100, nome: 'PISCOU 1', apagarApos: 400 }, { apos: 100, nome: 'PISCOU 2', apagarApos: 400 }, { apos: 100, nome: 'PISCOU 3', apagarApos: 400 }]);
+        await clicar(page);
+        const r = await buscar({ estabilizacaoMs: 900, limiteTotalMs: 9000 });
+        assert.ok(r.erro, 'nao deveria devolver o nome que sumiu');
+        assert.match(r.erro.message, /nao localizado no SALIC dentro do prazo/);
+    });
+
+    await caso('nome muda durante a estabilizacao: devolve o ultimo valor lido', async () => {
+        await montar(page, pagina(), [{ apos: 100, nome: 'PRIMEIRO', mudarPara: 'ULTIMO', mudarApos: 500 }]);
+        await clicar(page);
+        const r = await buscar({ estabilizacaoMs: 1000 });
+        assert.equal(r.nome, 'ULTIMO');
+        assert.ok(r.linhas.some(l => l.includes('o valor mudou na estabilizacao')), 'log da mudanca');
+    });
+
+    await caso('estabilizacao padrao de 1s: o nome so e devolvido depois de 1s de espera, com o tempo total no log', async () => {
+        await montar(page, pagina(), [{ apos: 0, nome: 'ESTAVEL' }]);
+        await clicar(page); await new Promise(r => setTimeout(r, 50));
+        const { estabilizacaoMs, ...semEstab } = TEMPOS;
+        const linhas = []; const inicio = Date.now();
+        const nome = await buscarFornecedorSalic(page, { documentoSoNumeros: '03281691000137', tipoPessoaLabel: 'CNPJ', docFornecedor: '03281691000137', ...semEstab, log: (m) => linhas.push(m) });
+        const ms = Date.now() - inicio;
+        assert.equal(nome, 'ESTAVEL');
+        assert.ok(ms >= 1000 && ms < 1600, 'levou ' + ms + 'ms');
+        assert.ok(linhas.some(l => /\(total \d+ms\)/.test(l)), 'tempo total no log: ' + linhas.join(' | '));
+    });
+
     // ── tentativas ──
     await caso('1a tentativa sem resposta, 2a responde: refaz a busca (redigita e clica) e encontra', async () => {
         await montar(page, pagina({ valorDoc: '99' }), [null, { apos: 300, nome: 'NA SEGUNDA' }]);
@@ -127,14 +168,15 @@ const cliques = (page) => page.evaluate(() => window.__cliques);
         assert.ok(r.linhas.some(l => l.includes('3a tentativa')), 'log da 3a tentativa');
     });
 
-    // ── falha (b): nao respondeu a tempo ──
-    await caso('nunca responde: 3 tentativas, dentro do limite total, erro "nao respondeu a tempo" (vale reenviar)', async () => {
+    // ── falha (b): sem resposta no prazo ──
+    await caso('nunca responde: 3 tentativas, dentro do limite total, erro (b) "nao localizado ... dentro do prazo"', async () => {
         await montar(page, pagina({ valorDoc: '03.281.691/0001-37' }), [null, null, null, null]);
         await clicar(page);
         const r = await buscar();
         assert.ok(r.erro, 'deveria lancar');
-        assert.match(r.erro.message, /nao respondeu a tempo/);
-        assert.match(r.erro.message, /vale reenviar/);
+        assert.match(r.erro.message, /nao localizado no SALIC dentro do prazo/);
+        assert.match(r.erro.message, /Confira se esta cadastrado no SALIC; se estiver, reenvie o documento mais tarde\./);
+        assert.doesNotMatch(r.erro.message, /instabilidade/);
         assert.doesNotMatch(r.erro.message, /Cadastre manualmente/);
         assert.match(r.erro.message, /CNPJ 03281691000137/);
         assert.ok(await cliques(page) <= 3, 'no maximo 3 cliques');
@@ -145,7 +187,7 @@ const cliques = (page) => page.evaluate(() => window.__cliques);
         await montar(page, pagina(), [null, null, null]);
         await clicar(page);
         const r = await buscar({ limiteTotalMs: 3600, timeoutTentativaMs: 1500, margemMinimaMs: 1000 });
-        assert.match(r.erro.message, /nao respondeu a tempo/);
+        assert.match(r.erro.message, /nao localizado no SALIC dentro do prazo/);
         assert.equal(await cliques(page), 2, 'a 3a tentativa nao cabe no limite');
         assert.ok(r.linhas.some(l => l.includes('sem tempo para a 3a tentativa')), 'log do corte');
         assert.ok(r.ms <= 3600 + 500, 'total de ' + r.ms + 'ms');
@@ -158,7 +200,7 @@ const cliques = (page) => page.evaluate(() => window.__cliques);
         const r = await buscar();
         assert.match(r.erro.message, /nao encontrado no SALIC/);
         assert.match(r.erro.message, /Cadastre manualmente/);
-        assert.doesNotMatch(r.erro.message, /nao respondeu a tempo/);
+        assert.doesNotMatch(r.erro.message, /nao localizado no SALIC dentro do prazo/);
     });
 
     await caso('aviso FIXO do modal com o termo ("nao cadastrado") nao conta como resposta da busca: erro (b)', async () => {
@@ -166,14 +208,14 @@ const cliques = (page) => page.evaluate(() => window.__cliques);
         await clicar(page);
         const base0 = await page.evaluate(() => document.querySelector('#modal1').innerText.replace(/\s+/g, ' ').trim());
         const r = await buscar({ textoModalBase: base0 });
-        assert.match(r.erro.message, /nao respondeu a tempo/);
+        assert.match(r.erro.message, /nao localizado no SALIC dentro do prazo/);
     });
 
     await caso('texto OCULTO com o termo nao conta (innerText so le o visivel)', async () => {
         await montar(page, pagina(), [null, null, null]);
         await clicar(page);
         const r = await buscar();
-        assert.match(r.erro.message, /nao respondeu a tempo/);
+        assert.match(r.erro.message, /nao localizado no SALIC dentro do prazo/);
     });
 
     // ── diagnostico da falha final ──

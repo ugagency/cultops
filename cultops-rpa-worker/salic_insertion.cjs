@@ -155,12 +155,12 @@ async function aguardarNomeFornecedorSalic(pageRef, { timeoutMs = 20000, interva
  * respeitando o limite total. Devolve o nome ou LANÇA erro:
  *  (a) o modal passou a exibir uma mensagem explícita de "não encontrado": o fornecedor
  *      não está no SALIC;
- *  (b) nada voltou dentro do tempo: o SALIC não respondeu, vale reenviar.
+ *  (b) nada voltou dentro do tempo: pode não estar cadastrado ou o SALIC não ter respondido.
  */
 async function buscarFornecedorSalic(pageRef, {
     documentoSoNumeros, tipoPessoaLabel, docFornecedor, textoModalBase = '',
     tentativasMax = 3, timeoutTentativaMs = 20000, limiteTotalMs = 60000, intervaloMs = 500,
-    margemMinimaMs = 5000, atrasoDigitacaoMs = 100, log = console.log
+    margemMinimaMs = 5000, atrasoDigitacaoMs = 100, estabilizacaoMs = 1000, log = console.log
 }) {
     const inicio = Date.now();
     const prazo = inicio + limiteTotalMs;
@@ -192,13 +192,21 @@ async function buscarFornecedorSalic(pageRef, {
         const { nome, ms } = await aguardarNomeFornecedorSalic(pageRef, {
             timeoutMs: Math.max(0, Math.min(timeoutTentativaMs, prazo - Date.now())), intervaloMs
         });
+        let motivoNaoDetectado = `apos ${ms}ms`;
         if (nome) {
-            log(`[SALIC] Fornecedor encontrado${t > 1 ? ` na ${t}a tentativa` : ''} (${ms}ms): ${nome}`);
-            return nome;
+            // Estabilização: o nome pode aparecer e ser limpo logo em seguida (re-render do
+            // modal). Espera um instante e lê de novo; vale o valor lido por último.
+            await pausaSalic(estabilizacaoMs);
+            const nomeFinal = await lerNomeFornecedorSalic(pageRef);
+            if (nomeFinal) {
+                log(`[SALIC] Fornecedor encontrado${t > 1 ? ` na ${t}a tentativa` : ''} (total ${Date.now() - inicio}ms)${nomeFinal !== nome ? ' [o valor mudou na estabilizacao; usando o ultimo lido]' : ''}: ${nomeFinal}`);
+                return nomeFinal;
+            }
+            motivoNaoDetectado = `(o nome apareceu e foi apagado em ${estabilizacaoMs}ms)`;
         }
         ultimoModal = await lerModalSalic(pageRef);
         mensagemExplicita = contarIndiciosFornecedorInexistente(ultimoModal.texto) > contarIndiciosFornecedorInexistente(base);
-        log(`[SALIC] Fornecedor: NAO DETECTADO apos ${ms}ms na ${t}a tentativa (verifique ${tipoPessoaLabel})`);
+        log(`[SALIC] Fornecedor: NAO DETECTADO ${motivoNaoDetectado} na ${t}a tentativa (verifique ${tipoPessoaLabel})`);
     }
 
     // Diagnóstico da falha final: texto visível do modal (500 caracteres) e o valor lido de
@@ -210,7 +218,7 @@ async function buscarFornecedorSalic(pageRef, {
     if (mensagemExplicita) {
         throw new Error(`Fornecedor com ${tipoPessoaLabel} ${docFornecedor} nao encontrado no SALIC (o SALIC respondeu que ele nao esta cadastrado). Cadastre manualmente no SALIC antes de executar o Robô.`);
     }
-    throw new Error(`A busca do fornecedor com ${tipoPessoaLabel} ${docFornecedor} no SALIC nao respondeu a tempo (${tentativasFeitas} tentativas em ${Math.round((Date.now() - inicio) / 1000)}s). Pode ser instabilidade do SALIC: vale reenviar o documento mais tarde.`);
+    throw new Error(`Fornecedor com ${tipoPessoaLabel} ${docFornecedor} nao localizado no SALIC dentro do prazo (${tentativasFeitas} tentativas em ${Math.round((Date.now() - inicio) / 1000)}s). Confira se esta cadastrado no SALIC; se estiver, reenvie o documento mais tarde.`);
 }
 
 /**
