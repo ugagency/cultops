@@ -3332,7 +3332,7 @@ ${Sidebar()}
                             <input type="date" id="edit-data-emissao" value="${doc.data_emissao ? String(doc.data_emissao).split('T')[0] : ''}" max="${new Date().toISOString().split('T')[0]}" style="${inputStyle}">
                         </div>
                         <div>
-                            <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Nr. do comprovante</label>
+                            <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Número documento</label>
                             <input type="text" id="edit-numero-nf" value="${esc(doc.numero_nf)}" placeholder="Ex: 505, 042803" style="${inputStyle}">
                         </div>
                         <div class="info-item">
@@ -3363,7 +3363,7 @@ ${Sidebar()}
                             <p class="text-sm">${renderCampoOuFaltando(doc.data_emissao ? _laudoFmtDate(doc.data_emissao) : '---', camposPendentes.data)}</p>
                         </div>
                         <div class="info-item">
-                            <label>Nr. Comprovante</label>
+                            <label>Número documento</label>
                             <p class="text-sm" style="font-weight: 600;">${renderCampoOuFaltando(doc.numero_nf, camposPendentes.numero)}</p>
                         </div>
                         <div class="info-item">
@@ -3400,7 +3400,7 @@ ${Sidebar()}
                                     style="padding: 0.5rem 0.75rem; font-size: 13px; border: 1px solid #FDE68A; border-radius: var(--radius-sm); width: 100%; box-sizing: border-box; background: white;">
                             </div>` : ''}
                             ${camposPendentes.numero ? `<div>
-                                <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Nr. do comprovante</label>
+                                <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Número documento</label>
                                 <input type="text" id="input-numero-nf" placeholder="Ex: 505, 042803"
                                     style="padding: 0.5rem 0.75rem; font-size: 13px; border: 1px solid #FDE68A; border-radius: var(--radius-sm); width: 100%; box-sizing: border-box; background: white;">
                             </div>` : ''}
@@ -8301,7 +8301,7 @@ window.handleEnviarSalic = async function (documentId) {
         !docParaValidar.nome_emissor && 'Fornecedor',
         (!docParaValidar.valor || Number(docParaValidar.valor) === 0) && 'Valor',
         !docParaValidar.data_emissao && 'Data de Emissão',
-        !docParaValidar.numero_nf && 'Nr. Comprovante',
+        !docParaValidar.numero_nf && 'Número documento',
     ].filter(Boolean) : [];
     if (camposFaltandoSalic.length > 0) {
         showToast(`Faltam dados obrigatórios para enviar ao SALIC: ${camposFaltandoSalic.join(', ')}.`, 'error');
