@@ -1109,10 +1109,10 @@
         function rubricasParaCsv(linhas) {
             const colunas = [
                 ['codigo', 'rubrica_id'], ['nome', 'nome'], ['produto', 'produto'], ['etapa', 'etapa'],
-                ['uf_municipio', 'uf_municipio'], ['quantidade', 'quantidade'], ['valor_unitario', 'valor_unitario'],
+                ['uf_municipio', 'uf_municipio'], ['quantidade', 'quantidade'], ['ocorrencias', 'ocorrencias'], ['valor_unitario', 'valor_unitario'],
                 ['valor_aprovado', 'valor_aprovado']
             ];
-            const numericas = new Set(['rubrica_id', 'quantidade', 'valor_unitario', 'valor_aprovado']);
+            const numericas = new Set(['rubrica_id', 'quantidade', 'ocorrencias', 'valor_unitario', 'valor_aprovado']);
             const celula = (campo, valor) => {
                 if (valor === null || valor === undefined) return '';
                 let t = String(valor);
@@ -1346,16 +1346,25 @@
 
                     const mensagem = result.message || `${result.rubricas_importadas} rubricas importadas com sucesso!`;
                     const n = Number(result.desativadas) || 0;
-                    const aviso = n > 0
+                    const avisoRemovidas = n > 0
                         ? (n === 1 ? '1 rubrica não consta na nova planilha e foi marcada como removida.'
                                    : `${n} rubricas não constam na nova planilha e foram marcadas como removidas.`)
                         : '';
+                    // Itens que a importação não conseguiu fechar sozinha (valor não bate com qtde x ocorrências x unitário).
+                    const divergentes = Array.isArray(result.itens_divergentes) ? result.itens_divergentes : [];
+                    const rotuloDivergente = (it) => (it && typeof it === 'object')
+                        ? (it.nome || it.descricao || it.item || JSON.stringify(it))
+                        : String(it);
+                    const avisoDivergentes = divergentes.length > 0
+                        ? `${divergentes.length} ${divergentes.length === 1 ? 'item para revisar' : 'itens para revisar'}: ${divergentes.map(rotuloDivergente).join('; ')}.`
+                        : '';
+                    const aviso = [avisoRemovidas, avisoDivergentes].filter(Boolean).join(' ');
                     showUploadSuccess(mensagem, aviso);
                     showToast(mensagem, 'success');
                     await loadRubricas();
                     await loadHistory();
 
-                    setTimeout(() => { container.style.display = 'none'; }, aviso ? 9000 : 5000);
+                    setTimeout(() => { container.style.display = 'none'; }, (aviso || /revisar/i.test(mensagem)) ? 9000 : 5000);
                 } else {
                     const mensagem = result.message || result.mensagem || MSG_IMPORTACAO_GENERICA;
                     // just_erro: é o que o painel de suporte mostra como motivo.

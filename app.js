@@ -5043,6 +5043,18 @@ const ConfirmModal = () => {
 `;
 };
 
+// Memória de cálculo do card de rubrica. Regra do SALIC: aprovado = qtde x ocorrências x valor unitário.
+// Sem ocorrências (null) mantém o formato antigo, sem inventar valor.
+function formatarMemoriaRubrica(r) {
+    const num = (v) => Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+    const unit = (parseFloat(r.valor_unitario || r.valor_aprovado || 0)).toLocaleString('pt-BR');
+    const q = r.quantidade || 1;
+    if (r.ocorrencias === null || r.ocorrencias === undefined || isNaN(Number(r.ocorrencias))) {
+        return `Qtde: ${q} x R$ ${unit}`;
+    }
+    return `Qtde: ${num(q)} x Ocor.: ${num(r.ocorrencias)} x R$ ${unit}`;
+}
+
 const OrcamentoView = () => {
     const activeProject = state.projects.find(p => p.id === state.filters.project);
 
@@ -5295,7 +5307,7 @@ const OrcamentoView = () => {
                                             <h5 class="font-bold text-sm" style="line-height: 1.2;">
                                                 <span style="color: var(--primary); font-family: monospace;">[${r.rubrica_id || '---'}]</span> ${r.nome}
                                             </h5>
-                                            <p class="text-xs text-muted mt-1">Qtde: ${r.quantidade || 1} x R$ ${(parseFloat(r.valor_unitario || r.valor_aprovado || 0)).toLocaleString('pt-BR')}</p>
+                                            <p class="text-xs text-muted mt-1">${formatarMemoriaRubrica(r)}</p>
                                             <p class="text-xs text-muted" style="margin: 0.15rem 0 0;">Etapa: ${escAttr((r.etapa || '').trim() || 'Etapa não definida')}</p>
                                         </div>
                                         <div style="text-align: right; display:${habilitado ? '' : 'none'};">
@@ -5940,10 +5952,10 @@ window.baixarPdfDaVersao = function (versaoId) {
 function rubricasParaCsv(linhas) {
     const colunas = [
         ['codigo', 'rubrica_id'], ['nome', 'nome'], ['produto', 'produto'], ['etapa', 'etapa'],
-        ['uf_municipio', 'uf_municipio'], ['quantidade', 'quantidade'], ['valor_unitario', 'valor_unitario'],
+        ['uf_municipio', 'uf_municipio'], ['quantidade', 'quantidade'], ['ocorrencias', 'ocorrencias'], ['valor_unitario', 'valor_unitario'],
         ['valor_aprovado', 'valor_aprovado']
     ];
-    const numericas = new Set(['rubrica_id', 'quantidade', 'valor_unitario', 'valor_aprovado']);
+    const numericas = new Set(['rubrica_id', 'quantidade', 'ocorrencias', 'valor_unitario', 'valor_aprovado']);
     const celula = (campo, valor) => {
         if (valor === null || valor === undefined) return '';
         let t = String(valor);
