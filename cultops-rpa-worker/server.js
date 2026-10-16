@@ -4,6 +4,9 @@ const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 const ws = require('ws');
+const {
+    criarControleDeNavegador, criarLimitadorPorUsuario, lerLimiteDoAmbiente, criarHandlerValidarCredencial
+} = require('./salic_validar_login.cjs');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -41,6 +44,15 @@ async function exigirUsuarioAutenticado(req, res, next) {
     req.userId = data.user.id;
     next();
 }
+
+// Controle de uso do navegador (ocorrência #64): a validação de credencial é exclusiva e só
+// roda com nenhum envio, captura ou outra validação em andamento; envio e captura se
+// registram aqui (sem fila entre si, como antes) e esperam uma validação em curso terminar.
+const controleNavegador = criarControleDeNavegador();
+// Limite por usuário da validação (em memória). Configurável por ambiente:
+// SALIC_VALIDAR_MAX (padrão 3) e SALIC_VALIDAR_JANELA_MIN (padrão 15).
+const limiteValidacao = lerLimiteDoAmbiente();
+const limitadorValidacao = criarLimitadorPorUsuario(limiteValidacao);
 
 // Bug #2: a Data do Pagamento no SALIC deve vir do lançamento bancário
 // conciliado (extratos_lancamentos.data_lancamento = data do débito),
@@ -268,7 +280,7 @@ app.post('/api/salic/inserir', exigirUsuarioAutenticado, async (req, res) => {
             }
         };
 
-        const resultado = await executarInsercaoSalic(config);
+        const resultado = await controleNavegador.executar(() => executarInsercaoSalic(config));
 
         if (resultado.sucesso) {
             await supabase.from('documents').update({
@@ -298,6 +310,14 @@ app.post('/api/salic/inserir', exigirUsuarioAutenticado, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+// Valida o login do SALIC antes de a credencial ser salva (ocorrência #64). Body:
+// { usuario, senha } (texto, até 64 caracteres cada). Responde 200 com
+// { status: 'ok' | 'invalida' | 'indeterminada', motivo }, 400 para corpo inválido e 429
+// com { status: 'ocupado' } ou { status: 'limite', tentarEm } (segundos). Não loga o corpo
+// e nunca repete o login sozinho.
+app.post('/api/salic/validar-credencial', exigirUsuarioAutenticado,
+    criarHandlerValidarCredencial({ controle: controleNavegador, limitador: limitadorValidacao }));
 
 // ==============================================================
 // SALDO SALIC — Fase 1/4 (CR-2026-001)
@@ -329,14 +349,14 @@ app.post('/capturar-execucao', exigirUsuarioAutenticado, async (req, res) => {
 
         console.log(`[SALDO-SALIC] Iniciando captura manual | projeto: ${projectId} | PRONAC: ${project.pronac}`);
 
-        const resultado = await executarCapturaProjeto(supabase, {
+        const resultado = await controleNavegador.executar(() => executarCapturaProjeto(supabase, {
             projectId,
             pronac: String(project.pronac),
             organizationId: project.organization_id,
             usuario: String(creds.identifier),
             senha: String(creds.secret_plain),
             disparadaPor: userId
-        });
+        }));
 
         console.log(`[SALDO-SALIC] Captura concluída | total: ${resultado.total} | pareadas: ${resultado.pareadas} | fila: ${resultado.fila} | divergências: ${resultado.divergencias}`);
         return res.json({ success: true, ...resultado });
@@ -401,14 +421,14 @@ app.post('/cron/captura-condicional', async (req, res) => {
             }
 
             console.log(`[SALDO-SALIC][cron] Captura condicional | projeto: ${projeto.project_id} | PRONAC: ${projeto.pronac}`);
-            const resultado = await executarCapturaProjeto(supabase, {
+            const resultado = await controleNavegador.executar(() => executarCapturaProjeto(supabase, {
                 projectId: projeto.project_id,
                 pronac: String(projeto.pronac),
                 organizationId: projeto.organization_id,
                 usuario: String(creds.identifier),
                 senha: String(creds.secret_plain),
                 disparadaPor: projeto.sugestao_user_id
-            });
+            }));
             resultados.push({ projectId: projeto.project_id, ...resultado });
         } catch (error) {
             console.error(`[SALDO-SALIC][cron] Erro no projeto ${projeto.project_id}:`, error.message);
