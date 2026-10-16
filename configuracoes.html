@@ -131,6 +131,7 @@
                     <button type="submit" class="btn btn-primary" id="btn-save-salic" style="width: 100%; justify-content: center; height: 50px;">
                         Salvar Credenciais SALIC
                     </button>
+                    <p id="salic-credencial-aviso" role="alert" style="display: none; margin-top: 1rem; padding: 0.875rem 1rem; border-radius: var(--radius-md); font-size: 0.875rem; line-height: 1.5;"></p>
                 </form>
             </section>
 
@@ -242,14 +243,20 @@
             document.getElementById('btn-save-salic').disabled = (getSalicFormSnapshot() === _salicFormSnapshot);
         }
 
+        const SENHA_MASCARADA = '********';
+        let salicUserSalvo = '';   // identificador hoje gravado (para saber se o CPF mudou)
+        let salicOcupado = false;  // teste/salvamento em andamento: ignora duplo clique
+
         async function loadCredentials() {
             const sb = await initSupabase();
             const { data, error } = await sb.from('external_credentials').select('*').eq('service_name', 'salic');
+            salicUserSalvo = '';
             if (data) {
                 data.forEach(cred => {
                     if (cred.service_name === 'salic') {
+                        salicUserSalvo = cred.identifier || '';
                         document.getElementById('salic-user').value = cred.identifier || '';
-                        document.getElementById('salic-pass').value = '********';
+                        document.getElementById('salic-pass').value = SENHA_MASCARADA;
                         document.getElementById('salic-status').className = 'status-badge connected';
                         document.getElementById('salic-status').innerText = 'Conectado';
                     }
@@ -259,32 +266,255 @@
             markSalicFormClean();
         }
 
-        async function handleSaveSalic(e) {
-            e.preventDefault();
+        // --- Validação do login do SALIC antes de salvar (ocorrência #64) ---
+        // cpfValido e urlValidarCredencialSalic são cópias das de app.js (handleSaveSettings);
+        // a chamada ao worker difere só em usar o cliente Supabase desta página.
+
+        // CPF com 11 dígitos e dígitos verificadores (aceita pontos e traço).
+        function cpfValido(valor) {
+            const d = String(valor || '').replace(/\D/g, '');
+            if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+            const dv = (base) => {
+                let soma = 0;
+                for (let i = 0; i < base; i++) soma += Number(d[i]) * (base + 1 - i);
+                const resto = (soma * 10) % 11;
+                return resto === 10 ? 0 : resto;
+            };
+            return dv(9) === Number(d[9]) && dv(10) === Number(d[10]);
+        }
+
+        // Mesma base do worker que o front usa para /api/salic/inserir (CONFIG.SALIC_API_URL).
+        // null se a URL configurada não termina em /inserir (não dá para derivar com segurança).
+        function urlValidarCredencialSalic() {
+            const atual = String(CONFIG.SALIC_API_URL || '');
+            if (!/\/inserir\/?$/.test(atual)) return null;
+            const url = atual.replace(/\/inserir\/?$/, '/validar-credencial');
+            return url.startsWith('/') ? window.location.origin + url : url;
+        }
+
+        // Pede ao worker para testar o login no SALIC. Devolve
+        // { status: 'ok' | 'invalida' | 'indeterminada' | 'ocupado' | 'limite' | 'indisponivel' | 'sem_sessao', tentarEm? }.
+        // 'indisponivel' = rede, 404 de worker sem a rota, erro do servidor, resposta fora do
+        // formato ou tempo esgotado. A senha só vai no corpo do POST: nunca em URL, storage ou log.
+        async function validarCredencialSalicNoWorker(usuario, senha) {
+            const url = urlValidarCredencialSalic();
+            if (!url) return { status: 'indisponivel' };
             const sb = await initSupabase();
-            const btn = document.getElementById('btn-save-salic');
-            btn.disabled = true;
-            btn.innerText = 'SALVANDO...';
+            const { data: { session } } = await sb.auth.getSession();
+            if (!session) return { status: 'sem_sessao' };
 
+            const controle = new AbortController();
+            const limite = setTimeout(() => controle.abort(), 100000); // o worker tem 90 s de teto
             try {
-                const user = document.getElementById('salic-user').value.trim();
-                const pass = document.getElementById('salic-pass').value.trim();
+                const resposta = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
+                    mode: 'cors',
+                    signal: controle.signal,
+                    body: JSON.stringify({ usuario, senha })
+                });
+                const corpo = await resposta.json().catch(() => null);
+                if (resposta.status === 429 && corpo && (corpo.status === 'ocupado' || corpo.status === 'limite')) {
+                    return { status: corpo.status, tentarEm: Number(corpo.tentarEm) || null };
+                }
+                if (resposta.ok && corpo && ['ok', 'invalida', 'indeterminada'].includes(corpo.status)) {
+                    return { status: corpo.status };
+                }
+                return { status: 'indisponivel' };
+            } catch (err) {
+                return { status: 'indisponivel' };
+            } finally {
+                clearTimeout(limite);
+            }
+        }
 
+        // Aviso persistente sob o botão (escrito com textContent, nunca innerHTML).
+        function mostrarAvisoCredencialSalic(texto, tipo) {
+            const el = document.getElementById('salic-credencial-aviso');
+            if (!el) return;
+            el.textContent = texto || '';
+            el.style.display = texto ? 'block' : 'none';
+            el.style.background = tipo === 'erro' ? 'rgba(220, 38, 38, 0.08)' : 'var(--bg-sidebar)';
+            el.style.border = tipo === 'erro' ? '1px solid rgba(220, 38, 38, 0.35)' : '1px solid var(--border-light)';
+            el.style.color = tipo === 'erro' ? '#DC2626' : 'var(--text-secondary)';
+        }
+
+        // Trava botão e campos durante o teste (pode levar até cerca de 30 s).
+        function definirValidandoSalic(ligado) {
+            const btn = document.getElementById('btn-save-salic');
+            if (ligado) {
+                btn.disabled = true;
+                btn.innerText = 'Validando no SALIC...';
+            } else {
+                btn.innerText = 'Salvar Credenciais SALIC';
+                checkSalicFormDirty();
+            }
+            SALIC_FORM_FIELD_IDS.forEach(id => { document.getElementById(id).readOnly = ligado; });
+        }
+
+        // Modal simples no estilo da página (sem confirm() do navegador). Resolve true/false.
+        function confirmarSalvarSalicMesmoAssim(titulo, mensagem) {
+            return new Promise((resolve) => {
+                const anteriorFoco = document.activeElement;
+                const overlay = document.createElement('div');
+                overlay.className = 'modal-overlay';
+                overlay.setAttribute('role', 'dialog');
+                overlay.setAttribute('aria-modal', 'true');
+
+                const caixa = document.createElement('div');
+                caixa.className = 'modal-content';
+                const h = document.createElement('h3');
+                h.style.cssText = 'font-size: 1.25rem; font-weight: 700; margin-bottom: 0.75rem;';
+                h.textContent = titulo;
+                const p = document.createElement('p');
+                p.style.cssText = 'color: var(--text-secondary); line-height: 1.5; margin-bottom: 1.5rem;';
+                p.textContent = mensagem;
+                const linha = document.createElement('div');
+                linha.style.cssText = 'display: flex; gap: 0.75rem; justify-content: flex-end; flex-wrap: wrap;';
+                const bCancelar = document.createElement('button');
+                bCancelar.type = 'button';
+                bCancelar.className = 'btn btn-secondary';
+                bCancelar.id = 'salic-confirm-cancelar';
+                bCancelar.textContent = 'Não salvar';
+                const bSalvar = document.createElement('button');
+                bSalvar.type = 'button';
+                bSalvar.className = 'btn btn-primary';
+                bSalvar.id = 'salic-confirm-salvar';
+                bSalvar.textContent = 'Salvar mesmo assim';
+                linha.append(bCancelar, bSalvar);
+                caixa.append(h, p, linha);
+                overlay.appendChild(caixa);
+
+                const fechar = (resposta) => {
+                    document.removeEventListener('keydown', aoTeclar, true);
+                    overlay.remove();
+                    if (anteriorFoco && typeof anteriorFoco.focus === 'function') anteriorFoco.focus();
+                    resolve(resposta);
+                };
+                const aoTeclar = (ev) => { if (ev.key === 'Escape') fechar(false); };
+                bCancelar.onclick = () => fechar(false);
+                bSalvar.onclick = () => fechar(true);
+                overlay.addEventListener('click', (ev) => { if (ev.target === overlay) fechar(false); });
+                document.addEventListener('keydown', aoTeclar, true);
+
+                document.body.appendChild(overlay);
+                bCancelar.focus(); // foco no lado seguro: Enter não salva sem querer
+            });
+        }
+
+        async function salvarCredencialSalic(user, pass) {
+            // Defesa: a máscara (ou vazio) NUNCA pode chegar ao RPC, que grava o que receber.
+            if (!pass || pass === SENHA_MASCARADA) {
+                showToast('Digite a senha para salvar a credencial SALIC.', 'error');
+                return;
+            }
+            const sb = await initSupabase();
+            try {
                 const { error } = await sb.rpc('upsert_external_credential', {
                     p_service_name: 'salic',
                     p_identifier: user,
-                    p_secret: pass === '********' ? null : pass
+                    p_secret: pass
                 });
-
                 if (error) throw error;
+                mostrarAvisoCredencialSalic('');
                 showToast('Credenciais SALIC salvas!', 'success');
                 await loadCredentials();
             } catch (err) {
                 showToast('Erro: ' + err.message, 'error');
-            } finally {
-                btn.innerText = 'Salvar Credenciais SALIC';
-                checkSalicFormDirty();
             }
+        }
+
+        async function handleSaveSalic(e) {
+            e.preventDefault();
+            if (salicOcupado) return; // duplo clique / Enter repetido
+            salicOcupado = true;
+            try {
+                await processarSalvarSalic();
+            } finally {
+                salicOcupado = false;
+            }
+        }
+
+        async function processarSalvarSalic() {
+            const campoUser = document.getElementById('salic-user');
+            const campoPass = document.getElementById('salic-pass');
+            const user = campoUser.value.trim();
+            const pass = campoPass.value.trim();
+            mostrarAvisoCredencialSalic('');
+
+            // 1) CPF no navegador: nem chama o worker com CPF malformado.
+            if (!cpfValido(user)) {
+                mostrarAvisoCredencialSalic('CPF inválido. Confira os 11 dígitos do CPF e tente de novo.', 'erro');
+                showToast('CPF inválido. Confira os 11 dígitos.', 'error');
+                return;
+            }
+
+            // Senha ainda mascarada: não há senha para testar nem para gravar.
+            if (pass === SENHA_MASCARADA) {
+                const soDigitos = (v) => String(v || '').replace(/\D/g, '');
+                if (soDigitos(user) === soDigitos(salicUserSalvo)) {
+                    mostrarAvisoCredencialSalic('Nenhuma alteração: a senha não foi modificada.', 'info');
+                    showToast('Nenhuma alteração: a senha não foi modificada.', 'info');
+                    return;
+                }
+                // CPF novo exige a senha daquele CPF: limpa a máscara, destaca o campo e pede de novo.
+                mostrarAvisoCredencialSalic('Você alterou o CPF. Digite a senha do SALIC deste CPF novamente para salvar.', 'erro');
+                showToast('Digite a senha do SALIC para o novo CPF.', 'error');
+                campoPass.value = '';
+                campoPass.style.borderColor = 'var(--error)';
+                campoPass.addEventListener('input', () => { campoPass.style.borderColor = ''; }, { once: true });
+                campoPass.focus();
+                return;
+            }
+            if (!pass) {
+                showToast('Digite a senha para salvar a credencial SALIC.', 'error');
+                return;
+            }
+
+            // 2) Testa o login no SALIC antes de salvar.
+            definirValidandoSalic(true);
+            let resultado;
+            try {
+                resultado = await validarCredencialSalicNoWorker(user, pass);
+            } finally {
+                definirValidandoSalic(false);
+            }
+
+            if (resultado.status === 'sem_sessao') {
+                showToast('Sessão expirada. Faça login novamente.', 'error');
+                return;
+            }
+            if (resultado.status === 'ok') {
+                await salvarCredencialSalic(user, pass);
+                return;
+            }
+            if (resultado.status === 'invalida') {
+                // Não salva. A mensagem fica na tela até a próxima tentativa.
+                mostrarAvisoCredencialSalic('O SALIC recusou este CPF e senha, e a credencial não foi salva. Confira os dados: o robô usa a senha própria do SALIC, não a entrada pelo gov.br. Evite repetir muitas vezes seguidas, porque isso pode bloquear o seu acesso ao SALIC.', 'erro');
+                showToast('O SALIC recusou o login. Credencial não salva.', 'error');
+                return;
+            }
+
+            // 3) Não foi possível confirmar: só salva com confirmação explícita.
+            let motivo = 'Não foi possível testar o login no SALIC agora (o serviço de validação não respondeu).';
+            if (resultado.status === 'indeterminada') motivo = 'O teste não conseguiu concluir o login no SALIC agora (o SALIC pode estar lento ou fora do ar).';
+            if (resultado.status === 'ocupado') motivo = 'O robô está ocupado com outro processo e não pôde testar o login agora.';
+            if (resultado.status === 'limite') {
+                const minutos = resultado.tentarEm ? Math.max(1, Math.ceil(resultado.tentarEm / 60)) : null;
+                motivo = 'Você já testou o login várias vezes em pouco tempo. Para não bloquear seu acesso ao SALIC, o teste só poderá ser repetido ' + (minutos ? 'em cerca de ' + minutos + ' minuto' + (minutos > 1 ? 's' : '') : 'mais tarde') + '.';
+            }
+            const confirmou = await confirmarSalvarSalicMesmoAssim(
+                'Não foi possível confirmar o login no SALIC',
+                motivo + ' Se a senha estiver incorreta, o robô só vai falhar no primeiro envio. Deseja salvar mesmo assim?'
+            );
+            if (!confirmou) {
+                // Devolve o que o usuário tinha digitado.
+                campoUser.value = user;
+                campoPass.value = pass;
+                checkSalicFormDirty();
+                return;
+            }
+            await salvarCredencialSalic(user, pass);
         }
 
         async function handleTrocarSenha(e) {
