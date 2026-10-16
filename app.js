@@ -397,15 +397,70 @@ function escAttr(v) {
 
 // "PRODUTO · 65 - Nome da rubrica (R$ 3.000,00)"
 // Degrada sem quebrar: produto, rubrica_id e valor_aprovado são todos opcionais.
+function partesRotuloRubrica(r) {
+    const produto = r.produto != null && String(r.produto).trim() !== '' ? String(r.produto).trim() : '';
+    const numero = r.rubrica_id != null && String(r.rubrica_id).trim() !== '' ? String(r.rubrica_id) : '';
+    return { produto, numero, nome: r.nome || '' };
+}
+
+// "PRODUTO · 65 - Nome da rubrica" (rotuloRubrica sem o valor aprovado)
+function rotuloRubricaSemValor(r) {
+    if (!r) return '';
+    const { produto, numero, nome } = partesRotuloRubrica(r);
+    return `${produto ? `${produto} · ` : ''}${numero ? `${numero} - ` : ''}${nome}`;
+}
+
 function rotuloRubrica(r) {
     if (!r) return '';
-    const produto = r.produto != null && String(r.produto).trim() !== '' ? String(r.produto).trim() : '';
-    const prod = produto ? `${produto} · ` : '';
-    const num = r.rubrica_id != null && String(r.rubrica_id).trim() !== '' ? `${r.rubrica_id} - ` : '';
     const val = r.valor_aprovado != null && String(r.valor_aprovado).trim() !== ''
         ? ` (${parseValorBR(r.valor_aprovado).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})`
         : '';
-    return `${prod}${num}${r.nome || ''}${val}`;
+    return `${rotuloRubricaSemValor(r)}${val}`;
+}
+
+// Rubrica vinculada ao documento (doc.rubrica_id_fk = rubricas.id): primeiro no cache
+// por id (qualquer projeto, inclusive inativas) e depois na lista do projeto aberto
+// (state.rubricas_disponiveis). null sem vínculo ou se não encontrada.
+function rubricaDoDocumento(doc) {
+    if (!doc || !doc.rubrica_id_fk) return null;
+    const doCache = (state.rubricasPorId || {})[doc.rubrica_id_fk];
+    if (doCache) return doCache;
+    return (state.rubricas_disponiveis || []).find(r => r.id === doc.rubrica_id_fk) || null;
+}
+
+// Rótulo de exibição (já escapado) da rubrica do documento: produto, nº e nome quando
+// a rubrica é encontrada; senão o nome em texto de antes. Nunca "undefined"/"null".
+function rotuloRubricaDoc(doc) {
+    const r = rubricaDoDocumento(doc);
+    const rotulo = r ? rotuloRubricaSemValor(r).trim() : '';
+    return escAttr(rotulo || (doc && (doc.rubrica_nome || doc.rubrica)) || '-');
+}
+
+// Carrega, numa única consulta em lote, as rubricas dos documentos que ainda não estão
+// no cache. Sem filtro de ativa: o vínculo pode apontar para rubrica inativa. Erro na
+// consulta não quebra nada: loga e a tela segue com o nome em texto.
+async function garantirRubricasDosDocumentos(docs) {
+    if (!supabaseClient) return;
+    if (!state.rubricasPorId) state.rubricasPorId = {};
+    const cache = state.rubricasPorId;
+    const ids = [...new Set((docs || []).map(d => d && d.rubrica_id_fk).filter(Boolean))]
+        .filter(id => !(id in cache) && !(state.rubricas_disponiveis || []).some(r => r.id === id));
+    if (ids.length === 0) return;
+    try {
+        // Em fatias de 100 só para não estourar o tamanho da URL; no uso normal é uma consulta.
+        for (let i = 0; i < ids.length; i += 100) {
+            const fatia = ids.slice(i, i + 100);
+            const { data, error } = await supabaseClient
+                .from('rubricas')
+                .select('id, nome, rubrica_id, produto, valor_aprovado')
+                .in('id', fatia);
+            if (error) { console.error('[rubricas] busca em lote por id:', error); continue; }
+            const achadas = new Map((data || []).map(r => [r.id, r]));
+            fatia.forEach(id => { cache[id] = achadas.get(id) || null; });
+        }
+    } catch (err) {
+        console.error('[rubricas] busca em lote por id:', err);
+    }
 }
 
 // Ordena por produto e depois por rubrica_id (numérico quando possível, para que
@@ -769,6 +824,9 @@ const state = {
     planilhasPorProjeto: {}, // project_id -> { name, file_path } da planilha orçamentária
     documents: [],
     rubricas_disponiveis: [],
+    // Cache de rubricas por rubricas.id (qualquer projeto, ativas ou não), preenchido por
+    // garantirRubricasDosDocumentos. null = consultada e não encontrada.
+    rubricasPorId: {},
     catalogo_rubricas: [],
     currentDocument: null,
     // Documento apontado por currentDocument.duplicata_de_id, para o comparativo.
@@ -2161,7 +2219,7 @@ const EnvioLoteSalicView = () => {
                                 <td style="font-weight: 600; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${doc.name}</td>
                                 <td style="font-size: 13px; color: var(--text-secondary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${projLabel}</td>
                                 <td style="font-size: 13px; font-weight: 500;">
-                                    ${doc.rubrica_nome || doc.rubrica || '-'}
+                                    ${rotuloRubricaDoc(doc)}
                                     ${renderSaldoBadgeHtml(doc.rubrica_id_fk)}
                                 </td>
                                 <td>
@@ -2243,7 +2301,7 @@ const EnvioLoteSalicView = () => {
                                         <td style="font-weight: 600; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${doc.name}</td>
                                         <td style="font-size: 13px; color: var(--text-secondary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${projLabel}</td>
                                         <td style="font-size: 13px; font-weight: 500;">
-                                            ${doc.rubrica_nome || doc.rubrica || '-'}
+                                            ${rotuloRubricaDoc(doc)}
                                             ${renderSaldoBadgeHtml(doc.rubrica_id_fk)}
                                         </td>
                                         <td>
@@ -3009,6 +3067,22 @@ ${Sidebar()}
                                 <span id="justificativa-salic-contador" class="text-xs" style="color: var(--text-muted); text-align: right;">${textoJustificativaSalic.length}/4000</span>
                             </div>` : '';
 
+    // Caixa "Rubrica Orçamentária": o nome sozinho não distingue rubricas homônimas no
+    // mesmo PRONAC (ex.: "Monitores" em vários produtos), então mostra também o produto
+    // e a numeração da rubrica vinculada. Sem vínculo, sem rubrica encontrada ou sem
+    // esses campos, fica como antes. O texto vem de PDF/OCR: sempre escapado.
+    const rubricaVinculada = rubricaDoDocumento(doc);
+    const partesRubricaDoc = rubricaVinculada ? partesRotuloRubrica(rubricaVinculada) : null;
+    const detalheRubricaDoc = partesRubricaDoc ? [
+        partesRubricaDoc.produto ? `Produto: ${escAttr(partesRubricaDoc.produto)}` : '',
+        partesRubricaDoc.numero ? `Rubrica nº ${escAttr(partesRubricaDoc.numero)}` : ''
+    ].filter(Boolean).join(' · ') : '';
+    const nomeRubricaDocHtml = doc.rubrica
+        || (partesRubricaDoc && partesRubricaDoc.nome ? escAttr(partesRubricaDoc.nome) : '<span style="color: var(--primary); font-weight: 500;">Identificada pela IA</span>');
+    const blocoNomeRubricaDoc = detalheRubricaDoc
+        ? `<div style="display: flex; flex-direction: column; gap: 0.15rem; min-width: 0;"><span class="text-sm" style="font-weight: 600;">${nomeRubricaDocHtml}</span><span class="text-xs" style="color: var(--text-muted);">${detalheRubricaDoc}</span></div>`
+        : `<span class="text-sm" style="font-weight: 600;">${nomeRubricaDocHtml}</span>`;
+
     const flashClass = state.flashDocumentSwitch ? ' details-flash' : '';
     state.flashDocumentSwitch = false;
 
@@ -3350,7 +3424,7 @@ ${Sidebar()}
                         <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem; padding: 1rem; background: var(--bg-sidebar); border-radius: var(--radius-sm); border: 1px solid var(--border-light);">
                             <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
                                 <i data-lucide="tag" style="width: 16px; color: var(--primary);"></i>
-                                <span class="text-sm" style="font-weight: 600;">${doc.rubrica || '<span style="color: var(--primary); font-weight: 500;">Identificada pela IA</span>'}</span>
+                                ${blocoNomeRubricaDoc}
                             </div>
 
                             <!-- Só permite vincular/alterar se houver bloqueio -->
@@ -6167,6 +6241,9 @@ async function fetchDocumentDetails(id, silent = false) {
             if (!silent) await carregarSaldoRubricasSeHabilitado(data.project_id);
         }
 
+        // Rubrica do próprio documento no cache por id (a lista acima só traz as ativas).
+        if (data) await garantirRubricasDosDocumentos([data]);
+
         // Extrato bancário e seus lançamentos (somente leitura).
         state.currentExtrato = null;
         if (data) await carregarExtratoDaNota(data);
@@ -7778,11 +7855,13 @@ async function carregarSaldoRubricasSeHabilitado(projectIdOuLista) {
 // de um projeto ou de todos (filtro "Todos os projetos") — por isso carrega o
 // saldo pelos project_id distintos dos documentos elegíveis, não por um único id.
 async function atualizarSaldoEnvioLote() {
-    const projectIds = [...new Set((state.documents || [])
-        .filter(doc => ['liberado_rpa_airtop', 'erro_rpa'].includes(doc.status))
-        .map(doc => doc.project_id)
-        .filter(Boolean))];
-    await carregarSaldoRubricasSeHabilitado(projectIds);
+    const prontos = (state.documents || []).filter(doc => ['liberado_rpa_airtop', 'erro_rpa'].includes(doc.status));
+    const projectIds = [...new Set(prontos.map(doc => doc.project_id).filter(Boolean))];
+    // Produto e numeração das rubricas dos documentos (vários projetos), antes do render.
+    await Promise.all([
+        carregarSaldoRubricasSeHabilitado(projectIds),
+        garantirRubricasDosDocumentos(prontos),
+    ]);
 }
 
 // Restaura state.loteExtratoVinculado a partir do banco — é o que faz o vínculo
