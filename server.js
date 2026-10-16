@@ -362,7 +362,8 @@ app.post('/api/salic/inserir', async (req, res) => {
                 numero: doc.json_extraido?.numero_nota || 'S/N',
                 data_emissao: doc.data_emissao,
                 nf_path: doc.file_path,
-                nf_url: `${process.env.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.file_path}`,
+                nf_url: (await urlAssinadaParaN8n('documentos', doc.file_path))
+                    || `${process.env.SUPABASE_URL}/storage/v1/object/public/documentos/${String(doc.file_path || '').trim()}`,
                 // Dados adicionais para o formulário SALIC (preencher quando tiver mapeamento)
                 nome_fornecedor: doc.json_extraido?.razao_social || '',
                 serie: doc.json_extraido?.serie || '',
@@ -3886,6 +3887,25 @@ app.post('/api/suporte/usuarios/:id/resetar-senha', requireAuth, requireSuporte,
     }
 });
 
+// URL assinada (1h) do arquivo para o n8n (campo file_url, além de file_path/bucket). Nunca
+// bloqueia o envio: sem assinatura devolve undefined e o payload segue sem file_url (o n8n tem
+// fallback). O file_path do banco pode terminar em espaço; o objeto no Storage não tem.
+async function urlAssinadaParaN8n(bucket, caminho) {
+    try {
+        const path = String(caminho == null ? '' : caminho).trim();
+        if (!path) return undefined;
+        const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 3600);
+        if (error || !data || !data.signedUrl) {
+            console.warn(`[N8N] não foi possível assinar o arquivo do bucket ${bucket}; enviando sem file_url.`);
+            return undefined;
+        }
+        return data.signedUrl;
+    } catch (_) {
+        console.warn(`[N8N] não foi possível assinar o arquivo do bucket ${bucket}; enviando sem file_url.`);
+        return undefined;
+    }
+}
+
 // Payload do OCR de NF igual ao que o front envia em cada caminho de upload:
 // fornecedor (app.js, upload do fornecedor) manda fornecedor: true; comprovante
 // (handleVincularDocumento) manda tipo_vinculo e o lastro da NF mãe.
@@ -3894,7 +3914,8 @@ async function payloadOcrNf(doc) {
         document_id: doc.id,
         file_path: doc.file_path,
         user_id: doc.user_id,
-        bucket: 'documentos'
+        bucket: 'documentos',
+        file_url: await urlAssinadaParaN8n('documentos', doc.file_path)
     };
     if (doc.fornecedor_id) payload.fornecedor = true;
     if (doc.tipo_documento === 'comprovante' && doc.nf_vinculada_id) {
@@ -3964,7 +3985,8 @@ app.post('/api/suporte/documentos/:id/reprocessar-ocr', requireAuth, requireSupo
                     project_id: doc.project_id,
                     user_id: doc.user_id,
                     file_path: doc.file_path,
-                    bucket: 'documentos'
+                    bucket: 'documentos',
+                    file_url: await urlAssinadaParaN8n('documentos', doc.file_path)
                 }
             });
 
@@ -4495,7 +4517,7 @@ app.get('/api/suporte/documentos/:id', requireAuth, requireSuporte, async (req, 
         if (doc.file_path) {
             if (/^https?:\/\//i.test(doc.file_path)) arquivoUrl = doc.file_path;
             else {
-                const { data: assinada } = await supabase.storage.from('documentos').createSignedUrl(doc.file_path, 600);
+                const { data: assinada } = await supabase.storage.from('documentos').createSignedUrl(String(doc.file_path).trim(), 600);
                 arquivoUrl = assinada?.signedUrl || null;
             }
         }
@@ -4737,7 +4759,8 @@ app.post('/api/suporte/documentos/:id/refazer-conciliacao', requireAuth, require
                 comprovante_id: par.comprovante_id,
                 file_path: extrato.file_path,
                 bucket: 'documentos',
-                project_id: doc.project_id
+                project_id: doc.project_id,
+                file_url: await urlAssinadaParaN8n('documentos', extrato.file_path)
             }
         });
         if (!r.ok) {
@@ -4802,7 +4825,7 @@ app.post('/api/suporte/documentos/:id/apagar-planilha-antiga', requireAuth, requ
 
         let arquivo = 'mantido (usado no histórico de versões de rubricas)';
         if (!manterArquivo && doc.file_path) {
-            const { error: stErr } = await supabase.storage.from('documentos').remove([doc.file_path]);
+            const { error: stErr } = await supabase.storage.from('documentos').remove([String(doc.file_path).trim()]);
             arquivo = stErr && stErr.message !== 'Object not found' ? `não apagado do storage: ${stErr.message}` : 'apagado';
         } else if (!doc.file_path) {
             arquivo = 'sem arquivo';
@@ -4967,6 +4990,7 @@ app.post('/api/suporte/extratos/:id/reprocessar', requireAuth, requireSuporte, m
         // 30 min) vai ANTES do disparo: gravá-lo depois apagaria o resultado.
         await supabase.from('extratos').update({ status: 'pendente' }).eq('id', id);
 
+        const fileUrlExtrato = await urlAssinadaParaN8n('documentos', x.file_path);
         let falha = null;
         let porTempo = false;
         const inicio = Date.now();
@@ -4996,7 +5020,8 @@ app.post('/api/suporte/extratos/:id/reprocessar', requireAuth, requireSuporte, m
                         comprovante_id: par.comprovante_id,
                         file_path: x.file_path,
                         bucket: 'documentos',
-                        project_id: x.project_id
+                        project_id: x.project_id,
+                        file_url: fileUrlExtrato
                     }
                 }
             );
@@ -5344,7 +5369,8 @@ app.post('/api/m1/cron-conciliacao-lote', async (req, res) => {
                         comprovante_id: null,
                         file_path: filePath,
                         bucket: 'documentos',
-                        project_id: nota.project_id
+                        project_id: nota.project_id,
+                        file_url: await urlAssinadaParaN8n('documentos', filePath)
                     }
                 }
             );

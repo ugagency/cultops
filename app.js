@@ -1153,8 +1153,7 @@ const Header = Sidebar;
 function planilhaOrcamentariaBtn() {
     const pl = state.planilhasPorProjeto && state.planilhasPorProjeto[state.filters.project];
     if (!pl || !pl.file_path) return '';
-    const url = `${CONFIG.SUPABASE_URL}/storage/v1/object/public/documentos/${pl.file_path}`;
-    return `<button class="btn btn-primary" onclick="window.open('${url}', '_blank')" title="Abrir a Planilha Orçamentária (PDF do SALIC) deste projeto">
+    return `<button class="btn btn-primary" data-bucket="documentos" data-path="${escAttr(caminhoStorage(pl.file_path))}" onclick="window.abrirArquivoDoStorage(this)" title="Abrir a Planilha Orçamentária (PDF do SALIC) deste projeto">
         <i data-lucide="file-spreadsheet" style="width: 16px;"></i> Veja a Planilha Orçamentária
     </button>`;
 }
@@ -3039,13 +3038,13 @@ ${Sidebar()}
     const extratoDoLote = !!doc.extrato_origem_id;
     const extratoStatusPendente = doc.status === 'aguardando_conciliacao_bancaria' || doc.status === 'aguardando_comprovante';
     // Botão de abrir o ARQUIVO do extrato (o que a Ana pediu: ver o documento).
-    // Mesmo mecanismo já usado para o arquivo da NF nesta tela — URL pública do
+    // Mesmo mecanismo já usado para o arquivo da NF nesta tela — URL assinada do
     // bucket 'documentos', que é onde handleUploadExtrato grava os extratos.
     // OFX e CSV o navegador baixa em vez de exibir; é o comportamento esperado.
     const extratoArquivo = state.currentExtrato?.extrato?.file_path || null;
     const btnVerExtrato = extratoArquivo ? `
         <button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-top: 0.5rem;"
-            onclick="window.open('${CONFIG.SUPABASE_URL}/storage/v1/object/public/documentos/${extratoArquivo}', '_blank')">
+            data-bucket="documentos" data-path="${escAttr(caminhoStorage(extratoArquivo))}" onclick="window.abrirArquivoDoStorage(this)">
             <i data-lucide="file-search" style="width: 14px;"></i>
             Visualizar extrato${state.currentExtrato?.extrato?.formato ? ` (${String(state.currentExtrato.extrato.formato).toUpperCase()})` : ''}
         </button>` : '';
@@ -3566,7 +3565,7 @@ ${Sidebar()}
                             ${(doc.data_pagamento || jaPassouDaConciliacao || state.currentComprovante) ?
             `<div style="display: flex; flex-direction: column; gap: 0.25rem;">
                                     <p class="text-xs" style="color: var(--text-secondary); font-weight: 500;">Comprovante recebido:</p>
-                                    ${state.currentComprovante ? `<a href="${CONFIG.SUPABASE_URL}/storage/v1/object/public/documentos/${state.currentComprovante.file_path}" target="_blank" class="text-xs" style="color: var(--primary); text-decoration: none;">📄 ${state.currentComprovante.name}</a>` : '<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Nenhum comprovante enviado.</p>'}
+                                    ${state.currentComprovante ? `<button type="button" data-bucket="documentos" data-path="${escAttr(caminhoStorage(state.currentComprovante.file_path))}" onclick="window.abrirArquivoDoStorage(this)" class="text-xs" style="color: var(--primary); text-decoration: none; background: none; border: none; padding: 0; cursor: pointer; text-align: left;">📄 ${escAttr(state.currentComprovante.name)}</button>` : '<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Nenhum comprovante enviado.</p>'}
                                     <div class="badge status-completed" style="margin-top: 0.5rem; width: fit-content; font-size: 10px;">Etapa Opcional</div>
                                  </div>` :
             (state.isUploadingComprovante ?
@@ -3652,8 +3651,8 @@ ${Sidebar()}
                     <h3 class="h2 mb-4">Arquivo Original</h3>
                     <div style="aspect-ratio: 3/4; background: var(--bg-sidebar); border-radius: var(--radius-sm); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; border: 1px solid var(--border-light);">
                         <i data-lucide="file-text" style="width: 48px; color: var(--text-muted);"></i>
-                        <p class="text-xs" style="color: var(--text-muted);">${doc.name}</p>
-                        <button class="btn btn-secondary" onclick="window.open('${CONFIG.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.file_path}', '_blank')">
+                        <p class="text-xs" style="color: var(--text-muted);">${escAttr(doc.name)}</p>
+                        <button class="btn btn-secondary" data-bucket="documentos" data-path="${escAttr(caminhoStorage(doc.file_path))}" onclick="window.abrirArquivoDoStorage(this)">
                             Visualizar PDF
                         </button>
                     </div>
@@ -4268,7 +4267,7 @@ window.handleSolicitanteUpload = async function (file, projectId) {
         const selectedProject = state.projects.find(p => (p.project_id === projectId) || (p.id === projectId));
 
         const fileExt = file.name.split('.').pop();
-        const fileName = `${Math.random()}.${fileExt} `;
+        const fileName = `${Math.random()}.${fileExt}`;
         const filePath = `${state.user.id}/${fileName}`;
 
         // Upload Storage
@@ -4302,6 +4301,7 @@ window.handleSolicitanteUpload = async function (file, projectId) {
         // Disparar Webhook para o n8n
         console.log("Notificando n8n (Fornecedor)...", CONFIG.N8N_WEBHOOK_URL);
         if (CONFIG.N8N_WEBHOOK_URL) {
+            const fileUrl = await urlAssinadaParaWebhook('documentos', filePath);
             await fetch(CONFIG.N8N_WEBHOOK_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -4311,7 +4311,8 @@ window.handleSolicitanteUpload = async function (file, projectId) {
                     file_path: filePath,
                     user_id: state.user.id,
                     fornecedor: true,
-                    bucket: 'documentos'
+                    bucket: 'documentos',
+                    file_url: fileUrl || undefined
                 })
             })
                 .then(res => console.log("n8n ok:", res.status))
@@ -5850,13 +5851,45 @@ function rubricaVersaoLinhaHtml(v, ehAtual) {
     `;
 }
 
+// file_path no banco pode terminar em espaço (o objeto no Storage não tem); sempre aparar antes de usar.
+function caminhoStorage(caminho) {
+    return String(caminho == null ? '' : caminho).trim();
+}
+
+// Clique nos botões de arquivo do Storage: bucket e caminho vêm de data-* (escapados com escAttr no
+// template), nunca interpolados dentro de um onclick.
+window.abrirArquivoDoStorage = function (el) {
+    if (!el || !el.dataset) return;
+    return abrirUrlAssinada(el.dataset.bucket, el.dataset.path);
+};
+
+// URL assinada (1h) para mandar ao n8n junto com file_path/bucket. Falhar não bloqueia o envio:
+// devolve null e o payload segue sem file_url (o n8n tem fallback). Nunca loga a URL nem o token.
+async function urlAssinadaParaWebhook(bucket, caminho) {
+    try {
+        const path = caminhoStorage(caminho);
+        if (!path) return null;
+        const { data, error } = await supabaseClient.storage.from(bucket).createSignedUrl(path, 3600);
+        if (error || !data || !data.signedUrl) {
+            console.warn('[webhook] não foi possível assinar o arquivo do bucket ' + bucket + '; enviando sem file_url.');
+            return null;
+        }
+        return data.signedUrl;
+    } catch (_) {
+        console.warn('[webhook] não foi possível assinar o arquivo do bucket ' + bucket + '; enviando sem file_url.');
+        return null;
+    }
+}
+
 // Abre um arquivo do Storage por URL assinada (1h), mesmo com o bucket público. A aba abre antes do
 // await para o bloqueador de pop-ups não barrar.
 async function abrirUrlAssinada(bucket, caminho) {
+    const path = caminhoStorage(caminho);
+    if (!path) return window.showToast("Este documento não tem arquivo.", 'error');
     const aba = window.open('about:blank', '_blank');
     if (aba) aba.opener = null;
     try {
-        const { data, error } = await supabaseClient.storage.from(bucket).createSignedUrl(caminho, 3600);
+        const { data, error } = await supabaseClient.storage.from(bucket).createSignedUrl(path, 3600);
         if (error || !data || !data.signedUrl) throw error || new Error('URL assinada vazia');
         if (aba) aba.location.href = data.signedUrl;
         else window.location.href = data.signedUrl;
@@ -6599,6 +6632,7 @@ async function dispararConciliacaoAutoLote(doc) {
             return false;
         }
 
+        const fileUrl = await urlAssinadaParaWebhook('documentos', extrato.file_path);
         const resp = await fetch(CONFIG.N8N_WEBHOOK_RECONCILIATION_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -6610,7 +6644,8 @@ async function dispararConciliacaoAutoLote(doc) {
                 comprovante_id: null,
                 file_path: extrato.file_path,
                 bucket: 'documentos',
-                project_id: doc.project_id
+                project_id: doc.project_id,
+                file_url: fileUrl || undefined
             })
         });
         if (!resp.ok) {
@@ -6694,7 +6729,7 @@ window.handleDeleteDocument = async function (id, filePath) {
                 // 1. Excluir do Storage
                 const { error: storageError } = await supabaseClient.storage
                     .from('documentos')
-                    .remove([filePath]);
+                    .remove([caminhoStorage(filePath)]);
 
                 // Ignoramos erro de "não encontrado" no storage para permitir limpar o banco
                 if (storageError && storageError.message !== 'Object not found') throw storageError;
@@ -6778,7 +6813,7 @@ window.handleDeleteSelectedDocuments = async function () {
                 if (filePaths.length > 0) {
                     const { error: storageError } = await supabaseClient.storage
                         .from('documentos')
-                        .remove(filePaths);
+                        .remove(filePaths.map(caminhoStorage));
 
                     if (storageError) {
                         console.warn("Alguns arquivos podem não ter sido limpos do storage:", storageError.message);
@@ -6982,7 +7017,8 @@ async function importarRubricasPdf(file, project) {
             project_id: project.id,
             user_id: state.user.id,
             file_path: filePath,
-            bucket: 'documentos'
+            bucket: 'documentos',
+            file_url: (await urlAssinadaParaWebhook('documentos', filePath)) || undefined
         };
 
         // Simulação de progresso enquanto espera o webhook
@@ -7941,7 +7977,7 @@ async function subirParaStorage(file, projectId, opts = {}) {
     const projeto = state.projects.find(p => p.id === projectId);
 
     const fileExt = file.name.split('.').pop();
-    const fileName = `${Math.random()}.${fileExt} `;
+    const fileName = `${Math.random()}.${fileExt}`;
     const filePath = `${state.user.id}/${fileName}`;
 
     const { error: uploadError } = await supabaseClient.storage
@@ -7973,9 +8009,10 @@ async function subirParaStorage(file, projectId, opts = {}) {
 // Devolve a promise do fetch para quem precisar aguardar (processamento
 // sequencial de lote); as chamadas existentes continuam fire-and-forget, porque
 // nada as obriga a usar o retorno.
-function dispararOcr(documentId, filePath) {
-    if (!CONFIG.N8N_WEBHOOK_URL) return Promise.resolve();
+async function dispararOcr(documentId, filePath) {
+    if (!CONFIG.N8N_WEBHOOK_URL) return;
     console.log("Tentando notificar n8n em:", CONFIG.N8N_WEBHOOK_URL);
+    const fileUrl = await urlAssinadaParaWebhook('documentos', filePath);
     return fetch(CONFIG.N8N_WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -7984,7 +8021,8 @@ function dispararOcr(documentId, filePath) {
             document_id: documentId,
             file_path: filePath,
             user_id: state.user.id,
-            bucket: 'documentos'
+            bucket: 'documentos',
+            file_url: fileUrl || undefined
         })
     })
         .then(response => console.log("Resposta n8n:", response.status))
@@ -8441,7 +8479,7 @@ window.handleExcluirLoteItem = async function (documentId, filePath) {
             try {
                 const { error: storageError } = await supabaseClient.storage
                     .from('documentos')
-                    .remove([filePath]);
+                    .remove([caminhoStorage(filePath)]);
                 if (storageError && storageError.message !== 'Object not found') throw storageError;
 
                 const { error: dbError } = await supabaseClient
@@ -8720,6 +8758,7 @@ window.handleVincularDocumento = async function (parentDocumentId, file, tipo, l
         console.log(`Vinculando Comprovante ${comprovanteData.id} à NF ${parentDocumentId}...`);
 
         if (CONFIG.N8N_WEBHOOK_URL) {
+            const fileUrl = await urlAssinadaParaWebhook('documentos', filePath);
             const response = await fetch(CONFIG.N8N_WEBHOOK_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -8730,7 +8769,8 @@ window.handleVincularDocumento = async function (parentDocumentId, file, tipo, l
                     user_id: state.user.id,
                     tipo_vinculo: tipo, // 'comprovante'
                     bucket: 'documentos',
-                    lastro: { ...lastroInfo, id: parentDocumentId } // UUID da NF Mãe no lastro
+                    lastro: { ...lastroInfo, id: parentDocumentId }, // UUID da NF Mãe no lastro
+                    file_url: fileUrl || undefined
                 })
             });
 
@@ -9543,6 +9583,7 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
 
         if (CONFIG.N8N_WEBHOOK_RECONCILIATION_URL) {
             console.log(`Disparando webhook: ${CONFIG.N8N_WEBHOOK_RECONCILIATION_URL}`);
+            const fileUrl = await urlAssinadaParaWebhook('documentos', filePath);
             const response = await fetch(CONFIG.N8N_WEBHOOK_RECONCILIATION_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -9554,7 +9595,8 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
                     comprovante_id: comprovanteId || null, // Renomeado para comprovante_id
                     file_path: filePath,
                     bucket: 'documentos',
-                    project_id: projectId
+                    project_id: projectId,
+                    file_url: fileUrl || undefined
                 })
             });
 
@@ -9652,6 +9694,7 @@ window.handleUploadExtratoLote = async function (file, projectId) {
         if (dbError) throw dbError;
 
         // 3. Webhook do lote — sem nf_id/comprovante_id
+        const fileUrl = await urlAssinadaParaWebhook('documentos', filePath);
         const response = await fetch(CONFIG.N8N_WEBHOOK_RECONCILIATION_LOTE_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -9660,7 +9703,8 @@ window.handleUploadExtratoLote = async function (file, projectId) {
                 extrato_id: extratoData.id,
                 project_id: projectId,
                 file_path: filePath,
-                bucket: 'documentos'
+                bucket: 'documentos',
+                file_url: fileUrl || undefined
             })
         });
         if (!response.ok) {
