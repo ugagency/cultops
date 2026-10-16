@@ -75,6 +75,144 @@ async function preencherJustificativaSalic(pageRef, justificativa, log = console
     return true;
 }
 
+// ── Busca do fornecedor por CNPJ/CPF (lupa do modal de inserção) ─────────────────
+//
+// Ocorrência #78: a busca esperava 5s fixos e, se o nome não aparecia, mais 6s
+// fixos antes de abortar. A mesma NFS (CNPJ existente no SALIC) falhou às 18:47 UTC e
+// passou às 20:40 UTC do mesmo dia: a resposta do SALIC é intermitente e às vezes
+// demora mais que a espera fixa. Agora cada tentativa faz polling a cada 500ms por
+// até 20s e devolve assim que o nome aparece; são até 3 tentativas e, no máximo, 60s
+// por documento nessa etapa.
+
+const SELETORES_NOME_FORNECEDOR = ['#Descricao', '#nmFornecedor', '#razaoSocial', 'input[name="Descricao"]'];
+const pausaSalic = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function lerNomeFornecedorSalic(pageRef) {
+    try {
+        return await pageRef.evaluate((seletores) => {
+            for (const sel of seletores) {
+                const el = document.querySelector(sel);
+                if (el && el.value) return el.value;
+            }
+            return null;
+        }, SELETORES_NOME_FORNECEDOR);
+    } catch (e) {
+        return null; // erro de leitura (página trocando) não conclui nem aborta: o polling segue
+    }
+}
+
+// Texto visível do #modal1 (innerText ignora o que está oculto) e valor de #CNPJCPF.
+async function lerModalSalic(pageRef) {
+    try {
+        return await pageRef.evaluate(() => {
+            const modal = document.querySelector('#modal1');
+            const campo = document.querySelector('#CNPJCPF');
+            return {
+                texto: modal ? String(modal.innerText || '').replace(/\s+/g, ' ').trim() : '',
+                cnpjcpf: campo ? campo.value : null
+            };
+        });
+    } catch (e) {
+        return { texto: '', cnpjcpf: null };
+    }
+}
+
+async function clicarLupaSalic(pageRef) {
+    await pageRef.evaluate(() => {
+        const modal = document.querySelector('#modal1');
+        const container = modal || document;
+        const btns = container.querySelectorAll('button.btn i.material-icons');
+        for (const i of btns) {
+            if (i.innerText.trim() === 'search') { i.parentElement.click(); break; }
+        }
+    });
+}
+
+// Quantas vezes o texto traz uma mensagem de fornecedor inexistente. Sem acento e em
+// minúsculas; só conta termos de "não encontrado/inexistente/não cadastrado". O chamador
+// compara com o texto de ANTES da busca, para que um aviso fixo do modal não seja
+// confundido com a resposta da busca.
+function contarIndiciosFornecedorInexistente(texto) {
+    const t = String(texto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const achados = t.match(/nao encontrad[oa]|inexistente|nao cadastrad[oa]/g);
+    return achados ? achados.length : 0;
+}
+
+async function aguardarNomeFornecedorSalic(pageRef, { timeoutMs = 20000, intervaloMs = 500 } = {}) {
+    const inicio = Date.now();
+    for (; ;) {
+        const nome = await lerNomeFornecedorSalic(pageRef);
+        const ms = Date.now() - inicio;
+        if (nome) return { nome, ms };
+        if (ms >= timeoutMs) return { nome: null, ms };
+        await pausaSalic(Math.max(1, Math.min(intervaloMs, timeoutMs - ms)));
+    }
+}
+
+/**
+ * Espera o nome do fornecedor depois do clique na lupa (já feito pelo chamador) e, se não
+ * vier, refaz a busca (limpa o campo, digita de novo, clica na lupa) até 3 tentativas,
+ * respeitando o limite total. Devolve o nome ou LANÇA erro:
+ *  (a) o modal passou a exibir uma mensagem explícita de "não encontrado": o fornecedor
+ *      não está no SALIC;
+ *  (b) nada voltou dentro do tempo: o SALIC não respondeu, vale reenviar.
+ */
+async function buscarFornecedorSalic(pageRef, {
+    documentoSoNumeros, tipoPessoaLabel, docFornecedor, textoModalBase = '',
+    tentativasMax = 3, timeoutTentativaMs = 20000, limiteTotalMs = 60000, intervaloMs = 500,
+    margemMinimaMs = 5000, atrasoDigitacaoMs = 100, log = console.log
+}) {
+    const inicio = Date.now();
+    const prazo = inicio + limiteTotalMs;
+    // Referência: texto do modal antes da busca. Vale para todas as tentativas (uma mensagem que
+    // ficou na tela depois da 1a continua sendo resposta da busca, não aviso fixo).
+    const base = textoModalBase || '';
+    let ultimoModal = { texto: '', cnpjcpf: null };
+    let mensagemExplicita = false;
+    let tentativasFeitas = 0;
+
+    for (let t = 1; t <= tentativasMax; t++) {
+        if (t > 1) {
+            if (prazo - Date.now() < margemMinimaMs) {
+                log(`[SALIC] Busca do fornecedor: sem tempo para a ${t}a tentativa (limite de ${Math.round(limiteTotalMs / 1000)}s).`);
+                break;
+            }
+            log(`[SALIC] FALLBACK: Fornecedor nao encontrado. Re-tentando busca (${t}a tentativa)...`);
+            const docRetry = await pageRef.$('#CNPJCPF');
+            if (docRetry) {
+                await docRetry.click({ clickCount: 3 });
+                await docRetry.press('Backspace');
+                await pausaSalic(500);
+                await docRetry.type(documentoSoNumeros, { delay: atrasoDigitacaoMs });
+                await pausaSalic(500);
+            }
+            await clicarLupaSalic(pageRef);
+        }
+        tentativasFeitas = t;
+        const { nome, ms } = await aguardarNomeFornecedorSalic(pageRef, {
+            timeoutMs: Math.max(0, Math.min(timeoutTentativaMs, prazo - Date.now())), intervaloMs
+        });
+        if (nome) {
+            log(`[SALIC] Fornecedor encontrado${t > 1 ? ` na ${t}a tentativa` : ''} (${ms}ms): ${nome}`);
+            return nome;
+        }
+        ultimoModal = await lerModalSalic(pageRef);
+        mensagemExplicita = contarIndiciosFornecedorInexistente(ultimoModal.texto) > contarIndiciosFornecedorInexistente(base);
+        log(`[SALIC] Fornecedor: NAO DETECTADO apos ${ms}ms na ${t}a tentativa (verifique ${tipoPessoaLabel})`);
+    }
+
+    // Diagnóstico da falha final: texto visível do modal (500 caracteres) e o valor lido de
+    // #CNPJCPF (CPF mascarado). Nunca senha, token ou o login do usuário SALIC.
+    const docLido = ultimoModal.cnpjcpf == null ? null
+        : (String(ultimoModal.cnpjcpf).replace(/\D/g, '').length === 11 ? mascararCpf(ultimoModal.cnpjcpf) : ultimoModal.cnpjcpf);
+    log(`[SALIC] DIAGNOSTICO busca de fornecedor: #CNPJCPF=${JSON.stringify(docLido)} | #modal1=${JSON.stringify(ultimoModal.texto.slice(0, 500))}`);
+
+    if (mensagemExplicita) {
+        throw new Error(`Fornecedor com ${tipoPessoaLabel} ${docFornecedor} nao encontrado no SALIC (o SALIC respondeu que ele nao esta cadastrado). Cadastre manualmente no SALIC antes de executar o Robô.`);
+    }
+    throw new Error(`A busca do fornecedor com ${tipoPessoaLabel} ${docFornecedor} no SALIC nao respondeu a tempo (${tentativasFeitas} tentativas em ${Math.round((Date.now() - inicio) / 1000)}s). Pode ser instabilidade do SALIC: vale reenviar o documento mais tarde.`);
+}
+
 /**
  * Script de Inserção de Comprovação Financeira no SALIC
  * @param {Object} config - Objeto com credenciais e dados da despesa
@@ -634,6 +772,10 @@ async function executarInsercaoSalic(config) {
         }
         await wait(500);
 
+        // Texto do modal ANTES da busca: referência para distinguir uma mensagem nova de
+        // "não encontrado" de um aviso fixo do modal (ver buscarFornecedorSalic).
+        const modalAntesDaBusca = await lerModalSalic(targetPage);
+
         // Clica na Lupa para buscar o fornecedor
         await targetPage.evaluate(() => {
             // Busca todos os botoes com icone search dentro do modal
@@ -649,53 +791,14 @@ async function executarInsercaoSalic(config) {
             }
         });
         console.log(`[SALIC] Buscando fornecedor pelo ${tipoPessoaLabel}...`);
-        await wait(5000); // Espera mais para a busca do fornecedor completar no servidor
-
-        // Verifica se o fornecedor foi encontrado
-        const fornecedorEncontrado = await targetPage.evaluate(() => {
-            // Tenta varios seletores possiveis para o nome do fornecedor
-            const candidatos = ['#Descricao', '#nmFornecedor', '#razaoSocial', 'input[name="Descricao"]'];
-            for (const sel of candidatos) {
-                const el = document.querySelector(sel);
-                if (el && el.value) return el.value;
-            }
-            return null;
+        // Polling no lugar das esperas fixas de 5s/6s: ver buscarFornecedorSalic (até 3
+        // tentativas, no máximo 60s). Lança erro se o fornecedor não aparecer.
+        await buscarFornecedorSalic(targetPage, {
+            documentoSoNumeros,
+            tipoPessoaLabel,
+            docFornecedor: documento.cnpj_fornecedor,
+            textoModalBase: modalAntesDaBusca.texto
         });
-        console.log(`[SALIC] Fornecedor encontrado: ${fornecedorEncontrado || `NAO DETECTADO (verifique ${tipoPessoaLabel})`}`);
-
-        // FALLBACK: Se fornecedor nao foi encontrado, tenta nova busca antes de abortar
-        if (!fornecedorEncontrado) {
-            console.warn('[SALIC] FALLBACK: Fornecedor nao encontrado. Re-tentando busca...');
-            const docRetry = await targetPage.$('#CNPJCPF');
-            if (docRetry) {
-                await docRetry.click({ clickCount: 3 });
-                await docRetry.press('Backspace');
-                await wait(500);
-                await docRetry.type(documentoSoNumeros, { delay: 100 });
-                await wait(500);
-            }
-            await targetPage.evaluate(() => {
-                const modal = document.querySelector('#modal1');
-                const container = modal || document;
-                const btns = container.querySelectorAll('button.btn i.material-icons');
-                for (let i of btns) {
-                    if (i.innerText.trim() === 'search') { i.parentElement.click(); break; }
-                }
-            });
-            await wait(6000);
-            const fornecedorRetry = await targetPage.evaluate(() => {
-                const candidatos = ['#Descricao', '#nmFornecedor', '#razaoSocial', 'input[name="Descricao"]'];
-                for (const sel of candidatos) {
-                    const el = document.querySelector(sel);
-                    if (el && el.value) return el.value;
-                }
-                return null;
-            });
-            if (!fornecedorRetry) {
-                throw new Error(`Fornecedor com ${tipoPessoaLabel} ${documento.cnpj_fornecedor} nao encontrado no SALIC apos 2 tentativas. Cadastre manualmente no SALIC antes de executar o Robô.`);
-            }
-            console.log(`[SALIC] Fornecedor encontrado na 2a tentativa: ${fornecedorRetry}`);
-        }
 
         // 3. Formatar data (De YYYY-MM-DD para DD/MM/YYYY)
         let dataFormatada = documento.data_emissao;
@@ -1010,7 +1113,7 @@ async function executarInsercaoSalic(config) {
     }
 }
 
-module.exports = { executarInsercaoSalic, preencherJustificativaSalic };
+module.exports = { executarInsercaoSalic, preencherJustificativaSalic, buscarFornecedorSalic, contarIndiciosFornecedorInexistente };
 
 // --- AREA DE TESTE (Para rodar direto no terminal) ---
 if (require.main === module) {
