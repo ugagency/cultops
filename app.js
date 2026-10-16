@@ -428,12 +428,27 @@ function rubricaDoDocumento(doc) {
     return (state.rubricas_disponiveis || []).find(r => r.id === doc.rubrica_id_fk) || null;
 }
 
-// Rótulo de exibição (já escapado) da rubrica do documento: produto, nº e nome quando
-// a rubrica é encontrada; senão o nome em texto de antes. Nunca "undefined"/"null".
-function rotuloRubricaDoc(doc) {
+// Produto e numeração da rubrica como etiquetas em destaque (o nome sozinho não
+// distingue rubricas homônimas no mesmo PRONAC). O número vai cheio, na cor primária,
+// por ser o que identifica a rubrica; o produto, em tom suave. Texto escapado: vem de
+// PDF/OCR. '' se a rubrica não tem produto nem número.
+function rubricaChipsHtml(r) {
+    if (!r) return '';
+    const { produto, numero } = partesRotuloRubrica(r);
+    const base = 'display: inline-flex; align-items: center; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 12px; font-weight: 700; line-height: 1.4; overflow-wrap: anywhere;';
+    const chips = [
+        produto ? `<span style="${base} background: rgba(21, 71, 255, 0.10); color: var(--primary); border: 1px solid rgba(21, 71, 255, 0.35);">Produto: ${escAttr(produto)}</span>` : '',
+        numero ? `<span style="${base} background: var(--primary); color: #fff; border: 1px solid var(--primary);">Rubrica nº ${escAttr(numero)}</span>` : '',
+    ].filter(Boolean).join('');
+    return chips ? `<div style="display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.3rem;">${chips}</div>` : '';
+}
+
+// Célula de rubrica do Envio em Lote (já escapada): o nome em texto de antes e, abaixo,
+// produto e numeração quando a rubrica é encontrada. Nunca "undefined"/"null".
+function rubricaDocLoteHtml(doc) {
     const r = rubricaDoDocumento(doc);
-    const rotulo = r ? rotuloRubricaSemValor(r).trim() : '';
-    return escAttr(rotulo || (doc && (doc.rubrica_nome || doc.rubrica)) || '-');
+    const nome = (doc && (doc.rubrica_nome || doc.rubrica)) || (r && r.nome) || '-';
+    return escAttr(nome) + rubricaChipsHtml(r);
 }
 
 // Carrega, numa única consulta em lote, as rubricas dos documentos que ainda não estão
@@ -2219,7 +2234,7 @@ const EnvioLoteSalicView = () => {
                                 <td style="font-weight: 600; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${doc.name}</td>
                                 <td style="font-size: 13px; color: var(--text-secondary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${projLabel}</td>
                                 <td style="font-size: 13px; font-weight: 500;">
-                                    ${rotuloRubricaDoc(doc)}
+                                    ${rubricaDocLoteHtml(doc)}
                                     ${renderSaldoBadgeHtml(doc.rubrica_id_fk)}
                                 </td>
                                 <td>
@@ -2301,7 +2316,7 @@ const EnvioLoteSalicView = () => {
                                         <td style="font-weight: 600; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${doc.name}</td>
                                         <td style="font-size: 13px; color: var(--text-secondary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${projLabel}</td>
                                         <td style="font-size: 13px; font-weight: 500;">
-                                            ${rotuloRubricaDoc(doc)}
+                                            ${rubricaDocLoteHtml(doc)}
                                             ${renderSaldoBadgeHtml(doc.rubrica_id_fk)}
                                         </td>
                                         <td>
@@ -3072,15 +3087,11 @@ ${Sidebar()}
     // e a numeração da rubrica vinculada. Sem vínculo, sem rubrica encontrada ou sem
     // esses campos, fica como antes. O texto vem de PDF/OCR: sempre escapado.
     const rubricaVinculada = rubricaDoDocumento(doc);
-    const partesRubricaDoc = rubricaVinculada ? partesRotuloRubrica(rubricaVinculada) : null;
-    const detalheRubricaDoc = partesRubricaDoc ? [
-        partesRubricaDoc.produto ? `Produto: ${escAttr(partesRubricaDoc.produto)}` : '',
-        partesRubricaDoc.numero ? `Rubrica nº ${escAttr(partesRubricaDoc.numero)}` : ''
-    ].filter(Boolean).join(' · ') : '';
+    const chipsRubricaDoc = rubricaChipsHtml(rubricaVinculada);
     const nomeRubricaDocHtml = doc.rubrica
-        || (partesRubricaDoc && partesRubricaDoc.nome ? escAttr(partesRubricaDoc.nome) : '<span style="color: var(--primary); font-weight: 500;">Identificada pela IA</span>');
-    const blocoNomeRubricaDoc = detalheRubricaDoc
-        ? `<div style="display: flex; flex-direction: column; gap: 0.15rem; min-width: 0;"><span class="text-sm" style="font-weight: 600;">${nomeRubricaDocHtml}</span><span class="text-xs" style="color: var(--text-muted);">${detalheRubricaDoc}</span></div>`
+        || (rubricaVinculada && rubricaVinculada.nome ? escAttr(rubricaVinculada.nome) : '<span style="color: var(--primary); font-weight: 500;">Identificada pela IA</span>');
+    const blocoNomeRubricaDoc = chipsRubricaDoc
+        ? `<div style="display: flex; flex-direction: column; min-width: 0;"><span class="text-sm" style="font-weight: 600;">${nomeRubricaDocHtml}</span>${chipsRubricaDoc}</div>`
         : `<span class="text-sm" style="font-weight: 600;">${nomeRubricaDocHtml}</span>`;
 
     const flashClass = state.flashDocumentSwitch ? ' details-flash' : '';
