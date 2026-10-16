@@ -245,6 +245,15 @@ async function executarInsercaoSalic(config) {
                 if (response.statusCode === 301 || response.statusCode === 302) {
                     return downloadFile(response.headers.location, dest).then(resolve).catch(reject);
                 }
+                // Qualquer outra resposta que não seja 200 (ex.: 400/403/404 de URL assinada
+                // expirada ou arquivo ausente) NÃO pode virar "PDF" gravado em disco. A mensagem
+                // não inclui a URL.
+                if (response.statusCode !== 200) {
+                    response.resume();
+                    file.close();
+                    fs.unlink(dest, () => { });
+                    return reject(new Error(`Falha no download (HTTP ${response.statusCode})`));
+                }
                 response.pipe(file);
                 file.on('finish', () => {
                     file.close();
@@ -853,7 +862,7 @@ async function executarInsercaoSalic(config) {
 
         // 6. Upload do Arquivo (PDF)
         if (documento.nf_url) {
-            console.log('[SALIC] Baixando arquivo da Nota Fiscal: ', documento.nf_url);
+            console.log('[SALIC] Baixando arquivo da Nota Fiscal.');
             const localFilePath = path.join(os.tmpdir(), `nf_${Date.now()}.pdf`);
             await downloadFile(documento.nf_url, localFilePath);
 
@@ -864,7 +873,7 @@ async function executarInsercaoSalic(config) {
                 await downloadFile(documento.nf_url, localFilePath);
                 const retryStats = fs.statSync(localFilePath);
                 if (!retryStats || retryStats.size < 100) {
-                    throw new Error(`PDF da NF baixado com tamanho invalido (${retryStats?.size || 0} bytes). URL: ${documento.nf_url}`);
+                    throw new Error(`PDF da NF baixado com tamanho invalido (${retryStats?.size || 0} bytes).`);
                 }
             }
             console.log(`[SALIC] PDF baixado com sucesso: ${fileStats.size} bytes`);

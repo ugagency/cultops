@@ -257,6 +257,17 @@ app.post('/api/salic/inserir', exigirUsuarioAutenticado, async (req, res) => {
 
         const dataPagamento = resolverDataPagamento(lancamento, doc);
 
+        // Bucket "documentos" privado (ocorrência #85): o robô baixa a NF por URL assinada,
+        // válida por 1 hora. O file_path pode vir com espaço no fim, por isso o trim. A
+        // mensagem de erro não leva o caminho nem a URL.
+        const nfPath = String(doc.file_path || '').trim();
+        const { data: nfAssinada, error: nfAssinadaErro } = await supabase.storage
+            .from('documentos')
+            .createSignedUrl(nfPath, 3600);
+        if (nfAssinadaErro || !nfAssinada || !nfAssinada.signedUrl) {
+            throw new Error('Não foi possível gerar URL do arquivo da NF.');
+        }
+
         const config = {
             usuario: String(creds.identifier),
             senha: String(creds.secret_plain),
@@ -271,8 +282,8 @@ app.post('/api/salic/inserir', exigirUsuarioAutenticado, async (req, res) => {
                 numero: doc.numero_nf || 'S/N',   // json_extraido.numero_nota nunca é escrito pela extração — fallback removido
                 data_emissao: doc.data_emissao,   // Data de Emissão real da NF/recibo (#dataEmissao)
                 data_pagamento: dataPagamento,    // Bug #2: Data do Pagamento = data do débito (#dtPagamento)
-                nf_path: doc.file_path,
-                nf_url: `${process.env.SUPABASE_URL}/storage/v1/object/public/documentos/${doc.file_path}`,
+                nf_path: nfPath,
+                nf_url: nfAssinada.signedUrl,
                 recibo: doc.recibo,   // flag de tipo: 'yes' = Recibo, 'no' = NF (NÃO é caminho de arquivo)
                 numero_extrato: formatarNrDocPagamento(numeroExtrato),
                 numero_guia: doc.json_extraido?.guia?.numero_guia || null,   // sinal de Guia de Recolhimento p/ o worker
