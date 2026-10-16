@@ -1652,6 +1652,15 @@
             ].join('');
         }
 
+        // documents.just_erro só é alerta ATUAL enquanto o documento não chegou a um estado
+        // final de sucesso. Em enviado_salic/concluido ele é registro histórico (erros de
+        // tentativas antigas, "[OVERRIDE] Gestor forçou avanço"): nunca é apagado, mas não
+        // deve marcar o documento como "precisa de atenção" nem aparecer em vermelho.
+        const STATUS_FINAIS_SUCESSO = ['enviado_salic', 'concluido'];
+        function erroAindaVale(d) {
+            return !!d.just_erro && !STATUS_FINAIS_SUCESSO.includes(d.status);
+        }
+
         function renderDocumentos() {
             const wrap = document.getElementById('documentos-tabela-wrap');
             renderResumoStatusDocumentos();
@@ -1681,7 +1690,7 @@
                     </thead>
                     <tbody>
                         ${documentos.map(d => {
-                            const precisaAtencao = d.status === 'bloqueado_conformidade' || !!d.just_erro;
+                            const precisaAtencao = d.status === 'bloqueado_conformidade' || erroAindaVale(d);
                             return `
                             <tr class="clickable-row ${precisaAtencao ? 'doc-row-atencao' : ''}" onclick="abrirFicha('${d.id}')">
                                 <td style="font-weight: 600;">${esc(d.name || '—')}</td>
@@ -1693,7 +1702,7 @@
                                 <td class="text-sm">${fmtMoney(d.valor)}</td>
                                 <td class="text-sm">
                                     ${htmlStatus('documents', d.status, d.updated_at)}
-                                    ${d.just_erro ? `<div class="text-xs" style="color: var(--error); margin-top: 0.25rem;">${esc(d.just_erro)}</div>` : ''}
+                                    ${erroAindaVale(d) ? `<div class="text-xs" style="color: var(--error); margin-top: 0.25rem;">${esc(d.just_erro)}</div>` : ''}
                                 </td>
                                 <td class="text-sm">${fmtDate(d.created_at)}</td>
                                 <td style="text-align: right; white-space: nowrap;">
@@ -1813,7 +1822,9 @@
                     </div>
                     <p class="text-sm" style="margin-top: 0.75rem;">${esc(s.explicacao || 'Status fora do catálogo.')}</p>
                     <p class="text-sm" style="margin-top: 0.25rem;"><strong>Próximo passo:</strong> ${esc(s.proximo_passo || '—')}</p>
-                    ${d.just_erro ? `<p class="text-sm" style="margin-top: 0.5rem; color: var(--error);"><strong>Motivo registrado:</strong> ${esc(d.just_erro)}</p>` : ''}
+                    ${erroAindaVale(d)
+                        ? `<p class="text-sm" style="margin-top: 0.5rem; color: var(--error);"><strong>Motivo registrado:</strong> ${esc(d.just_erro)}</p>`
+                        : (d.just_erro ? `<p class="text-sm" style="margin-top: 0.5rem; color: var(--text-muted);"><strong>Histórico de tentativa anterior:</strong> ${esc(d.just_erro)}</p>` : '')}
                 </div>`;
 
             // ── 2. Ações: só as que fazem sentido para o tipo do documento ──
