@@ -4235,9 +4235,31 @@ window.submitUnifiedFile = async function () {
     }
 };
 
+// documents.fornecedor_id referencia fornecedores.id, que só coincide com o id do
+// login nas contas antigas. Em acessos criados pelo gestor o vínculo é por
+// fornecedores.auth_user_id, então o id certo vem de projeto_fornecedores.
+function fornecedorIdDoProjeto(projectId) {
+    const vinculo = (state.projects || []).find(p => p.project_id === projectId);
+    return (vinculo && vinculo.fornecedor_id) || null;
+}
+
+// Todos os fornecedores.id que este login enxerga: um por projeto vinculado, mais o
+// próprio id do login (contas antigas). O RLS continua sendo a barreira real.
+function idsFornecedorDoSolicitante() {
+    const ids = new Set((state.projects || []).map(p => p.fornecedor_id).filter(Boolean));
+    if (state.user && state.user.id) ids.add(state.user.id);
+    return [...ids];
+}
+
 window.handleSolicitanteUpload = async function (file, projectId) {
     // projectId é passado como parâmetro por submitUnifiedFile (capturado antes do render)
     if (!file || !projectId) return window.showToast("Selecione um projeto e um arquivo!", 'error');
+
+    // Resolve antes de tocar no Storage: sem fornecedor não há upload nem insert.
+    const fornecedorId = fornecedorIdDoProjeto(projectId);
+    if (!fornecedorId) {
+        return window.showToast("Não foi possível identificar o seu cadastro de solicitante neste projeto. Entre em contato com o gestor do projeto.", 'error');
+    }
 
     state.loading = true;
     render();
@@ -4257,7 +4279,7 @@ window.handleSolicitanteUpload = async function (file, projectId) {
         const { data: dbData, error: dbError } = await supabaseClient.from('documents').insert({
             user_id: state.user.id,
             project_id: projectId,
-            fornecedor_id: state.user.id,
+            fornecedor_id: fornecedorId,
             name: file.name,
             size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
             file_path: filePath,
@@ -4266,7 +4288,16 @@ window.handleSolicitanteUpload = async function (file, projectId) {
             organization_id: selectedProject?.organization_id || null
         }).select().single();
 
-        if (dbError) throw dbError;
+        if (dbError) {
+            // Best effort: não deixa o arquivo órfão no bucket, sem esconder o erro original.
+            try {
+                const { error: removeError } = await supabaseClient.storage.from('documentos').remove([filePath]);
+                if (removeError) console.warn('Não foi possível remover o arquivo órfão do Storage:', removeError);
+            } catch (removeErr) {
+                console.warn('Não foi possível remover o arquivo órfão do Storage:', removeErr);
+            }
+            throw dbError;
+        }
 
         // Disparar Webhook para o n8n
         console.log("Notificando n8n (Fornecedor)...", CONFIG.N8N_WEBHOOK_URL);
@@ -4290,7 +4321,11 @@ window.handleSolicitanteUpload = async function (file, projectId) {
         window.showToast("Upload concluído! Gestor notificado.", 'success');
         await fetchSolicitanteDashboard(); // recarrega a grid
     } catch (error) {
-        window.showToast("Erro no upload: " + error.message, 'error');
+        if (/row-level security/i.test(String(error && error.message))) {
+            window.showToast("Não foi possível enviar o documento: o seu acesso a este projeto não permite envios. Entre em contato com o gestor do projeto para que ele ajuste o seu acesso.", 'error');
+        } else {
+            window.showToast("Erro no upload: " + error.message, 'error');
+        }
     } finally {
         state.loading = false;
         render();
@@ -4303,7 +4338,7 @@ async function fetchSolicitanteDashboard() {
         // Busca projetos vinculados ao fornecedor, incluindo o gestor_id
         const { data: projData, error: projError } = await supabaseClient
             .from('projeto_fornecedores')
-            .select('project_id, gestor_id, projects(id, pronac, nome)');
+            .select('project_id, fornecedor_id, gestor_id, projects(id, pronac, nome)');
 
         if (projError) console.error('Erro ao buscar projetos do fornecedor:', projError);
         let activeProjects = (projData || []).filter(p => p.projects); // filtra registros com join válido
@@ -4340,7 +4375,7 @@ async function fetchSolicitanteDashboard() {
         const { data: docData, error: docError } = await supabaseClient
             .from('documents')
             .select('*, projects(pronac, nome)')
-            .eq('fornecedor_id', state.user.id)
+            .in('fornecedor_id', idsFornecedorDoSolicitante())
             .or('tipo_documento.eq.nf,tipo_documento.eq.comprovante,tipo_documento.is.null')
             .order('created_at', { ascending: false });
 
