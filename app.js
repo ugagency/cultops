@@ -3980,8 +3980,25 @@ function statusConciliacaoBadge(status) {
 // Lançamentos que a auditoria da conciliação citou em documents.just_erro quando o extrato
 // conferido não tem linhas gravadas. Padrão do workflow:
 //   "R$ 3.490,69 em 04/08/2026 (TED Transf.Eletr.Disponiv ..., documento 80.405); R$ ..."
+// Só vale quando a mensagem começa com "Há N lançamentos que atendem as regras" (N >= 2): aí a
+// auditoria aceitou os lançamentos e não soube escolher. Lançamentos citados numa mensagem de
+// rejeição foram descartados por ela (outra competência, outro beneficiário) e não viram item.
 // Texto fora do padrão não gera item: nada é inventado.
+function normalizarTextoAuditoria(texto) {
+    return String(texto || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
+
+function auditoriaListouLancamentosAceitos(doc) {
+    const m = normalizarTextoAuditoria(doc?.just_erro).match(/^ha\s+(\d+)\s+lancamentos\s+que\s+atendem\s+as\s+regras/);
+    return !!m && Number(m[1]) >= 2;
+}
+
+function auditoriaRejeitouLancamentos(doc) {
+    return normalizarTextoAuditoria(doc?.just_erro).startsWith('ha saida com o valor da nota, mas ela nao pode ser confirmada');
+}
+
 function lancamentosCitadosAuditoria(doc) {
+    if (!auditoriaListouLancamentosAceitos(doc)) return [];
     const texto = String(doc?.just_erro || '');
     const itens = [];
     const re = /R\$\s*(\d{1,3}(?:\.\d{3})*,\d{2})\s+em\s+(\d{2})\/(\d{2})\/(\d{4})\s*\(([^)]*)\)/g;
@@ -4077,6 +4094,8 @@ const PagamentoNotaSection = (doc) => {
                             `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.4rem 0.75rem;" onclick="window.handleUsarDadosAuditoria(${i})" ${state.loading ? 'disabled' : ''}>Usar estes dados</button>`)).join('')}
                     </div>
                     ${pagamentosRepetidos ? `<p class="text-xs" style="color: #d97706; font-weight: 600; line-height: 1.5; margin-top: 0.5rem;">Há mais de um pagamento do mesmo valor para este fornecedor. Confirme com o cliente antes de comprovar.</p>` : ''}
+                ` : auditoriaRejeitouLancamentos(doc) ? `
+                    <p class="text-xs" style="color: var(--text-secondary); line-height: 1.5;">A auditoria não confirmou nenhum lançamento como pagamento desta nota. Confira o motivo no Parecer da Análise.</p>
                 ` : `
                     <p class="text-xs" style="color: var(--text-muted); line-height: 1.5;">Nenhum lançamento livre do projeto tem o valor desta nota (${fmtValorExtrato(doc.valor)}). Informe o pagamento manualmente${temSubstituir ? ' ou use Substituir Extrato para enviar o extrato correto' : ' ou suba o extrato correto'}.</p>
                 `}
