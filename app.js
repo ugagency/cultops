@@ -851,6 +851,12 @@ const state = {
     // { extrato, lancamentoDaNota, lancamentos, notasPorId } — seção de extrato.
     currentExtrato: null,
     extratoLancamentosExpandido: false,
+    // Pagamento da nota aberta: lançamentos candidatos, origem do pagamento ('extrato' |
+    // 'escolhido' | 'manual' | null) e rascunho do formulário de pagamento manual.
+    candidatosLancamento: [],
+    origemPagamento: null,
+    pagamentoManualAberto: false,
+    pagamentoManualRascunho: {},
     loading: false,
     // Troca de senha obrigatória do primeiro acesso: distingue este fluxo do
     // de recuperação por e-mail, que compartilha a mesma UpdatePasswordView.
@@ -913,6 +919,53 @@ function userCanDelete() {
 
 function userIsGestorOrAbove() {
     return ['admin', 'gestor'].includes(getUserRole());
+}
+
+// Escolher o lançamento da nota e informar pagamento manual (RPCs confirmar_lancamento_nota
+// e informar_pagamento_manual): admin, gestor e analista.
+function userPodeResolverPagamento() {
+    return ['admin', 'gestor', 'analista'].includes(getUserRole());
+}
+
+// Nota sem o pagamento identificado: o SALIC exige número da transação e data, que vêm do
+// lançamento do extrato (fitid, data_pagamento) ou do pagamento informado manualmente.
+function notaSemPagamento(doc) {
+    return !doc || !doc.fitid || !doc.data_pagamento;
+}
+
+const MSG_INFORME_PAGAMENTO = 'Informe o lançamento ou o pagamento antes de avançar';
+
+// Status em que a nota pode ficar sem pagamento identificado e o usuário precisa resolver.
+const STATUS_RESOLVER_PAGAMENTO = ['divergencia_valor', 'divergencia_beneficiario', 'revisao_manual', 'conciliacao_pendente'];
+const TOLERANCIA_VALOR_LANCAMENTO = 0.02;
+const ORIGENS_PAGAMENTO_AUDIT = {
+    confirmar_lancamento_nota: 'escolhido',
+    informar_pagamento_manual: 'manual'
+};
+const ROTULO_ORIGEM_PAGAMENTO = {
+    extrato: 'Do extrato',
+    escolhido: 'Escolhido no extrato',
+    manual: 'Informado manualmente'
+};
+
+// Recusa o envio ao SALIC de notas sem pagamento identificado e lista quais foram. Devolve
+// só as notas que podem seguir. Lê o banco na hora, sem confiar na tela nem na fila salva.
+async function separarNotasSemPagamento(itens) {
+    if (itens.length === 0) return { liberados: [], bloqueados: [] };
+    const { data, error } = await supabaseClient
+        .from('documents').select('id, name, numero_nf, fitid, data_pagamento').in('id', itens.map(i => i.id));
+    if (error) throw error;
+    const porId = new Map((data || []).map(d => [d.id, d]));
+    // Id que o banco não devolveu também não segue: sem dado, sem envio.
+    const semPagamento = itens.filter(i => notaSemPagamento(porId.get(i.id)));
+    const idsBloqueados = new Set(semPagamento.map(i => i.id));
+    return {
+        liberados: itens.filter(i => !idsBloqueados.has(i.id)),
+        bloqueados: semPagamento.map(i => {
+            const d = porId.get(i.id);
+            return d && d.numero_nf ? `nota ${d.numero_nf}` : (d?.name || i.name || i.id);
+        })
+    };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2202,8 +2255,11 @@ const EnvioLoteSalicView = () => {
         // Rubrica excedida: o SALIC exige justificativa, que só existe na tela de
         // detalhes. Esses documentos não entram na seleção do lote (nem no
         // "Selecionar Todos" nem no contador) e vão para a seção de envio individual.
-        const exigemJustificativa = prontosParaEnvio.filter(doc => rubricaExigeJustificativaSalic(doc));
-        const readyDocs = prontosParaEnvio.filter(doc => !exigemJustificativa.includes(doc));
+        // Nota sem lançamento do extrato (fitid) ou data de pagamento não segue para o SALIC:
+        // fica fora da seleção e é listada abaixo, com o caminho para resolver.
+        const semPagamento = prontosParaEnvio.filter(doc => notaSemPagamento(doc));
+        const exigemJustificativa = prontosParaEnvio.filter(doc => !semPagamento.includes(doc) && rubricaExigeJustificativaSalic(doc));
+        const readyDocs = prontosParaEnvio.filter(doc => !semPagamento.includes(doc) && !exigemJustificativa.includes(doc));
         const projetoSelecionado = state.filters.project || '';
         // A marcação vem do estado, não do HTML: render() troca a tela inteira
         // e, com "checked" fixo, devolvia tudo ao marcado (inclusive documentos
@@ -2242,6 +2298,38 @@ const EnvioLoteSalicView = () => {
                                         ? '<span class="status-badge status-error">Reenvio (erro anterior)</span>'
                                         : '<span class="status-badge status-completed">Pronto</span>'}
                                 </td>
+                                <td style="text-align: right;">
+                                    <button class="btn btn-secondary" style="font-size: 11px; padding: 0.4rem 0.75rem;" onclick="window.navigate('details', '${doc.id}')">Abrir detalhes</button>
+                                </td>
+                            </tr>
+                            `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>`;
+
+        const secaoSemPagamento = semPagamento.length === 0 ? '' : `
+                <div class="card" style="margin-top: 1.5rem;">
+                    <h3 class="h2" style="margin: 0 0 0.5rem 0;">Notas sem lançamento ou pagamento identificado (${semPagamento.length})</h3>
+                    <p class="text-xs" style="color: var(--text-secondary); line-height: 1.5; margin-bottom: 1rem;">Estas notas não podem ser enviadas ao SALIC porque falta o número da transação ou a data do pagamento. Abra os detalhes de cada uma, escolha o lançamento do extrato ou informe o pagamento manualmente.</p>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Documento</th>
+                                <th>Projeto</th>
+                                <th>Status</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${semPagamento.map(doc => {
+                                const proj = state.projects.find(p => p.id === doc.project_id);
+                                const projLabel = proj ? `${proj.pronac} - ${proj.nome}` : 'Projeto não encontrado';
+                                return `
+                            <tr>
+                                <td style="font-weight: 600; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${doc.name}</td>
+                                <td style="font-size: 13px; color: var(--text-secondary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${projLabel}</td>
+                                <td><span class="status-badge status-error">Sem pagamento identificado</span></td>
                                 <td style="text-align: right;">
                                     <button class="btn btn-secondary" style="font-size: 11px; padding: 0.4rem 0.75rem;" onclick="window.navigate('details', '${doc.id}')">Abrir detalhes</button>
                                 </td>
@@ -2330,7 +2418,7 @@ const EnvioLoteSalicView = () => {
                             </tbody>
                         </table>
                     `}
-                </div>${secaoEnvioIndividual}
+                </div>${secaoSemPagamento}${secaoEnvioIndividual}
             </div>
         </main>
         `;
@@ -2530,6 +2618,23 @@ window.handleIniciarEnvioLote = async function () {
         }
     }
 
+    // Nota sem fitid ou data_pagamento não vai ao SALIC: sem número de transação o robô não
+    // tem o que informar.
+    try {
+        const { liberados, bloqueados } = await separarNotasSemPagamento(queue);
+        if (bloqueados.length > 0) {
+            queue = liberados;
+            showToast(`${bloqueados.length} nota(s) sem lançamento ou pagamento identificado foram retiradas da fila: ${bloqueados.join(', ')}. Abra os detalhes, informe o lançamento ou o pagamento e envie de novo.`, 'error');
+            if (queue.length === 0) {
+                render();
+                return;
+            }
+        }
+    } catch (err) {
+        showToast('Erro ao conferir o pagamento das notas: ' + (err.message || err), 'error');
+        return;
+    }
+
     state.salicLoteDesmarcados = [];
     state.salicLoteQueue = queue;
     state.salicLoteProgress = { current: 0, total: queue.length };
@@ -2584,6 +2689,29 @@ window.handleLimparFilaSalic = function () {
 
 async function processarFilaSalic() {
     if (!state.salicLoteRunning) return;
+
+    // Fila salva ou retomada pode ter nota que perdeu o pagamento depois de entrar: confere
+    // as pendentes no banco e marca como erro, com o motivo, em vez de mandar ao SALIC.
+    try {
+        const pendentes = state.salicLoteQueue.filter(item => item.status === 'pending');
+        const { liberados, bloqueados } = await separarNotasSemPagamento(pendentes);
+        if (bloqueados.length > 0) {
+            pendentes.filter(item => !liberados.includes(item)).forEach(item => {
+                item.status = 'error';
+                item.error = 'Nota sem lançamento ou pagamento identificado. ' + MSG_INFORME_PAGAMENTO + '.';
+                state.salicLoteProgress.current++;
+            });
+            showToast(`${bloqueados.length} nota(s) sem lançamento ou pagamento identificado não foram enviadas: ${bloqueados.join(', ')}.`, 'error');
+            salvarFilaSalic();
+            render();
+        }
+    } catch (err) {
+        state.salicLoteRunning = false;
+        salvarFilaSalic();
+        render();
+        showToast('Envio em lote interrompido: não foi possível conferir o pagamento das notas (' + (err.message || err) + ').', 'error');
+        return;
+    }
 
     for (let i = 0; i < state.salicLoteQueue.length; i++) {
         if (state.salicLoteCancelled) {
@@ -3668,6 +3796,7 @@ ${Sidebar()}
             </div>
         </div>
 
+        ${PagamentoNotaSection(doc)}
         ${ExtratoBancarioSection(doc)}
     </main>
     `;
@@ -3814,6 +3943,112 @@ function statusConciliacaoBadge(status) {
     return `<span style="display:inline-flex; align-items:center; padding:0.1rem 0.5rem; border-radius:9999px; background:${fundo}; color:${cor}; font-size:11px; font-weight:600; white-space:nowrap;">${escAttr(texto)}</span>`;
 }
 
+// Pagamento da nota: origem (quando já existe) ou, quando falta, os lançamentos candidatos do
+// projeto e o formulário de pagamento manual. Sem pagamento a nota não vai ao SALIC.
+const PagamentoNotaSection = (doc) => {
+    const podeResolver = userPodeResolverPagamento();
+    const sem = notaSemPagamento(doc);
+    const precisaResolver = sem && STATUS_RESOLVER_PAGAMENTO.includes(doc.status);
+    const origem = state.origemPagamento;
+    if (!precisaResolver && !(origem && !sem)) return '';
+
+    const infoItem = (rotulo, valor) => `
+        <div class="info-item">
+            <label>${rotulo}</label>
+            <p class="text-sm" style="font-weight: 600;">${valor}</p>
+        </div>`;
+
+    if (!sem) {
+        return `
+        <div class="card" style="margin-top: 1.5rem;">
+            <h3 class="h2 mb-4">Pagamento da nota</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: 1.25rem;">
+                ${infoItem('Origem do pagamento', escAttr(ROTULO_ORIGEM_PAGAMENTO[origem]))}
+                ${infoItem('Data do pagamento', fmtDataExtrato(doc.data_pagamento))}
+                ${doc.valor_pago != null ? infoItem('Valor pago', fmtValorExtrato(doc.valor_pago)) : ''}
+                ${infoItem('Número da transação', `<span style="font-family: monospace; font-size: 12px;">${escAttr(doc.fitid)}</span>`)}
+            </div>
+        </div>`;
+    }
+
+    const candidatos = state.candidatosLancamento || [];
+    const r = state.pagamentoManualRascunho || {};
+    const campo = (id, rotulo, inputHtml) => `
+        <div class="form-group" style="margin-bottom: 0;">
+            <label for="${id}">${rotulo}</label>
+            ${inputHtml}
+        </div>`;
+    const oninput = (nome) => `oninput="window.handleRascunhoPagamento('${nome}', this.value)"`;
+    const valorInicial = r.valor != null ? r.valor : parseValorBR(doc.valor).toFixed(2).replace('.', ',');
+
+    return `
+        <div class="card" style="margin-top: 1.5rem;">
+            <h3 class="h2 mb-2">Pagamento da nota</h3>
+            <p class="text-xs" style="color: var(--error); font-weight: 600; line-height: 1.5; margin-bottom: 1rem;">
+                Esta nota não tem lançamento do extrato nem pagamento informado. Sem o número da transação ela não pode ser enviada ao SALIC.
+            </p>
+            ${!podeResolver ? `
+                <p class="text-xs" style="color: var(--text-muted);">Peça a um administrador, gestor ou analista para escolher o lançamento ou informar o pagamento.</p>
+            ` : `
+                ${candidatos.length > 0 ? `
+                    <span class="text-xs" style="font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;">Lançamentos do projeto com o valor desta nota (${candidatos.length})</span>
+                    <div class="data-table-container" style="margin-top: 0.75rem;">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th style="white-space: nowrap;">Data</th>
+                                    <th style="text-align: right; white-space: nowrap;">Valor</th>
+                                    <th>Histórico</th>
+                                    <th>FITID</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${candidatos.map(l => `
+                                <tr>
+                                    <td style="white-space: nowrap;"><div class="text-sm">${fmtDataExtrato(l.data_lancamento)}</div></td>
+                                    <td style="text-align: right; white-space: nowrap;"><div class="text-sm" style="font-weight: 600;">${fmtValorExtrato(l.valor)}</div></td>
+                                    <td><div class="text-sm">${escAttr(l.memo || '---')}</div></td>
+                                    <td><span style="font-family: monospace; font-size: 12px;">${escAttr(l.fitid || '---')}</span></td>
+                                    <td style="text-align: right;">
+                                        <button class="btn btn-primary" style="font-size: 11px; padding: 0.4rem 0.75rem; white-space: nowrap;" onclick="window.handleConfirmarLancamentoNota('${doc.id}', '${l.id}')" ${state.loading ? 'disabled' : ''}>Este é o lançamento</button>
+                                    </td>
+                                </tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                ` : `
+                    <p class="text-xs" style="color: var(--text-muted); line-height: 1.5;">Nenhum lançamento livre do projeto tem o valor desta nota (${fmtValorExtrato(doc.valor)}). Informe o pagamento manualmente ou suba o extrato correto.</p>
+                `}
+
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem;">
+                    <button class="btn btn-secondary" style="font-size: 12px; padding: 0.5rem 1rem;" onclick="window.togglePagamentoManual()">
+                        ${state.pagamentoManualAberto ? 'Fechar formulário de pagamento' : 'Informar pagamento manualmente'}
+                    </button>
+                    <button class="btn btn-secondary" style="font-size: 12px; padding: 0.5rem 1rem;" onclick="window.handleSubirExtratoCorreto()">Subir o extrato correto</button>
+                </div>
+
+                ${state.pagamentoManualAberto ? `
+                <div style="margin-top: 1rem; padding: 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: var(--bg-sidebar);">
+                    <p class="text-xs" style="color: var(--text-secondary); line-height: 1.5; margin-bottom: 1rem;">Use esta opção só quando nenhum lançamento serve. O número da transação vai para o SALIC como está, e a justificativa fica registrada.</p>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 1rem;">
+                        ${campo('pgto-data', 'Data do pagamento', `<input type="date" id="pgto-data" value="${escAttr(r.data || '')}" ${oninput('data')}>`)}
+                        ${campo('pgto-valor', 'Valor pago (R$)', `<input type="text" id="pgto-valor" inputmode="decimal" value="${escAttr(valorInicial)}" ${oninput('valor')}>`)}
+                        ${campo('pgto-nr', 'Número da transação', `<input type="text" id="pgto-nr" autocomplete="off" value="${escAttr(r.nr || '')}" ${oninput('nr')}>`)}
+                        ${campo('pgto-nr-conf', 'Confirme o número da transação', `<input type="text" id="pgto-nr-conf" autocomplete="off" onpaste="return false" value="${escAttr(r.nrConf || '')}" ${oninput('nrConf')}>`)}
+                    </div>
+                    <div class="form-group" style="margin: 1rem 0 0;">
+                        <label for="pgto-just">Justificativa (mínimo 20 caracteres)</label>
+                        <textarea id="pgto-just" rows="3" ${oninput('justificativa')}>${escAttr(r.justificativa || '')}</textarea>
+                    </div>
+                    <div style="margin-top: 1rem;">
+                        <button class="btn btn-primary" style="font-size: 12px; padding: 0.5rem 1rem;" onclick="window.handleInformarPagamentoManual('${doc.id}')" ${state.loading ? 'disabled' : ''}>Salvar pagamento</button>
+                    </div>
+                </div>` : ''}
+            `}
+        </div>`;
+};
+
 const ExtratoBancarioSection = (doc) => {
     const ctx = state.currentExtrato;
     // Nota que ainda não chegou nessa etapa: não polui a tela.
@@ -3952,6 +4187,21 @@ window.handleForcarAvanco = async function (docId, currentStatus) {
 
     if (!nextStatus) return window.showToast('Não é possível forçar avanço para este status.', 'error');
 
+    // Divergência de valor ou de beneficiário: sem lançamento escolhido ou pagamento informado,
+    // avançar levaria ao SALIC uma nota sem número de transação.
+    if (['divergencia_valor', 'divergencia_beneficiario'].includes(currentStatus)) {
+        const { data: docBanco, error: errPagto } = await supabaseClient
+            .from('documents').select('fitid, data_pagamento').eq('id', docId).maybeSingle();
+        if (errPagto || !docBanco) {
+            window.showToast('Não foi possível conferir o pagamento da nota. Tente novamente.', 'error');
+            return;
+        }
+        if (notaSemPagamento(docBanco)) {
+            window.showToast(MSG_INFORME_PAGAMENTO, 'error');
+            return;
+        }
+    }
+
     window.showConfirmModal({
         title: '⚠️ Atenção — Continuar por conta e risco',
         message: 'Ao confirmar, você assume total responsabilidade pela conformidade deste documento perante o SALIC e a prestação de contas.\n\nDeseja prosseguir mesmo assim?',
@@ -4009,6 +4259,114 @@ window.handleForcarAvanco = async function (docId, currentStatus) {
             }
         }
     });
+};
+
+// Pagamento da nota: escolha do lançamento do extrato e pagamento manual. As regras de papel e
+// de dados ficam nas funções do banco (confirmar_lancamento_nota, informar_pagamento_manual); a
+// mensagem da exception é a que o usuário vê.
+function mensagemErroRpc(err) {
+    return (err && (err.message || err.details)) || 'Não foi possível concluir a operação.';
+}
+
+window.handleConfirmarLancamentoNota = function (docId, lancamentoId) {
+    if (!userPodeResolverPagamento()) {
+        showToast('Seu perfil não pode escolher o lançamento desta nota.', 'error');
+        return;
+    }
+    const l = (state.candidatosLancamento || []).find(x => x.id === lancamentoId);
+    if (!l) return;
+
+    window.showConfirmModal({
+        title: 'Confirmar lançamento',
+        message: `Vincular esta nota ao lançamento de ${fmtValorExtrato(l.valor)} em ${fmtDataExtrato(l.data_lancamento)}?\n\nHistórico: ${l.memo || '---'}\nFITID: ${l.fitid || '---'}\n\nO número da transação deste lançamento será usado no envio ao SALIC.`,
+        confirmLabel: 'Confirmar lançamento',
+        onConfirm: async () => {
+            state.loading = true;
+            render();
+            try {
+                const { error } = await supabaseClient.rpc('confirmar_lancamento_nota', {
+                    p_document_id: docId,
+                    p_lancamento_id: lancamentoId
+                });
+                if (error) throw error;
+                window.showToast('Lançamento confirmado para esta nota.', 'success');
+                await fetchDocumentDetails(docId);
+            } catch (err) {
+                window.showToast(mensagemErroRpc(err), 'error');
+            } finally {
+                state.loading = false;
+                render();
+            }
+        }
+    });
+};
+
+window.togglePagamentoManual = function () {
+    state.pagamentoManualAberto = !state.pagamentoManualAberto;
+    render();
+};
+
+// A cada tecla; sem render() para não perder o foco. Guarda o texto para sobreviver a um
+// render() causado por outra coisa (atualização em tempo real).
+window.handleRascunhoPagamento = function (campo, valor) {
+    state.pagamentoManualRascunho = { ...(state.pagamentoManualRascunho || {}), [campo]: valor };
+};
+
+// O formulário de upload do extrato já existe na caixa "Extrato Bancário" do fluxo; aqui só
+// se aponta para ele, abrindo a opção de enviar outro extrato quando o do lote estiver ativo.
+window.handleSubirExtratoCorreto = function () {
+    if (!document.getElementById('vincular-extrato-input') && !state.isUploadingExtrato && !state.uploadConcluidoExtrato) {
+        state.mostrarUploadManualExtrato = true;
+        render();
+    }
+    const input = document.getElementById('vincular-extrato-input');
+    if (!input) {
+        showToast('O envio do extrato já está em andamento para esta nota.', 'info');
+        return;
+    }
+    input.click();
+};
+
+window.handleInformarPagamentoManual = async function (docId) {
+    if (!userPodeResolverPagamento()) {
+        showToast('Seu perfil não pode informar o pagamento desta nota.', 'error');
+        return;
+    }
+    const ler = (id) => (document.getElementById(id)?.value ?? '');
+    const data = ler('pgto-data').trim();
+    const nr = ler('pgto-nr').trim();
+    const nrConf = ler('pgto-nr-conf').trim();
+    const valor = parseValorBR(ler('pgto-valor'));
+    const justificativa = ler('pgto-just').trim();
+
+    if (!data) return showToast('Informe a data do pagamento.', 'error');
+    if (!nr) return showToast('Informe o número da transação.', 'error');
+    if (nr !== nrConf) return showToast('O número da transação e a confirmação não são iguais.', 'error');
+    if (!(valor > 0)) return showToast('Informe o valor pago.', 'error');
+    if (justificativa.length < 20) return showToast('A justificativa precisa ter pelo menos 20 caracteres.', 'error');
+
+    state.loading = true;
+    render();
+    try {
+        const { error } = await supabaseClient.rpc('informar_pagamento_manual', {
+            p_document_id: docId,
+            p_data: data,
+            p_nr_transacao: nr,
+            p_valor: valor,
+            p_justificativa: justificativa
+        });
+        if (error) throw error;
+        state.pagamentoManualAberto = false;
+        state.pagamentoManualRascunho = { docId };
+        window.showToast('Pagamento informado para esta nota.', 'success');
+        await fetchDocumentDetails(docId);
+    } catch (err) {
+        // Mantém o formulário preenchido para corrigir e tentar de novo.
+        window.showToast(mensagemErroRpc(err), 'error');
+    } finally {
+        state.loading = false;
+        render();
+    }
 };
 
 // Reprocessa um documento travado numa etapa intermediária (ver estaTravado,
@@ -6268,6 +6626,55 @@ async function carregarExtratoDaNota(doc) {
     }
 }
 
+// Pagamento da nota aberta: lançamentos candidatos (quando falta o pagamento) e a origem do
+// pagamento (quando já existe). Falha aqui não derruba o detalhe da nota.
+async function carregarPagamentoDaNota(doc) {
+    state.candidatosLancamento = [];
+    state.origemPagamento = null;
+    if (state.pagamentoManualRascunho?.docId !== doc?.id) {
+        state.pagamentoManualAberto = false;
+        state.pagamentoManualRascunho = { docId: doc?.id };
+    }
+    if (!supabaseClient || !doc?.id || !doc?.project_id) return;
+
+    try {
+        if (notaSemPagamento(doc)) {
+            if (!STATUS_RESOLVER_PAGAMENTO.includes(doc.status) || !userPodeResolverPagamento()) return;
+            const v = Math.abs(parseValorBR(doc.valor));
+            if (!v) return;
+            const faixa = (c) => `and(valor.gte.${(c - TOLERANCIA_VALOR_LANCAMENTO).toFixed(2)},valor.lte.${(c + TOLERANCIA_VALOR_LANCAMENTO).toFixed(2)})`;
+            // Débito vem com sinal negativo no extrato: a faixa vale para os dois sinais.
+            const { data, error } = await supabaseClient
+                .from('extratos_lancamentos')
+                .select('id, extrato_id, project_id, fitid, valor, data_lancamento, memo, status_conciliacao, document_id')
+                .eq('project_id', doc.project_id)
+                .or(`${faixa(v)},${faixa(-v)}`)
+                .order('data_lancamento', { ascending: true });
+            if (error) throw error;
+            state.candidatosLancamento = (data || []).filter(l =>
+                (!l.document_id || l.document_id === doc.id)
+                && Math.abs(Math.abs(parseValorBR(l.valor)) - v) <= TOLERANCIA_VALOR_LANCAMENTO + 1e-6);
+            return;
+        }
+
+        const { data: log, error: errLog } = await supabaseClient
+            .from('audit_log')
+            .select('origem, created_at')
+            .eq('tabela', 'documents')
+            .eq('registro_id', doc.id)
+            .in('origem', Object.keys(ORIGENS_PAGAMENTO_AUDIT))
+            .order('created_at', { ascending: false })
+            .limit(1);
+        if (errLog) throw errLog;
+        // Sem registro de escolha ou de pagamento manual, o vínculo veio do extrato (fitid).
+        state.origemPagamento = (log && log[0] && ORIGENS_PAGAMENTO_AUDIT[log[0].origem]) || (doc.fitid ? 'extrato' : null);
+    } catch (err) {
+        console.error('[carregarPagamentoDaNota]', err);
+        state.candidatosLancamento = [];
+        state.origemPagamento = null;
+    }
+}
+
 async function fetchDocumentDetails(id, silent = false) {
     // Se o supabase ou o usuário não estiver pronto, aguarda até 3s e tenta de novo
     if (!supabaseClient || !state.user) {
@@ -6362,6 +6769,7 @@ async function fetchDocumentDetails(id, silent = false) {
         // Extrato bancário e seus lançamentos (somente leitura).
         state.currentExtrato = null;
         if (data) await carregarExtratoDaNota(data);
+        await carregarPagamentoDaNota(data);
 
         // Documento apontado como duplicata, para o comparativo lado a lado.
         // Pode não existir mais (duplicata_de_id vira NULL na exclusão, mas a
@@ -8588,6 +8996,19 @@ window.handleEnviarSalic = async function (documentId) {
     ].filter(Boolean) : [];
     if (camposFaltandoSalic.length > 0) {
         showToast(`Faltam dados obrigatórios para enviar ao SALIC: ${camposFaltandoSalic.join(', ')}.`, 'error');
+        return;
+    }
+
+    // Sem fitid e data_pagamento não há número de transação para o SALIC. Confere no banco,
+    // não na tela, que pode estar desatualizada.
+    try {
+        const { bloqueados } = await separarNotasSemPagamento([{ id: documentId, name: docParaValidar?.name }]);
+        if (bloqueados.length > 0) {
+            showToast('Nota sem lançamento ou pagamento identificado: informe o lançamento ou o pagamento antes de enviar ao SALIC.', 'error');
+            return;
+        }
+    } catch (err) {
+        showToast('Envio interrompido: não foi possível conferir o pagamento da nota (' + (err.message || err) + ').', 'error');
         return;
     }
 
