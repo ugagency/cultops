@@ -3682,6 +3682,7 @@ ${Sidebar()}
                     `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando liberação...</p>`))
         }
                             ${btnVerExtrato}
+                            ${PagamentoNotaSection(doc)}
                         </div>
 
                         <!-- Box do Comprovante -->
@@ -3796,7 +3797,6 @@ ${Sidebar()}
             </div>
         </div>
 
-        ${PagamentoNotaSection(doc)}
         ${ExtratoBancarioSection(doc)}
     </main>
     `;
@@ -3943,8 +3943,35 @@ function statusConciliacaoBadge(status) {
     return `<span style="display:inline-flex; align-items:center; padding:0.1rem 0.5rem; border-radius:9999px; background:${fundo}; color:${cor}; font-size:11px; font-weight:600; white-space:nowrap;">${escAttr(texto)}</span>`;
 }
 
-// Pagamento da nota: origem (quando já existe) ou, quando falta, os lançamentos candidatos do
-// projeto e o formulário de pagamento manual. Sem pagamento a nota não vai ao SALIC.
+// Lançamentos que a auditoria da conciliação citou em documents.just_erro quando o extrato
+// conferido não tem linhas gravadas. Padrão do workflow:
+//   "R$ 3.490,69 em 04/08/2026 (TED Transf.Eletr.Disponiv ..., documento 80.405); R$ ..."
+// Texto fora do padrão não gera item: nada é inventado.
+function lancamentosCitadosAuditoria(doc) {
+    const texto = String(doc?.just_erro || '');
+    const itens = [];
+    const re = /R\$\s*(\d{1,3}(?:\.\d{3})*,\d{2})\s+em\s+(\d{2})\/(\d{2})\/(\d{4})\s*\(([^)]*)\)/g;
+    let m;
+    while ((m = re.exec(texto)) !== null) {
+        const [, valorTxt, dd, mm, aaaa, interno] = m;
+        const dia = Number(dd), mes = Number(mm);
+        if (dia < 1 || dia > 31 || mes < 1 || mes > 12) continue;
+        const docM = interno.match(/,?\s*documento\s+(?:n[ºo°]\s*)?([^\s,;)]+)\s*$/i);
+        itens.push({
+            valor: parseValorBR(valorTxt),
+            valorTxt,
+            data: `${aaaa}-${mm}-${dd}`,
+            dataTxt: `${dd}/${mm}/${aaaa}`,
+            descricao: (docM ? interno.slice(0, docM.index) : interno).trim(),
+            numeroDocumento: docM ? docM[1] : ''
+        });
+    }
+    return itens;
+}
+
+// Pagamento da nota, dentro do passo 1 (Extrato bancário) do Fluxo de Conciliação: origem
+// (quando já existe) ou, quando falta, os lançamentos candidatos do projeto, os citados pela
+// auditoria e o formulário de pagamento manual. Sem pagamento a nota não vai ao SALIC.
 const PagamentoNotaSection = (doc) => {
     const podeResolver = userPodeResolverPagamento();
     const sem = notaSemPagamento(doc);
@@ -3952,97 +3979,93 @@ const PagamentoNotaSection = (doc) => {
     const origem = state.origemPagamento;
     if (!precisaResolver && !(origem && !sem)) return '';
 
-    const infoItem = (rotulo, valor) => `
-        <div class="info-item">
-            <label>${rotulo}</label>
-            <p class="text-sm" style="font-weight: 600;">${valor}</p>
-        </div>`;
+    const caixa = 'margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border-light);';
+    const rotulo = (t) => `<span class="text-xs" style="font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;">${t}</span>`;
+    const linha = (r, v) => `<p class="text-xs" style="color: var(--text-secondary); line-height: 1.5;">${r}: <strong>${v}</strong></p>`;
 
     if (!sem) {
         return `
-        <div class="card" style="margin-top: 1.5rem;">
-            <h3 class="h2 mb-4">Pagamento da nota</h3>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: 1.25rem;">
-                ${infoItem('Origem do pagamento', escAttr(ROTULO_ORIGEM_PAGAMENTO[origem]))}
-                ${infoItem('Data do pagamento', fmtDataExtrato(doc.data_pagamento))}
-                ${doc.valor_pago != null ? infoItem('Valor pago', fmtValorExtrato(doc.valor_pago)) : ''}
-                ${infoItem('Número da transação', `<span style="font-family: monospace; font-size: 12px;">${escAttr(doc.fitid)}</span>`)}
+        <div style="${caixa}">
+            ${rotulo('Pagamento da nota')}
+            <div style="margin-top: 0.4rem;">
+                ${linha('Origem do pagamento', escAttr(ROTULO_ORIGEM_PAGAMENTO[origem]))}
+                ${linha('Data do pagamento', fmtDataExtrato(doc.data_pagamento))}
+                ${doc.valor_pago != null ? linha('Valor pago', fmtValorExtrato(doc.valor_pago)) : ''}
+                ${linha('Número da transação', `<span style="font-family: monospace;">${escAttr(doc.fitid)}</span>`)}
             </div>
         </div>`;
     }
 
     const candidatos = state.candidatosLancamento || [];
+    const citados = candidatos.length === 0 ? lancamentosCitadosAuditoria(doc) : [];
+    const valoresCitados = citados.map(c => c.valor.toFixed(2));
+    const pagamentosRepetidos = valoresCitados.some((v, i) => valoresCitados.indexOf(v) !== i);
+    const temSubstituir = ['divergencia_valor', 'divergencia_beneficiario'].includes(doc.status);
     const r = state.pagamentoManualRascunho || {};
-    const campo = (id, rotulo, inputHtml) => `
+    const campo = (id, rot, inputHtml) => `
         <div class="form-group" style="margin-bottom: 0;">
-            <label for="${id}">${rotulo}</label>
+            <label for="${id}">${rot}</label>
             ${inputHtml}
         </div>`;
     const oninput = (nome) => `oninput="window.handleRascunhoPagamento('${nome}', this.value)"`;
     const valorInicial = r.valor != null ? r.valor : parseValorBR(doc.valor).toFixed(2).replace('.', ',');
+    const cartao = (conteudo, botao) => `
+        <div style="padding: 0.6rem; border: 1px solid var(--border-light); border-radius: 4px; background: var(--bg-card, #fff);">
+            ${conteudo}
+            <div style="margin-top: 0.5rem;">${botao}</div>
+        </div>`;
 
     return `
-        <div class="card" style="margin-top: 1.5rem;">
-            <h3 class="h2 mb-2">Pagamento da nota</h3>
-            <p class="text-xs" style="color: var(--error); font-weight: 600; line-height: 1.5; margin-bottom: 1rem;">
+        <div style="${caixa}">
+            ${rotulo('Pagamento da nota')}
+            <p class="text-xs" style="color: var(--error); font-weight: 600; line-height: 1.5; margin: 0.4rem 0 0.75rem;">
                 Esta nota não tem lançamento do extrato nem pagamento informado. Sem o número da transação ela não pode ser enviada ao SALIC.
             </p>
             ${!podeResolver ? `
                 <p class="text-xs" style="color: var(--text-muted);">Peça a um administrador, gestor ou analista para escolher o lançamento ou informar o pagamento.</p>
             ` : `
                 ${candidatos.length > 0 ? `
-                    <span class="text-xs" style="font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;">Lançamentos do projeto com o valor desta nota (${candidatos.length})</span>
-                    <div class="data-table-container" style="margin-top: 0.75rem;">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th style="white-space: nowrap;">Data</th>
-                                    <th style="text-align: right; white-space: nowrap;">Valor</th>
-                                    <th>Histórico</th>
-                                    <th>FITID</th>
-                                    <th></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${candidatos.map(l => `
-                                <tr>
-                                    <td style="white-space: nowrap;"><div class="text-sm">${fmtDataExtrato(l.data_lancamento)}</div></td>
-                                    <td style="text-align: right; white-space: nowrap;"><div class="text-sm" style="font-weight: 600;">${fmtValorExtrato(l.valor)}</div></td>
-                                    <td><div class="text-sm">${escAttr(l.memo || '---')}</div></td>
-                                    <td><span style="font-family: monospace; font-size: 12px;">${escAttr(l.fitid || '---')}</span></td>
-                                    <td style="text-align: right;">
-                                        <button class="btn btn-primary" style="font-size: 11px; padding: 0.4rem 0.75rem; white-space: nowrap;" onclick="window.handleConfirmarLancamentoNota('${doc.id}', '${l.id}')" ${state.loading ? 'disabled' : ''}>Este é o lançamento</button>
-                                    </td>
-                                </tr>`).join('')}
-                            </tbody>
-                        </table>
+                    ${rotulo(`Lançamentos do projeto com o valor desta nota (${candidatos.length})`)}
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
+                        ${candidatos.map(l => cartao(`
+                            <p class="text-sm" style="font-weight: 600;">${fmtValorExtrato(l.valor)} em ${fmtDataExtrato(l.data_lancamento)}</p>
+                            <p class="text-xs" style="color: var(--text-secondary); line-height: 1.4;">${escAttr(l.memo || '---')}</p>
+                            <p class="text-xs" style="color: var(--text-muted);">FITID: <span style="font-family: monospace;">${escAttr(l.fitid || '---')}</span></p>`,
+                            `<button class="btn btn-primary" style="width: 100%; font-size: 11px; padding: 0.4rem 0.75rem;" onclick="window.handleConfirmarLancamentoNota('${doc.id}', '${l.id}')" ${state.loading ? 'disabled' : ''}>Este é o lançamento</button>`)).join('')}
                     </div>
+                ` : citados.length > 0 ? `
+                    ${rotulo('Lançamentos citados pela auditoria (não gravados no extrato)')}
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
+                        ${citados.map((c, i) => cartao(`
+                            <p class="text-sm" style="font-weight: 600;">${fmtValorExtrato(c.valor)} em ${c.dataTxt}</p>
+                            <p class="text-xs" style="color: var(--text-secondary); line-height: 1.4;">${escAttr(c.descricao || '---')}</p>
+                            <p class="text-xs" style="color: var(--text-muted);">Documento: <span style="font-family: monospace;">${escAttr(c.numeroDocumento || '---')}</span></p>`,
+                            `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.4rem 0.75rem;" onclick="window.handleUsarDadosAuditoria(${i})" ${state.loading ? 'disabled' : ''}>Usar estes dados</button>`)).join('')}
+                    </div>
+                    ${pagamentosRepetidos ? `<p class="text-xs" style="color: #d97706; font-weight: 600; line-height: 1.5; margin-top: 0.5rem;">Há mais de um pagamento do mesmo valor para este fornecedor. Confirme com o cliente antes de comprovar.</p>` : ''}
                 ` : `
-                    <p class="text-xs" style="color: var(--text-muted); line-height: 1.5;">Nenhum lançamento livre do projeto tem o valor desta nota (${fmtValorExtrato(doc.valor)}). Informe o pagamento manualmente ou suba o extrato correto.</p>
+                    <p class="text-xs" style="color: var(--text-muted); line-height: 1.5;">Nenhum lançamento livre do projeto tem o valor desta nota (${fmtValorExtrato(doc.valor)}). Informe o pagamento manualmente${temSubstituir ? ' ou use Substituir Extrato para enviar o extrato correto' : ' ou suba o extrato correto'}.</p>
                 `}
 
-                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem;">
-                    <button class="btn btn-secondary" style="font-size: 12px; padding: 0.5rem 1rem;" onclick="window.togglePagamentoManual()">
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem;">
+                    <button class="btn btn-secondary" style="font-size: 11px; padding: 0.5rem 0.75rem;" onclick="window.togglePagamentoManual()">
                         ${state.pagamentoManualAberto ? 'Fechar formulário de pagamento' : 'Informar pagamento manualmente'}
                     </button>
-                    <button class="btn btn-secondary" style="font-size: 12px; padding: 0.5rem 1rem;" onclick="window.handleSubirExtratoCorreto()">Subir o extrato correto</button>
+                    ${temSubstituir ? '' : `<button class="btn btn-secondary" style="font-size: 11px; padding: 0.5rem 0.75rem;" onclick="window.handleSubirExtratoCorreto()">Subir o extrato correto</button>`}
                 </div>
 
                 ${state.pagamentoManualAberto ? `
-                <div style="margin-top: 1rem; padding: 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: var(--bg-sidebar);">
-                    <p class="text-xs" style="color: var(--text-secondary); line-height: 1.5; margin-bottom: 1rem;">Use esta opção só quando nenhum lançamento serve. O número da transação vai para o SALIC como está, e a justificativa fica registrada.</p>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 1rem;">
+                <div id="pgto-formulario" style="margin-top: 0.75rem; padding: 0.75rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: var(--bg-sidebar);">
+                    <p class="text-xs" style="color: var(--text-secondary); line-height: 1.5; margin-bottom: 0.75rem;">Use esta opção só quando nenhum lançamento serve. O número da transação vai para o SALIC como está, e a justificativa fica registrada.</p>
+                    <div style="display: grid; grid-template-columns: 1fr; gap: 0.75rem;">
                         ${campo('pgto-data', 'Data do pagamento', `<input type="date" id="pgto-data" value="${escAttr(r.data || '')}" ${oninput('data')}>`)}
                         ${campo('pgto-valor', 'Valor pago (R$)', `<input type="text" id="pgto-valor" inputmode="decimal" value="${escAttr(valorInicial)}" ${oninput('valor')}>`)}
                         ${campo('pgto-nr', 'Número da transação', `<input type="text" id="pgto-nr" autocomplete="off" value="${escAttr(r.nr || '')}" ${oninput('nr')}>`)}
                         ${campo('pgto-nr-conf', 'Confirme o número da transação', `<input type="text" id="pgto-nr-conf" autocomplete="off" onpaste="return false" value="${escAttr(r.nrConf || '')}" ${oninput('nrConf')}>`)}
+                        ${campo('pgto-just', 'Justificativa (mínimo 20 caracteres)', `<textarea id="pgto-just" rows="3" ${oninput('justificativa')}>${escAttr(r.justificativa || '')}</textarea>`)}
                     </div>
-                    <div class="form-group" style="margin: 1rem 0 0;">
-                        <label for="pgto-just">Justificativa (mínimo 20 caracteres)</label>
-                        <textarea id="pgto-just" rows="3" ${oninput('justificativa')}>${escAttr(r.justificativa || '')}</textarea>
-                    </div>
-                    <div style="margin-top: 1rem;">
-                        <button class="btn btn-primary" style="font-size: 12px; padding: 0.5rem 1rem;" onclick="window.handleInformarPagamentoManual('${doc.id}')" ${state.loading ? 'disabled' : ''}>Salvar pagamento</button>
+                    <div style="margin-top: 0.75rem;">
+                        <button class="btn btn-primary" style="width: 100%; font-size: 12px; padding: 0.5rem 1rem;" onclick="window.handleInformarPagamentoManual('${doc.id}')" ${state.loading ? 'disabled' : ''}>Salvar pagamento</button>
                     </div>
                 </div>` : ''}
             `}
@@ -4310,6 +4333,28 @@ window.togglePagamentoManual = function () {
 // render() causado por outra coisa (atualização em tempo real).
 window.handleRascunhoPagamento = function (campo, valor) {
     state.pagamentoManualRascunho = { ...(state.pagamentoManualRascunho || {}), [campo]: valor };
+};
+
+// "Usar estes dados": abre o formulário de pagamento manual com o lançamento que a auditoria
+// citou. O número da transação é o do documento; a confirmação fica vazia de propósito, para
+// ser digitada.
+window.handleUsarDadosAuditoria = function (indice) {
+    const doc = state.currentDocument;
+    const item = doc ? lancamentosCitadosAuditoria(doc)[indice] : null;
+    if (!item) return;
+    state.pagamentoManualRascunho = {
+        docId: doc.id,
+        data: item.data,
+        valor: item.valor.toFixed(2).replace('.', ','),
+        nr: item.numeroDocumento,
+        nrConf: '',
+        justificativa: `Lançamento identificado pela auditoria no extrato: ${item.descricao}`
+    };
+    state.pagamentoManualAberto = true;
+    render();
+    const form = document.getElementById('pgto-formulario');
+    if (form) form.scrollIntoView({ block: 'center' });
+    document.getElementById('pgto-nr-conf')?.focus();
 };
 
 // O formulário de upload do extrato já existe na caixa "Extrato Bancário" do fluxo; aqui só
