@@ -927,10 +927,43 @@ function userPodeResolverPagamento() {
     return ['admin', 'gestor', 'analista'].includes(getUserRole());
 }
 
-// Nota sem o pagamento identificado: o SALIC exige número da transação e data, que vêm do
-// lançamento do extrato (fitid, data_pagamento) ou do pagamento informado manualmente.
-function notaSemPagamento(doc) {
-    return !doc || !doc.fitid || !doc.data_pagamento;
+// Regra única do pagamento da nota (o SALIC exige número da transação e data). Tem pagamento
+// quem tem fitid (não vazio) E data conhecida: documents.data_pagamento preenchida OU um
+// lançamento de extrato ligado à nota com data_lancamento. Em produção a data costuma ficar só
+// no lançamento, então data_pagamento sozinha barraria nota válida.
+// datasLancamento: Map id da nota -> data_lancamento (ver carregarDatasLancamento).
+function notaTemPagamento(doc, datasLancamento) {
+    if (!doc || !String(doc.fitid || '').trim()) return false;
+    return !!doc.data_pagamento || !!(datasLancamento && datasLancamento.has(doc.id));
+}
+
+// Datas dos lançamentos ligados às notas, numa consulta só por lote de ids (sem N+1). Só vale a
+// pena perguntar por nota com fitid e sem data_pagamento; as demais já se resolvem pelo próprio
+// documento.
+async function carregarDatasLancamento(docs) {
+    const datas = new Map();
+    const ids = (docs || [])
+        .filter(d => d && String(d.fitid || '').trim() && !d.data_pagamento)
+        .map(d => d.id);
+    for (let i = 0; i < ids.length; i += 100) {
+        const { data, error } = await supabaseClient
+            .from('extratos_lancamentos')
+            .select('document_id, data_lancamento')
+            .in('document_id', ids.slice(i, i + 100))
+            .not('data_lancamento', 'is', null);
+        if (error) throw error;
+        (data || []).forEach(l => { if (!datas.has(l.document_id)) datas.set(l.document_id, l.data_lancamento); });
+    }
+    return datas;
+}
+
+// Atualiza o cache em state.datasLancamentoPorNota para estes documentos (tela do lote e detalhe).
+async function atualizarDatasLancamento(docs) {
+    const datas = await carregarDatasLancamento(docs);
+    const mapa = state.datasLancamentoPorNota || new Map();
+    (docs || []).forEach(d => { if (d) mapa.delete(d.id); });
+    datas.forEach((v, k) => mapa.set(k, v));
+    state.datasLancamentoPorNota = mapa;
 }
 
 const MSG_INFORME_PAGAMENTO = 'Informe o lançamento ou o pagamento antes de avançar';
@@ -956,8 +989,9 @@ async function separarNotasSemPagamento(itens) {
         .from('documents').select('id, name, numero_nf, fitid, data_pagamento').in('id', itens.map(i => i.id));
     if (error) throw error;
     const porId = new Map((data || []).map(d => [d.id, d]));
+    const datas = await carregarDatasLancamento(data || []);
     // Id que o banco não devolveu também não segue: sem dado, sem envio.
-    const semPagamento = itens.filter(i => notaSemPagamento(porId.get(i.id)));
+    const semPagamento = itens.filter(i => !notaTemPagamento(porId.get(i.id), datas));
     const idsBloqueados = new Set(semPagamento.map(i => i.id));
     return {
         liberados: itens.filter(i => !idsBloqueados.has(i.id)),
@@ -2257,7 +2291,7 @@ const EnvioLoteSalicView = () => {
         // "Selecionar Todos" nem no contador) e vão para a seção de envio individual.
         // Nota sem lançamento do extrato (fitid) ou data de pagamento não segue para o SALIC:
         // fica fora da seleção e é listada abaixo, com o caminho para resolver.
-        const semPagamento = prontosParaEnvio.filter(doc => notaSemPagamento(doc));
+        const semPagamento = prontosParaEnvio.filter(doc => !notaTemPagamento(doc, state.datasLancamentoPorNota));
         const exigemJustificativa = prontosParaEnvio.filter(doc => !semPagamento.includes(doc) && rubricaExigeJustificativaSalic(doc));
         const readyDocs = prontosParaEnvio.filter(doc => !semPagamento.includes(doc) && !exigemJustificativa.includes(doc));
         const projetoSelecionado = state.filters.project || '';
@@ -3946,8 +3980,25 @@ function statusConciliacaoBadge(status) {
 // Lançamentos que a auditoria da conciliação citou em documents.just_erro quando o extrato
 // conferido não tem linhas gravadas. Padrão do workflow:
 //   "R$ 3.490,69 em 04/08/2026 (TED Transf.Eletr.Disponiv ..., documento 80.405); R$ ..."
+// Só vale quando a mensagem começa com "Há N lançamentos que atendem as regras" (N >= 2): aí a
+// auditoria aceitou os lançamentos e não soube escolher. Lançamentos citados numa mensagem de
+// rejeição foram descartados por ela (outra competência, outro beneficiário) e não viram item.
 // Texto fora do padrão não gera item: nada é inventado.
+function normalizarTextoAuditoria(texto) {
+    return String(texto || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
+
+function auditoriaListouLancamentosAceitos(doc) {
+    const m = normalizarTextoAuditoria(doc?.just_erro).match(/^ha\s+(\d+)\s+lancamentos\s+que\s+atendem\s+as\s+regras/);
+    return !!m && Number(m[1]) >= 2;
+}
+
+function auditoriaRejeitouLancamentos(doc) {
+    return normalizarTextoAuditoria(doc?.just_erro).startsWith('ha saida com o valor da nota, mas ela nao pode ser confirmada');
+}
+
 function lancamentosCitadosAuditoria(doc) {
+    if (!auditoriaListouLancamentosAceitos(doc)) return [];
     const texto = String(doc?.just_erro || '');
     const itens = [];
     const re = /R\$\s*(\d{1,3}(?:\.\d{3})*,\d{2})\s+em\s+(\d{2})\/(\d{2})\/(\d{4})\s*\(([^)]*)\)/g;
@@ -3974,7 +4025,7 @@ function lancamentosCitadosAuditoria(doc) {
 // auditoria e o formulário de pagamento manual. Sem pagamento a nota não vai ao SALIC.
 const PagamentoNotaSection = (doc) => {
     const podeResolver = userPodeResolverPagamento();
-    const sem = notaSemPagamento(doc);
+    const sem = !notaTemPagamento(doc, state.datasLancamentoPorNota);
     const precisaResolver = sem && STATUS_RESOLVER_PAGAMENTO.includes(doc.status);
     const origem = state.origemPagamento;
     if (!precisaResolver && !(origem && !sem)) return '';
@@ -3989,7 +4040,7 @@ const PagamentoNotaSection = (doc) => {
             ${rotulo('Pagamento da nota')}
             <div style="margin-top: 0.4rem;">
                 ${linha('Origem do pagamento', escAttr(ROTULO_ORIGEM_PAGAMENTO[origem]))}
-                ${linha('Data do pagamento', fmtDataExtrato(doc.data_pagamento))}
+                ${linha('Data do pagamento', fmtDataExtrato(doc.data_pagamento || state.datasLancamentoPorNota?.get(doc.id)))}
                 ${doc.valor_pago != null ? linha('Valor pago', fmtValorExtrato(doc.valor_pago)) : ''}
                 ${linha('Número da transação', `<span style="font-family: monospace;">${escAttr(doc.fitid)}</span>`)}
             </div>
@@ -4043,6 +4094,8 @@ const PagamentoNotaSection = (doc) => {
                             `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.4rem 0.75rem;" onclick="window.handleUsarDadosAuditoria(${i})" ${state.loading ? 'disabled' : ''}>Usar estes dados</button>`)).join('')}
                     </div>
                     ${pagamentosRepetidos ? `<p class="text-xs" style="color: #d97706; font-weight: 600; line-height: 1.5; margin-top: 0.5rem;">Há mais de um pagamento do mesmo valor para este fornecedor. Confirme com o cliente antes de comprovar.</p>` : ''}
+                ` : auditoriaRejeitouLancamentos(doc) ? `
+                    <p class="text-xs" style="color: var(--text-secondary); line-height: 1.5;">A auditoria não confirmou nenhum lançamento como pagamento desta nota. Confira o motivo no Parecer da Análise.</p>
                 ` : `
                     <p class="text-xs" style="color: var(--text-muted); line-height: 1.5;">Nenhum lançamento livre do projeto tem o valor desta nota (${fmtValorExtrato(doc.valor)}). Informe o pagamento manualmente${temSubstituir ? ' ou use Substituir Extrato para enviar o extrato correto' : ' ou suba o extrato correto'}.</p>
                 `}
@@ -4213,13 +4266,22 @@ window.handleForcarAvanco = async function (docId, currentStatus) {
     // Divergência de valor ou de beneficiário: sem lançamento escolhido ou pagamento informado,
     // avançar levaria ao SALIC uma nota sem número de transação.
     if (['divergencia_valor', 'divergencia_beneficiario'].includes(currentStatus)) {
-        const { data: docBanco, error: errPagto } = await supabaseClient
-            .from('documents').select('fitid, data_pagamento').eq('id', docId).maybeSingle();
-        if (errPagto || !docBanco) {
+        let docBanco = null;
+        let datasBanco = new Map();
+        try {
+            const { data, error: errPagto } = await supabaseClient
+                .from('documents').select('id, fitid, data_pagamento').eq('id', docId).maybeSingle();
+            if (errPagto) throw errPagto;
+            docBanco = data;
+            if (docBanco) datasBanco = await carregarDatasLancamento([docBanco]);
+        } catch (err) {
+            console.error('[handleForcarAvanco] pagamento da nota:', err);
+        }
+        if (!docBanco) {
             window.showToast('Não foi possível conferir o pagamento da nota. Tente novamente.', 'error');
             return;
         }
-        if (notaSemPagamento(docBanco)) {
+        if (!notaTemPagamento(docBanco, datasBanco)) {
             window.showToast(MSG_INFORME_PAGAMENTO, 'error');
             return;
         }
@@ -6683,7 +6745,8 @@ async function carregarPagamentoDaNota(doc) {
     if (!supabaseClient || !doc?.id || !doc?.project_id) return;
 
     try {
-        if (notaSemPagamento(doc)) {
+        await atualizarDatasLancamento([doc]);
+        if (!notaTemPagamento(doc, state.datasLancamentoPorNota)) {
             if (!STATUS_RESOLVER_PAGAMENTO.includes(doc.status) || !userPodeResolverPagamento()) return;
             const v = Math.abs(parseValorBR(doc.valor));
             if (!v) return;
@@ -6696,9 +6759,18 @@ async function carregarPagamentoDaNota(doc) {
                 .or(`${faixa(v)},${faixa(-v)}`)
                 .order('data_lancamento', { ascending: true });
             if (error) throw error;
-            state.candidatosLancamento = (data || []).filter(l =>
+            // O mesmo lançamento pode estar gravado mais de uma vez no extrato: um por
+            // extrato e fitid, preferindo o que já está ligado a esta nota.
+            const unicos = new Map();
+            (data || []).filter(l =>
                 (!l.document_id || l.document_id === doc.id)
-                && Math.abs(Math.abs(parseValorBR(l.valor)) - v) <= TOLERANCIA_VALOR_LANCAMENTO + 1e-6);
+                && Math.abs(Math.abs(parseValorBR(l.valor)) - v) <= TOLERANCIA_VALOR_LANCAMENTO + 1e-6
+            ).forEach(l => {
+                const chave = l.fitid ? `${l.extrato_id}|${l.fitid}` : `id|${l.id}`;
+                const atual = unicos.get(chave);
+                if (!atual || (!atual.document_id && l.document_id === doc.id)) unicos.set(chave, l);
+            });
+            state.candidatosLancamento = [...unicos.values()];
             return;
         }
 
@@ -7052,6 +7124,14 @@ async function fetchDocuments() {
     if (error) {
         console.error("Erro fetchDocuments:", error);
         return;
+    }
+    // Datas dos lançamentos das notas prontas para envio (tela do lote), numa consulta só. Se
+    // falhar, a nota sem data_pagamento aparece como sem pagamento: erra para o lado seguro.
+    const prontasParaEnvio = (data || []).filter(d => ['liberado_rpa_airtop', 'erro_rpa'].includes(d.status));
+    try {
+        await atualizarDatasLancamento(prontasParaEnvio);
+    } catch (err) {
+        console.error('[fetchDocuments] datas dos lançamentos:', err);
     }
     state.documents = data || [];
 
