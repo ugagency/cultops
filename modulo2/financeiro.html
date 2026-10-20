@@ -665,6 +665,7 @@
     <script src="../erros-amigaveis.js"></script>
     <script src="../auth-logout.js"></script>
     <script src="supabase-helper.js"></script>
+    <script src="saldo-fila.js"></script>
     <script src="rubrica-combobox.js"></script>
     <script>
         const STATUS_DESPESA_EXECUTADO = ['enviado_salic', 'concluido', 'liberado_rpa', 'aguardando_d3'];
@@ -820,10 +821,14 @@
                     sb.from('v_saldo_rubricas')
                         .select('rubrica_id, executado_salic, nfs_confirmadas_nao_absorvidas, executado_efetivo, em_transito, disponivel_oficial, disponivel_projetado, ultima_captura_em')
                         .eq('project_id', projectId),
+                    // Cada captura bem-sucedida regrava as linhas ainda sem rubrica; a captura de
+                    // origem vem junto (uma ida ao banco) e a fila é recortada logo abaixo para a
+                    // última captura com sucesso (ver saldo-fila.js).
                     sb.from('saldo_salic_linhas')
-                        .select('id, etapa, item, unidade, qtde_programada, vl_programado, vl_executado')
+                        .select('id, etapa, item, unidade, qtde_programada, vl_programado, vl_executado, saldo_salic_capturas!inner(status, concluida_em)')
                         .eq('project_id', projectId)
                         .eq('pareamento_status', 'fila_conferencia')
+                        .eq('saldo_salic_capturas.status', 'sucesso')
                         .order('etapa', { ascending: true })
                 ]);
 
@@ -837,7 +842,12 @@
                 const fornecedoresIn23Raw = fornecedoresIn23Res.data || [];
                 const valorEfetivo = valorEfetivoRes.data || [];
                 const saldoSalic = saldoSalicRes.data || [];
-                const filaSalic = filaSalicRes.data || [];
+                // Só as linhas da última captura bem-sucedida; sem captura com sucesso, fila vazia.
+                if (filaSalicRes.error) console.error('[loadDashboardData] fila de conferência do saldo SALIC:', filaSalicRes.error);
+                const filaSalic = window.SaldoFila.filtrarFilaUltimaCaptura(
+                    filaSalicRes.data || [],
+                    window.SaldoFila.ultimaCapturaEmDoProjeto(saldoSalic)
+                );
                 currentRubricas = rubricas;
                 saldoSalicByRubrica = new Map(saldoSalic.map(s => [s.rubrica_id, s]));
 
