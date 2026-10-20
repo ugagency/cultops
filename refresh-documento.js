@@ -68,7 +68,7 @@
 
     // Assinatura do que a tela de detalhes mostra. Se não mudou desde o último desenho, a
     // atualização silenciosa não precisa redesenhar. Recebe um retrato simples (sem acoplar ao
-    // state do app): { doc, comprovante, candidatos, extratoId, qtdLancamentos,
+    // state do app): { doc, comprovante, candidatos, ampliarCandidatos, extratoId, qtdLancamentos,
     // lancamentoDaNotaId, origemPagamento, dataLancamentoDaNota, duplicataId, guiaDuplicataId,
     // qtdRubricasDisponiveis, flags }.
     function assinaturaDetalhes(s) {
@@ -79,7 +79,7 @@
             d.id, d.status, d.updated_at, d.fitid, d.data_pagamento, d.valor_pago, d.extrato_conferido_id,
             d.just_erro, d.justification, d.rubrica_id_fk, d.rubrica, d.valor, d.numero_nf, d.nome_emissor,
             d.cnpj_emissor, d.data_emissao, despesas,
-            candidatos.length, candidatos.map(c => c && c.id),
+            candidatos.length, candidatos.map(c => c && c.id), !!(s && s.ampliarCandidatos),
             s && s.extratoId, s && s.qtdLancamentos, s && s.lancamentoDaNotaId,
             s && s.origemPagamento, s && s.dataLancamentoDaNota,
             s && s.comprovante ? [s.comprovante.id, s.comprovante.status] : null,

@@ -857,6 +857,8 @@ const state = {
     origemPagamento: null,
     pagamentoManualAberto: false,
     pagamentoManualRascunho: {},
+    // "Ver lançamentos de outros extratos / ampliar": vale só para a nota de docId e zera ao abrir outra.
+    ampliarCandidatos: { docId: null, ativo: false },
     // Entre confirmar o lançamento (ou salvar o pagamento) e a atualização agrupada terminar.
     atualizandoNota: false,
     // Assinatura do que a tela de detalhes mostrava no último render() (ver assinaturaDaTelaDetalhes).
@@ -4061,6 +4063,12 @@ const PagamentoNotaSection = (doc) => {
     const valoresCitados = citados.map(c => c.valor.toFixed(2));
     const pagamentosRepetidos = valoresCitados.some((v, i) => valoresCitados.indexOf(v) !== i);
     const temSubstituir = ['divergencia_valor', 'divergencia_beneficiario'].includes(doc.status);
+    // Escopo da busca de candidatos: 'extrato' (extrato conferido), 'janela' (datas da nota) ou
+    // 'projeto' (sem filtro, também depois de ampliar).
+    const escopo = filtroCandidatosDaNota(doc).escopo;
+    const botaoAmpliar = escopo === 'extrato'
+        ? 'Ver lançamentos de outros extratos do projeto'
+        : (escopo === 'janela' && candidatos.length === 0 ? 'Ampliar a busca para todo o projeto' : '');
     const r = state.pagamentoManualRascunho || {};
     const campo = (id, rot, inputHtml) => `
         <div class="form-group" style="margin-bottom: 0;">
@@ -4087,7 +4095,9 @@ const PagamentoNotaSection = (doc) => {
                 <p class="text-xs" style="color: var(--text-muted);">Peça a um administrador, gestor ou analista para escolher o lançamento ou informar o pagamento.</p>
             ` : `
                 ${candidatos.length > 0 ? `
-                    ${rotulo(`Lançamentos do projeto com o valor desta nota (${candidatos.length})`)}
+                    ${rotulo(escopo === 'extrato'
+                        ? `Lançamentos do extrato conferido com o valor desta nota (${candidatos.length})`
+                        : `Lançamentos do projeto com o valor desta nota (${candidatos.length})`)}
                     <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
                         ${candidatos.map(l => cartao(`
                             <p class="text-sm" style="font-weight: 600;">${fmtValorExtrato(l.valor)} em ${fmtDataExtrato(l.data_lancamento)}</p>
@@ -4108,10 +4118,13 @@ const PagamentoNotaSection = (doc) => {
                 ` : auditoriaRejeitouLancamentos(doc) ? `
                     <p class="text-xs" style="color: var(--text-secondary); line-height: 1.5;">A auditoria não confirmou nenhum lançamento como pagamento desta nota. Confira o motivo no Parecer da Análise.</p>
                 ` : `
-                    <p class="text-xs" style="color: var(--text-muted); line-height: 1.5;">Nenhum lançamento livre do projeto tem o valor desta nota (${fmtValorExtrato(doc.valor)}). Informe o pagamento manualmente${temSubstituir ? ' ou use Substituir Extrato para enviar o extrato correto' : ' ou suba o extrato correto'}.</p>
+                    <p class="text-xs" style="color: var(--text-muted); line-height: 1.5;">${escopo === 'extrato'
+                        ? 'Nenhum lançamento livre do extrato conferido'
+                        : escopo === 'janela' ? 'Nenhum lançamento livre do projeto, na janela de datas desta nota,' : 'Nenhum lançamento livre do projeto'} tem o valor desta nota (${fmtValorExtrato(doc.valor)}). Informe o pagamento manualmente${temSubstituir ? ' ou use Substituir Extrato para enviar o extrato correto' : ' ou suba o extrato correto'}.</p>
                 `}
 
                 <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem;">
+                    ${botaoAmpliar ? `<button class="btn btn-secondary" style="font-size: 11px; padding: 0.5rem 0.75rem;" onclick="window.handleAmpliarCandidatos('${doc.id}')" ${state.loading ? 'disabled' : ''}>${botaoAmpliar}</button>` : ''}
                     <button class="btn btn-secondary" style="font-size: 11px; padding: 0.5rem 0.75rem;" onclick="window.togglePagamentoManual()">
                         ${state.pagamentoManualAberto ? 'Fechar formulário de pagamento' : 'Informar pagamento manualmente'}
                     </button>
@@ -4374,6 +4387,22 @@ async function atualizarNotaAposPagamento(docId) {
     render();
     await agendarRefreshDocumento(docId, { forcar: true });
 }
+
+// "Ver lançamentos de outros extratos do projeto" / "Ampliar a busca": repete a consulta dos
+// candidatos sem o filtro de extrato e de janela. Mesmo mecanismo agrupado e forçado do
+// pagamento: nada é esvaziado antes, a lista troca de uma vez.
+window.handleAmpliarCandidatos = async function (docId) {
+    if (!userPodeResolverPagamento()) return;
+    state.ampliarCandidatos = { docId, ativo: true };
+    try {
+        await atualizarNotaAposPagamento(docId);
+    } finally {
+        if (state.atualizandoNota) {
+            state.atualizandoNota = false;
+            render();
+        }
+    }
+};
 
 window.handleConfirmarLancamentoNota = function (docId, lancamentoId) {
     if (!userPodeResolverPagamento()) {
@@ -6762,6 +6791,14 @@ async function carregarExtratoDaNota(doc) {
     }
 }
 
+// Parâmetros do filtro dos candidatos desta nota: { extrato_id, data_de, data_ate, escopo }.
+// Sem o módulo carregado, cai no comportamento sem filtro (escopo 'projeto').
+function filtroCandidatosDaNota(doc) {
+    const ampliar = !!doc && state.ampliarCandidatos?.docId === doc.id && !!state.ampliarCandidatos.ativo;
+    if (!window.CandidatosLancamento) return { extrato_id: null, data_de: null, data_ate: null, escopo: 'projeto' };
+    return window.CandidatosLancamento.montarFiltroCandidatos(doc, ampliar);
+}
+
 // Pagamento da nota aberta: lançamentos candidatos (quando falta o pagamento), origem do
 // pagamento (quando já existe) e as datas dos lançamentos ligados à nota. Não escreve no state:
 // fetchDocumentDetails troca tudo de uma vez, no fim. Devolve undefined se falhar, para a
@@ -6778,12 +6815,18 @@ async function carregarPagamentoDaNota(doc) {
             if (!v) return { ...vazio, datas };
             const faixa = (c) => `and(valor.gte.${(c - TOLERANCIA_VALOR_LANCAMENTO).toFixed(2)},valor.lte.${(c + TOLERANCIA_VALOR_LANCAMENTO).toFixed(2)})`;
             // Débito vem com sinal negativo no extrato: a faixa vale para os dois sinais.
-            const { data, error } = await supabaseClient
+            // Extrato conferido ou janela de datas da nota (candidatos-lancamento.js); o botão
+            // "Ver lançamentos de outros extratos" tira esse filtro.
+            const filtro = filtroCandidatosDaNota(doc);
+            let consulta = supabaseClient
                 .from('extratos_lancamentos')
                 .select('id, extrato_id, project_id, fitid, valor, data_lancamento, memo, status_conciliacao, document_id')
                 .eq('project_id', doc.project_id)
-                .or(`${faixa(v)},${faixa(-v)}`)
-                .order('data_lancamento', { ascending: true });
+                .or(`${faixa(v)},${faixa(-v)}`);
+            if (filtro.extrato_id) consulta = consulta.eq('extrato_id', filtro.extrato_id);
+            if (filtro.data_de) consulta = consulta.gte('data_lancamento', filtro.data_de);
+            if (filtro.data_ate) consulta = consulta.lte('data_lancamento', filtro.data_ate);
+            const { data, error } = await consulta.order('data_lancamento', { ascending: true });
             if (error) throw error;
             // O mesmo lançamento pode estar gravado mais de uma vez no extrato: um por
             // extrato e fitid, preferindo o que já está ligado a esta nota.
@@ -6820,11 +6863,15 @@ async function carregarPagamentoDaNota(doc) {
 // Retrato do que a tela de detalhes mostra, para a assinatura (refresh-documento.js). Lê só
 // o state, nunca o DOM.
 function assinaturaDaTelaDetalhes() {
+    // Sem o módulo carregado, devolve um valor sempre novo: o refresh silencioso então
+    // redesenha a cada vez, como antes do #101, em vez de nunca redesenhar.
+    if (!window.RefreshDocumento) return 'sem-modulo-' + Date.now() + '-' + Math.random();
     const ext = state.currentExtrato;
     return window.RefreshDocumento.assinaturaDetalhes({
         doc: state.currentDocument,
         comprovante: state.currentComprovante,
         candidatos: state.candidatosLancamento,
+        ampliarCandidatos: !!state.currentDocument && state.ampliarCandidatos?.docId === state.currentDocument.id && !!state.ampliarCandidatos.ativo,
         extratoId: ext?.extrato?.id || null,
         qtdLancamentos: (ext?.lancamentos || []).length,
         lancamentoDaNotaId: ext?.lancamentoDaNota?.id || null,
@@ -6847,11 +6894,16 @@ let _detalhesSeq = 0;
 // Atualização agrupada da nota aberta (realtime e pós-ação). Debounce por documento e uma
 // execução por vez; ver refresh-documento.js. Devolve uma Promise que resolve quando a
 // atualização que cobre este pedido termina.
-const _refreshDocumento = window.RefreshDocumento.criarAgrupador({
-    executar: (id, opcoes) => fetchDocumentDetails(id, true, opcoes),
-    aoErro: (err) => console.error('[refresh-documento]', err)
-});
+// Se refresh-documento.js não carregou, o app.js continua carregando e cada pedido vira um
+// fetch silencioso direto (sem agrupar), como antes do #101.
+const _refreshDocumento = window.RefreshDocumento
+    ? window.RefreshDocumento.criarAgrupador({
+        executar: (id, opcoes) => fetchDocumentDetails(id, true, opcoes),
+        aoErro: (err) => console.error('[refresh-documento]', err)
+    })
+    : null;
 function agendarRefreshDocumento(id, opcoes = {}) {
+    if (!_refreshDocumento) return fetchDocumentDetails(id, true, opcoes);
     return _refreshDocumento.agendar(id, opcoes);
 }
 
@@ -7017,6 +7069,9 @@ async function fetchDocumentDetails(id, silent = false, opcoes = {}) {
         if (data && state.pagamentoManualRascunho?.docId !== data.id) {
             state.pagamentoManualAberto = false;
             state.pagamentoManualRascunho = { docId: data.id };
+        }
+        if (data && state.ampliarCandidatos?.docId !== data.id) {
+            state.ampliarCandidatos = { docId: data.id, ativo: false };
         }
         state.currentDuplicata = duplicataNova;
         state.guiaDuplicataM2 = guiaNova;
