@@ -1177,9 +1177,12 @@
             // Apoio ao usuário: quantas rubricas ATIVAS do projeto têm o mesmo nome do item (sem acento e sem
             // diferença de maiúsculas). Só informa; nada é pré-selecionado.
             const normalizarNome = (t) => String(t == null ? '' : t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
-            const textoRubricasComNome = (item) => {
+            const quantasRubricasComNome = (item) => {
                 const alvo = normalizarNome(item);
-                const n = alvo ? (rubricas || []).filter(r => r.ativa !== false && normalizarNome(r.nome) === alvo).length : 0;
+                return alvo ? (rubricas || []).filter(r => r.ativa !== false && normalizarNome(r.nome) === alvo).length : 0;
+            };
+            const textoRubricasComNome = (item) => {
+                const n = quantasRubricasComNome(item);
                 if (n === 0) return 'nenhuma rubrica com este nome';
                 return n === 1 ? '1 rubrica com este nome' : n + ' rubricas com este nome';
             };
@@ -1197,8 +1200,12 @@
                     <td class="num">${fmtBRL(l.vl_programado)}</td>
                     <td class="num">${fmtBRL(l.vl_executado)}</td>
                     <td>
-                        <input type="text" class="saldo-select" id="saldo-salic-select-${l.id}" data-rubrica-combo autocomplete="off" placeholder="Digite ou escolha a rubrica…">
+                        <input type="text" class="saldo-select" id="saldo-salic-select-${l.id}" data-rubrica-combo data-rubrica-nome-filtro="${escapeHtml(l.item || '')}" autocomplete="off" placeholder="Digite ou escolha a rubrica…">
                         <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.25rem;">${escapeHtml(textoRubricasComNome(l.item))}</div>
+                        <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.7rem; color: var(--text-secondary); margin-top: 0.25rem; cursor: pointer;">
+                            <input type="checkbox" onchange="alternarSoMesmoNomeSalic('${l.id}', this.checked)" ${quantasRubricasComNome(l.item) === 0 ? 'disabled' : ''}>
+                            Mostrar só rubricas com este nome
+                        </label>
                     </td>
                     <td>
                         <button class="btn-inline primary" onclick="confirmarPareamentoSalic('${l.id}')">Confirmar ligação</button>
@@ -1251,6 +1258,18 @@
                 btn.innerHTML = originalHtml;
                 if (window.lucide) window.lucide.createIcons();
             }
+        }
+
+        // Caixa "Mostrar só rubricas com este nome": o combobox passa a listar apenas as rubricas
+        // ativas com o nome do item da linha (ver listaDoInput em rubrica-combobox.js). Só muda
+        // o que a lista oferece; a ligação continua sendo confirmada pelo botão.
+        function alternarSoMesmoNomeSalic(linhaId, ligado) {
+            const campo = document.getElementById(`saldo-salic-select-${linhaId}`);
+            if (!campo) return;
+            if (ligado) campo.dataset.rubricaSoNome = '1';
+            else delete campo.dataset.rubricaSoNome;
+            campo.focus();
+            campo.dispatchEvent(new Event('input', { bubbles: true }));
         }
 
         async function confirmarPareamentoSalic(linhaId) {

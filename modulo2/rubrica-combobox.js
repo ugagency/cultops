@@ -116,6 +116,22 @@
         return html;
     }
 
+    // Nome sem acento, caixa e espaços repetidos: a comparação "mesmo nome" do filtro por nome.
+    function nomeNorm(s) {
+        return norm(s).replace(/\s+/g, ' ').trim();
+    }
+
+    // Lista que o input aberto pode mostrar. Com data-rubrica-so-nome="1" e
+    // data-rubrica-nome-filtro="<nome>" no input, só as rubricas ativas com esse nome (por
+    // exemplo o item da linha do SALIC); sem isso, a lista inteira do projeto.
+    function listaDoInput() {
+        if (input && input.dataset.rubricaSoNome === '1' && !vazio(input.dataset.rubricaNomeFiltro)) {
+            var alvo = nomeNorm(input.dataset.rubricaNomeFiltro);
+            return lista.filter(function (r) { return r.ativa !== false && nomeNorm(r.nome) === alvo; });
+        }
+        return lista;
+    }
+
     function filtrar(l, termo) {
         var toks = tokens(termo);
         if (!toks.length) return l.slice();
@@ -167,13 +183,16 @@
 
         // Texto que já é exatamente um rótulo = acabou de escolher: mostra a lista
         // inteira em vez de filtrar por ela mesma (devolveria 1 item só).
-        var jaResolvido = !!resolver(termo, lista);
-        visiveis = ordenar(jaResolvido ? lista : filtrar(lista, termo));
+        var base = listaDoInput();
+        var jaResolvido = !!resolver(termo, base);
+        visiveis = ordenar(jaResolvido ? base : filtrar(base, termo));
 
         if (visiveis.length === 0) {
             p.innerHTML = '<div class="rubrica-combo-empty">' + (lista.length === 0
                 ? 'Nenhuma rubrica carregada para este projeto.'
-                : 'Nenhuma rubrica encontrada para esta busca.') + '</div>';
+                : base.length === 0
+                    ? 'Nenhuma rubrica ativa com este nome neste projeto.'
+                    : 'Nenhuma rubrica encontrada para esta busca.') + '</div>';
             ativo = -1;
             return;
         }
