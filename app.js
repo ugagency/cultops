@@ -857,6 +857,10 @@ const state = {
     origemPagamento: null,
     pagamentoManualAberto: false,
     pagamentoManualRascunho: {},
+    // Entre confirmar o lançamento (ou salvar o pagamento) e a atualização agrupada terminar.
+    atualizandoNota: false,
+    // Assinatura do que a tela de detalhes mostrava no último render() (ver assinaturaDaTelaDetalhes).
+    assinaturaTelaDetalhes: null,
     loading: false,
     // Troca de senha obrigatória do primeiro acesso: distingue este fluxo do
     // de recuperação por e-mail, que compartilha a mesma UpdatePasswordView.
@@ -959,7 +963,12 @@ async function carregarDatasLancamento(docs) {
 
 // Atualiza o cache em state.datasLancamentoPorNota para estes documentos (tela do lote e detalhe).
 async function atualizarDatasLancamento(docs) {
-    const datas = await carregarDatasLancamento(docs);
+    aplicarDatasLancamento(docs, await carregarDatasLancamento(docs));
+}
+
+// Grava no cache o que carregarDatasLancamento devolveu. Separado da consulta para a tela de
+// detalhes poder consultar sem mexer no estado e só aplicar na troca atômica, no fim.
+function aplicarDatasLancamento(docs, datas) {
     const mapa = state.datasLancamentoPorNota || new Map();
     (docs || []).forEach(d => { if (d) mapa.delete(d.id); });
     datas.forEach((v, k) => mapa.set(k, v));
@@ -4072,7 +4081,9 @@ const PagamentoNotaSection = (doc) => {
             <p class="text-xs" style="color: var(--error); font-weight: 600; line-height: 1.5; margin: 0.4rem 0 0.75rem;">
                 Esta nota não tem lançamento do extrato nem pagamento informado. Sem o número da transação ela não pode ser enviada ao SALIC.
             </p>
-            ${!podeResolver ? `
+            ${state.atualizandoNota ? `
+                <p class="text-xs" role="status" aria-live="polite" style="color: var(--primary); font-weight: 600; line-height: 1.5;">Atualizando a nota...</p>
+            ` : !podeResolver ? `
                 <p class="text-xs" style="color: var(--text-muted);">Peça a um administrador, gestor ou analista para escolher o lançamento ou informar o pagamento.</p>
             ` : `
                 ${candidatos.length > 0 ? `
@@ -4353,6 +4364,17 @@ function mensagemErroRpc(err) {
     return (err && (err.message || err.details)) || 'Não foi possível concluir a operação.';
 }
 
+// Depois do RPC: mostra "Atualizando a nota..." só na seção de pagamento e espera a atualização
+// agrupada (forçada, ignora a checagem de assinatura uma vez). O banco costuma gravar o
+// pagamento e depois o status; os eventos do realtime entram no mesmo agrupamento, então a
+// tela muda uma vez, sem passar por estado vazio.
+async function atualizarNotaAposPagamento(docId) {
+    state.loading = false;
+    state.atualizandoNota = true;
+    render();
+    await agendarRefreshDocumento(docId, { forcar: true });
+}
+
 window.handleConfirmarLancamentoNota = function (docId, lancamentoId) {
     if (!userPodeResolverPagamento()) {
         showToast('Seu perfil não pode escolher o lançamento desta nota.', 'error');
@@ -4375,12 +4397,15 @@ window.handleConfirmarLancamentoNota = function (docId, lancamentoId) {
                 });
                 if (error) throw error;
                 window.showToast('Lançamento confirmado para esta nota.', 'success');
-                await fetchDocumentDetails(docId);
+                await atualizarNotaAposPagamento(docId);
             } catch (err) {
                 window.showToast(mensagemErroRpc(err), 'error');
+                state.atualizandoNota = false;
             } finally {
+                const redesenhar = state.loading || state.atualizandoNota;
                 state.loading = false;
-                render();
+                state.atualizandoNota = false;
+                if (redesenhar) render();
             }
         }
     });
@@ -4466,13 +4491,16 @@ window.handleInformarPagamentoManual = async function (docId) {
         state.pagamentoManualAberto = false;
         state.pagamentoManualRascunho = { docId };
         window.showToast('Pagamento informado para esta nota.', 'success');
-        await fetchDocumentDetails(docId);
+        await atualizarNotaAposPagamento(docId);
     } catch (err) {
         // Mantém o formulário preenchido para corrigir e tentar de novo.
         window.showToast(mensagemErroRpc(err), 'error');
+        state.atualizandoNota = false;
     } finally {
+        const redesenhar = state.loading || state.atualizandoNota;
         state.loading = false;
-        render();
+        state.atualizandoNota = false;
+        if (redesenhar) render();
     }
 };
 
@@ -6658,11 +6686,10 @@ window.salvarEdicaoCampos = async function (documentId) {
 //      via extratos_lancamentos.document_id, e é o lançamento que carrega o
 //      extrato_id.
 // Procura primeiro pelo lançamento da nota; se não houver, cai no extrato_origem_id.
+// Devolve { extrato, lancamentoDaNota, lancamentos, notasPorId } ou null. Não escreve no state:
+// quem chama (fetchDocumentDetails) troca tudo de uma vez, no fim, antes do render().
 async function carregarExtratoDaNota(doc) {
-    state.currentExtrato = null;
-    // Abrir outra nota recomeça a lista recolhida.
-    state.extratoLancamentosExpandido = false;
-    if (!supabaseClient || !doc?.id || !doc?.project_id) return;
+    if (!supabaseClient || !doc?.id || !doc?.project_id) return null;
 
     const COLS = 'id, extrato_id, project_id, fitid, tipo, valor, data_lancamento, memo, status_conciliacao, document_id';
 
@@ -6682,7 +6709,7 @@ async function carregarExtratoDaNota(doc) {
         // inclusive nas que falham. É o que mostra ao cliente o extrato contra o qual a
         // nota foi recusada. Tem prioridade por ser a conferência mais recente.
         const extratoId = doc.extrato_conferido_id || lancamentoDaNota?.extrato_id || doc.extrato_origem_id || null;
-        if (!extratoId) return;
+        if (!extratoId) return null;
 
         // Só as colunas que a tabela realmente tem: pedir uma inexistente faz o
         // PostgREST devolver 400 e o extrato voltar nulo — foi o que derrubou o
@@ -6720,7 +6747,7 @@ async function carregarExtratoDaNota(doc) {
             (notas || []).forEach(n => { notasPorId[n.id] = n; });
         }
 
-        state.currentExtrato = {
+        return {
             extrato: extrato || null,
             lancamentoDaNota: (lancamentoDaNota && lancamentoDaNota.extrato_id === extratoId ? lancamentoDaNota : null) || lista.find(l => l.document_id === doc.id) || null,
             lancamentos: lista,
@@ -6728,28 +6755,27 @@ async function carregarExtratoDaNota(doc) {
         };
     } catch (err) {
         // Não derruba o detalhe da nota por causa da seção de extrato.
+        // undefined (e não null) avisa quem chama que falhou: na atualização silenciosa ele
+        // mantém o que a tela já mostra em vez de esvaziar a seção.
         console.error('[carregarExtratoDaNota]', err);
-        state.currentExtrato = null;
+        return undefined;
     }
 }
 
-// Pagamento da nota aberta: lançamentos candidatos (quando falta o pagamento) e a origem do
-// pagamento (quando já existe). Falha aqui não derruba o detalhe da nota.
+// Pagamento da nota aberta: lançamentos candidatos (quando falta o pagamento), origem do
+// pagamento (quando já existe) e as datas dos lançamentos ligados à nota. Não escreve no state:
+// fetchDocumentDetails troca tudo de uma vez, no fim. Devolve undefined se falhar, para a
+// atualização silenciosa manter o que a tela já mostra.
 async function carregarPagamentoDaNota(doc) {
-    state.candidatosLancamento = [];
-    state.origemPagamento = null;
-    if (state.pagamentoManualRascunho?.docId !== doc?.id) {
-        state.pagamentoManualAberto = false;
-        state.pagamentoManualRascunho = { docId: doc?.id };
-    }
-    if (!supabaseClient || !doc?.id || !doc?.project_id) return;
+    const vazio = { candidatos: [], origem: null, datas: new Map() };
+    if (!supabaseClient || !doc?.id || !doc?.project_id) return vazio;
 
     try {
-        await atualizarDatasLancamento([doc]);
-        if (!notaTemPagamento(doc, state.datasLancamentoPorNota)) {
-            if (!STATUS_RESOLVER_PAGAMENTO.includes(doc.status) || !userPodeResolverPagamento()) return;
+        const datas = await carregarDatasLancamento([doc]);
+        if (!notaTemPagamento(doc, datas)) {
+            if (!STATUS_RESOLVER_PAGAMENTO.includes(doc.status) || !userPodeResolverPagamento()) return { ...vazio, datas };
             const v = Math.abs(parseValorBR(doc.valor));
-            if (!v) return;
+            if (!v) return { ...vazio, datas };
             const faixa = (c) => `and(valor.gte.${(c - TOLERANCIA_VALOR_LANCAMENTO).toFixed(2)},valor.lte.${(c + TOLERANCIA_VALOR_LANCAMENTO).toFixed(2)})`;
             // Débito vem com sinal negativo no extrato: a faixa vale para os dois sinais.
             const { data, error } = await supabaseClient
@@ -6770,8 +6796,7 @@ async function carregarPagamentoDaNota(doc) {
                 const atual = unicos.get(chave);
                 if (!atual || (!atual.document_id && l.document_id === doc.id)) unicos.set(chave, l);
             });
-            state.candidatosLancamento = [...unicos.values()];
-            return;
+            return { candidatos: [...unicos.values()], origem: null, datas };
         }
 
         const { data: log, error: errLog } = await supabaseClient
@@ -6784,15 +6809,54 @@ async function carregarPagamentoDaNota(doc) {
             .limit(1);
         if (errLog) throw errLog;
         // Sem registro de escolha ou de pagamento manual, o vínculo veio do extrato (fitid).
-        state.origemPagamento = (log && log[0] && ORIGENS_PAGAMENTO_AUDIT[log[0].origem]) || (doc.fitid ? 'extrato' : null);
+        const origem = (log && log[0] && ORIGENS_PAGAMENTO_AUDIT[log[0].origem]) || (doc.fitid ? 'extrato' : null);
+        return { candidatos: [], origem, datas };
     } catch (err) {
         console.error('[carregarPagamentoDaNota]', err);
-        state.candidatosLancamento = [];
-        state.origemPagamento = null;
+        return undefined;
     }
 }
 
-async function fetchDocumentDetails(id, silent = false) {
+// Retrato do que a tela de detalhes mostra, para a assinatura (refresh-documento.js). Lê só
+// o state, nunca o DOM.
+function assinaturaDaTelaDetalhes() {
+    const ext = state.currentExtrato;
+    return window.RefreshDocumento.assinaturaDetalhes({
+        doc: state.currentDocument,
+        comprovante: state.currentComprovante,
+        candidatos: state.candidatosLancamento,
+        extratoId: ext?.extrato?.id || null,
+        qtdLancamentos: (ext?.lancamentos || []).length,
+        lancamentoDaNotaId: ext?.lancamentoDaNota?.id || null,
+        origemPagamento: state.origemPagamento,
+        dataLancamentoDaNota: state.currentDocument ? (state.datasLancamentoPorNota?.get(state.currentDocument.id) || null) : null,
+        duplicataId: state.currentDuplicata?.id || null,
+        guiaDuplicataId: state.guiaDuplicataM2?.id || null,
+        qtdRubricasDisponiveis: (state.rubricas_disponiveis || []).length,
+        flags: [
+            !!state.uploadConcluidoExtrato, !!state.isUploadingExtrato, !!state.uploadConcluidoComprovante,
+            !!state.isUploadingComprovante, !!state.isSalicRunning, !!state.atualizandoNota, !!state.loading
+        ]
+    });
+}
+
+// Numeração das cargas de detalhes: a que começou depois vale; uma silenciosa que terminou
+// atrasada descarta o resultado em vez de sobrescrever dados mais novos.
+let _detalhesSeq = 0;
+
+// Atualização agrupada da nota aberta (realtime e pós-ação). Debounce por documento e uma
+// execução por vez; ver refresh-documento.js. Devolve uma Promise que resolve quando a
+// atualização que cobre este pedido termina.
+const _refreshDocumento = window.RefreshDocumento.criarAgrupador({
+    executar: (id, opcoes) => fetchDocumentDetails(id, true, opcoes),
+    aoErro: (err) => console.error('[refresh-documento]', err)
+});
+function agendarRefreshDocumento(id, opcoes = {}) {
+    return _refreshDocumento.agendar(id, opcoes);
+}
+
+// opcoes.forcar: redesenha mesmo que a assinatura da tela não tenha mudado (uma vez).
+async function fetchDocumentDetails(id, silent = false, opcoes = {}) {
     // Se o supabase ou o usuário não estiver pronto, aguarda até 3s e tenta de novo
     if (!supabaseClient || !state.user) {
         if (!silent) {
@@ -6810,10 +6874,23 @@ async function fetchDocumentDetails(id, silent = false) {
         }
     }
 
+    const meuSeq = ++_detalhesSeq;
+    const outroDocumento = !state.currentDocument || state.currentDocument.id !== id;
+
     if (!silent) {
         state.loading = true;
         // Sai do modo de edição ao abrir outro documento
         state.editingDocFields = false;
+        // Carga não silenciosa de OUTRO documento começa do zero. Na atualização silenciosa (e
+        // na recarga do mesmo documento) nada é esvaziado antes da hora: a tela só muda na
+        // troca atômica, no fim.
+        if (outroDocumento) {
+            state.currentDocument = null;
+            state.currentExtrato = null;
+            state.candidatosLancamento = [];
+            state.origemPagamento = null;
+            state.extratoLancamentosExpandido = false;
+        }
         render();
     }
 
@@ -6830,6 +6907,7 @@ async function fetchDocumentDetails(id, silent = false) {
     state.isUploadingComprovante = false;
     state.isSalicRunning = false;
 
+    let aplicado = false;
     try {
         // Tenta buscar com join completo
         let { data, error } = await supabaseClient
@@ -6842,17 +6920,13 @@ async function fetchDocumentDetails(id, silent = false) {
         if (error && error.code === 'PGRST200') {
             throw error;
         }
-
-        state.currentDocument = data;
-
-        // A confirmação "extrato enviado" vale enquanto o status do documento for
-        // o do momento do envio; quando a conciliação andar, ela dá lugar ao
-        // estado real do documento.
-        if (state.uploadConcluidoExtrato && state.extratoUiDocId === id && data
-            && state.uploadExtratoStatusRef && data.status !== state.uploadExtratoStatusRef) {
-            state.uploadConcluidoExtrato = false;
+        // Atualização silenciosa que não conseguiu ler o documento mantém a tela como está.
+        if (silent && (error || !data)) {
+            console.error('[fetchDocumentDetails] atualização silenciosa sem dados:', error);
+            return;
         }
 
+        // Tudo abaixo vai para variáveis locais; o state só muda na troca atômica, mais adiante.
         // Busca comprovante vinculado se existir
         const { data: compList } = await supabaseClient
             .from('documents')
@@ -6860,9 +6934,8 @@ async function fetchDocumentDetails(id, silent = false) {
             .eq('nf_vinculada_id', id)
             .maybeSingle();
 
-        state.currentComprovante = compList;
-
         // Traz rubricas se precisar vincular
+        let rubDisponiveis = null;
         if (data && data.project_id) {
             const { data: rubData } = await supabaseClient
                 .from('rubricas')
@@ -6871,8 +6944,7 @@ async function fetchDocumentDetails(id, silent = false) {
                 .eq('ativa', true)
                 .order('produto', { ascending: true })
                 .order('rubrica_id', { ascending: true });
-            state.rubricas_disponiveis = ordenarRubricas(rubData || []);
-            state.uploadRubricasProjectId = data.project_id;
+            rubDisponiveis = ordenarRubricas(rubData || []);
 
             // CR-2026-001 (complemento): saldo da rubrica vinculada, mostrado antes
             // do envio ao SALIC (individual). Só na carga completa (!silent) — os
@@ -6883,22 +6955,21 @@ async function fetchDocumentDetails(id, silent = false) {
         // Rubrica do próprio documento no cache por id (a lista acima só traz as ativas).
         if (data) await garantirRubricasDosDocumentos([data]);
 
-        // Extrato bancário e seus lançamentos (somente leitura).
-        state.currentExtrato = null;
-        if (data) await carregarExtratoDaNota(data);
-        await carregarPagamentoDaNota(data);
+        // Extrato bancário e seus lançamentos (somente leitura) e pagamento da nota.
+        const extratoNovo = data ? await carregarExtratoDaNota(data) : null;
+        const pagamentoNovo = data ? await carregarPagamentoDaNota(data) : { candidatos: [], origem: null, datas: new Map() };
 
         // Documento apontado como duplicata, para o comparativo lado a lado.
         // Pode não existir mais (duplicata_de_id vira NULL na exclusão, mas a
         // linha em memória pode estar desatualizada) — por isso maybeSingle.
-        state.currentDuplicata = null;
+        let duplicataNova = null;
         if (data && data.duplicata_de_id) {
             const { data: dupData } = await supabaseClient
                 .from('documents')
                 .select('id, name, numero_nf, cnpj_emissor, valor, data_emissao, status')
                 .eq('id', data.duplicata_de_id)
                 .maybeSingle();
-            state.currentDuplicata = dupData || null;
+            duplicataNova = dupData || null;
         }
 
         // SPEC-GUIA-01, Caso D: reconciliação retroativa. O Caso A já criou a
@@ -6910,23 +6981,66 @@ async function fetchDocumentDetails(id, silent = false) {
         // Sinal é json_extraido.guia, não subtipo_documento — confirmado contra
         // produção que a esteira do n8n nunca escreve essa coluna (mesmo
         // critério já usado por renderDadosGuia e pela trigger do Caso A).
-        state.guiaDuplicataM2 = null;
+        let guiaNova = null;
         if (data && data.json_extraido?.guia) {
-            state.guiaDuplicataM2 = await buscarGuiaDuplicadaM2(data);
+            guiaNova = await buscarGuiaDuplicadaM2(data);
         }
 
+        // Outra carga começou depois desta (ou o usuário saiu da nota numa atualização
+        // silenciosa): descarta, a mais nova já cuida da tela.
+        if (meuSeq !== _detalhesSeq) return;
+        if (silent && (state.currentView !== 'details' || (state.currentDocument && state.currentDocument.id !== id))) return;
+
+        // ---- Troca atômica: nenhum await daqui até o render() ----
+        state.currentDocument = data;
+        state.currentComprovante = compList;
+        if (rubDisponiveis) {
+            state.rubricas_disponiveis = rubDisponiveis;
+            state.uploadRubricasProjectId = data.project_id;
+        }
+
+        // A confirmação "extrato enviado" vale enquanto o status do documento for
+        // o do momento do envio; quando a conciliação andar, ela dá lugar ao
+        // estado real do documento.
+        if (state.uploadConcluidoExtrato && state.extratoUiDocId === id && data
+            && state.uploadExtratoStatusRef && data.status !== state.uploadExtratoStatusRef) {
+            state.uploadConcluidoExtrato = false;
+        }
+
+        // undefined = a consulta falhou; mantém o que a tela já mostra.
+        if (extratoNovo !== undefined) state.currentExtrato = extratoNovo;
+        if (pagamentoNovo !== undefined) {
+            state.candidatosLancamento = pagamentoNovo.candidatos;
+            state.origemPagamento = pagamentoNovo.origem;
+            if (data) aplicarDatasLancamento([data], pagamentoNovo.datas);
+        }
+        if (data && state.pagamentoManualRascunho?.docId !== data.id) {
+            state.pagamentoManualAberto = false;
+            state.pagamentoManualRascunho = { docId: data.id };
+        }
+        state.currentDuplicata = duplicataNova;
+        state.guiaDuplicataM2 = guiaNova;
+        // O indicador "Atualizando a nota..." termina junto com a atualização forçada.
+        if (opcoes.forcar) state.atualizandoNota = false;
+        aplicado = true;
     } catch (err) {
         console.error("Erro ao buscar detalhes:", err);
-        state.currentDocument = null;
-        state.currentDuplicata = null;
-        state.guiaDuplicataM2 = null;
-        state.currentExtrato = null;
+        // A atualização silenciosa não esvazia a tela por causa de uma falha passageira.
         if (!silent) {
+            state.currentDocument = null;
+            state.currentDuplicata = null;
+            state.guiaDuplicataM2 = null;
+            state.currentExtrato = null;
             showToast("Erro ao carregar detalhes do documento: " + err.message, 'error');
         }
     } finally {
         if (!silent) state.loading = false;
-        render();
+        if (!silent) {
+            render();
+        } else if (aplicado) {
+            // Silencioso: só redesenha se o que a tela mostra mudou (ou se foi forçado).
+            if (opcoes.forcar || assinaturaDaTelaDetalhes() !== state.assinaturaTelaDetalhes) render();
+        }
     }
 }
 
@@ -9259,7 +9373,7 @@ window.handleEnviarSalic = async function (documentId) {
         showToast("Processo de inserção no SALIC iniciado! O robô assumiu o comando.", 'success');
 
         // Atualizar silenciosamente enquanto o n8n processa
-        setTimeout(() => fetchDocumentDetails(documentId, true), 3000);
+        setTimeout(() => agendarRefreshDocumento(documentId), 3000);
 
     } catch (err) {
         showToast("Erro ao processar envio: " + err.message, 'error');
@@ -9898,20 +10012,41 @@ function render() {
 
     // render() troca todo o HTML: guarda foco e cursor da justificativa SALIC para
     // o realtime/refresh silencioso não tirar o usuário do campo enquanto digita.
+    // Também o formulário de pagamento manual (ids pgto-*), para não perder o que se digita.
     const focoAtivo = document.activeElement;
-    const manterFocoJustificativa = focoAtivo && focoAtivo.id === 'justificativa-salic-input'
-        ? { ini: focoAtivo.selectionStart, fim: focoAtivo.selectionEnd } : null;
+    const manterFoco = focoAtivo && focoAtivo.id
+        && (focoAtivo.id === 'justificativa-salic-input' || focoAtivo.id.startsWith('pgto-'))
+        ? { id: focoAtivo.id, ini: focoAtivo.selectionStart, fim: focoAtivo.selectionEnd } : null;
+
+    // Redesenhar a mesma tela (mesma nota) não pode levar o usuário de volta ao topo nem
+    // repetir a animação de entrada: guarda a rolagem e, se a chave da tela não mudou,
+    // devolve-a depois.
+    const chaveTela = state.currentView + (state.currentView === 'details' ? ':' + (state.currentDocument?.id || '') : '');
+    const mesmaTela = chaveTela === state.ultimaChaveRender;
+    const rolagemConteudo = app.querySelector('.main-content')?.scrollTop || 0;
+    const rolagemJanela = window.scrollY || 0;
 
     app.innerHTML = content;
     if (state.showRubricaInstructions) app.innerHTML += RubricaInstructionsModal();
     if (state.showCapturedProjectModal) app.innerHTML += CapturedProjectModal();
     if (state.confirmModal) app.innerHTML += ConfirmModal();
 
-    if (manterFocoJustificativa) {
-        const campoJust = document.getElementById('justificativa-salic-input');
-        if (campoJust) {
-            campoJust.focus();
-            try { campoJust.setSelectionRange(manterFocoJustificativa.ini, manterFocoJustificativa.fim); } catch (e) { }
+    if (mesmaTela) {
+        const conteudoNovo = app.querySelector('.main-content');
+        if (conteudoNovo && rolagemConteudo) conteudoNovo.scrollTop = rolagemConteudo;
+        if (rolagemJanela) window.scrollTo(0, rolagemJanela);
+        // Na tela de detalhes, cada atualização trocava o HTML e repetia o fadeIn de 200 ms
+        // (o "piscar"); sem a classe a troca fica imperceptível.
+        if (state.currentView === 'details') app.querySelector('.view-content')?.classList.add('sem-animacao');
+    }
+    state.ultimaChaveRender = chaveTela;
+    if (state.currentView === 'details') state.assinaturaTelaDetalhes = assinaturaDaTelaDetalhes();
+
+    if (manterFoco) {
+        const campo = document.getElementById(manterFoco.id);
+        if (campo) {
+            campo.focus();
+            try { campo.setSelectionRange(manterFoco.ini, manterFoco.fim); } catch (e) { }
         }
     }
 
@@ -10022,7 +10157,9 @@ function setupRealtime() {
                 // 2. Se estivermos vendo os detalhes DESTE documento, fazemos um fetch silencioso 
                 // para garantir que pegamos as relações (despesas, etc) que o n8n pode ter criado.
                 if (state.currentDocument && state.currentDocument.id === payload.new.id && state.currentView === 'details') {
-                    fetchDocumentDetails(payload.new.id, true);
+                    // Vários UPDATEs seguidos (o banco grava pagamento e depois status) viram uma só
+                    // atualização, e nunca duas em paralelo para o mesmo documento.
+                    agendarRefreshDocumento(payload.new.id);
                 } else if (state.currentView === 'dashboard') {
                     // Atualização cirúrgica do badge de status
                     const status = STATUS_MAP[payload.new.status] || { label: payload.new.status, class: 'status-pending' };
@@ -10180,7 +10317,7 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
         // não silenciosa apagaria a confirmação acima.
         setTimeout(() => {
             if (state.currentView === 'details' && state.currentDocument?.id === documentId) {
-                fetchDocumentDetails(documentId, true);
+                agendarRefreshDocumento(documentId);
             }
         }, 2500);
 
