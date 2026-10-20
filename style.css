@@ -515,6 +515,11 @@ optgroup option { font-weight: 400; color: var(--text-primary); }
     animation: fadeIn 200ms ease-out;
 }
 
+/* Redesenho da mesma tela (ex.: atualização da nota aberta): sem repetir a entrada. */
+.view-content.sem-animacao {
+    animation: none;
+}
+
 /* Redesign mobile do Dashboard (M1) — classes novas, inertes no desktop.
    O que cada uma vira em telas estreitas está no @media 768px logo abaixo. */
 .dashboard-filtros-toggle {
