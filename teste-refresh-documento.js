@@ -145,6 +145,7 @@ function executorManual() {
             s => { s.doc.extrato_conferido_id = 'E2'; },
             s => { s.candidatos = [{ id: 'L1' }]; },
             s => { s.candidatos = [{ id: 'L1' }, { id: 'L3' }]; },
+            s => { s.ampliarCandidatos = true; },
             s => { s.extratoId = 'E2'; },
             s => { s.qtdLancamentos = 12; },
             s => { s.flags = [false, true, false]; }

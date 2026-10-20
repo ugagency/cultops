@@ -10,6 +10,7 @@
     { "src": "erros-amigaveis.js", "use": "@vercel/static" },
     { "src": "status-catalogo.js", "use": "@vercel/static" },
     { "src": "refresh-documento.js", "use": "@vercel/static" },
+    { "src": "candidatos-lancamento.js", "use": "@vercel/static" },
     { "src": "page-sidebar.js", "use": "@vercel/static" },
     { "src": "module-selector.html", "use": "@vercel/static" },
     { "src": "equipe.html", "use": "@vercel/static" },
