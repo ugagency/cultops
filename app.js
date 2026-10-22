@@ -933,6 +933,11 @@ function userPodeResolverPagamento() {
     return ['admin', 'gestor', 'analista'].includes(getUserRole());
 }
 
+// Baixar o laudo de conformidade (nota e projeto): admin, gestor e analista.
+function userPodeBaixarLaudo(role = getUserRole()) {
+    return ['admin', 'gestor', 'analista'].includes(role);
+}
+
 // Regra única do pagamento da nota (o SALIC exige número da transação e data). Tem pagamento
 // quem tem fitid (não vazio) E data conhecida: documents.data_pagamento preenchida OU um
 // lançamento de extrato ligado à nota com data_lancamento. Em produção a data costuma ficar só
@@ -2028,14 +2033,11 @@ ${Sidebar()}
                                     <button class="btn btn-secondary" style="padding: 0.4rem;" title="Financeiro" onclick="state.filters.project = '${p.id}'; window.navigate('financeiro')">
                                         <i data-lucide="bar-chart-3" style="width: 16px;"></i>
                                     </button>
-                                    ${(() => {
-        const role = getUserRole();
-        return (role === 'gestor' || role === 'analista') ? `
+                                    ${userPodeBaixarLaudo() ? `
                                     <button class="btn btn-secondary" style="padding: 0.4rem;" title="Baixar Laudo Excel" onclick="window.generateLaudoExcel('${p.id}')">
                                         <i data-lucide="file-spreadsheet" style="width: 16px;"></i>
                                     </button>
-                                    ` : '';
-    })()}
+                                    ` : ''}
 
                                     ${userCanDelete() ? `
                                         <button class="btn btn-secondary" style="padding: 0.4rem; color: var(--error);" title="Excluir Projeto" onclick="window.handleDeleteProject('${p.id}', '${p.nome}')">
@@ -3309,15 +3311,12 @@ ${Sidebar()}
                     <span class="badge-dot"></span>
                     ${(STATUS_MAP[doc.status] || {}).label || doc.status}
                 </div>
-                ${(() => {
-        const role = getUserRole();
-        return (role === 'gestor' || role === 'analista') ? `
+                ${userPodeBaixarLaudo() ? `
                 <button class="btn btn-secondary" title="Baixar Laudo Excel desta NF" onclick="window.generateLaudoExcelDoc('${doc.id}')">
                     <i data-lucide="file-spreadsheet" style="width: 16px;"></i>
                     Baixar Laudo
                 </button>
-                ` : '';
-    })()}
+                ` : ''}
             </div>
         </header>
 
