@@ -8185,7 +8185,7 @@ window.handleCriarAnalista = async function () {
 
 // --- Laudo de Conformidade Excel (S4) ---
 const LAUDO_DOC_COLUMNS = `
-    nome_emissor, cnpj_emissor, rubrica, tipo_documento,
+    id, nome_emissor, cnpj_emissor, rubrica, tipo_documento,
     numero_nf, data_emissao, valor_pago, data_pagamento,
     autenticacao_bancaria, justification, just_erro,
     status, json_extraido, created_at
@@ -8213,8 +8213,8 @@ const LAUDO_COL_WIDTHS = [
 ];
 
 function _laudoMapStatus(status) {
-    const apto = ['validated'];
-    const ressalva = ['aguardando_conformidade', 'aguardando_comprovante', 'revisao_manual', 'aguardando_conciliacao_bancaria'];
+    const apto = ['validated', 'liberado_rpa_airtop', 'enviado_salic'];
+    const ressalva = ['aguardando_conformidade', 'aguardando_comprovante', 'revisao_manual', 'aguardando_conciliacao_bancaria', 'aguardando_d3'];
     const naoApto = ['bloqueado_conformidade', 'divergencia_valor', 'divergencia_beneficiario', 'erro_rpa'];
     if (apto.includes(status)) return 'Apto';
     if (ressalva.includes(status)) return 'Apto com ressalva';
@@ -8234,27 +8234,53 @@ function _laudoFmtValor(v) {
     return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
-function _laudoBuildRow(d, rubricaMap) {
+// Lançamento conciliado de cada nota, em lote, para preencher o pagamento quando
+// a nota não o trouxe. Uma nota pode ter mais de um lançamento conciliado
+// (duplicata do extrato); vale o primeiro por data e fitid, para a escolha ser
+// estável entre gerações do laudo.
+async function _laudoFetchLancamentos(docIds, projectId) {
+    const porDoc = new Map();
+    for (let i = 0; i < docIds.length; i += 100) {
+        const { data, error } = await supabaseClient
+            .from('extratos_lancamentos')
+            .select('document_id, fitid, valor, data_lancamento')
+            .eq('project_id', projectId)
+            .eq('status_conciliacao', 'conciliado')
+            .in('document_id', docIds.slice(i, i + 100))
+            .order('data_lancamento', { ascending: true })
+            .order('fitid', { ascending: true });
+        if (error) throw new Error(error.message);
+        (data || []).forEach(l => { if (!porDoc.has(l.document_id)) porDoc.set(l.document_id, l); });
+    }
+    return porDoc;
+}
+
+function _laudoBuildRow(d, rubricaMap, lanc) {
     const rubricaKey = (d.rubrica || '').toLowerCase().trim();
     const codigoRubrica = rubricaMap[rubricaKey] || '';
-    const ret = d.json_extraido?.retencoes || {};
+    const nf = d.json_extraido?.nota_fiscal || {};
+    const ret = nf.retencoes || {};
+    const retVal = (v) => (v == null ? '' : v);
+    const valorPago = d.valor_pago != null ? d.valor_pago : (lanc?.valor != null ? Math.abs(Number(lanc.valor)) : null);
+    const dataPagamento = d.data_pagamento || lanc?.data_lancamento || null;
+    const docExtrato = d.autenticacao_bancaria || (lanc?.fitid ? String(lanc.fitid).trim() : '');
     return {
         'RAZÃO SOCIAL (FORNECEDOR/PRESTADOR)': d.nome_emissor || '',
         'CNPJ': d.cnpj_emissor || '',
         'NUMERO DA RUBRICA - ORÇAMENTO': codigoRubrica,
         'ITEM DE CUSTO (RUBRICA)': d.rubrica || '',
-        'CNAE': d.json_extraido?.cnae_prestador || '',
+        'CNAE': d.json_extraido?.emissor?.cnae || '',
         'DOCUMENTO FISCAL (TIPO)': d.tipo_documento || '',
-        'DISCRIMINAÇÃO DOS SERVIÇOS': d.justification || '',
+        'DISCRIMINAÇÃO DOS SERVIÇOS': nf.descricao_servico || '',
         'NUMERO DOCUMENTO FISCAL': d.numero_nf || '',
         'DATA EMISSÃO DO DOCUMENTO FISCAL': _laudoFmtDate(d.data_emissao),
-        'VALOR PAGAMENTO': _laudoFmtValor(d.valor_pago),
-        'DATA PAGAMENTO': _laudoFmtDate(d.data_pagamento),
-        'Nº DOCUMENTO (NO EXTRATO)': d.autenticacao_bancaria || '',
-        'IRRF': ret.irrf || '',
-        'PCC': ret.pcc || '',
-        'INSS (E PATRONAL)': ret.inss || '',
-        'ISS': ret.iss || '',
+        'VALOR PAGAMENTO': _laudoFmtValor(valorPago),
+        'DATA PAGAMENTO': _laudoFmtDate(dataPagamento),
+        'Nº DOCUMENTO (NO EXTRATO)': docExtrato,
+        'IRRF': retVal(ret.irrf),
+        'PCC': retVal(ret.pis_cofins_csll),
+        'INSS (E PATRONAL)': retVal(ret.inss),
+        'ISS': retVal(ret.iss),
         'STATUS': _laudoMapStatus(d.status),
         'MOTIVO TÉCNICO': d.just_erro || '',
     };
@@ -8315,7 +8341,8 @@ async function generateLaudoExcel(projectId) {
         }
 
         const rubricaMap = await _laudoFetchRubricaMap(projectId, orgId);
-        const rows = docs.map(d => _laudoBuildRow(d, rubricaMap));
+        const lancs = await _laudoFetchLancamentos(docs.map(d => d.id), projectId);
+        const rows = docs.map(d => _laudoBuildRow(d, rubricaMap, lancs.get(d.id)));
         const filename = `laudo_${_laudoSafeName(projectNome)}_${_laudoTodayStr()}.xlsx`;
         _laudoWriteXlsx(rows, filename);
 
@@ -8351,7 +8378,8 @@ async function generateLaudoExcelDoc(documentId) {
         }
 
         const rubricaMap = await _laudoFetchRubricaMap(doc.project_id, orgId);
-        const rows = [_laudoBuildRow(doc, rubricaMap)];
+        const lancs = await _laudoFetchLancamentos([doc.id], doc.project_id);
+        const rows = [_laudoBuildRow(doc, rubricaMap, lancs.get(doc.id))];
         const nfTag = doc.numero_nf ? _laudoSafeName(doc.numero_nf) : 'NF';
         const filename = `laudo_${nfTag}_${_laudoTodayStr()}.xlsx`;
         _laudoWriteXlsx(rows, filename);
