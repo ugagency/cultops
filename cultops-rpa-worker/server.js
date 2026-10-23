@@ -77,7 +77,6 @@ function resolverDataPagamento(lancamento, doc) {
 //   c) senão, erro "Valor pago não determinado".
 // Linhas duplicadas do mesmo lançamento (mesmo fitid, valor e data) contam uma vez só. Em (b),
 // documento com mais de um lançamento distinto também é erro: o valor de um deles não é o pago.
-// Em (b), o valor do lançamento só é aceito entre 85% e 100% do valor da nota.
 // Em qualquer caso, erro se o valor passar do valor da nota + R$ 0,01.
 function calcularValorEnvio(doc, lancamentosDoDoc, lancamentosMesmoFitid) {
     const centavos = (v) => Math.round(Number(v) * 100);
@@ -107,13 +106,6 @@ function calcularValorEnvio(doc, lancamentosDoDoc, lancamentosMesmoFitid) {
         }
         valor = Math.abs(Number(lancamento.valor));
         origem = 'lancamento';
-        // Faixa de plausibilidade só para o valor derivado do lançamento: entre 85% e 100% do
-        // valor da nota (em centavos, sem erro de ponto flutuante). Fora disso a conciliação
-        // provavelmente ligou o pagamento errado. valor_pago (a) não passa por esta faixa.
-        const vc = centavos(valor), nc = centavos(doc.valor);
-        if (vc * 100 < nc * 85 || vc > nc) {
-            throw new Error(`Valor do lançamento incompatível com a nota; revisar conciliação (lançamento R$ ${valor.toFixed(2)}, nota R$ ${Number(doc.valor).toFixed(2)}).`);
-        }
     }
 
     if (!Number.isFinite(valor) || valor <= 0) {
