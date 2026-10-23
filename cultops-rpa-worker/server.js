@@ -158,6 +158,26 @@ function formatarNrDocPagamento(docExtrato) {
 // O dry-run só é ligado por quem chama a função (opcoes.dryRun); a rota NUNCA o lê do body.
 app.post('/api/salic/inserir', exigirUsuarioAutenticado, (req, res) => executarEnvioSalic(req, res));
 
+// Dry-run em produção: POST /api/salic/dry-run { documentId }, mesma autenticação do envio. O
+// dryRun é fixo na rota (não vem do body nem de variável de ambiente, então não afeta o
+// /inserir). O worker faz login, acha a rubrica, abre o modal e preenche tudo, SEM anexar o
+// PDF e SEM clicar em Salvar; a resposta traz só a AUDITORIA em JSON (sem screenshot). Nunca
+// grava em documents, despesas nem rpa_execucoes. Limite por usuário: a MESMA configuração da
+// /validar-credencial (SALIC_VALIDAR_MAX / SALIC_VALIDAR_JANELA_MIN), com contador próprio para
+// dry-runs e validações não consumirem a cota um do outro.
+const limitadorDryRun = criarLimitadorPorUsuario(limiteValidacao);
+function criarHandlerDryRun({ limitador, executar = executarEnvioSalic }) {
+    return (req, res) => {
+        if (!req.body?.documentId) return res.status(400).json({ error: 'ID do documento não fornecido.' });   // não gasta cota
+        const limite = limitador.consultar(req.userId);
+        if (!limite.ok) return res.status(429).json({ status: 'limite', tentarEm: limite.tentarEm });
+        // Sem await entre a consulta e o registro: a checagem e a cota são atômicas.
+        limitador.registrar(req.userId);
+        return executar(req, res, { dryRun: true });
+    };
+}
+app.post('/api/salic/dry-run', exigirUsuarioAutenticado, criarHandlerDryRun({ limitador: limitadorDryRun }));
+
 // Dry-run (ocorrência #119): o worker preenche e audita o formulário sem clicar em Salvar, e
 // aqui nada é gravado em documents nem em despesas (status, data_salic, protocolo_salic,
 // just_erro), nem em sucesso nem em erro.
@@ -283,12 +303,17 @@ async function executarEnvioSalic(req, res, { dryRun = false } = {}) {
         // Bucket "documentos" privado (ocorrência #85): o robô baixa a NF por URL assinada,
         // válida por 1 hora. O file_path pode vir com espaço no fim, por isso o trim. A
         // mensagem de erro não leva o caminho nem a URL.
+        // Dry-run não anexa o PDF, então não gera URL assinada (nem toca o Storage).
         const nfPath = String(doc.file_path || '').trim();
-        const { data: nfAssinada, error: nfAssinadaErro } = await supabase.storage
-            .from('documentos')
-            .createSignedUrl(nfPath, 3600);
-        if (nfAssinadaErro || !nfAssinada || !nfAssinada.signedUrl) {
-            throw new Error('Não foi possível gerar URL do arquivo da NF.');
+        let nfUrl = null;
+        if (!dryRun) {
+            const { data: nfAssinada, error: nfAssinadaErro } = await supabase.storage
+                .from('documentos')
+                .createSignedUrl(nfPath, 3600);
+            if (nfAssinadaErro || !nfAssinada || !nfAssinada.signedUrl) {
+                throw new Error('Não foi possível gerar URL do arquivo da NF.');
+            }
+            nfUrl = nfAssinada.signedUrl;
         }
 
         const config = {
@@ -307,7 +332,7 @@ async function executarEnvioSalic(req, res, { dryRun = false } = {}) {
                 data_emissao: doc.data_emissao,   // Data de Emissão real da NF/recibo (#dataEmissao)
                 data_pagamento: dataPagamento,    // Bug #2: Data do Pagamento = data do débito (#dtPagamento)
                 nf_path: nfPath,
-                nf_url: nfAssinada.signedUrl,
+                nf_url: nfUrl,
                 recibo: doc.recibo,   // flag de tipo: 'yes' = Recibo, 'no' = NF (NÃO é caminho de arquivo)
                 numero_extrato: formatarNrDocPagamento(numeroExtrato),
                 numero_guia: doc.json_extraido?.guia?.numero_guia || null,   // sinal de Guia de Recolhimento p/ o worker
@@ -321,8 +346,8 @@ async function executarEnvioSalic(req, res, { dryRun = false } = {}) {
             return res.json({
                 success: true, dryRun: true,
                 rubricaNome: rubrica.nome, rubricaProduto, matchType: resultado.matchType, rubricaCasada: resultado.rubricaCasada,
-                valor: config.documento.valor, dataPagamento: config.documento.data_pagamento,
-                screenshot: resultado.screenshot, auditoria: resultado.auditoria
+                valor: config.documento.valor, origemValor, dataPagamento: config.documento.data_pagamento,
+                pdfAnexado: false, auditoria: resultado.auditoria   // sem screenshot: só a AUDITORIA
             });
         }
 
@@ -507,4 +532,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { executarEnvioSalic, calcularValorEnvio, resolverDataPagamento };
+module.exports = { executarEnvioSalic, criarHandlerDryRun, calcularValorEnvio, resolverDataPagamento };

@@ -45,20 +45,22 @@ function from(tabela) {
 }
 const supabaseFalso = {
     from,
-    storage: { from: () => ({ createSignedUrl: async () => ({ data: { signedUrl: 'https://storage.exemplo/nf.pdf?token=x' }, error: null }) }) },
+    storage: { from: () => ({ createSignedUrl: async () => { chamadasStorage++; return ({ data: { signedUrl: 'https://storage.exemplo/nf.pdf?token=x' }, error: null }); } }) },
     auth: { getUser: async () => ({ data: null, error: { message: 'nao usado' } }) },
     rpc: async () => ({ data: [], error: null }),
 };
 injetar('@supabase/supabase-js', { createClient: () => supabaseFalso });
 
 // Worker falso: guarda o config recebido e devolve o resultado combinado em cada caso.
+let chamadasStorage = 0;
 let configRecebido = null;
 let resultadoWorker = null;
 injetar('./salic_insertion.cjs', {
     executarInsercaoSalic: async (config) => { configRecebido = config; return resultadoWorker; },
 });
 
-const { executarEnvioSalic } = require('./server.js');
+const { executarEnvioSalic, criarHandlerDryRun } = require('./server.js');
+const { criarLimitadorPorUsuario } = require('./salic_validar_login.cjs');
 
 const DOC_ID = 'd1d3e0de-0000-0000-0000-000000000001';
 const RUBRICA_ID = '27f49b2b-0000-0000-0000-000000000001';
@@ -80,6 +82,7 @@ function cenario({ doc = {}, lancamentos } = {}) {
     };
     escritas = [];
     configRecebido = null;
+    chamadasStorage = 0;
 }
 async function enviar(opcoes) {
     const res = { codigo: 200, corpo: null, status(c) { this.codigo = c; return this; }, json(o) { this.corpo = o; return this; } };
@@ -203,6 +206,92 @@ let falhas = 0;
         assert.equal(r.codigo, 500);
         assert.match(r.corpo.error, /sem lançamento bancário conciliado/);
         assert.equal(configRecebido, null);
+    });
+
+    // ── rota POST /api/salic/dry-run (handler criado por criarHandlerDryRun) ──
+    const rodarDryRun = async (handler, corpo = { documentId: DOC_ID }, userId = 'u1') => {
+        const res = { codigo: 200, corpo: null, status(c) { this.codigo = c; return this; }, json(o) { this.corpo = o; return this; } };
+        await handler({ body: corpo, userId }, res);
+        return res;
+    };
+    const relogio = (inicio = 0) => { const r = { t: inicio, agora: () => r.t }; return r; };
+    const novoHandler = (max = 3, rel = relogio()) => criarHandlerDryRun({
+        limitador: criarLimitadorPorUsuario({ max, janelaMs: 15 * 60 * 1000, agora: rel.agora })
+    });
+    const RESULTADO_DRY = { sucesso: true, dryRun: true, screenshot: null, auditoria: { '#vlComprovado': '16.893,00' }, matchType: 'flat_nome_e_valor_aprovado', rubricaCasada: 'Advogado(a)' };
+
+    await caso('dry-run: dryRun fixo na rota (ignora dryRun do body), sem PDF e sem URL assinada', async () => {
+        cenario();
+        resultadoWorker = RESULTADO_DRY;
+        const r = await rodarDryRun(novoHandler(), { documentId: DOC_ID, dryRun: false });
+        assert.equal(r.codigo, 200);
+        assert.equal(configRecebido.dryRun, true);
+        assert.equal(configRecebido.documento.nf_url, null);
+        assert.equal(chamadasStorage, 0, 'nao toca o Storage');
+    });
+
+    await caso('dry-run: resposta traz so a AUDITORIA em JSON, sem screenshot', async () => {
+        cenario();
+        resultadoWorker = { ...RESULTADO_DRY, screenshot: 'nao-deve-sair.png' };
+        const r = await rodarDryRun(novoHandler());
+        assert.equal(r.corpo.success, true);
+        assert.equal(r.corpo.dryRun, true);
+        assert.equal(r.corpo.pdfAnexado, false);
+        assert.deepEqual(r.corpo.auditoria, { '#vlComprovado': '16.893,00' });
+        assert.equal(r.corpo.valor, 16893);
+        assert.equal(r.corpo.dataPagamento, '2026-09-30');
+        assert.equal('screenshot' in r.corpo, false);
+    });
+
+    await caso('dry-run: nunca grava em nenhuma tabela (documents, despesas, rpa_execucoes), em sucesso ou erro', async () => {
+        cenario();
+        resultadoWorker = RESULTADO_DRY;
+        await rodarDryRun(novoHandler());
+        assert.deepEqual(escritas, [], 'sucesso');
+        cenario();
+        resultadoWorker = { sucesso: false, erro: 'Rubrica da tela ("X") diverge da rubrica esperada ("Advogado(a)")' };
+        const r = await rodarDryRun(novoHandler());
+        assert.equal(r.codigo, 500);
+        assert.deepEqual(escritas, [], 'erro do worker');
+        cenario({ lancamentos: [] });
+        await rodarDryRun(novoHandler());
+        assert.deepEqual(escritas, [], 'erro antes do worker');
+    });
+
+    await caso('dry-run: limite por usuario (3 por 15 min) responde 429 com tentarEm e nao chama o worker', async () => {
+        cenario();
+        resultadoWorker = RESULTADO_DRY;
+        const rel = relogio(1000000);
+        const handler = novoHandler(3, rel);
+        for (let i = 0; i < 3; i++) assert.equal((await rodarDryRun(handler)).codigo, 200);
+        configRecebido = null;
+        rel.t += 60 * 1000;
+        const r = await rodarDryRun(handler);
+        assert.equal(r.codigo, 429);
+        assert.equal(r.corpo.status, 'limite');
+        assert.equal(r.corpo.tentarEm, 14 * 60);
+        assert.equal(configRecebido, null);
+    });
+
+    await caso('dry-run: outro usuario nao e afetado e a cota volta depois da janela', async () => {
+        cenario();
+        resultadoWorker = RESULTADO_DRY;
+        const rel = relogio(1000000);
+        const handler = novoHandler(3, rel);
+        dados.decrypted_external_credentials.push({ user_id: 'u2', service_name: 'salic', identifier: '98765432100', secret_plain: 'senha2' });
+        for (let i = 0; i < 3; i++) await rodarDryRun(handler);
+        assert.equal((await rodarDryRun(handler)).codigo, 429);
+        assert.equal((await rodarDryRun(handler, undefined, 'u2')).codigo, 200);
+        rel.t += 15 * 60 * 1000 + 1;
+        assert.equal((await rodarDryRun(handler)).codigo, 200);
+    });
+
+    await caso('dry-run: sem documentId responde 400 e nao gasta cota', async () => {
+        cenario();
+        resultadoWorker = RESULTADO_DRY;
+        const handler = novoHandler(1);
+        assert.equal((await rodarDryRun(handler, {})).codigo, 400);
+        assert.equal((await rodarDryRun(handler)).codigo, 200);
     });
 
     okLog(falhas === 0 ? '\ntodos os casos passaram' : `\n${falhas} caso(s) falharam`);

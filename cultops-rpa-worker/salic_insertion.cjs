@@ -993,7 +993,10 @@ async function executarInsercaoSalic(config) {
         await wait(300);
 
         // 6. Upload do Arquivo (PDF)
-        if (documento.nf_url) {
+        // Dry-run NAO anexa o PDF: o SALIC pode enviar o arquivo ao servidor já ao anexar.
+        if (config.dryRun === true) {
+            console.log('[SALIC] DRY-RUN: PDF da NF NAO baixado nem anexado.');
+        } else if (documento.nf_url) {
             console.log('[SALIC] Baixando arquivo da Nota Fiscal.');
             const localFilePath = path.join(os.tmpdir(), `nf_${Date.now()}.pdf`);
             await downloadFile(documento.nf_url, localFilePath);
@@ -1098,12 +1101,16 @@ async function executarInsercaoSalic(config) {
         // Dry-run: formulário preenchido e auditado, mas NUNCA clica em Salvar (o código de
         // salvamento abaixo só é alcançado com dryRun falso).
         if (config.dryRun === true) {
-            const dryRunPath = config.dryRunScreenshotPath || `salic_dryrun_${Date.now()}.png`;
-            await targetPage.screenshot({ path: dryRunPath, fullPage: true });
-            console.log(`[SALIC] DRY-RUN: Salvar NAO foi clicado. Screenshot do modal preenchido: ${dryRunPath}`);
+            // Screenshot só se o chamador pedir um caminho (uso local); a rota /api/salic/dry-run não pede.
+            let screenshot = null;
+            if (config.dryRunScreenshotPath) {
+                await targetPage.screenshot({ path: config.dryRunScreenshotPath, fullPage: true });
+                screenshot = config.dryRunScreenshotPath;
+            }
+            console.log(`[SALIC] DRY-RUN: Salvar NAO foi clicado.${screenshot ? ` Screenshot do modal preenchido: ${screenshot}` : ''}`);
             return {
                 sucesso: true, dryRun: true, mensagem: 'Dry-run concluido: nada foi salvo no SALIC.',
-                screenshot: dryRunPath, auditoria: estadoCampos,
+                screenshot, auditoria: estadoCampos,
                 matchType: resultadoMatch.matchType, rubricaCasada: resultadoMatch.nomeTabela
             };
         }
@@ -1264,8 +1271,10 @@ async function executarInsercaoSalic(config) {
             if (erroPage) {
                 const html = await erroPage.evaluate(() => document.body.innerText.substring(0, 500));
                 console.error('[SALIC] Conteúdo da página no momento do erro:', html);
-                const fileName = `erro_salic_${Date.now()}.png`;
-                await erroPage.screenshot({ path: fileName }).catch(() => { });
+                if (config.dryRun !== true) {   // dry-run nao deixa screenshot em disco
+                    const fileName = `erro_salic_${Date.now()}.png`;
+                    await erroPage.screenshot({ path: fileName }).catch(() => { });
+                }
             }
         } catch (e) { }
         return { sucesso: false, erro: error.message };
