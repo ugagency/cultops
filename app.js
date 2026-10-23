@@ -395,6 +395,17 @@ function escAttr(v) {
         .replace(/>/g, '&gt;');
 }
 
+// Escapa texto para o corpo do HTML ou atributo: & < > " e '. Usar em todo texto de origem
+// externa (just_erro do robô, candidatas do SALIC). escAttr não escapa o apóstrofo.
+function escHtml(v) {
+    return String(v == null ? '' : v)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 // "PRODUTO · 65 - Nome da rubrica (R$ 3.000,00)"
 // Degrada sem quebrar: produto, rubrica_id e valor_aprovado são todos opcionais.
 function partesRotuloRubrica(r) {
@@ -856,6 +867,7 @@ const state = {
     candidatosLancamento: [],
     origemPagamento: null,
     pagamentoManualAberto: false,
+    pagamentoInformadoDocId: null, // nota cujo pagamento foi informado nesta sessão (erro do robô por pagamento)
     pagamentoManualRascunho: {},
     // "Ver lançamentos de outros extratos / ampliar": vale só para a nota de docId e zera ao abrir outra.
     ampliarCandidatos: { docId: null, ativo: false },
@@ -986,6 +998,22 @@ const MSG_INFORME_PAGAMENTO = 'Informe o lançamento ou o pagamento antes de ava
 
 // Status em que a nota pode ficar sem pagamento identificado e o usuário precisa resolver.
 const STATUS_RESOLVER_PAGAMENTO = ['divergencia_valor', 'divergencia_beneficiario', 'revisao_manual', 'conciliacao_pendente'];
+
+// erro_rpa entra na lista acima só quando o motivo gravado pelo robô é de pagamento (ver
+// erros-rpa.js): nos demais erros do robô o formulário de pagamento não ajuda.
+function statusPedePagamento(doc) {
+    if (!doc) return false;
+    if (STATUS_RESOLVER_PAGAMENTO.includes(doc.status)) return true;
+    return doc.status === 'erro_rpa' && window.ErrosRpa.pedeInformarPagamento(doc.just_erro);
+}
+
+// Entra na seleção do envio em lote: liberada pelo D-3, ou com erro do robô em que reenviar
+// adianta. Erro sem código conhecido não é reenviado direto (a causa não está clara).
+function docProntoParaEnvio(doc) {
+    if (!doc) return false;
+    if (doc.status === 'liberado_rpa_airtop') return true;
+    return doc.status === 'erro_rpa' && window.ErrosRpa.permiteReenviarEmLote(doc.just_erro);
+}
 const TOLERANCIA_VALOR_LANCAMENTO = 0.02;
 const ORIGENS_PAGAMENTO_AUDIT = {
     confirmar_lancamento_nota: 'escolhido',
@@ -2298,7 +2326,7 @@ const EnvioLoteSalicView = () => {
         // direto aqui, sem exigir o "Assumir risco" que o avanço manual de
         // status pede para os outros casos de erro (esses SIM são achados da
         // auditoria de conformidade, erro_rpa não é).
-        const prontosParaEnvio = state.documents.filter(doc => ['liberado_rpa_airtop', 'erro_rpa'].includes(doc.status));
+        const prontosParaEnvio = state.documents.filter(docProntoParaEnvio);
         // Rubrica excedida: o SALIC exige justificativa, que só existe na tela de
         // detalhes. Esses documentos não entram na seleção do lote (nem no
         // "Selecionar Todos" nem no contador) e vão para a seção de envio individual.
@@ -2805,7 +2833,8 @@ async function processarFilaSalic() {
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || "O servidor de API retornou erro.");
+                const aviso = window.ErrosRpa.avisoEnvio(response.status, errorData);
+                throw new Error(aviso ? aviso.mensagem : (errorData.error || "O servidor de API retornou erro."));
             }
 
             const resData = await response.json();
@@ -3632,7 +3661,7 @@ ${Sidebar()}
                             </div>
 
                             <!-- Só permite vincular/alterar se houver bloqueio -->
-                            ${doc.status === 'bloqueado_conformidade' ? `
+                            ${doc.status === 'bloqueado_conformidade' || (doc.status === 'erro_rpa' && window.ErrosRpa.permiteCorrigirRubrica(doc.just_erro)) ? `
                                 <div style="display: flex; gap: 0.5rem;">
                                     <div style="flex: 1;">
                                         <input type="text" id="vincular-rubrica-input" data-rubrica-combo placeholder="${(state.rubricas_disponiveis || []).length === 0 ? 'Carregando rubricas...' : 'Digite para buscar rubrica...'}" autocomplete="off" style="width: 100%; padding: 0.5rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: 4px; background: white;" ${(state.rubricas_disponiveis || []).length === 0 ? 'disabled' : ''}>
@@ -3641,7 +3670,9 @@ ${Sidebar()}
                                         Corrigir Vínculo
                                     </button>
                                 </div>
-                                <p class="text-xs" style="color: var(--error); margin-top: 0.25rem;">Documento bloqueado por conformidade. Por favor, revise a rubrica vinculada.</p>
+                                <p class="text-xs" style="color: var(--error); margin-top: 0.25rem;">${doc.status === 'erro_rpa'
+                                    ? 'O robô não conseguiu usar a rubrica desta nota. Escolha a rubrica correta: a nota volta para a fila de conferência e conciliação e pode esperar o D-3 de novo.'
+                                    : 'Documento bloqueado por conformidade. Por favor, revise a rubrica vinculada.'}</p>
                             ` : `
                                 <p class="text-xs" style="color: var(--text-muted); margin-top: 0.25rem;">Vínculo de rubrica validado automaticamente para conformidade fiscal.</p>
                             `}
@@ -3804,14 +3835,7 @@ ${Sidebar()}
                             </div>
                             <p class="text-xs" style="color: var(--primary); font-weight: 600;">Robô em processo...</p>
                          </div>` :
-                        `<div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                                            <p class="text-xs" style="color: var(--error); font-weight: 500;">Falha no envio automático:</p>
-                                            <p class="text-xs" style="color: var(--text-muted); font-style: italic;">${window.prestaiSuavizar?.(doc.just_erro, 'error') || 'Erro no robô SALIC'}</p>
-                                            ${blocoJustificativaSalic}${faltaDadoObrigatorioSalic ?
-                        `<button class="btn btn-secondary" style="width: 100%; font-size: 10px; padding: 0.3rem; opacity: 0.5; cursor: not-allowed;" disabled>Tentar Novamente</button>
-                                            <p class="text-xs" style="color: var(--text-secondary); font-style: italic;">Preencha os dados obrigatórios (destacados acima) antes de tentar novamente.</p>` :
-                        `<button class="btn btn-secondary" style="width: 100%; font-size: 10px; padding: 0.3rem;${estiloBotaoEnvioBloqueado}" onclick="window.handleEnviarSalic('${doc.id}')"${atributosBotaoEnvioJustificativa}>Tentar Novamente</button>`}
-                                         </div>`) :
+                        blocoErroRpaHtml(doc, { blocoJustificativaSalic, faltaDadoObrigatorioSalic, estiloBotaoEnvioBloqueado, atributosBotaoEnvioJustificativa })) :
                     `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando liberação financeira (D+3)...</p>`))
         }
                             ${renderSaldoBadgeDestaque(doc.rubrica_id_fk)}
@@ -4030,13 +4054,99 @@ function lancamentosCitadosAuditoria(doc) {
     return itens;
 }
 
+// Quadro "Falha no envio automático" da nota em erro_rpa. Código conhecido (prefixo [CODIGO] do
+// just_erro, ver erros-rpa.js): título, explicação, orientação, botão da tela certa e o texto
+// bruto em "Ver detalhes". Sem prefixo ou com código desconhecido: só o texto bruto e nenhum
+// botão de reenvio, porque sem saber a causa reenviar só repete a falha.
+function blocoErroRpaHtml(doc, ctx) {
+    const e = window.ErrosRpa.interpretar(doc.just_erro);
+    const bruto = escHtml(e.bruto.trim());
+    const col = 'display: flex; flex-direction: column; gap: 0.5rem;';
+
+    if (!e.conhecido) {
+        return `<div style="${col}">
+            <p class="text-xs" style="color: var(--error); font-weight: 500;">Falha no envio automático:</p>
+            <p class="text-xs" style="color: var(--text-muted); font-style: italic; white-space: pre-wrap; word-break: break-word;">${bruto || 'Erro no robô SALIC'}</p>
+            <p class="text-xs" style="color: var(--text-secondary);">Não foi possível identificar a causa com segurança, então o reenvio direto não está disponível. Acione o suporte, informando esta nota.</p>
+            ${ctx.blocoJustificativaSalic}
+        </div>`;
+    }
+
+    const { info, candidatas } = e;
+    const botaoAcao = info.acao.tipo && info.acao.rotulo
+        ? `<button class="btn btn-primary" style="width: 100%; font-size: 11px; padding: 0.4rem;" onclick="window.handleAcaoErroRpa('${info.acao.tipo}')">${escHtml(info.acao.rotulo)}</button>`
+        : '';
+    const listaCandidatas = candidatas && candidatas.itens.length > 0
+        ? `<p class="text-xs" style="color: var(--text-secondary); font-weight: 600; margin-top: 0.5rem;">Linhas parecidas encontradas no SALIC:</p>
+           <ul class="text-xs" style="color: var(--text-secondary); margin: 0.25rem 0 0 1rem; padding: 0;">${candidatas.itens.map(i => `<li>${escHtml(i)}</li>`).join('')}</ul>
+           ${candidatas.restantes > 0 ? `<p class="text-xs" style="color: var(--text-muted);">e mais ${candidatas.restantes}.</p>` : ''}`
+        : '';
+    const reenvio = !info.permiteReenviar ? '' : ctx.faltaDadoObrigatorioSalic
+        ? `<button class="btn btn-secondary" style="width: 100%; font-size: 10px; padding: 0.3rem; opacity: 0.5; cursor: not-allowed;" disabled>Tentar Novamente</button>
+           <p class="text-xs" style="color: var(--text-secondary); font-style: italic;">Preencha os dados obrigatórios (destacados acima) antes de tentar novamente.</p>`
+        : `<button class="btn btn-secondary" style="width: 100%; font-size: 10px; padding: 0.3rem;${ctx.estiloBotaoEnvioBloqueado}" onclick="window.handleTentarNovamenteErroRpa('${doc.id}')"${ctx.atributosBotaoEnvioJustificativa}>Tentar Novamente</button>`;
+
+    return `<div style="${col}">
+        <p class="text-xs" style="color: var(--error); font-weight: 700;">${escHtml(info.titulo)}</p>
+        <p class="text-xs" style="color: var(--text-secondary); line-height: 1.5;">${escHtml(info.explicacao)}</p>
+        <p class="text-xs" style="color: var(--text-secondary); line-height: 1.5; font-weight: 600;">${escHtml(info.acao.orientacao)}</p>
+        ${botaoAcao}
+        <details class="text-xs" style="color: var(--text-muted);">
+            <summary style="cursor: pointer;">Ver detalhes</summary>
+            ${listaCandidatas}
+            <p style="margin-top: 0.5rem; font-style: italic; white-space: pre-wrap; word-break: break-word;">${bruto}</p>
+        </details>
+        ${ctx.blocoJustificativaSalic}${reenvio}
+    </div>`;
+}
+
+// Botão de ação do quadro de erro: leva à tela certa para o erro.
+window.handleAcaoErroRpa = function (tipo) {
+    const rolar = (id) => {
+        const el = document.getElementById(id);
+        if (el) { el.scrollIntoView({ block: 'center' }); if (el.focus) el.focus(); }
+        return !!el;
+    };
+    if (tipo === 'vincular_rubrica') {
+        if (!rolar('vincular-rubrica-input')) showToast('O campo de rubrica ainda está carregando. Tente de novo em instantes.', 'info');
+    } else if (tipo === 'informar_pagamento') {
+        state.pagamentoManualAberto = true;
+        render();
+        if (!rolar('pgto-data')) showToast('Peça a um administrador, gestor ou analista para informar o pagamento.', 'info');
+    } else if (tipo === 'configuracoes') {
+        window.location.href = 'configuracoes.html';
+    }
+};
+
+// "Tentar Novamente" do quadro de erro. Erros que podem ter gravado a nota no SALIC mesmo assim
+// (tempo esgotado) pedem a confirmação de que a nota foi conferida lá antes de reenviar.
+window.handleTentarNovamenteErroRpa = function (documentId) {
+    const e = window.ErrosRpa.interpretar(state.currentDocument && state.currentDocument.just_erro);
+    const aviso = e.conhecido ? e.info.confirmarAntesDeReenviar : null;
+    if (!aviso) return window.handleEnviarSalic(documentId);
+    window.showConfirmModal({
+        title: e.info.titulo,
+        message: aviso,
+        confirmLabel: 'Conferi, reenviar',
+        variant: 'danger',
+        onConfirm: () => window.handleEnviarSalic(documentId)
+    });
+};
+
 // Pagamento da nota, dentro do passo 1 (Extrato bancário) do Fluxo de Conciliação: origem
 // (quando já existe) ou, quando falta, os lançamentos candidatos do projeto, os citados pela
 // auditoria e o formulário de pagamento manual. Sem pagamento a nota não vai ao SALIC.
 const PagamentoNotaSection = (doc) => {
     const podeResolver = userPodeResolverPagamento();
-    const sem = !notaTemPagamento(doc, state.datasLancamentoPorNota);
-    const precisaResolver = sem && STATUS_RESOLVER_PAGAMENTO.includes(doc.status);
+    const semReal = !notaTemPagamento(doc, state.datasLancamentoPorNota);
+    // Erro do robô por pagamento (valor pago indeterminado, lançamento dividido, data sem
+    // lançamento): a nota pode já ter fitid e data e ainda assim o robô não fechou o valor
+    // pago. Nesse caso o formulário aparece mesmo com pagamento. Depois de salvar, ele some
+    // e o usuário usa "Tentar Novamente".
+    const pedidoDoRobo = doc.status === 'erro_rpa' && window.ErrosRpa.pedeInformarPagamento(doc.just_erro);
+    const forcado = pedidoDoRobo && !semReal && state.pagamentoInformadoDocId !== doc.id;
+    const sem = semReal || forcado;
+    const precisaResolver = sem && statusPedePagamento(doc);
     const origem = state.origemPagamento;
     if (!precisaResolver && !(origem && !sem)) return '';
 
@@ -4065,7 +4175,7 @@ const PagamentoNotaSection = (doc) => {
     // Escopo da busca de candidatos: 'extrato' (extrato conferido), 'janela' (datas da nota) ou
     // 'projeto' (sem filtro, também depois de ampliar).
     const escopo = filtroCandidatosDaNota(doc).escopo;
-    const botaoAmpliar = escopo === 'extrato'
+    const botaoAmpliar = forcado ? '' : escopo === 'extrato'
         ? 'Ver lançamentos de outros extratos do projeto'
         : (escopo === 'janela' && candidatos.length === 0 ? 'Ampliar a busca para todo o projeto' : '');
     const r = state.pagamentoManualRascunho || {};
@@ -4086,14 +4196,22 @@ const PagamentoNotaSection = (doc) => {
         <div style="${caixa}">
             ${rotulo('Pagamento da nota')}
             <p class="text-xs" style="color: var(--error); font-weight: 600; line-height: 1.5; margin: 0.4rem 0 0.75rem;">
-                Esta nota não tem lançamento do extrato nem pagamento informado. Sem o número da transação ela não pode ser enviada ao SALIC.
+                ${forcado
+                    ? 'O robô pediu a confirmação do pagamento desta nota. Confira os dados atuais, corrija ou informe o pagamento e depois tente o envio de novo.'
+                    : 'Esta nota não tem lançamento do extrato nem pagamento informado. Sem o número da transação ela não pode ser enviada ao SALIC.'}
             </p>
             ${state.atualizandoNota ? `
                 <p class="text-xs" role="status" aria-live="polite" style="color: var(--primary); font-weight: 600; line-height: 1.5;">Atualizando a nota...</p>
             ` : !podeResolver ? `
                 <p class="text-xs" style="color: var(--text-muted);">Peça a um administrador, gestor ou analista para escolher o lançamento ou informar o pagamento.</p>
             ` : `
-                ${candidatos.length > 0 ? `
+                ${forcado ? `
+                    <div>
+                        ${linha('Data do pagamento', fmtDataExtrato(doc.data_pagamento || state.datasLancamentoPorNota?.get(doc.id)))}
+                        ${linha('Valor pago', doc.valor_pago != null ? fmtValorExtrato(doc.valor_pago) : 'não informado')}
+                        ${linha('Número da transação', `<span style="font-family: monospace;">${escAttr(doc.fitid)}</span>`)}
+                    </div>
+                ` : candidatos.length > 0 ? `
                     ${rotulo(escopo === 'extrato'
                         ? `Lançamentos do extrato conferido com o valor desta nota (${candidatos.length})`
                         : `Lançamentos do projeto com o valor desta nota (${candidatos.length})`)}
@@ -4518,6 +4636,7 @@ window.handleInformarPagamentoManual = async function (docId) {
         if (error) throw error;
         state.pagamentoManualAberto = false;
         state.pagamentoManualRascunho = { docId };
+        state.pagamentoInformadoDocId = docId;
         window.showToast('Pagamento informado para esta nota.', 'success');
         await atualizarNotaAposPagamento(docId);
     } catch (err) {
@@ -6809,7 +6928,7 @@ async function carregarPagamentoDaNota(doc) {
     try {
         const datas = await carregarDatasLancamento([doc]);
         if (!notaTemPagamento(doc, datas)) {
-            if (!STATUS_RESOLVER_PAGAMENTO.includes(doc.status) || !userPodeResolverPagamento()) return { ...vazio, datas };
+            if (!statusPedePagamento(doc) || !userPodeResolverPagamento()) return { ...vazio, datas };
             const v = Math.abs(parseValorBR(doc.valor));
             if (!v) return { ...vazio, datas };
             const faixa = (c) => `and(valor.gte.${(c - TOLERANCIA_VALOR_LANCAMENTO).toFixed(2)},valor.lte.${(c + TOLERANCIA_VALOR_LANCAMENTO).toFixed(2)})`;
@@ -7295,7 +7414,7 @@ async function fetchDocuments() {
     }
     // Datas dos lançamentos das notas prontas para envio (tela do lote), numa consulta só. Se
     // falhar, a nota sem data_pagamento aparece como sem pagamento: erra para o lado seguro.
-    const prontasParaEnvio = (data || []).filter(d => ['liberado_rpa_airtop', 'erro_rpa'].includes(d.status));
+    const prontasParaEnvio = (data || []).filter(docProntoParaEnvio);
     try {
         await atualizarDatasLancamento(prontasParaEnvio);
     } catch (err) {
@@ -8878,7 +8997,7 @@ async function carregarSaldoRubricasSeHabilitado(projectIdOuLista) {
 // de um projeto ou de todos (filtro "Todos os projetos") — por isso carrega o
 // saldo pelos project_id distintos dos documentos elegíveis, não por um único id.
 async function atualizarSaldoEnvioLote() {
-    const prontos = (state.documents || []).filter(doc => ['liberado_rpa_airtop', 'erro_rpa'].includes(doc.status));
+    const prontos = (state.documents || []).filter(docProntoParaEnvio);
     const projectIds = [...new Set(prontos.map(doc => doc.project_id).filter(Boolean))];
     // Produto e numeração das rubricas dos documentos (vários projetos), antes do render.
     await Promise.all([
@@ -9308,6 +9427,13 @@ window.handleEnviarSalic = async function (documentId) {
     // Defesa em profundidade: o botão já fica desabilitado nesse caso, mas
     // isso cobre disparo direto via console/replay de request.
     const docParaValidar = state.currentDocument;
+    // Erro do robô em que reenviar não adianta (ou sem código conhecido): o botão já some, isto
+    // cobre disparo direto e tela desatualizada.
+    if (docParaValidar && docParaValidar.id === documentId && docParaValidar.status === 'erro_rpa'
+        && !window.ErrosRpa.permiteReenviar(docParaValidar.just_erro)) {
+        showToast('Este erro não se resolve reenviando. Siga a orientação mostrada na nota.', 'warning');
+        return;
+    }
     const camposFaltandoSalic = docParaValidar ? [
         !docParaValidar.cnpj_emissor && 'CNPJ/CPF',
         !docParaValidar.nome_emissor && 'Fornecedor',
@@ -9434,6 +9560,14 @@ window.handleEnviarSalic = async function (documentId) {
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
+                // 404 e 500 são avisos: o painel não altera a nota; o que o robô registrou
+                // aparece nos detalhes depois da atualização.
+                const aviso = window.ErrosRpa.avisoEnvio(response.status, errorData);
+                if (aviso) {
+                    showToast(aviso.mensagem, aviso.tipo);
+                    setTimeout(() => agendarRefreshDocumento(documentId), 1000);
+                    return;
+                }
                 throw new Error(errorData.error || "O servidor do robô não respondeu corretamente.");
             }
 
