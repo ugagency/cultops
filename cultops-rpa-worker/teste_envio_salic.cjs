@@ -28,6 +28,7 @@ function from(tabela) {
             escritas.push({ tabela, op: q.op, payload: q.payload, filtros: q.filtros });
             return { data: null, error: null };
         }
+        if (errosPorTabela[tabela]) return { data: null, error: { message: 'falha simulada' } };
         const linhas = (dados[tabela] || []).filter(l => q.filtros.every(([c, v]) => l[c] === v));
         if (lista) return { data: linhas, error: null };
         return linhas[0] ? { data: linhas[0], error: null } : { data: null, error: { message: 'nenhuma linha' } };
@@ -38,7 +39,7 @@ function from(tabela) {
         update(p) { q.op = 'update'; q.payload = p; return b; },
         insert(p) { q.op = 'insert'; q.payload = p; return b; },
         single() { return Promise.resolve(resolver(false)); },
-        maybeSingle() { const r = resolver(false); return Promise.resolve(r.data ? r : { data: null, error: null }); },
+        maybeSingle() { const r = resolver(false); return Promise.resolve(r.data || errosPorTabela[tabela] ? r : { data: null, error: null }); },
         then(ok, erro) { return Promise.resolve(resolver(true)).then(ok, erro); },
     };
     return b;
@@ -53,6 +54,7 @@ injetar('@supabase/supabase-js', { createClient: () => supabaseFalso });
 
 // Worker falso: guarda o config recebido e devolve o resultado combinado em cada caso.
 let chamadasStorage = 0;
+let errosPorTabela = {};
 let configRecebido = null;
 let resultadoWorker = null;
 injetar('./salic_insertion.cjs', {
@@ -67,8 +69,9 @@ const RUBRICA_ID = '27f49b2b-0000-0000-0000-000000000001';
 function cenario({ doc = {}, lancamentos } = {}) {
     dados = {
         decrypted_external_credentials: [{ user_id: 'u1', service_name: 'salic', identifier: '12345678909', secret_plain: 'senha' }],
+        profiles: [{ id: 'u1', organization_id: 'orgA' }, { id: 'u2', organization_id: 'orgA' }, { id: 'uB', organization_id: 'orgB' }, { id: 'uSemOrg', organization_id: null }],
         documents: [{
-            id: DOC_ID, project_id: 'p1', name: 'NF 39405.pdf', projects: { pronac: '256578' },
+            id: DOC_ID, project_id: 'p1', organization_id: 'orgA', name: 'NF 39405.pdf', projects: { pronac: '256578' },
             rubrica: '46 - advogado', rubrica_id_fk: RUBRICA_ID,
             cnpj_emissor: '01.234.567/0001-89', nome_emissor: 'CESNIK', valor: 18000, valor_pago: null,
             data_emissao: '2026-09-01', data_pagamento: null, numero_nf: '00039405', fitid: '93.001',
@@ -83,6 +86,7 @@ function cenario({ doc = {}, lancamentos } = {}) {
     escritas = [];
     configRecebido = null;
     chamadasStorage = 0;
+    errosPorTabela = {};
 }
 async function enviar(opcoes) {
     const res = { codigo: 200, corpo: null, status(c) { this.codigo = c; return this; }, json(o) { this.corpo = o; return this; } };
@@ -292,6 +296,88 @@ let falhas = 0;
         const handler = novoHandler(1);
         assert.equal((await rodarDryRun(handler, {})).codigo, 400);
         assert.equal((await rodarDryRun(handler)).codigo, 200);
+    });
+
+    // ── isolamento por organização (/api/salic/inserir e /api/salic/dry-run) ──
+    const enviarComo = async (userId, opcoes, documentId = DOC_ID) => {
+        const res = { codigo: 200, corpo: null, status(c) { this.codigo = c; return this; }, json(o) { this.corpo = o; return this; } };
+        await executarEnvioSalic({ body: { documentId }, userId }, res, opcoes);
+        return res;
+    };
+    const NAO_ENCONTRADO = { error: 'Documento não encontrado.' };
+
+    await caso('org: usuario da organizacao A pedindo documento da B recebe 404 e nada e atualizado em documents', async () => {
+        cenario({ doc: { organization_id: 'orgB' } });   // documento da B, usuario u1 e da A
+        resultadoWorker = { sucesso: true };
+        const r = await enviarComo('u1');
+        assert.equal(r.codigo, 404);
+        assert.deepEqual(r.corpo, NAO_ENCONTRADO);
+        assert.deepEqual(escritas, [], 'nenhuma escrita em nenhuma tabela');
+        assert.equal(escritasEm('documents').length, 0);
+        assert.equal(configRecebido, null, 'o worker nao e chamado');
+    });
+
+    await caso('org: o mesmo vale no dry-run (rota /api/salic/dry-run)', async () => {
+        cenario({ doc: { organization_id: 'orgB' } });
+        resultadoWorker = RESULTADO_DRY;
+        const r = await rodarDryRun(novoHandler());
+        assert.equal(r.codigo, 404);
+        assert.deepEqual(r.corpo, NAO_ENCONTRADO);
+        assert.deepEqual(escritas, []);
+        assert.equal(configRecebido, null);
+    });
+
+    await caso('org: documento inexistente responde igual ao de outra organizacao (nao revela que existe)', async () => {
+        cenario();
+        const inexistente = await enviarComo('u1', undefined, 'nao-existe');
+        cenario({ doc: { organization_id: 'orgB' } });
+        const deOutraOrg = await enviarComo('u1');
+        assert.equal(inexistente.codigo, 404);
+        assert.deepEqual(inexistente.corpo, deOutraOrg.corpo);
+        assert.equal(inexistente.codigo, deOutraOrg.codigo);
+    });
+
+    await caso('org: usuario da B tambem nao alcanca documento da A', async () => {
+        cenario();   // documento da A
+        resultadoWorker = { sucesso: true };
+        const r = await enviarComo('uB');
+        assert.equal(r.codigo, 404);
+        assert.deepEqual(escritas, []);
+    });
+
+    await caso('org: usuario sem perfil ou sem organizacao recebe 404 (falha fechado)', async () => {
+        for (const uid of ['uSemOrg', 'uSemPerfil']) {
+            cenario();
+            const r = await enviarComo(uid);
+            assert.equal(r.codigo, 404, uid);
+            assert.deepEqual(escritas, [], uid);
+        }
+    });
+
+    await caso('org: documento sem organization_id recebe 404 (falha fechado)', async () => {
+        cenario({ doc: { organization_id: null } });
+        const r = await enviarComo('u1');
+        assert.equal(r.codigo, 404);
+        assert.deepEqual(escritas, []);
+    });
+
+    await caso('org: erro ao consultar o perfil: 500 generico, sem gravar e sem revelar o documento', async () => {
+        cenario();
+        errosPorTabela = { profiles: true };
+        const r = await enviarComo('u1');
+        assert.equal(r.codigo, 500);
+        assert.deepEqual(r.corpo, { error: 'Não foi possível validar o acesso ao documento.' });
+        assert.deepEqual(escritas, []);
+    });
+
+    await caso('org: mesma organizacao segue normal (sucesso grava status) e erro depois da checagem ainda grava erro_rpa', async () => {
+        cenario();
+        resultadoWorker = { sucesso: true };
+        assert.equal((await enviarComo('u1')).codigo, 200);
+        assert.equal(escritasEm('documents')[0].payload.status, 'enviado_salic');
+        cenario({ doc: { rubrica_id_fk: null } });
+        assert.equal((await enviarComo('u1')).codigo, 500);
+        assert.equal(escritasEm('documents')[0].payload.status, 'erro_rpa');
     });
 
     okLog(falhas === 0 ? '\ntodos os casos passaram' : `\n${falhas} caso(s) falharam`);

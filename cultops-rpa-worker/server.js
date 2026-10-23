@@ -178,6 +178,20 @@ function criarHandlerDryRun({ limitador, executar = executarEnvioSalic }) {
 }
 app.post('/api/salic/dry-run', exigirUsuarioAutenticado, criarHandlerDryRun({ limitador: limitadorDryRun }));
 
+// Organização do usuário autenticado: profiles.organization_id da linha cujo id é o id do
+// usuário (convenção Supabase; PREMISSA a confirmar, o repositório não define a tabela). Falha
+// FECHADO: erro de consulta propaga (500 genérico, sem gravar), perfil ou organização ausente
+// devolve null (o chamador responde 404).
+async function buscarOrganizacaoDoUsuario(userId) {
+    const { data, error } = await supabase
+        .from('profiles')
+        .select('organization_id')
+        .eq('id', userId)
+        .maybeSingle();
+    if (error) throw new Error('Não foi possível validar o acesso ao documento.');
+    return data?.organization_id || null;
+}
+
 // Dry-run (ocorrência #119): o worker preenche e audita o formulário sem clicar em Salvar, e
 // aqui nada é gravado em documents nem em despesas (status, data_salic, protocolo_salic,
 // just_erro), nem em sucesso nem em erro.
@@ -188,8 +202,28 @@ async function executarEnvioSalic(req, res, { dryRun = false } = {}) {
 
     if (!documentId) return res.status(400).json({ error: 'ID do documento não fornecido.' });
 
+    // Só vira true depois que o documento foi confirmado como da organização do usuário. Antes
+    // disso nenhum erro pode gravar em documents (o catch abaixo escreveria no documento de
+    // outra organização).
+    let documentoAutorizado = false;
+
     try {
         console.log(`[API] Iniciando processo para documento: ${documentId}${dryRun ? ' (DRY-RUN: nada será salvo no SALIC nem em documents/despesas)' : ''}`);
+
+        // Isolamento por organização: o client usa a service role (ignora RLS), então a
+        // checagem tem que ser aqui. Documento inexistente e documento de outra organização
+        // dão a MESMA resposta (404), sem revelar que o documento existe, e sem gravar nada.
+        const organizacaoDoUsuario = await buscarOrganizacaoDoUsuario(userId);
+        const { data: doc, error: docError } = await supabase
+            .from('documents')
+            .select('*, projects(pronac)')
+            .eq('id', documentId)
+            .single();
+        if (docError || !doc || !organizacaoDoUsuario || doc.organization_id !== organizacaoDoUsuario) {
+            console.warn(`[API] Documento ${documentId} negado ao usuário ${userId}: inexistente ou de outra organização.`);
+            return res.status(404).json({ error: 'Documento não encontrado.' });
+        }
+        documentoAutorizado = true;
 
         const { data: creds, error: credError } = await supabase
             .from('decrypted_external_credentials')
@@ -201,14 +235,6 @@ async function executarEnvioSalic(req, res, { dryRun = false } = {}) {
         if (credError || !creds) {
             throw new Error('Credenciais SALIC não encontradas para este usuário no Supabase.');
         }
-
-        const { data: doc, error: docError } = await supabase
-            .from('documents')
-            .select('*, projects(pronac)')
-            .eq('id', documentId)
-            .single();
-
-        if (docError || !doc) throw new Error('Documento não encontrado no banco de dados.');
 
         console.log(`[API] Documento: ${doc.name} | Rubrica: ${doc.rubrica}`);
 
@@ -372,7 +398,7 @@ async function executarEnvioSalic(req, res, { dryRun = false } = {}) {
         }
     } catch (error) {
         console.error('[API] Erro ao processar:', error.message);
-        if (!dryRun) {
+        if (!dryRun && documentoAutorizado) {
             await supabase.from('documents').update({
                 status: 'erro_rpa',
                 just_erro: error.message
