@@ -210,12 +210,39 @@ let falhas = 0;
         assert.equal(configRecebido, null);
     });
 
-    await caso('sem lançamento conciliado: erro (sem cair para data_pagamento/data_emissao) e o worker nao e chamado', async () => {
-        cenario({ doc: { valor_pago: 17000, data_pagamento: '2026-09-15' }, lancamentos: [] });
+    await caso('sem lançamento e sem data_pagamento: erro (sem cair para data_emissao) e o worker nao e chamado', async () => {
+        cenario({ doc: { valor_pago: 17000, data_pagamento: null }, lancamentos: [] });
         resultadoWorker = { sucesso: true };
         const r = await enviar();
         assert.equal(r.codigo, 500);
-        assert.match(r.corpo.error, /sem lançamento bancário conciliado/);
+        assert.match(r.corpo.error, /^\[DATA_PAGAMENTO_SEM_LANCAMENTO\] .*sem lançamento bancário conciliado e sem data de pagamento informada/);
+        assert.equal(configRecebido, null);
+    });
+
+    await caso('sem lançamento, com data_pagamento do pagamento manual (e valor_pago): worker recebe essa data', async () => {
+        cenario({ doc: { valor_pago: 17000, data_pagamento: '2026-09-15' }, lancamentos: [] });
+        resultadoWorker = { sucesso: true, dryRun: true };
+        const r = await enviar({ dryRun: true });
+        assert.equal(r.codigo, 200);
+        assert.equal(configRecebido.documento.data_pagamento, '2026-09-15');
+        assert.equal(configRecebido.documento.valor, 17000);
+        assert.equal(r.corpo.dataPagamento, '2026-09-15');
+    });
+
+    await caso('lançamento e data_pagamento divergentes: worker recebe a data do lançamento', async () => {
+        cenario({ doc: { data_pagamento: '2026-09-15' } });   // lançamento padrao: 2026-09-30
+        resultadoWorker = { sucesso: true, dryRun: true };
+        await enviar({ dryRun: true });
+        assert.equal(configRecebido.documento.data_pagamento, '2026-09-30');
+    });
+
+    await caso('sem lançamento, com data_pagamento mas sem valor_pago: [VALOR_PAGO_INDETERMINADO] (sem quebrar por falta do lançamento)', async () => {
+        cenario({ doc: { valor_pago: null, data_pagamento: '2026-09-15' }, lancamentos: [] });
+        resultadoWorker = { sucesso: true };
+        const r = await enviar();
+        assert.equal(r.codigo, 500);
+        assert.equal(r.corpo.codigo, 'VALOR_PAGO_INDETERMINADO');
+        assert.match(r.corpo.error, /^\[VALOR_PAGO_INDETERMINADO\] Valor pago não determinado: valor_pago vazio e nenhum lançamento/);
         assert.equal(configRecebido, null);
     });
 
@@ -444,7 +471,7 @@ let falhas = 0;
         /^Valor pago \(R\$ 19000\.00, origem: valor_pago\) maior que o valor da nota \(R\$ 18000\.00\)/,
         () => { dados.documents[0].valor_pago = 19000; }));
     await caso('codigo DATA_PAGAMENTO_SEM_LANCAMENTO', () => esperarCodigo('sem lancamento', 'DATA_PAGAMENTO_SEM_LANCAMENTO',
-        /^Documento .* sem lançamento bancário conciliado: data do pagamento não determinada/,
+        /^Documento .* sem lançamento bancário conciliado e sem data de pagamento informada: data do pagamento não determinada/,
         () => { dados.extratos_lancamentos = []; }));
     await caso('codigo DADOS_OBRIGATORIOS_FALTANDO', () => esperarCodigo('dados faltando', 'DADOS_OBRIGATORIOS_FALTANDO',
         /^Faltam dados obrigatórios para enviar ao SALIC: CNPJ\/CPF\.$/, () => { dados.documents[0].cnpj_emissor = null; }));

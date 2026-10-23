@@ -57,15 +57,22 @@ const limitadorValidacao = criarLimitadorPorUsuario(limiteValidacao);
 
 // Bug #2: a Data do Pagamento no SALIC deve vir do lançamento bancário
 // conciliado (extratos_lancamentos.data_lancamento = data do débito),
-// NUNCA de documents.data_emissao (data de emissão da NF) nem de documents.data_pagamento.
-// Ocorrência #120: sem lançamento conciliado vinculado ao documento, erro (antes caía para
-// documents.data_pagamento e depois para data_emissao).
+// NUNCA de documents.data_emissao (data de emissão da NF). Ordem:
+//   (1) data do lançamento conciliado vinculado ao documento (sempre preferida, mesmo que
+//       documents.data_pagamento exista e divirja);
+//   (2) documents.data_pagamento, quando preenchida (vem do formulário de pagamento manual e é
+//       confirmada pelo usuário), com a origem logada;
+//   (3) senão, erro [DATA_PAGAMENTO_SEM_LANCAMENTO]. Nunca cai para data_emissao.
 function resolverDataPagamento(lancamento, doc) {
-    if (!lancamento?.data_lancamento) {
-        throw erroComCodigo('DATA_PAGAMENTO_SEM_LANCAMENTO', `Documento ${doc.id} sem lançamento bancário conciliado: data do pagamento não determinada. Concilie o pagamento antes de enviar ao SALIC.`);
+    if (lancamento?.data_lancamento) {
+        console.log(`[SERVER] data_pagamento: ${lancamento.data_lancamento} (fonte: extratos_lancamentos, fitid ${lancamento.fitid})`);
+        return lancamento.data_lancamento;
     }
-    console.log(`[SERVER] data_pagamento: ${lancamento.data_lancamento} (fonte: extratos_lancamentos, fitid ${lancamento.fitid})`);
-    return lancamento.data_lancamento;
+    if (doc.data_pagamento) {
+        console.log(`[SERVER] data_pagamento: ${doc.data_pagamento} (fonte: documents.data_pagamento, informada no pagamento manual; sem lançamento conciliado)`);
+        return doc.data_pagamento;
+    }
+    throw erroComCodigo('DATA_PAGAMENTO_SEM_LANCAMENTO', `Documento ${doc.id} sem lançamento bancário conciliado e sem data de pagamento informada: data do pagamento não determinada. Concilie o pagamento ou informe a data do pagamento antes de enviar ao SALIC.`);
 }
 
 // Ocorrência #120: o SALIC recebe o valor PAGO, não o da nota. Função pura:
@@ -301,12 +308,13 @@ async function executarEnvioSalic(req, res, { dryRun = false } = {}) {
         if (lancamentosErro) throw new Error(`Falha ao consultar o lançamento conciliado: ${lancamentosErro.message}`);
         const lancamento = (lancamentos || [])[0];
 
-        const dataPagamento = resolverDataPagamento(lancamento, doc);   // erro se não houver lançamento conciliado
+        const dataPagamento = resolverDataPagamento(lancamento, doc);   // lançamento, senão documents.data_pagamento, senão erro
 
         // Outras linhas conciliadas do mesmo lançamento (mesmo fitid e extrato): só importam
-        // quando o valor vem do lançamento (valor_pago vazio).
+        // quando o valor vem do lançamento (valor_pago vazio e há lançamento; sem lançamento,
+        // calcularValorEnvio devolve [VALOR_PAGO_INDETERMINADO]).
         let lancamentosMesmoFitid = [];
-        if (doc.valor_pago === null || doc.valor_pago === undefined) {
+        if (lancamento && (doc.valor_pago === null || doc.valor_pago === undefined)) {
             const { data: mesmoFitid, error: mesmoFitidErro } = await supabase
                 .from('extratos_lancamentos')
                 .select('document_id, fitid, valor, data_lancamento')

@@ -91,14 +91,35 @@ caso('sem lançamento e sem valor_pago: "Valor pago não determinado"', () => {
     assert.throws(() => calcularValorEnvio(nota(), null, null), /^Error: \[VALOR_PAGO_INDETERMINADO\] Valor pago não determinado/);
 });
 
-caso('sem lançamento: a data do pagamento lança erro (sem cair para data_pagamento/data_emissao)', () => {
-    const doc = nota({ data_pagamento: '2026-09-15', data_emissao: '2026-09-01' });
-    assert.throws(() => resolverDataPagamento(undefined, doc), /sem lançamento bancário conciliado/);
-    assert.throws(() => resolverDataPagamento({ fitid: '93.001', data_lancamento: null }, doc), /sem lançamento bancário conciliado/);
+// ── data do pagamento: (1) lançamento conciliado, (2) documents.data_pagamento, (3) erro ──
+caso('data: lançamento conciliado (sem data_pagamento no documento) usa a data dele', () => {
+    assert.equal(resolverDataPagamento(lanc(), nota({ data_emissao: '2026-09-01' })), '2026-09-30');
 });
 
-caso('com lançamento: a data do pagamento é a do lançamento', () => {
-    assert.equal(resolverDataPagamento(lanc(), nota({ data_emissao: '2026-09-01' })), '2026-09-30');
+caso('data: só documents.data_pagamento preenchida (sem lançamento) usa essa data e loga a origem', () => {
+    const linhas = [];
+    const log = console.log;
+    console.log = (...a) => linhas.push(a.join(' '));
+    try {
+        assert.equal(resolverDataPagamento(undefined, nota({ data_pagamento: '2026-09-15', data_emissao: '2026-09-01' })), '2026-09-15');
+        assert.equal(resolverDataPagamento({ fitid: '93.001', data_lancamento: null }, nota({ data_pagamento: '2026-09-15' })), '2026-09-15');
+    } finally { console.log = log; }
+    assert.ok(linhas.every(l => l.includes('fonte: documents.data_pagamento')), linhas.join(' | '));
+});
+
+caso('data: nenhuma das duas -> erro [DATA_PAGAMENTO_SEM_LANCAMENTO], sem cair para data_emissao', () => {
+    const doc = nota({ data_pagamento: null, data_emissao: '2026-09-01' });
+    for (const lancamento of [undefined, null, { fitid: '93.001', data_lancamento: null }]) {
+        assert.throws(() => resolverDataPagamento(lancamento, doc), (e) => {
+            assert.match(e.message, /^\[DATA_PAGAMENTO_SEM_LANCAMENTO\] Documento .* sem lançamento bancário conciliado e sem data de pagamento informada/);
+            return e.codigo === 'DATA_PAGAMENTO_SEM_LANCAMENTO';
+        });
+    }
+    assert.throws(() => resolverDataPagamento(undefined, nota({ data_pagamento: '', data_emissao: '2026-09-01' })), /DATA_PAGAMENTO_SEM_LANCAMENTO/);
+});
+
+caso('data: as duas divergentes -> usa a do lançamento', () => {
+    assert.equal(resolverDataPagamento(lanc({ data_lancamento: '2026-09-30' }), nota({ data_pagamento: '2026-09-15', data_emissao: '2026-09-01' })), '2026-09-30');
 });
 
 caso('dois lançamentos distintos na mesma nota e valor_pago vazio: erro (o valor de um não é o pago)', () => {
