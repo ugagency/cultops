@@ -40,7 +40,7 @@ caso('lançamento exclusivo: usa |valor| do lançamento (NF 39405 -> 16.893,00)'
 
 caso('lançamento dividido entre 2 notas: "Valor pago não determinado"', () => {
     assert.throws(() => calcularValorEnvio(nota(), [lanc()], [lanc(), lanc({ document_id: 'outra-nota' })]),
-        /^Error: Valor pago não determinado: o lançamento 93\.001 está conciliado com 2 documentos/);
+        /^Error: \[LANCAMENTO_DIVIDIDO\] Valor pago não determinado: o lançamento 93\.001 está conciliado com 2 documentos/);
 });
 
 caso('lançamento duplicado do mesmo documento (mesmo fitid, valor e data): conta uma vez', () => {
@@ -70,7 +70,7 @@ caso('lançamento 821,70 vs nota 16.850,58 -> aceito com origem lancamento', () 
 
 caso('lançamento 6.600,00 vs nota 4.000,00 -> erro (acima da nota)', () => {
     assert.throws(() => calcularValorEnvio(nota({ valor: 4000 }), [lanc({ valor: -6600 })], [lanc({ valor: -6600 })]),
-        /^Error: Valor pago \(R\$ 6600\.00, origem: lancamento\) maior que o valor da nota \(R\$ 4000\.00\)/);
+        /^Error: \[VALOR_MAIOR_QUE_NOTA\] Valor pago \(R\$ 6600\.00, origem: lancamento\) maior que o valor da nota \(R\$ 4000\.00\)/);
 });
 
 caso('lançamento 16.893,00 vs nota 18.000,00 -> aceito', () => {
@@ -87,8 +87,8 @@ caso('valor pago igual a nota + 1 centavo: aceito (tolerancia)', () => {
 });
 
 caso('sem lançamento e sem valor_pago: "Valor pago não determinado"', () => {
-    assert.throws(() => calcularValorEnvio(nota(), [], []), /^Error: Valor pago não determinado/);
-    assert.throws(() => calcularValorEnvio(nota(), null, null), /^Error: Valor pago não determinado/);
+    assert.throws(() => calcularValorEnvio(nota(), [], []), /^Error: \[VALOR_PAGO_INDETERMINADO\] Valor pago não determinado/);
+    assert.throws(() => calcularValorEnvio(nota(), null, null), /^Error: \[VALOR_PAGO_INDETERMINADO\] Valor pago não determinado/);
 });
 
 caso('sem lançamento: a data do pagamento lança erro (sem cair para data_pagamento/data_emissao)', () => {

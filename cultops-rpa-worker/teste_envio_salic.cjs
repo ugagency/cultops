@@ -46,7 +46,7 @@ function from(tabela) {
 }
 const supabaseFalso = {
     from,
-    storage: { from: () => ({ createSignedUrl: async () => { chamadasStorage++; return ({ data: { signedUrl: 'https://storage.exemplo/nf.pdf?token=x' }, error: null }); } }) },
+    storage: { from: () => ({ createSignedUrl: async () => { chamadasStorage++; if (storageFalha) return { data: null, error: { message: 'falha simulada' } }; return ({ data: { signedUrl: 'https://storage.exemplo/nf.pdf?token=x' }, error: null }); } }) },
     auth: { getUser: async () => ({ data: null, error: { message: 'nao usado' } }) },
     rpc: async () => ({ data: [], error: null }),
 };
@@ -54,6 +54,7 @@ injetar('@supabase/supabase-js', { createClient: () => supabaseFalso });
 
 // Worker falso: guarda o config recebido e devolve o resultado combinado em cada caso.
 let chamadasStorage = 0;
+let storageFalha = false;
 let errosPorTabela = {};
 let configRecebido = null;
 let resultadoWorker = null;
@@ -91,6 +92,7 @@ function cenario({ doc = {}, lancamentos } = {}) {
     escritas = [];
     configRecebido = null;
     chamadasStorage = 0;
+    storageFalha = false;
     errosPorTabela = {};
 }
 async function enviar(opcoes) {
@@ -204,7 +206,7 @@ let falhas = 0;
         resultadoWorker = { sucesso: true };
         const r = await enviar();
         assert.equal(r.codigo, 500);
-        assert.match(r.corpo.error, /^Valor pago não determinado/);
+        assert.match(r.corpo.error, /^\[LANCAMENTO_DIVIDIDO\] Valor pago não determinado/);
         assert.equal(configRecebido, null);
     });
 
@@ -371,7 +373,7 @@ let falhas = 0;
         errosPorTabela = { organization_users: true };
         const r = await enviarComo('u1');
         assert.equal(r.codigo, 500);
-        assert.deepEqual(r.corpo, { error: 'Não foi possível validar o acesso ao documento.' });
+        assert.deepEqual(r.corpo, { error: '[ERRO_RPA_GENERICO] Não foi possível validar o acesso ao documento.', codigo: 'ERRO_RPA_GENERICO' });
         assert.deepEqual(escritas, []);
     });
 
@@ -404,6 +406,103 @@ let falhas = 0;
         cenario({ doc: { rubrica_id_fk: null } });
         assert.equal((await enviarComo('u1')).codigo, 500);
         assert.equal(escritasEm('documents')[0].payload.status, 'erro_rpa');
+    });
+
+    // ── códigos de erro em documents.just_erro e na resposta 500 ──
+    // Um caso por código. just_erro e error são o mesmo texto "[CODIGO] mensagem", com um único
+    // prefixo, o texto original logo depois dele, e o código também em resposta.codigo.
+    const erroGravado = () => escritasEm('documents').find(e => e.payload.just_erro !== undefined)?.payload.just_erro;
+    const esperarCodigo = async (rotulo, codigo, textoOriginal, preparar) => {
+        cenario();
+        resultadoWorker = { sucesso: true };
+        preparar();
+        const r = await enviarComo('u1');
+        assert.equal(r.codigo, 500, rotulo);
+        assert.equal(r.corpo.codigo, codigo, `${rotulo}: codigo da resposta`);
+        assert.ok(r.corpo.error.startsWith(`[${codigo}] `), `${rotulo}: prefixo [${codigo}] em "${r.corpo.error}"`);
+        assert.equal((r.corpo.error.match(/\[[A-Z_]+\] /g) || []).length, 1, `${rotulo}: prefixo unico`);
+        assert.match(r.corpo.error.slice(codigo.length + 3), textoOriginal, `${rotulo}: texto original preservado`);
+        assert.equal(erroGravado(), r.corpo.error, `${rotulo}: just_erro igual a resposta`);
+        assert.equal(escritasEm('documents')[0].payload.status, 'erro_rpa');
+    };
+    const LANC_ERRO = (extra = {}) => ({ document_id: DOC_ID, extrato_id: 'e1', fitid: '93.001', valor: -16893, data_lancamento: '2026-09-30', memo: 'Pix', status_conciliacao: 'conciliado', project_id: 'p1', ...extra });
+
+    await caso('codigo RUBRICA_NAO_VINCULADA', () => esperarCodigo('rubrica nao vinculada', 'RUBRICA_NAO_VINCULADA',
+        /^Documento .* sem rubrica vinculada \(rubrica_id_fk vazio\)/, () => { dados.documents[0].rubrica_id_fk = null; }));
+    await caso('codigo RUBRICA_INEXISTENTE', () => esperarCodigo('rubrica inexistente', 'RUBRICA_INEXISTENTE',
+        /^Rubrica não encontrada para documento .* \| rubrica_id_fk: nao-existe$/, () => { dados.documents[0].rubrica_id_fk = 'nao-existe'; }));
+    await caso('codigo VALOR_PAGO_INDETERMINADO (sem lançamento, dois lançamentos distintos, valor inválido)', async () => {
+        await esperarCodigo('dois lancamentos distintos', 'VALOR_PAGO_INDETERMINADO', /^Valor pago não determinado: valor_pago vazio e 2 lançamentos conciliados distintos/,
+            () => { dados.extratos_lancamentos = [LANC_ERRO(), LANC_ERRO({ fitid: '94.002', valor: -100, data_lancamento: '2026-10-05' })]; });
+        await esperarCodigo('valor_pago zero', 'VALOR_PAGO_INDETERMINADO', /^Valor pago não determinado: valor inválido \(valor_pago\)/,
+            () => { dados.documents[0].valor_pago = 0; });
+    });
+    await caso('codigo LANCAMENTO_DIVIDIDO', () => esperarCodigo('lancamento dividido', 'LANCAMENTO_DIVIDIDO',
+        /^Valor pago não determinado: o lançamento 93\.001 está conciliado com 2 documentos/,
+        () => { dados.extratos_lancamentos = [LANC_ERRO(), LANC_ERRO({ document_id: 'outra-nota' })]; }));
+    await caso('codigo VALOR_MAIOR_QUE_NOTA', () => esperarCodigo('valor maior que a nota', 'VALOR_MAIOR_QUE_NOTA',
+        /^Valor pago \(R\$ 19000\.00, origem: valor_pago\) maior que o valor da nota \(R\$ 18000\.00\)/,
+        () => { dados.documents[0].valor_pago = 19000; }));
+    await caso('codigo DATA_PAGAMENTO_SEM_LANCAMENTO', () => esperarCodigo('sem lancamento', 'DATA_PAGAMENTO_SEM_LANCAMENTO',
+        /^Documento .* sem lançamento bancário conciliado: data do pagamento não determinada/,
+        () => { dados.extratos_lancamentos = []; }));
+    await caso('codigo DADOS_OBRIGATORIOS_FALTANDO', () => esperarCodigo('dados faltando', 'DADOS_OBRIGATORIOS_FALTANDO',
+        /^Faltam dados obrigatórios para enviar ao SALIC: CNPJ\/CPF\.$/, () => { dados.documents[0].cnpj_emissor = null; }));
+    await caso('codigo CREDENCIAL_SALIC_AUSENTE', () => esperarCodigo('sem credencial', 'CREDENCIAL_SALIC_AUSENTE',
+        /^Credenciais SALIC não encontradas para este usuário no Supabase\.$/, () => { dados.decrypted_external_credentials = []; }));
+    await caso('codigo ARQUIVO_NF_INDISPONIVEL', () => esperarCodigo('arquivo da NF', 'ARQUIVO_NF_INDISPONIVEL',
+        /^Não foi possível gerar URL do arquivo da NF\.$/, () => { storageFalha = true; }));
+
+    // Erros que o worker devolve em resultado.erro já vêm prefixados: o server grava igual, sem duplicar.
+    for (const [codigo, texto] of [
+        ['RUBRICA_NAO_ENCONTRADA_SALIC', 'Rubrica nao encontrada ou sem link de comprovacao ("sinal de dinheiro"): nenhuma linha com o nome exato'],
+        ['RUBRICA_TELA_DIVERGENTE', 'Rubrica da tela ("X") diverge da rubrica esperada ("Advogado(a)"). Nada foi inserido.'],
+        ['FORNECEDOR_NAO_ENCONTRADO_SALIC', 'Fornecedor com CNPJ 03281691000137 nao encontrado no SALIC (o SALIC respondeu que ele nao esta cadastrado).'],
+        ['LOGIN_SALIC_RECUSADO', 'Falha no login SALIC: credenciais invalidas ou usuario bloqueado.'],
+        ['TEMPO_ESGOTADO_SALVAMENTO', 'Tempo esgotado (60s) aguardando o SALIC concluir o salvamento. O comprovante pode ter sido gravado.'],
+    ]) {
+        await caso(`codigo ${codigo}: erro do worker preservado pelo server, sem duplicar o prefixo`, async () => {
+            cenario();
+            resultadoWorker = { sucesso: false, erro: `[${codigo}] ${texto}` };
+            const r = await enviarComo('u1');
+            assert.equal(r.codigo, 500);
+            assert.equal(r.corpo.error, `[${codigo}] ${texto}`);
+            assert.equal(r.corpo.codigo, codigo);
+            assert.equal(erroGravado(), `[${codigo}] ${texto}`);
+            assert.equal((erroGravado().match(/\[[A-Z_]+\] /g) || []).length, 1);
+        });
+    }
+
+    await caso('codigo ERRO_RPA_GENERICO: erro sem código do worker e erro inesperado do server ganham o prefixo genérico', async () => {
+        cenario();
+        resultadoWorker = { sucesso: false, erro: 'Modal ainda aberto com possiveis erros. Toasts: x' };
+        let r = await enviarComo('u1');
+        assert.equal(r.corpo.error, '[ERRO_RPA_GENERICO] Modal ainda aberto com possiveis erros. Toasts: x');
+        assert.equal(r.corpo.codigo, 'ERRO_RPA_GENERICO');
+        assert.equal(erroGravado(), r.corpo.error);
+        cenario({ lancamentos: [LANC_ERRO()] });
+        errosPorTabela = { extratos_lancamentos: true };
+        r = await enviarComo('u1');
+        assert.match(r.corpo.error, /^\[ERRO_RPA_GENERICO\] Falha ao consultar o lançamento conciliado: /);
+        assert.equal(r.corpo.codigo, 'ERRO_RPA_GENERICO');
+    });
+
+    await caso('dry-run: 500 tambem traz codigo e nao grava nada', async () => {
+        cenario({ lancamentos: [] });
+        const r = await rodarDryRun(novoHandler());
+        assert.equal(r.codigo, 500);
+        assert.equal(r.corpo.codigo, 'DATA_PAGAMENTO_SEM_LANCAMENTO');
+        assert.ok(r.corpo.error.startsWith('[DATA_PAGAMENTO_SEM_LANCAMENTO] '));
+        assert.deepEqual(escritas, []);
+    });
+
+    await caso('respostas que nao sao erro do robô continuam sem codigo (404 e 400)', async () => {
+        cenario({ doc: { organization_id: 'orgB' } });
+        const r404 = await enviarComo('u1');
+        assert.deepEqual(r404.corpo, { error: 'Documento não encontrado.' });
+        const r400 = await enviarComo('u1', undefined, '');
+        assert.equal(r400.codigo, 400);
+        assert.equal('codigo' in r400.corpo, false);
     });
 
     okLog(falhas === 0 ? '\ntodos os casos passaram' : `\n${falhas} caso(s) falharam`);

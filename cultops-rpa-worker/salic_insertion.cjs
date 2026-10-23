@@ -4,6 +4,7 @@ const https = require('https');
 const path = require('path');
 const os = require('os');
 const { localizarPronac, mascararCpf } = require('./salic_proponente.cjs');
+const { erroComCodigo, comCodigo, garantirCodigo } = require('./codigos_erro.cjs');
 const { exigirSaidaDoLogin, conferirPronacNaTela, aguardarFimDoSalvamento } = require('./salic_verificacoes.cjs');
 
 // tpDocumento values descobertos no SALIC:
@@ -216,9 +217,9 @@ async function buscarFornecedorSalic(pageRef, {
     log(`[SALIC] DIAGNOSTICO busca de fornecedor: #CNPJCPF=${JSON.stringify(docLido)} | #modal1=${JSON.stringify(ultimoModal.texto.slice(0, 500))}`);
 
     if (mensagemExplicita) {
-        throw new Error(`Fornecedor com ${tipoPessoaLabel} ${docFornecedor} nao encontrado no SALIC (o SALIC respondeu que ele nao esta cadastrado). Cadastre manualmente no SALIC antes de executar o Robô.`);
+        throw erroComCodigo('FORNECEDOR_NAO_ENCONTRADO_SALIC', `Fornecedor com ${tipoPessoaLabel} ${docFornecedor} nao encontrado no SALIC (o SALIC respondeu que ele nao esta cadastrado). Cadastre manualmente no SALIC antes de executar o Robô.`);
     }
-    throw new Error(`Fornecedor com ${tipoPessoaLabel} ${docFornecedor} nao localizado no SALIC dentro do prazo (${tentativasFeitas} tentativas em ${Math.round((Date.now() - inicio) / 1000)}s). Confira se esta cadastrado no SALIC; se estiver, reenvie o documento mais tarde.`);
+    throw erroComCodigo('FORNECEDOR_NAO_ENCONTRADO_SALIC', `Fornecedor com ${tipoPessoaLabel} ${docFornecedor} nao localizado no SALIC dentro do prazo (${tentativasFeitas} tentativas em ${Math.round((Date.now() - inicio) / 1000)}s). Confira se esta cadastrado no SALIC; se estiver, reenvie o documento mais tarde.`);
 }
 
 // ── Match da rubrica na tela de Comprovacao Financeira ──────────────────────────
@@ -476,10 +477,10 @@ async function lerNomeRubricaNaTela(pageRef, { timeoutMs = 10000, intervaloMs = 
 // o robô escreve no SALIC e não há homologação, então na dúvida não segue.
 function conferirRubricaDaTela(nomeNaTela, rubricaNome) {
     if (!nomeNaTela) {
-        throw new Error(`Nao consegui ler o nome da rubrica na tela de comprovacao (esperado "${rubricaNome}"). Nada foi inserido.`);
+        throw erroComCodigo('RUBRICA_TELA_DIVERGENTE', `Nao consegui ler o nome da rubrica na tela de comprovacao (esperado "${rubricaNome}"). Nada foi inserido.`);
     }
     if (normRubrica(nomeNaTela) !== normRubrica(rubricaNome)) {
-        throw new Error(`Rubrica da tela ("${nomeNaTela}") diverge da rubrica esperada ("${rubricaNome}"). Nada foi inserido.`);
+        throw erroComCodigo('RUBRICA_TELA_DIVERGENTE', `Rubrica da tela ("${nomeNaTela}") diverge da rubrica esperada ("${rubricaNome}"). Nada foi inserido.`);
     }
 }
 
@@ -495,6 +496,34 @@ function mensagemRubricaNaoEncontrada(resultadoMatch) {
     }
     return msg;
 }
+
+// Lança [RUBRICA_NAO_ENCONTRADA_SALIC] se o match não devolveu uma rubrica única com link
+// (ambiguidade ou nenhuma candidata); mesmo texto e logs de antes, só com o código na frente.
+function exigirRubricaCasada(resultadoMatch, rubricaNome, rubricaProduto, log = console.log) {
+    if (resultadoMatch?.erro_ambiguidade) {
+        throw erroComCodigo('RUBRICA_NAO_ENCONTRADA_SALIC',
+            `Ambiguidade de rubrica: "${rubricaNome}" encontrada ${resultadoMatch.candidatos.length}x ` +
+            `no produto "${rubricaProduto}". Intervencao manual necessaria no SALIC.`
+        );
+    }
+
+    if (!resultadoMatch || !resultadoMatch.link) {
+        log('[SALIC] Rubrica nao localizada automaticamente. Sugestao: validar manualmente no painel do SALIC.');
+        if (resultadoMatch && resultadoMatch.candidatos) {
+            log(`[SALIC] Rubricas disponiveis na tela (${resultadoMatch.candidatos.length}):`);
+            resultadoMatch.candidatos.forEach((n, i) => log(`  [${i + 1}] ${n}`));
+            if (resultadoMatch.melhorNome) {
+                log(`[SALIC] Mais proxima: "${resultadoMatch.melhorNome}" (score ${resultadoMatch.melhorScore.toFixed(2)}) - abaixo do limiar de 0.85.`);
+            }
+        }
+        throw erroComCodigo('RUBRICA_NAO_ENCONTRADA_SALIC', mensagemRubricaNaoEncontrada(resultadoMatch));
+    }
+}
+
+// Erro do salvamento que não terminou no prazo (não reenvia: o comprovante pode ter sido gravado).
+const ERRO_TEMPO_ESGOTADO_SALVAMENTO = comCodigo('TEMPO_ESGOTADO_SALVAMENTO',
+    'Tempo esgotado (60s) aguardando o SALIC concluir o salvamento. ' +
+    'O comprovante pode ter sido gravado: conferir no SALIC antes de reenviar.');
 
 // Loga as linhas que o match viu, por escopo (bloco do produto e/ou flat).
 function logarLinhasVistas(vistas, log = console.log) {
@@ -538,7 +567,7 @@ async function executarInsercaoSalic(config) {
                     response.resume();
                     file.close();
                     fs.unlink(dest, () => { });
-                    return reject(new Error(`Falha no download (HTTP ${response.statusCode})`));
+                    return reject(erroComCodigo('ARQUIVO_NF_INDISPONIVEL', `Falha no download (HTTP ${response.statusCode})`));
                 }
                 response.pipe(file);
                 file.on('finish', () => {
@@ -607,10 +636,10 @@ async function executarInsercaoSalic(config) {
         console.log(`[SALIC] Tipo da Senha recebida: ${typeof senha}`);
 
         if (!usuario || typeof usuario !== 'string') {
-            throw new Error(`Usuario invalido ou nao informado (Tipo: ${typeof usuario})`);
+            throw erroComCodigo('CREDENCIAL_SALIC_AUSENTE', `Usuario invalido ou nao informado (Tipo: ${typeof usuario})`);
         }
         if (!senha || typeof senha !== 'string') {
-            throw new Error(`Senha invalida ou nao informada (Tipo: ${typeof senha})`);
+            throw erroComCodigo('CREDENCIAL_SALIC_AUSENTE', `Senha invalida ou nao informada (Tipo: ${typeof senha})`);
         }
 
         // 1. LOGIN
@@ -654,7 +683,7 @@ async function executarInsercaoSalic(config) {
         });
         console.log('[SALIC] Verificacao pos-login:', JSON.stringify(loginCheck));
         if (loginCheck.temErro) {
-            throw new Error('Falha no login SALIC: credenciais invalidas ou usuario bloqueado.');
+            throw erroComCodigo('LOGIN_SALIC_RECUSADO', 'Falha no login SALIC: credenciais invalidas ou usuario bloqueado.');
         }
         // O SALIC pode recusar o login sem mostrar mensagem: a página só
         // fica em /autenticacao/. Sem isto o erro aparecia como timeout em
@@ -766,24 +795,7 @@ async function executarInsercaoSalic(config) {
         // Sempre loga o que o match viu, com ou sem casamento (antes de qualquer erro abaixo).
         logarLinhasVistas(resultadoMatch?.vistas);
 
-        if (resultadoMatch?.erro_ambiguidade) {
-            throw new Error(
-                `Ambiguidade de rubrica: "${rubricaNome}" encontrada ${resultadoMatch.candidatos.length}x ` +
-                `no produto "${config.rubricaProduto}". Intervencao manual necessaria no SALIC.`
-            );
-        }
-
-        if (!resultadoMatch || !resultadoMatch.link) {
-            console.log('[SALIC] Rubrica nao localizada automaticamente. Sugestao: validar manualmente no painel do SALIC.');
-            if (resultadoMatch && resultadoMatch.candidatos) {
-                console.log(`[SALIC] Rubricas disponiveis na tela (${resultadoMatch.candidatos.length}):`);
-                resultadoMatch.candidatos.forEach((n, i) => console.log(`  [${i + 1}] ${n}`));
-                if (resultadoMatch.melhorNome) {
-                    console.log(`[SALIC] Mais proxima: "${resultadoMatch.melhorNome}" (score ${resultadoMatch.melhorScore.toFixed(2)}) - abaixo do limiar de 0.85.`);
-                }
-            }
-            throw new Error(mensagemRubricaNaoEncontrada(resultadoMatch));
-        }
+        exigirRubricaCasada(resultadoMatch, rubricaNome, config.rubricaProduto);
 
         if (resultadoMatch.produtoEncontrado !== undefined) {
             console.log(`[SALIC] Rubrica casada na busca flat (nome exato + valor aprovado, linha unica) no produto: "${resultadoMatch.produtoEncontrado}" | produto esperado: "${config.rubricaProduto || '(sem produto)'}"`);
@@ -1008,7 +1020,7 @@ async function executarInsercaoSalic(config) {
                 await downloadFile(documento.nf_url, localFilePath);
                 const retryStats = fs.statSync(localFilePath);
                 if (!retryStats || retryStats.size < 100) {
-                    throw new Error(`PDF da NF baixado com tamanho invalido (${retryStats?.size || 0} bytes).`);
+                    throw erroComCodigo('ARQUIVO_NF_INDISPONIVEL', `PDF da NF baixado com tamanho invalido (${retryStats?.size || 0} bytes).`);
                 }
             }
             console.log(`[SALIC] PDF baixado com sucesso: ${fileStats.size} bytes`);
@@ -1168,8 +1180,7 @@ async function executarInsercaoSalic(config) {
             // ter sido gravado no SALIC.
             return {
                 sucesso: false,
-                erro: 'Tempo esgotado (60s) aguardando o SALIC concluir o salvamento. ' +
-                    'O comprovante pode ter sido gravado: conferir no SALIC antes de reenviar.'
+                erro: ERRO_TEMPO_ESGOTADO_SALVAMENTO
             };
         }
         await wait(1000); // deixa a tela assentar antes de ler o estado
@@ -1211,11 +1222,11 @@ async function executarInsercaoSalic(config) {
         if (resultadoSalvamento.errosValidacao.length > 0) {
             const erroMsg = `Erros de validacao no formulario: ${resultadoSalvamento.errosValidacao.join(', ')}`;
             console.error(`[SALIC] FALHA: ${erroMsg}`);
-            return { sucesso: false, erro: erroMsg };
+            return { sucesso: false, erro: garantirCodigo(erroMsg) };
         }
 
         if (resultadoSalvamento.modalAberto && resultadoSalvamento.contemErro) {
-            return { sucesso: false, erro: `Modal ainda aberto com possiveis erros. Toasts: ${resultadoSalvamento.toastTexts.join('; ')}` };
+            return { sucesso: false, erro: garantirCodigo(`Modal ainda aberto com possiveis erros. Toasts: ${resultadoSalvamento.toastTexts.join('; ')}`) };
         }
 
         // Se o modal fechou, provavelmente salvou
@@ -1256,11 +1267,11 @@ async function executarInsercaoSalic(config) {
                 return { sucesso: true, mensagem: 'Comprovacao financeira inserida e verificada com sucesso (confirmada via tabela)!' };
             } else {
                 console.warn('[SALIC] ✗ VERIFICACAO POS-AMBIGUO: Insercao NAO encontrada na tabela.');
-                return { sucesso: false, erro: 'Insercao nao confirmada na tabela de comprovacoes apos envio. Verificar manualmente no SALIC.', toasts: resultadoSalvamento.toastTexts };
+                return { sucesso: false, erro: garantirCodigo('Insercao nao confirmada na tabela de comprovacoes apos envio. Verificar manualmente no SALIC.'), toasts: resultadoSalvamento.toastTexts };
             }
         } catch (verifyError) {
             console.error('[SALIC] Erro durante verificacao pos-ambiguo:', verifyError.message);
-            return { sucesso: false, erro: 'Resultado ambiguo e falha na verificacao automatica. Verificar manualmente.', toasts: resultadoSalvamento.toastTexts };
+            return { sucesso: false, erro: garantirCodigo('Resultado ambiguo e falha na verificacao automatica. Verificar manualmente.'), toasts: resultadoSalvamento.toastTexts };
         }
 
     } catch (error) {
@@ -1277,7 +1288,7 @@ async function executarInsercaoSalic(config) {
                 }
             }
         } catch (e) { }
-        return { sucesso: false, erro: error.message };
+        return { sucesso: false, erro: garantirCodigo(error.message) };
     } finally {
         clearTimeout(globalTimeoutHandle);
         if (browser) await browser.close();
@@ -1287,7 +1298,7 @@ async function executarInsercaoSalic(config) {
 module.exports = {
     executarInsercaoSalic, preencherJustificativaSalic, buscarFornecedorSalic, contarIndiciosFornecedorInexistente,
     localizarRubricaNaPagina, normRubrica, lerNomeRubricaNaTela, conferirRubricaDaTela, logarLinhasVistas,
-    mensagemRubricaNaoEncontrada
+    mensagemRubricaNaoEncontrada, exigirRubricaCasada, ERRO_TEMPO_ESGOTADO_SALVAMENTO
 };
 
 // --- AREA DE TESTE (Para rodar direto no terminal) ---

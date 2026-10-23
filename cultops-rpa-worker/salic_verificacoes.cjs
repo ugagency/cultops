@@ -1,3 +1,5 @@
+const { erroComCodigo } = require('./codigos_erro.cjs');
+
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // ── VERIFICAÇÕES DE SEGURANÇA DOS ROBÔS SALIC ────────────────────────────
@@ -32,7 +34,7 @@ async function exigirSaidaDoLogin(page, usuarioMascarado, folgaMs = 7000) {
     ).catch(() => { });
     const url = page.url();
     if (urlIndicaLoginRecusado(url)) {
-        throw new Error(
+        throw erroComCodigo('LOGIN_SALIC_RECUSADO',
             `Falha no login SALIC: a pagina continuou na tela de login (${url}) ` +
             `para o usuario ${usuarioMascarado}. Confira CPF e senha da credencial SALIC.`
         );

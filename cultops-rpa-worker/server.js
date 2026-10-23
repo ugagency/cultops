@@ -4,6 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 const ws = require('ws');
+const { erroComCodigo, garantirCodigo, extrairCodigo } = require('./codigos_erro.cjs');
 const {
     criarControleDeNavegador, criarLimitadorPorUsuario, lerLimiteDoAmbiente, criarHandlerValidarCredencial
 } = require('./salic_validar_login.cjs');
@@ -61,7 +62,7 @@ const limitadorValidacao = criarLimitadorPorUsuario(limiteValidacao);
 // documents.data_pagamento e depois para data_emissao).
 function resolverDataPagamento(lancamento, doc) {
     if (!lancamento?.data_lancamento) {
-        throw new Error(`Documento ${doc.id} sem lançamento bancário conciliado: data do pagamento não determinada. Concilie o pagamento antes de enviar ao SALIC.`);
+        throw erroComCodigo('DATA_PAGAMENTO_SEM_LANCAMENTO', `Documento ${doc.id} sem lançamento bancário conciliado: data do pagamento não determinada. Concilie o pagamento antes de enviar ao SALIC.`);
     }
     console.log(`[SERVER] data_pagamento: ${lancamento.data_lancamento} (fonte: extratos_lancamentos, fitid ${lancamento.fitid})`);
     return lancamento.data_lancamento;
@@ -90,10 +91,10 @@ function calcularValorEnvio(doc, lancamentosDoDoc, lancamentosMesmoFitid) {
     } else {
         const distintos = new Set((lancamentosDoDoc || []).map(chave));
         if (distintos.size === 0) {
-            throw new Error('Valor pago não determinado: valor_pago vazio e nenhum lançamento conciliado com o documento.');
+            throw erroComCodigo('VALOR_PAGO_INDETERMINADO', 'Valor pago não determinado: valor_pago vazio e nenhum lançamento conciliado com o documento.');
         }
         if (distintos.size > 1) {
-            throw new Error(`Valor pago não determinado: valor_pago vazio e ${distintos.size} lançamentos conciliados distintos com o documento.`);
+            throw erroComCodigo('VALOR_PAGO_INDETERMINADO', `Valor pago não determinado: valor_pago vazio e ${distintos.size} lançamentos conciliados distintos com o documento.`);
         }
         const lancamento = lancamentosDoDoc[0];
         // Set de document_id: linhas duplicadas vinculadas ao mesmo documento contam uma vez.
@@ -102,17 +103,17 @@ function calcularValorEnvio(doc, lancamentosDoDoc, lancamentosMesmoFitid) {
             .map(l => l.document_id));
         documentos.add(doc.id);
         if (documentos.size > 1) {
-            throw new Error(`Valor pago não determinado: o lançamento ${lancamento.fitid} está conciliado com ${documentos.size} documentos e valor_pago está vazio.`);
+            throw erroComCodigo('LANCAMENTO_DIVIDIDO', `Valor pago não determinado: o lançamento ${lancamento.fitid} está conciliado com ${documentos.size} documentos e valor_pago está vazio.`);
         }
         valor = Math.abs(Number(lancamento.valor));
         origem = 'lancamento';
     }
 
     if (!Number.isFinite(valor) || valor <= 0) {
-        throw new Error(`Valor pago não determinado: valor inválido (${origem}).`);
+        throw erroComCodigo('VALOR_PAGO_INDETERMINADO', `Valor pago não determinado: valor inválido (${origem}).`);
     }
     if (valor > Number(doc.valor) + 0.01) {
-        throw new Error(`Valor pago (R$ ${valor.toFixed(2)}, origem: ${origem}) maior que o valor da nota (R$ ${Number(doc.valor).toFixed(2)}).`);
+        throw erroComCodigo('VALOR_MAIOR_QUE_NOTA', `Valor pago (R$ ${valor.toFixed(2)}, origem: ${origem}) maior que o valor da nota (R$ ${Number(doc.valor).toFixed(2)}).`);
     }
     return { valor, origem };
 }
@@ -225,7 +226,7 @@ async function executarEnvioSalic(req, res, { dryRun = false } = {}) {
             .single();
 
         if (credError || !creds) {
-            throw new Error('Credenciais SALIC não encontradas para este usuário no Supabase.');
+            throw erroComCodigo('CREDENCIAL_SALIC_AUSENTE', 'Credenciais SALIC não encontradas para este usuário no Supabase.');
         }
 
         console.log(`[API] Documento: ${doc.name} | Rubrica: ${doc.rubrica}`);
@@ -241,14 +242,14 @@ async function executarEnvioSalic(req, res, { dryRun = false } = {}) {
             !doc.numero_nf && 'Nr. Comprovante',
         ].filter(Boolean);
         if (camposFaltando.length > 0) {
-            throw new Error(`Faltam dados obrigatórios para enviar ao SALIC: ${camposFaltando.join(', ')}.`);
+            throw erroComCodigo('DADOS_OBRIGATORIOS_FALTANDO', `Faltam dados obrigatórios para enviar ao SALIC: ${camposFaltando.join(', ')}.`);
         }
 
         // Rubrica SOMENTE por UUID (documents.rubrica_id_fk -> rubricas.id). As antigas estrategias
         // por prefixo numerico e por nome (ILIKE) eram ambiguas (ocorrencia #119): sem
         // rubrica_id_fk, erro.
         if (!doc.rubrica_id_fk) {
-            throw new Error(`Documento ${doc.id} sem rubrica vinculada (rubrica_id_fk vazio) | rubrica (texto): "${doc.rubrica}". Vincule a rubrica antes de enviar ao SALIC.`);
+            throw erroComCodigo('RUBRICA_NAO_VINCULADA', `Documento ${doc.id} sem rubrica vinculada (rubrica_id_fk vazio) | rubrica (texto): "${doc.rubrica}". Vincule a rubrica antes de enviar ao SALIC.`);
         }
         const { data: rubrica } = await supabase
             .from('rubricas')
@@ -256,7 +257,7 @@ async function executarEnvioSalic(req, res, { dryRun = false } = {}) {
             .eq('id', doc.rubrica_id_fk)
             .single();
         if (!rubrica) {
-            throw new Error(`Rubrica não encontrada para documento ${doc.id} | rubrica_id_fk: ${doc.rubrica_id_fk}`);
+            throw erroComCodigo('RUBRICA_INEXISTENTE', `Rubrica não encontrada para documento ${doc.id} | rubrica_id_fk: ${doc.rubrica_id_fk}`);
         }
         console.log(`[API] Rubrica por UUID: "${rubrica.nome}"` +
             ` | ID: ${rubrica.rubrica_id}` +
@@ -329,7 +330,7 @@ async function executarEnvioSalic(req, res, { dryRun = false } = {}) {
                 .from('documentos')
                 .createSignedUrl(nfPath, 3600);
             if (nfAssinadaErro || !nfAssinada || !nfAssinada.signedUrl) {
-                throw new Error('Não foi possível gerar URL do arquivo da NF.');
+                throw erroComCodigo('ARQUIVO_NF_INDISPONIVEL', 'Não foi possível gerar URL do arquivo da NF.');
             }
             nfUrl = nfAssinada.signedUrl;
         }
@@ -386,17 +387,21 @@ async function executarEnvioSalic(req, res, { dryRun = false } = {}) {
 
             return res.json({ success: true, protocol: resultado.protocolo });
         } else {
-            throw new Error(resultado.erro);
+            throw new Error(garantirCodigo(resultado.erro));
         }
     } catch (error) {
-        console.error('[API] Erro ao processar:', error.message);
+        // Todo erro sai com prefixo "[CODIGO]" (sem duplicar, se já veio do worker) e o código também
+        // na resposta, para o front tratar por código e não por texto.
+        const mensagem = garantirCodigo(error.message);
+        const codigo = extrairCodigo(mensagem);
+        console.error('[API] Erro ao processar:', mensagem);
         if (!dryRun && documentoAutorizado) {
             await supabase.from('documents').update({
                 status: 'erro_rpa',
-                just_erro: error.message
+                just_erro: mensagem
             }).eq('id', documentId);
         }
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: mensagem, codigo });
     }
 }
 
