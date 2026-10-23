@@ -1137,8 +1137,8 @@ if (require.main === module) {
     (async () => {
         // Substitua pelos seus dados de teste:
         await executarInsercaoSalic({
-            usuario: '24454621187',
-            senha: 'artecidadania',
+            usuario: '00000000',
+            senha: '00000000000',
             pronac: '258740',
             rubricaNome: 'Passagens Aereas',
             documento: {
