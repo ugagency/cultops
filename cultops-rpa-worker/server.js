@@ -178,18 +178,19 @@ function criarHandlerDryRun({ limitador, executar = executarEnvioSalic }) {
 }
 app.post('/api/salic/dry-run', exigirUsuarioAutenticado, criarHandlerDryRun({ limitador: limitadorDryRun }));
 
-// Organização do usuário autenticado: profiles.organization_id da linha cujo id é o id do
-// usuário (convenção Supabase; PREMISSA a confirmar, o repositório não define a tabela). Falha
-// FECHADO: erro de consulta propaga (500 genérico, sem gravar), perfil ou organização ausente
-// devolve null (o chamador responde 404).
-async function buscarOrganizacaoDoUsuario(userId) {
+// O usuário é membro da organização? Vínculo em organization_users (organization_id, user_id,
+// role); um usuário pode estar em mais de uma organização. Falha FECHADO: sem organização
+// informada devolve false; erro de consulta propaga (500 genérico, sem gravar).
+async function usuarioEhDaOrganizacao(userId, organizationId) {
+    if (!userId || !organizationId) return false;
     const { data, error } = await supabase
-        .from('profiles')
+        .from('organization_users')
         .select('organization_id')
-        .eq('id', userId)
-        .maybeSingle();
+        .eq('user_id', userId)
+        .eq('organization_id', organizationId)
+        .limit(1);
     if (error) throw new Error('Não foi possível validar o acesso ao documento.');
-    return data?.organization_id || null;
+    return Array.isArray(data) && data.length > 0;
 }
 
 // Dry-run (ocorrência #119): o worker preenche e audita o formulário sem clicar em Salvar, e
@@ -213,13 +214,12 @@ async function executarEnvioSalic(req, res, { dryRun = false } = {}) {
         // Isolamento por organização: o client usa a service role (ignora RLS), então a
         // checagem tem que ser aqui. Documento inexistente e documento de outra organização
         // dão a MESMA resposta (404), sem revelar que o documento existe, e sem gravar nada.
-        const organizacaoDoUsuario = await buscarOrganizacaoDoUsuario(userId);
         const { data: doc, error: docError } = await supabase
             .from('documents')
             .select('*, projects(pronac)')
             .eq('id', documentId)
             .single();
-        if (docError || !doc || !organizacaoDoUsuario || doc.organization_id !== organizacaoDoUsuario) {
+        if (docError || !doc || !(await usuarioEhDaOrganizacao(userId, doc.organization_id))) {
             console.warn(`[API] Documento ${documentId} negado ao usuário ${userId}: inexistente ou de outra organização.`);
             return res.status(404).json({ error: 'Documento não encontrado.' });
         }

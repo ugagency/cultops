@@ -69,7 +69,12 @@ const RUBRICA_ID = '27f49b2b-0000-0000-0000-000000000001';
 function cenario({ doc = {}, lancamentos } = {}) {
     dados = {
         decrypted_external_credentials: [{ user_id: 'u1', service_name: 'salic', identifier: '12345678909', secret_plain: 'senha' }],
-        profiles: [{ id: 'u1', organization_id: 'orgA' }, { id: 'u2', organization_id: 'orgA' }, { id: 'uB', organization_id: 'orgB' }, { id: 'uSemOrg', organization_id: null }],
+        // vinculo usuario-organizacao; uMulti esta em duas organizacoes; uSemVinculo nao tem linha
+        organization_users: [
+            { user_id: 'u1', organization_id: 'orgA', role: 'admin' }, { user_id: 'u2', organization_id: 'orgA', role: 'membro' },
+            { user_id: 'uB', organization_id: 'orgB', role: 'admin' }, { user_id: 'uC', organization_id: 'orgC', role: 'admin' },
+            { user_id: 'uMulti', organization_id: 'orgA', role: 'membro' }, { user_id: 'uMulti', organization_id: 'orgB', role: 'membro' },
+        ],
         documents: [{
             id: DOC_ID, project_id: 'p1', organization_id: 'orgA', name: 'NF 39405.pdf', projects: { pronac: '256578' },
             rubrica: '46 - advogado', rubrica_id_fk: RUBRICA_ID,
@@ -345,8 +350,8 @@ let falhas = 0;
         assert.deepEqual(escritas, []);
     });
 
-    await caso('org: usuario sem perfil ou sem organizacao recebe 404 (falha fechado)', async () => {
-        for (const uid of ['uSemOrg', 'uSemPerfil']) {
+    await caso('org: usuario sem linha em organization_users recebe 404 (falha fechado)', async () => {
+        for (const uid of ['uSemVinculo']) {
             cenario();
             const r = await enviarComo(uid);
             assert.equal(r.codigo, 404, uid);
@@ -361,13 +366,34 @@ let falhas = 0;
         assert.deepEqual(escritas, []);
     });
 
-    await caso('org: erro ao consultar o perfil: 500 generico, sem gravar e sem revelar o documento', async () => {
+    await caso('org: erro ao consultar organization_users: 500 generico, sem gravar e sem revelar o documento', async () => {
         cenario();
-        errosPorTabela = { profiles: true };
+        errosPorTabela = { organization_users: true };
         const r = await enviarComo('u1');
         assert.equal(r.codigo, 500);
         assert.deepEqual(r.corpo, { error: 'Não foi possível validar o acesso ao documento.' });
         assert.deepEqual(escritas, []);
+    });
+
+    await caso('org: usuario em duas organizacoes acessa documento de qualquer uma delas', async () => {
+        for (const org of ['orgA', 'orgB']) {
+            cenario({ doc: { organization_id: org } });
+            dados.decrypted_external_credentials.push({ user_id: 'uMulti', service_name: 'salic', identifier: '11122233344', secret_plain: 'senha3' });
+            resultadoWorker = { sucesso: true };
+            const r = await enviarComo('uMulti');
+            assert.equal(r.codigo, 200, org);
+            assert.equal(escritasEm('documents')[0].payload.status, 'enviado_salic', org);
+        }
+    });
+
+    await caso('org: usuario de outra organizacao (C) recebe 404 para documento da A e da B, igual a inexistente', async () => {
+        for (const org of ['orgA', 'orgB']) {
+            cenario({ doc: { organization_id: org } });
+            const r = await enviarComo('uC');
+            assert.equal(r.codigo, 404, org);
+            assert.deepEqual(r.corpo, NAO_ENCONTRADO, org);
+            assert.deepEqual(escritas, [], org);
+        }
     });
 
     await caso('org: mesma organizacao segue normal (sucesso grava status) e erro depois da checagem ainda grava erro_rpa', async () => {
