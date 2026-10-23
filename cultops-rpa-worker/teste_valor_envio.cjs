@@ -57,8 +57,35 @@ caso('lançamento duplicado em outro extrato, conciliado com a mesma nota: conta
 caso('valor pago maior que a nota: erro', () => {
     assert.throws(() => calcularValorEnvio(nota({ valor_pago: 18000.02 }), [lanc()], []),
         /Valor pago \(R\$ 18000\.02, origem: valor_pago\) maior que o valor da nota \(R\$ 18000\.00\)/);
+    // vindo do lançamento, acima da nota cai na faixa de 85%-100%
     assert.throws(() => calcularValorEnvio(nota({ valor: 16000 }), [lanc()], [lanc()]),
-        /Valor pago \(R\$ 16893\.00, origem: lancamento\) maior que o valor da nota \(R\$ 16000\.00\)/);
+        /^Error: Valor do lançamento incompatível com a nota; revisar conciliação/);
+});
+
+// ── faixa de 85% a 100% da nota para o valor vindo do lançamento (8b) ──
+caso('faixa: lançamento 821,70 vs nota 16.850,58 -> erro', () => {
+    assert.throws(() => calcularValorEnvio(nota({ valor: 16850.58 }), [lanc({ valor: -821.70 })], [lanc({ valor: -821.70 })]),
+        /^Error: Valor do lançamento incompatível com a nota; revisar conciliação \(lançamento R\$ 821\.70, nota R\$ 16850\.58\)/);
+});
+
+caso('faixa: lançamento 6.600,00 vs nota 4.000,00 -> erro', () => {
+    assert.throws(() => calcularValorEnvio(nota({ valor: 4000 }), [lanc({ valor: -6600 })], [lanc({ valor: -6600 })]),
+        /^Error: Valor do lançamento incompatível com a nota; revisar conciliação \(lançamento R\$ 6600\.00, nota R\$ 4000\.00\)/);
+});
+
+caso('faixa: lançamento 16.893,00 vs nota 18.000,00 -> aceito (93,85%)', () => {
+    assert.deepEqual(calcularValorEnvio(nota({ valor: 18000 }), [lanc()], [lanc()]), { valor: 16893, origem: 'lancamento' });
+});
+
+caso('faixa: limites exatos 85% e 100% aceitos; 1 centavo fora, erro', () => {
+    assert.equal(calcularValorEnvio(nota({ valor: 10000 }), [lanc({ valor: -8500 })], []).valor, 8500);
+    assert.equal(calcularValorEnvio(nota({ valor: 10000 }), [lanc({ valor: -10000 })], []).valor, 10000);
+    assert.throws(() => calcularValorEnvio(nota({ valor: 10000 }), [lanc({ valor: -8499.99 })], []), /incompatível com a nota/);
+    assert.throws(() => calcularValorEnvio(nota({ valor: 10000 }), [lanc({ valor: -10000.01 })], []), /incompatível com a nota/);
+});
+
+caso('faixa nao se aplica a valor_pago: 821,70 manual vs nota 16.850,58 -> aceito', () => {
+    assert.deepEqual(calcularValorEnvio(nota({ valor: 16850.58, valor_pago: 821.70 }), [lanc({ valor: -821.70 })], []), { valor: 821.7, origem: 'valor_pago' });
 });
 
 caso('valor pago igual a nota + 1 centavo: aceito (tolerancia)', () => {
