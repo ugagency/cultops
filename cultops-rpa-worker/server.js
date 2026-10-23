@@ -102,8 +102,14 @@ function formatarNrDocPagamento(docExtrato) {
     return resultado;
 }
 
-// Endpoint SALIC
-app.post('/api/salic/inserir', exigirUsuarioAutenticado, async (req, res) => {
+// Endpoint SALIC. O corpo está em executarEnvioSalic para poder ser testado fora do Express.
+// O dry-run só é ligado por quem chama a função (opcoes.dryRun); a rota NUNCA o lê do body.
+app.post('/api/salic/inserir', exigirUsuarioAutenticado, (req, res) => executarEnvioSalic(req, res));
+
+// Dry-run (ocorrência #119): o worker preenche e audita o formulário sem clicar em Salvar, e
+// aqui nada é gravado em documents nem em despesas (status, data_salic, protocolo_salic,
+// just_erro), nem em sucesso nem em erro.
+async function executarEnvioSalic(req, res, { dryRun = false } = {}) {
     const { executarInsercaoSalic } = require('./salic_insertion.cjs');
     const { documentId } = req.body;
     const userId = req.userId; // do token verificado, não do body
@@ -111,7 +117,7 @@ app.post('/api/salic/inserir', exigirUsuarioAutenticado, async (req, res) => {
     if (!documentId) return res.status(400).json({ error: 'ID do documento não fornecido.' });
 
     try {
-        console.log(`[API] Iniciando processo para documento: ${documentId}`);
+        console.log(`[API] Iniciando processo para documento: ${documentId}${dryRun ? ' (DRY-RUN: nada será salvo no SALIC nem em documents/despesas)' : ''}`);
 
         const { data: creds, error: credError } = await supabase
             .from('decrypted_external_credentials')
@@ -148,78 +154,25 @@ app.post('/api/salic/inserir', exigirUsuarioAutenticado, async (req, res) => {
             throw new Error(`Faltam dados obrigatórios para enviar ao SALIC: ${camposFaltando.join(', ')}.`);
         }
 
-        // Resolucao da rubrica em CASCATA (3 estrategias, da mais confiavel a mais ambigua).
-        // Motivacao: doc.rubrica e texto livre e nem sempre tem prefixo numerico; nomes
-        // repetidos em etapas diferentes (ex.: "Produtor executivo" em Pre-Producao E em
-        // Execucao) geravam match errado. A coluna documents.rubrica_id_fk (FK -> rubricas.id),
-        // quando preenchida, resolve por UUID direto — sem parsing, sem ambiguidade.
-        let rubrica = null;
-
-        // ESTRATEGIA 1 — UUID direto (mais confiavel)
-        // Requer que documents.rubrica_id_fk esteja preenchido
-        if (doc.rubrica_id_fk) {
-            const { data } = await supabase
-                .from('rubricas')
-                .select('nome, etapa, valor_aprovado, rubrica_id, produto')
-                .eq('id', doc.rubrica_id_fk)
-                .single();
-            rubrica = data;
-            if (rubrica) {
-                console.log(`[API] Rubrica por UUID: "${rubrica.nome}"` +
-                    ` | ID: ${rubrica.rubrica_id}` +
-                    ` | Etapa: ${rubrica.etapa}` +
-                    ` | Valor: R$ ${rubrica.valor_aprovado}` +
-                    ` | Produto: ${rubrica.produto || '(sem produto)'}`);
-            }
+        // Rubrica SOMENTE por UUID (documents.rubrica_id_fk -> rubricas.id). As antigas estrategias
+        // por prefixo numerico e por nome (ILIKE) eram ambiguas (ocorrencia #119): sem
+        // rubrica_id_fk, erro.
+        if (!doc.rubrica_id_fk) {
+            throw new Error(`Documento ${doc.id} sem rubrica vinculada (rubrica_id_fk vazio) | rubrica (texto): "${doc.rubrica}". Vincule a rubrica antes de enviar ao SALIC.`);
         }
-
-        // ESTRATEGIA 2 — rubrica_id numerico extraido do prefixo
-        // Ex: "37 - Produtor executivo" → rubrica_id="37"
+        const { data: rubrica } = await supabase
+            .from('rubricas')
+            .select('nome, etapa, valor_aprovado, rubrica_id, produto')
+            .eq('id', doc.rubrica_id_fk)
+            .single();
         if (!rubrica) {
-            console.warn('[API] rubrica_id_fk ausente — tentando prefixo numérico');
-            const rubricaIdNum = doc.rubrica?.match(/^(\d+)\s*-/)?.[1];
-            if (rubricaIdNum) {
-                const { data } = await supabase
-                    .from('rubricas')
-                    .select('nome, etapa, valor_aprovado, rubrica_id, produto')
-                    .eq('project_id', doc.project_id)
-                    .eq('rubrica_id', rubricaIdNum)
-                    .maybeSingle();
-                rubrica = data;
-                if (rubrica) {
-                    console.log(`[API] Rubrica por prefixo "${rubricaIdNum}":` +
-                        ` "${rubrica.nome}" | Etapa: ${rubrica.etapa}`);
-                }
-            }
+            throw new Error(`Rubrica não encontrada para documento ${doc.id} | rubrica_id_fk: ${doc.rubrica_id_fk}`);
         }
-
-        // ESTRATEGIA 3 — nome (ultimo recurso, ambiguo)
-        if (!rubrica) {
-            console.warn('[API] Fallback por nome — pode ser ambíguo. rubricaProduto será null, RPA usará busca flat.');
-            const nomeRubrica = doc.rubrica
-                ?.replace(/^\d+\s*-\s*/, '')
-                ?.trim();
-            if (nomeRubrica) {
-                const { data } = await supabase
-                    .from('rubricas')
-                    .select('nome, etapa, valor_aprovado, rubrica_id')
-                    .eq('project_id', doc.project_id)
-                    .ilike('nome', `%${nomeRubrica}%`)
-                    .order('valor_aprovado', { ascending: false })
-                    .limit(1)
-                    .maybeSingle();
-                rubrica = data;
-                if (rubrica) {
-                    console.warn(`[API] Rubrica por nome: "${rubrica.nome}"` +
-                        ` | Etapa: ${rubrica.etapa} — VALIDAR SE CORRETO`);
-                }
-            }
-        }
-
-        if (!rubrica) {
-            throw new Error(`Rubrica não encontrada para documento ${doc.id}` +
-                ` | rubrica: "${doc.rubrica}" | rubrica_id_fk: ${doc.rubrica_id_fk}`);
-        }
+        console.log(`[API] Rubrica por UUID: "${rubrica.nome}"` +
+            ` | ID: ${rubrica.rubrica_id}` +
+            ` | Etapa: ${rubrica.etapa}` +
+            ` | Valor: R$ ${rubrica.valor_aprovado}` +
+            ` | Produto: ${rubrica.produto || '(sem produto)'}`);
 
         const rubricaValorAprovado = rubrica.valor_aprovado;
         const rubricaEtapa = rubrica.etapa;
@@ -272,7 +225,8 @@ app.post('/api/salic/inserir', exigirUsuarioAutenticado, async (req, res) => {
             usuario: String(creds.identifier),
             senha: String(creds.secret_plain),
             pronac: String(doc.projects.pronac),
-            rubricaNome: doc.rubrica || 'Rubrica não informada',
+            rubricaNome: rubrica.nome,   // nome da tabela rubricas, não o texto livre doc.rubrica
+            dryRun,
             rubricaValorAprovado: rubricaValorAprovado,
             rubricaEtapa: rubricaEtapa,
             rubricaProduto: rubricaProduto,
@@ -292,6 +246,15 @@ app.post('/api/salic/inserir', exigirUsuarioAutenticado, async (req, res) => {
         };
 
         const resultado = await controleNavegador.executar(() => executarInsercaoSalic(config));
+
+        if (resultado.sucesso && dryRun) {
+            return res.json({
+                success: true, dryRun: true,
+                rubricaNome: rubrica.nome, rubricaProduto, matchType: resultado.matchType, rubricaCasada: resultado.rubricaCasada,
+                valor: config.documento.valor, dataPagamento: config.documento.data_pagamento,
+                screenshot: resultado.screenshot, auditoria: resultado.auditoria
+            });
+        }
 
         if (resultado.sucesso) {
             await supabase.from('documents').update({
@@ -314,13 +277,15 @@ app.post('/api/salic/inserir', exigirUsuarioAutenticado, async (req, res) => {
         }
     } catch (error) {
         console.error('[API] Erro ao processar:', error.message);
-        await supabase.from('documents').update({
-            status: 'erro_rpa',
-            just_erro: error.message
-        }).eq('id', documentId);
+        if (!dryRun) {
+            await supabase.from('documents').update({
+                status: 'erro_rpa',
+                just_erro: error.message
+            }).eq('id', documentId);
+        }
         res.status(500).json({ error: error.message });
     }
-});
+}
 
 // Valida o login do SALIC antes de a credencial ser salva (ocorrência #64). Body:
 // { usuario, senha } (texto, até 64 caracteres cada). Responde 200 com
@@ -465,6 +430,11 @@ app.use((err, req, res, next) => {
     res.status(500).json({ error: 'Erro interno no servidor', details: err.message });
 });
 
-app.listen(PORT, () => {
-    console.log(`[RPA WORKER] Rodando na porta ${PORT}`);
-});
+// Só abre a porta quando é o processo principal (node server.js); os testes importam o módulo.
+if (require.main === module) {
+    app.listen(PORT, () => {
+        console.log(`[RPA WORKER] Rodando na porta ${PORT}`);
+    });
+}
+
+module.exports = { executarEnvioSalic };
