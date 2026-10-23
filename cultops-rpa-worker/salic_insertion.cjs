@@ -266,6 +266,11 @@ function localizarRubricaNaPagina(nome, produto, valorAprovado) {
         return false;
     };
 
+    // Texto de um cabecalho de produto sem o nome do icone Materialize (<i class="material-icons">perm_media</i>).
+    const textoDoCabecalho = (el) => Array.from(el.childNodes)
+        .filter(n => !(n.nodeType === 1 && n.classList.contains('material-icons')))
+        .map(n => n.textContent).join(' ').replace(/\s+/g, ' ').trim();
+
     // Linhas que o match enxergou, por escopo: devolvidas no resultado e logadas pelo Node.
     const vistas = [];
 
@@ -376,7 +381,7 @@ function localizarRubricaNaPagina(nome, produto, valorAprovado) {
                 : [];
 
             if (rows.length > 0) {
-                const candidatos = coletarCandidatos(rows, `produto: ${blocoAlvo.innerText.replace(/\s+/g, ' ').trim()}`);
+                const candidatos = coletarCandidatos(rows, `produto: ${textoDoCabecalho(blocoAlvo)}`);
                 const resultado = matchCandidatos(candidatos, nomeNorm, tokensProcurados, valorAprovado);
                 if (resultado) {
                     return { ...resultado, scopeProduto: blocoAlvo.innerText.trim(), vistas };
@@ -396,7 +401,7 @@ function localizarRubricaNaPagina(nome, produto, valorAprovado) {
         let li = row.closest('li');
         while (li) {
             const cab = Array.from(li.children).find(e => e.matches('.collapsible-header.green-text'));
-            if (cab) return cab.innerText.replace(/\s+/g, ' ').trim();
+            if (cab) return textoDoCabecalho(cab);
             li = li.parentElement ? li.parentElement.closest('li') : null;
         }
         return null;

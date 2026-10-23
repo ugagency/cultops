@@ -118,7 +118,7 @@ const COMPROVANTES = (item) => `<html><body>
         await page.setContent(telaComprovacao([BLOCO_PERIODICO, BLOCO_ADMIN]));
         const r = await localizar('Advogado(a)', 'Administração do Projeto', 240000);
         assert.equal(r.link, 'https://salic.exemplo/comprovar/advogado');
-        assert.equal(r.produtoEncontrado, 'perm_media Periódico / Catálogo / Cartilha / Programa');
+        assert.equal(r.produtoEncontrado, 'Periódico / Catálogo / Cartilha / Programa');
     });
 
     await caso('flat: duas linhas Advogado(a) com o mesmo aprovado em produtos diferentes -> erro', async () => {
@@ -128,8 +128,8 @@ const COMPROVANTES = (item) => `<html><body>
         assert.equal(r.link, null);
         assert.match(r.motivo, /2 linhas com o mesmo nome e o mesmo valor aprovado/);
         assert.deepEqual(r.candidatos, [
-            'Advogado(a) (aprovado 240000.00 | produto: perm_media Periódico / Catálogo / Cartilha / Programa)',
-            'Advogado(a) (aprovado 240000.00 | produto: perm_media Exposição Cultural / de Artes)',
+            'Advogado(a) (aprovado 240000.00 | produto: Periódico / Catálogo / Cartilha / Programa)',
+            'Advogado(a) (aprovado 240000.00 | produto: Exposição Cultural / de Artes)',
         ]);
     });
 
@@ -138,7 +138,7 @@ const COMPROVANTES = (item) => `<html><body>
         const r = await localizar('Advogado(a)', 'Administração do Projeto', 250000);
         assert.equal(r.link, null);
         assert.match(r.motivo, /nenhuma linha com valor aprovado 250000/);
-        assert.deepEqual(r.candidatos, ['Advogado(a) (aprovado 240000.00 | produto: perm_media Periódico / Catálogo / Cartilha / Programa)']);
+        assert.deepEqual(r.candidatos, ['Advogado(a) (aprovado 240000.00 | produto: Periódico / Catálogo / Cartilha / Programa)']);
     });
 
     await caso('flat: sem valor aprovado da rubrica -> erro (nao casa so pelo nome)', async () => {
@@ -160,7 +160,7 @@ const COMPROVANTES = (item) => `<html><body>
         const r = await localizar('Advogado(a)', 'Administração do Projeto', 250000);
         assert.equal(mensagemRubricaNaoEncontrada(r),
             'Rubrica nao encontrada ou sem link de comprovacao ("sinal de dinheiro"): nome encontrado, mas nenhuma linha com valor aprovado 250000. ' +
-            'Candidatas: Advogado(a) (aprovado 240000.00 | produto: perm_media Periódico / Catálogo / Cartilha / Programa)');
+            'Candidatas: Advogado(a) (aprovado 240000.00 | produto: Periódico / Catálogo / Cartilha / Programa)');
     });
 
     await caso('rubrica que nao existe em lugar nenhum: link null e lista as candidatas (antes: inseria pelo saldo)', async () => {
@@ -169,8 +169,8 @@ const COMPROVANTES = (item) => `<html><body>
         assert.equal(r.link, null);
         assert.equal(r.matchType, undefined);
         assert.deepEqual(r.candidatos, [
-            'Custos de acessibilidade, comunicação e divulgação acessíveis (aprovado 1686048.00 | produto: perm_media Administração do Projeto)',
-            'Contador(a) (aprovado 120000.00 | produto: perm_media Administração do Projeto)',
+            'Custos de acessibilidade, comunicação e divulgação acessíveis (aprovado 1686048.00 | produto: Administração do Projeto)',
+            'Contador(a) (aprovado 120000.00 | produto: Administração do Projeto)',
         ]);
     });
 
@@ -183,7 +183,7 @@ const COMPROVANTES = (item) => `<html><body>
     await caso('linhas vistas: candidatas e descartadas com texto, numero de td e botao', async () => {
         await page.setContent(telaComprovacao([BLOCO_PERIODICO, BLOCO_ADMIN]));
         const r = await localizar('Advogado(a)', 'Administração do Projeto', 240000);
-        assert.deepEqual(r.vistas.map(v => v.escopo), ['produto: perm_media Administração do Projeto', 'flat']);
+        assert.deepEqual(r.vistas.map(v => v.escopo), ['produto: Administração do Projeto', 'flat']);
         const [produto, flat] = r.vistas;
         assert.deepEqual(produto.candidatas.map(c => c.texto), ['Custos de acessibilidade, comunicação e divulgação acessíveis', 'Contador(a)']);
         assert.deepEqual(produto.descartadas, [
