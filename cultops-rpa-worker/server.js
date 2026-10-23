@@ -56,21 +56,65 @@ const limitadorValidacao = criarLimitadorPorUsuario(limiteValidacao);
 
 // Bug #2: a Data do Pagamento no SALIC deve vir do lançamento bancário
 // conciliado (extratos_lancamentos.data_lancamento = data do débito),
-// NUNCA de documents.data_emissao (data de emissão da NF).
+// NUNCA de documents.data_emissao (data de emissão da NF) nem de documents.data_pagamento.
+// Ocorrência #120: sem lançamento conciliado vinculado ao documento, erro (antes caía para
+// documents.data_pagamento e depois para data_emissao).
 function resolverDataPagamento(lancamento, doc) {
-    // Fonte 1: data real do lançamento bancário (sempre preferida)
-    if (lancamento?.data_lancamento) {
-        console.log(`[SERVER] data_pagamento: ${lancamento.data_lancamento} (fonte: extratos_lancamentos)`);
-        return lancamento.data_lancamento;
+    if (!lancamento?.data_lancamento) {
+        throw new Error(`Documento ${doc.id} sem lançamento bancário conciliado: data do pagamento não determinada. Concilie o pagamento antes de enviar ao SALIC.`);
     }
-    // Fonte 2: documents.data_pagamento, se preenchido
-    if (doc.data_pagamento) {
-        console.warn(`[SERVER] data_pagamento: ${doc.data_pagamento} (fonte: documents.data_pagamento — fallback)`);
-        return doc.data_pagamento;
+    console.log(`[SERVER] data_pagamento: ${lancamento.data_lancamento} (fonte: extratos_lancamentos, fitid ${lancamento.fitid})`);
+    return lancamento.data_lancamento;
+}
+
+// Ocorrência #120: o SALIC recebe o valor PAGO, não o da nota. Função pura:
+//   lancamentosDoDoc        = lançamentos conciliados com este documento, mais recente primeiro;
+//   lancamentosMesmoFitid   = linhas conciliadas com o mesmo fitid e extrato do primeiro deles.
+// Regras:
+//   a) documents.valor_pago, se não nulo;
+//   b) senão, |valor| do lançamento, se ele (mesmo fitid e extrato) estiver conciliado só com
+//      este documento;
+//   c) senão, erro "Valor pago não determinado".
+// Linhas duplicadas do mesmo lançamento (mesmo fitid, valor e data) contam uma vez só. Em (b),
+// documento com mais de um lançamento distinto também é erro: o valor de um deles não é o pago.
+// Em qualquer caso, erro se o valor passar do valor da nota + R$ 0,01.
+function calcularValorEnvio(doc, lancamentosDoDoc, lancamentosMesmoFitid) {
+    const centavos = (v) => Math.round(Number(v) * 100);
+    const chave = (l) => `${l.fitid}|${centavos(l.valor)}|${l.data_lancamento}`;
+    let valor;
+    let origem;
+
+    if (doc.valor_pago !== null && doc.valor_pago !== undefined) {
+        valor = Number(doc.valor_pago);
+        origem = 'valor_pago';
+    } else {
+        const distintos = new Set((lancamentosDoDoc || []).map(chave));
+        if (distintos.size === 0) {
+            throw new Error('Valor pago não determinado: valor_pago vazio e nenhum lançamento conciliado com o documento.');
+        }
+        if (distintos.size > 1) {
+            throw new Error(`Valor pago não determinado: valor_pago vazio e ${distintos.size} lançamentos conciliados distintos com o documento.`);
+        }
+        const lancamento = lancamentosDoDoc[0];
+        // Set de document_id: linhas duplicadas vinculadas ao mesmo documento contam uma vez.
+        const documentos = new Set((lancamentosMesmoFitid || [])
+            .filter(l => l.document_id)
+            .map(l => l.document_id));
+        documentos.add(doc.id);
+        if (documentos.size > 1) {
+            throw new Error(`Valor pago não determinado: o lançamento ${lancamento.fitid} está conciliado com ${documentos.size} documentos e valor_pago está vazio.`);
+        }
+        valor = Math.abs(Number(lancamento.valor));
+        origem = 'lancamento';
     }
-    // Fonte 3: último recurso — data_emissao com aviso
-    console.warn(`[SERVER] AVISO: usando data_emissao como último fallback. Verificar conciliação do documento ${doc.id}`);
-    return doc.data_emissao;
+
+    if (!Number.isFinite(valor) || valor <= 0) {
+        throw new Error(`Valor pago não determinado: valor inválido (${origem}).`);
+    }
+    if (valor > Number(doc.valor) + 0.01) {
+        throw new Error(`Valor pago (R$ ${valor.toFixed(2)}, origem: ${origem}) maior que o valor da nota (R$ ${Number(doc.valor).toFixed(2)}).`);
+    }
+    return { valor, origem };
 }
 
 // Bug #1: formata o "Nº Documento de Pagamento" enviado ao SALIC.
@@ -199,16 +243,34 @@ async function executarEnvioSalic(req, res, { dryRun = false } = {}) {
 
         // Bug #2: busca a data real de pagamento (débito) do lançamento conciliado.
         // NÃO filtrar por `tipo` (essa coluna guarda texto longo da justificativa, não 'debito').
-        const { data: lancamento } = await supabase
+        // #120: traz também valor e extrato_id, e todos os conciliados do documento (mais recente
+        // primeiro): o primeiro é o lançamento de referência e a lista detecta mais de um.
+        const { data: lancamentos, error: lancamentosErro } = await supabase
             .from('extratos_lancamentos')
-            .select('data_lancamento, fitid, memo')
+            .select('extrato_id, data_lancamento, fitid, memo, valor')
             .eq('document_id', documentId)
             .eq('status_conciliacao', 'conciliado')
-            .order('data_lancamento', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+            .order('data_lancamento', { ascending: false });
+        if (lancamentosErro) throw new Error(`Falha ao consultar o lançamento conciliado: ${lancamentosErro.message}`);
+        const lancamento = (lancamentos || [])[0];
 
-        const dataPagamento = resolverDataPagamento(lancamento, doc);
+        const dataPagamento = resolverDataPagamento(lancamento, doc);   // erro se não houver lançamento conciliado
+
+        // Outras linhas conciliadas do mesmo lançamento (mesmo fitid e extrato): só importam
+        // quando o valor vem do lançamento (valor_pago vazio).
+        let lancamentosMesmoFitid = [];
+        if (doc.valor_pago === null || doc.valor_pago === undefined) {
+            const { data: mesmoFitid, error: mesmoFitidErro } = await supabase
+                .from('extratos_lancamentos')
+                .select('document_id, fitid, valor, data_lancamento')
+                .eq('extrato_id', lancamento.extrato_id)
+                .eq('fitid', lancamento.fitid)
+                .eq('status_conciliacao', 'conciliado');
+            if (mesmoFitidErro) throw new Error(`Falha ao consultar o lançamento conciliado: ${mesmoFitidErro.message}`);
+            lancamentosMesmoFitid = mesmoFitid || [];
+        }
+        const { valor: valorEnvio, origem: origemValor } = calcularValorEnvio(doc, lancamentos, lancamentosMesmoFitid);
+        console.log(`[API] Valor da nota: R$ ${Number(doc.valor).toFixed(2)} | valor enviado ao SALIC: R$ ${valorEnvio.toFixed(2)} (origem: ${origemValor}${origemValor === 'lancamento' ? `, fitid ${lancamento.fitid}` : ''})`);
 
         // Bucket "documentos" privado (ocorrência #85): o robô baixa a NF por URL assinada,
         // válida por 1 hora. O file_path pode vir com espaço no fim, por isso o trim. A
@@ -232,7 +294,7 @@ async function executarEnvioSalic(req, res, { dryRun = false } = {}) {
             rubricaProduto: rubricaProduto,
             documento: {
                 cnpj_fornecedor: doc.cnpj_emissor,
-                valor: doc.valor,
+                valor: valorEnvio,   // #120: valor pago (valor_pago ou lançamento), não o da nota
                 numero: doc.numero_nf || 'S/N',   // json_extraido.numero_nota nunca é escrito pela extração — fallback removido
                 data_emissao: doc.data_emissao,   // Data de Emissão real da NF/recibo (#dataEmissao)
                 data_pagamento: dataPagamento,    // Bug #2: Data do Pagamento = data do débito (#dtPagamento)
@@ -437,4 +499,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { executarEnvioSalic };
+module.exports = { executarEnvioSalic, calcularValorEnvio, resolverDataPagamento };

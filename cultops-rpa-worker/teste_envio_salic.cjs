@@ -167,6 +167,44 @@ let falhas = 0;
         assert.ok(escritasEm('despesas')[0].payload.data_salic);
     });
 
+    // ── ocorrência #120: valor e data que chegam ao worker ──
+    const LANC_39405 = (extra = {}) => ({ document_id: DOC_ID, extrato_id: 'e1', fitid: '93.001', valor: -16893, data_lancamento: '2026-09-30', memo: 'Pix', status_conciliacao: 'conciliado', project_id: 'p1', ...extra });
+
+    await caso('NF 39405: worker recebe 16.893,00 (lançamento) e a data do Pix, nao os 18.000,00 da nota', async () => {
+        // a mesma linha importada de novo em outro extrato, pendente e sem documento, nao atrapalha
+        cenario({ lancamentos: [LANC_39405(), LANC_39405({ extrato_id: 'e2', status_conciliacao: 'pendente', document_id: null })] });
+        resultadoWorker = { sucesso: true, dryRun: true };
+        const r = await enviar({ dryRun: true });
+        assert.equal(r.codigo, 200);
+        assert.equal(configRecebido.documento.valor, 16893);
+        assert.equal(configRecebido.documento.data_pagamento, '2026-09-30');
+    });
+
+    await caso('valor_pago preenchido: worker recebe valor_pago', async () => {
+        cenario({ doc: { valor_pago: 17000 } });
+        resultadoWorker = { sucesso: true, dryRun: true };
+        await enviar({ dryRun: true });
+        assert.equal(configRecebido.documento.valor, 17000);
+    });
+
+    await caso('lançamento dividido com outra nota: erro e o worker nao e chamado', async () => {
+        cenario({ lancamentos: [LANC_39405(), LANC_39405({ document_id: 'outra-nota' })] });
+        resultadoWorker = { sucesso: true };
+        const r = await enviar();
+        assert.equal(r.codigo, 500);
+        assert.match(r.corpo.error, /^Valor pago não determinado/);
+        assert.equal(configRecebido, null);
+    });
+
+    await caso('sem lançamento conciliado: erro (sem cair para data_pagamento/data_emissao) e o worker nao e chamado', async () => {
+        cenario({ doc: { valor_pago: 17000, data_pagamento: '2026-09-15' }, lancamentos: [] });
+        resultadoWorker = { sucesso: true };
+        const r = await enviar();
+        assert.equal(r.codigo, 500);
+        assert.match(r.corpo.error, /sem lançamento bancário conciliado/);
+        assert.equal(configRecebido, null);
+    });
+
     okLog(falhas === 0 ? '\ntodos os casos passaram' : `\n${falhas} caso(s) falharam`);
     process.exitCode = falhas === 0 ? 0 : 1;
 })();
