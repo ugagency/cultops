@@ -5,7 +5,7 @@
 // roda se o puppeteer conseguir abrir um Chrome/Chromium local (CHROME_PATH); senao e pulada.
 const assert = require('node:assert/strict');
 const {
-    localizarRubricaNaPagina, normRubrica, lerNomeRubricaNaTela, conferirRubricaDaTela, logarLinhasVistas
+    localizarRubricaNaPagina, normRubrica, lerNomeRubricaNaTela, conferirRubricaDaTela, logarLinhasVistas, mensagemRubricaNaoEncontrada
 } = require('./salic_insertion.cjs');
 
 let puppeteer;
@@ -108,10 +108,59 @@ const COMPROVANTES = (item) => `<html><body>
         const r = await localizar('Advogado(a)', 'Administração do Projeto', 240000);
         assert.notEqual(r.link, 'https://salic.exemplo/comprovar/acessibilidade');
         assert.notEqual(r.matchType, 'saldo_suficiente');
-        // segue para a busca flat (comportamento ja existente) e casa por nome + valor aprovado
+        // segue para a busca flat e casa por nome exato + valor aprovado (linha unica)
         assert.equal(r.link, 'https://salic.exemplo/comprovar/advogado');
-        assert.equal(r.matchType, 'valor_aprovado');
+        assert.equal(r.matchType, 'flat_nome_e_valor_aprovado');
         assert.equal(r.scopeProduto, 'flat_fallback');
+    });
+
+    await caso('flat: Advogado(a) 240000 so em outro bloco de produto -> casa e informa o produto onde achou', async () => {
+        await page.setContent(telaComprovacao([BLOCO_PERIODICO, BLOCO_ADMIN]));
+        const r = await localizar('Advogado(a)', 'Administração do Projeto', 240000);
+        assert.equal(r.link, 'https://salic.exemplo/comprovar/advogado');
+        assert.equal(r.produtoEncontrado, 'perm_media Periódico / Catálogo / Cartilha / Programa');
+    });
+
+    await caso('flat: duas linhas Advogado(a) com o mesmo aprovado em produtos diferentes -> erro', async () => {
+        await page.setContent(telaComprovacao([BLOCO_PERIODICO, BLOCO_ADMIN,
+            bloco('Exposição Cultural / de Artes', [linha('Advogado(a)', '240.000,00', '240.000,00', 'advogado-expo')])]));
+        const r = await localizar('Advogado(a)', 'Administração do Projeto', 240000);
+        assert.equal(r.link, null);
+        assert.match(r.motivo, /2 linhas com o mesmo nome e o mesmo valor aprovado/);
+        assert.deepEqual(r.candidatos, [
+            'Advogado(a) (aprovado 240000.00 | produto: perm_media Periódico / Catálogo / Cartilha / Programa)',
+            'Advogado(a) (aprovado 240000.00 | produto: perm_media Exposição Cultural / de Artes)',
+        ]);
+    });
+
+    await caso('flat: Advogado(a) com aprovado diferente -> erro', async () => {
+        await page.setContent(telaComprovacao([BLOCO_PERIODICO, BLOCO_ADMIN]));
+        const r = await localizar('Advogado(a)', 'Administração do Projeto', 250000);
+        assert.equal(r.link, null);
+        assert.match(r.motivo, /nenhuma linha com valor aprovado 250000/);
+        assert.deepEqual(r.candidatos, ['Advogado(a) (aprovado 240000.00 | produto: perm_media Periódico / Catálogo / Cartilha / Programa)']);
+    });
+
+    await caso('flat: sem valor aprovado da rubrica -> erro (nao casa so pelo nome)', async () => {
+        await page.setContent(telaComprovacao([BLOCO_PERIODICO, BLOCO_ADMIN]));
+        const r = await localizar('Advogado(a)', null, null);
+        assert.equal(r.link, null);
+        assert.match(r.motivo, /sem valor aprovado da rubrica/);
+    });
+
+    await caso('flat: nome so parecido (substring) com o mesmo aprovado -> erro (sem substring/tokens/fuzzy no flat)', async () => {
+        await page.setContent(telaComprovacao([bloco('Periódico', [linha('Advogado(a) tributarista', '240.000,00', '240.000,00', 'trib')]), BLOCO_ADMIN]));
+        const r = await localizar('Advogado(a)', 'Administração do Projeto', 240000);
+        assert.equal(r.link, null);
+        assert.match(r.motivo, /nenhuma linha com o nome exato/);
+    });
+
+    await caso('mensagem de erro do worker traz o motivo e as candidatas', async () => {
+        await page.setContent(telaComprovacao([BLOCO_PERIODICO, BLOCO_ADMIN]));
+        const r = await localizar('Advogado(a)', 'Administração do Projeto', 250000);
+        assert.equal(mensagemRubricaNaoEncontrada(r),
+            'Rubrica nao encontrada ou sem link de comprovacao ("sinal de dinheiro"): nome encontrado, mas nenhuma linha com valor aprovado 250000. ' +
+            'Candidatas: Advogado(a) (aprovado 240000.00 | produto: perm_media Periódico / Catálogo / Cartilha / Programa)');
     });
 
     await caso('rubrica que nao existe em lugar nenhum: link null e lista as candidatas (antes: inseria pelo saldo)', async () => {
@@ -119,7 +168,10 @@ const COMPROVANTES = (item) => `<html><body>
         const r = await localizar('Advogado(a)', 'Administração do Projeto', 240000);
         assert.equal(r.link, null);
         assert.equal(r.matchType, undefined);
-        assert.deepEqual(r.candidatos, ['Custos de acessibilidade, comunicação e divulgação acessíveis', 'Contador(a)']);
+        assert.deepEqual(r.candidatos, [
+            'Custos de acessibilidade, comunicação e divulgação acessíveis (aprovado 1686048.00 | produto: perm_media Administração do Projeto)',
+            'Contador(a) (aprovado 120000.00 | produto: perm_media Administração do Projeto)',
+        ]);
     });
 
     await caso('sem produto e sem nome parecido: link null (sem fallback de saldo no flat)', async () => {

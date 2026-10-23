@@ -388,15 +388,47 @@ function localizarRubricaNaPagina(nome, produto, valorAprovado) {
         }
     }
 
-    // PASSO 2: fallback flat (preserva projetos sem produto)
+    // PASSO 2: fallback flat (página inteira). Ocorrência #119: aqui a linha pode estar em
+    // QUALQUER produto, então só aceita casamento estrito: nome exato (mesma norm()) E valor
+    // aprovado igual ao da rubrica E uma única linha assim na página. Sem substring, tokens nem
+    // fuzzy. Não exige o produto igual, mas devolve em produtoEncontrado onde achou.
+    const produtoDaLinha = (row) => {
+        let li = row.closest('li');
+        while (li) {
+            const cab = Array.from(li.children).find(e => e.matches('.collapsible-header.green-text'));
+            if (cab) return cab.innerText.replace(/\s+/g, ' ').trim();
+            li = li.parentElement ? li.parentElement.closest('li') : null;
+        }
+        return null;
+    };
+    const descrever = (c) => `${c.nomeOriginal} (aprovado ${c.strAprovado} | produto: ${produtoDaLinha(c.btn.closest('tr')) || '?'})`;
     const todasRows = Array.from(document.querySelectorAll('table.bordered tbody tr'));
     const todosCandidatos = coletarCandidatos(todasRows, 'flat');
-    const resultadoFlat = matchCandidatos(todosCandidatos, nomeNorm, tokensProcurados, valorAprovado);
+    const mesmoNome = todosCandidatos.filter(c => c.nomeNorm === nomeNorm);
+    const estritos = valorAprovado
+        ? mesmoNome.filter(c => Math.abs(parseFloat(c.strAprovado) - parseFloat(valorAprovado)) < 0.01)
+        : [];
 
-    if (resultadoFlat) return { ...resultadoFlat, scopeProduto: 'flat_fallback', vistas };
+    if (estritos.length === 1) {
+        const c = estritos[0];
+        return {
+            link: c.btn.href, matchType: 'flat_nome_e_valor_aprovado', score: 1, nomeTabela: c.nomeOriginal,
+            scopeProduto: 'flat_fallback', produtoEncontrado: produtoDaLinha(c.btn.closest('tr')), vistas
+        };
+    }
 
-    // Nada encontrado
-    return { link: null, candidatos: todosCandidatos.map(c => c.nomeOriginal), melhorScore: 0, vistas };
+    // Nada aceito: erro listando as candidatas (as de mesmo nome, se houver; senão todas).
+    let motivo;
+    if (estritos.length > 1) motivo = `${estritos.length} linhas com o mesmo nome e o mesmo valor aprovado na pagina`;
+    else if (mesmoNome.length > 0) motivo = valorAprovado
+        ? `nome encontrado, mas nenhuma linha com valor aprovado ${valorAprovado}`
+        : 'nome encontrado, mas sem valor aprovado da rubrica para conferir';
+    else motivo = 'nenhuma linha com o nome exato';
+    return {
+        link: null, motivo,
+        candidatos: (estritos.length > 1 ? estritos : mesmoNome.length > 0 ? mesmoNome : todosCandidatos).map(descrever),
+        melhorScore: 0, vistas
+    };
 
 }
 
@@ -444,6 +476,19 @@ function conferirRubricaDaTela(nomeNaTela, rubricaNome) {
     if (normRubrica(nomeNaTela) !== normRubrica(rubricaNome)) {
         throw new Error(`Rubrica da tela ("${nomeNaTela}") diverge da rubrica esperada ("${rubricaNome}"). Nada foi inserido.`);
     }
+}
+
+// Erro de rubrica não encontrada: mantém o texto de antes e acrescenta o motivo da busca flat
+// e as candidatas (até 20; a lista completa vai para o log).
+function mensagemRubricaNaoEncontrada(resultadoMatch) {
+    let msg = 'Rubrica nao encontrada ou sem link de comprovacao ("sinal de dinheiro")';
+    if (resultadoMatch?.motivo) msg += `: ${resultadoMatch.motivo}`;
+    const candidatos = resultadoMatch?.candidatos || [];
+    if (candidatos.length > 0) {
+        msg += `. Candidatas: ${candidatos.slice(0, 20).join('; ')}`;
+        if (candidatos.length > 20) msg += ` (+${candidatos.length - 20})`;
+    }
+    return msg;
 }
 
 // Loga as linhas que o match viu, por escopo (bloco do produto e/ou flat).
@@ -732,9 +777,12 @@ async function executarInsercaoSalic(config) {
                     console.log(`[SALIC] Mais proxima: "${resultadoMatch.melhorNome}" (score ${resultadoMatch.melhorScore.toFixed(2)}) - abaixo do limiar de 0.85.`);
                 }
             }
-            throw new Error('Rubrica nao encontrada ou sem link de comprovacao ("sinal de dinheiro")');
+            throw new Error(mensagemRubricaNaoEncontrada(resultadoMatch));
         }
 
+        if (resultadoMatch.produtoEncontrado !== undefined) {
+            console.log(`[SALIC] Rubrica casada na busca flat (nome exato + valor aprovado, linha unica) no produto: "${resultadoMatch.produtoEncontrado}" | produto esperado: "${config.rubricaProduto || '(sem produto)'}"`);
+        }
         if (resultadoMatch.matchType === 'fuzzy') {
             console.log(`[SALIC] Match fuzzy aceito: procurado "${rubricaNome}" ~ tabela "${resultadoMatch.nomeTabela}" (score ${resultadoMatch.score.toFixed(2)})`);
         } else {
@@ -1224,7 +1272,8 @@ async function executarInsercaoSalic(config) {
 
 module.exports = {
     executarInsercaoSalic, preencherJustificativaSalic, buscarFornecedorSalic, contarIndiciosFornecedorInexistente,
-    localizarRubricaNaPagina, normRubrica, lerNomeRubricaNaTela, conferirRubricaDaTela, logarLinhasVistas
+    localizarRubricaNaPagina, normRubrica, lerNomeRubricaNaTela, conferirRubricaDaTela, logarLinhasVistas,
+    mensagemRubricaNaoEncontrada
 };
 
 // --- AREA DE TESTE (Para rodar direto no terminal) ---
