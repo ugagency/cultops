@@ -4467,12 +4467,11 @@ window.handleForcarAvanco = async function (docId, currentStatus) {
                         .catch(e => console.error("Erro ao notificar n8n:", e.message));
                 }
 
-                // Avanço manual (bloqueado_conformidade -> aguardando_comprovante) também
-                // deve reaproveitar o extrato do lote, igual à varredura do Dashboard —
-                // sem isso a nota fica "presa" pedindo upload de extrato de novo.
-                if (nextStatus === 'aguardando_comprovante' && docAntes?.id === docId) {
-                    dispararConciliacaoAutoLote({ ...docAntes, status: nextStatus })
-                        .then(ok => { if (ok) window.showToast('Nota também enviada para conciliação automática com o extrato do lote.', 'success'); });
+                // Avanço manual (bloqueado_conformidade -> aguardando_comprovante): a nota de lote
+                // com extrato entra na fila de conciliação do servidor ao chegar ao status; o
+                // navegador não chama mais o webhook.
+                if (nextStatus === 'aguardando_comprovante' && docAntes?.id === docId && docAntes.extrato_origem_id) {
+                    window.showToast(MSG_NOTA_NA_FILA_CONCILIACAO, 'success');
                 }
 
                 window.showToast('Documento avançado manualmente com sucesso.', 'warning');
@@ -6758,16 +6757,10 @@ window.salvarCamposManuais = async function (documentId) {
             });
     }
 
-    // Completar os campos manualmente (aguardando_rubrica -> aguardando_
-    // conciliacao_bancaria) também deve reaproveitar o extrato do lote, igual
-    // à varredura do Dashboard — sem isso a nota fica pedindo upload de
-    // extrato de novo mesmo já tendo um vinculado desde o upload em lote.
+    // Completar os campos manualmente (aguardando_rubrica -> aguardando_conciliacao_bancaria):
+    // a nota de lote com extrato entra na fila de conciliação do servidor ao chegar ao status.
     if (updateFields.status === 'aguardando_conciliacao_bancaria' && doc?.extrato_origem_id) {
-        dispararConciliacaoAutoLote({
-            id: documentId,
-            extrato_origem_id: doc.extrato_origem_id,
-            project_id: doc.project_id
-        }).then(ok => { if (ok) window.showToast('Nota também enviada para conciliação automática com o extrato do lote.', 'success'); });
+        window.showToast(MSG_NOTA_NA_FILA_CONCILIACAO, 'success');
     }
 
     showToast('Campos salvos com sucesso', 'success');
@@ -7422,95 +7415,26 @@ async function fetchDocuments() {
     }
     state.documents = data || [];
 
-    // Notas vindas de lote COM extrato tentam conciliar sozinhas (não bloqueia
-    // o fetch — roda em background e recarrega a lista se algo casar).
-    tentarConciliacaoAutoLote();
+    // Notas vindas de lote COM extrato entram na fila de conciliação do servidor.
+    avisarNotasNaFilaConciliacao();
 }
 
-// Conciliação automática de notas de lote: varre as notas que estão paradas em
-// 'aguardando_comprovante' COM extrato_origem_id e pede ao backend que tente
-// casar cada uma contra os lançamentos do próprio extrato.
-// Varre o estado atual em vez de só reagir à transição de status: assim uma nota
-// que mudou de status com a tela fechada também é pega quando a lista abre.
-const _conciliacaoAutoTentada = new Set();
+// Fila de conciliação das notas de lote: o servidor (cron de 1 minuto) concilia, uma nota por
+// vez, as notas paradas em aguardando_comprovante / aguardando_conciliacao_bancaria que têm
+// extrato_origem_id (ver /api/m1/cron-conciliacao-lote). O navegador não chama mais o webhook:
+// aqui só avisa, uma vez por nota nesta aba, que as notas entraram na fila.
+const MSG_NOTA_NA_FILA_CONCILIACAO = 'Nota enviada para a fila de conciliação com o extrato do lote. A conciliação começa em até alguns minutos.';
+const _filaConciliacaoAvisada = new Set();
 
-// Reaproveita, por nota, a MESMA chamada que window.handleUploadExtrato já faz
-// no fluxo manual (upload dentro da nota) — não é um motor de match novo. O
-// arquivo já está no Storage e a linha em `extratos` já existe (criados no
-// upload do lote), então só o passo 3 daquele fluxo é repetido: o webhook
-// prestai-conciliation, que já concilia corretamente. O resultado chega pelo
-// Realtime já assinado em setupRealtime(), igual ao fluxo manual — por isso
-// esta função não confirma sucesso, só dispara e segue.
-//
-// Chamada tanto pela varredura do Dashboard (tentarConciliacaoAutoLote, mais
-// abaixo) quanto pelos avanços MANUAIS feitos direto na tela de detalhes
-// (handleForcarAvanco, salvarCamposManuais) — sem isso, uma nota que só chega
-// a 'aguardando_comprovante'/'aguardando_conciliacao_bancaria' por avanço
-// manual nunca passa por fetchDocuments() enquanto o usuário fica na tela de
-// detalhes, e o extrato do lote nunca é usado (o bug que motivou isto).
-async function dispararConciliacaoAutoLote(doc) {
-    if (!doc?.extrato_origem_id || !CONFIG.N8N_WEBHOOK_RECONCILIATION_URL) return false;
-    if (_conciliacaoAutoTentada.has(doc.id)) return false;
-    _conciliacaoAutoTentada.add(doc.id);
-
-    try {
-        const { data: extrato, error: extErr } = await supabaseClient
-            .from('extratos')
-            .select('file_path')
-            .eq('id', doc.extrato_origem_id)
-            .maybeSingle();
-        if (extErr || !extrato?.file_path) {
-            console.warn('[conciliacao-auto-lote] extrato de origem sem file_path:', doc.extrato_origem_id, extErr?.message);
-            return false;
-        }
-
-        const fileUrl = await urlAssinadaParaWebhook('documentos', extrato.file_path);
-        const resp = await fetch(CONFIG.N8N_WEBHOOK_RECONCILIATION_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            mode: 'cors',
-            body: JSON.stringify({
-                extrato_id: doc.extrato_origem_id,
-                document_id: doc.extrato_origem_id, // Backward compatibility, igual ao fluxo manual
-                nf_id: doc.id,
-                comprovante_id: null,
-                file_path: extrato.file_path,
-                bucket: 'documentos',
-                project_id: doc.project_id,
-                file_url: fileUrl || undefined
-            })
-        });
-        if (!resp.ok) {
-            console.warn('[conciliacao-auto-lote] webhook retornou', resp.status, 'para', doc.id);
-            return false;
-        }
-        return true;
-    } catch (err) {
-        // Uma nota falhando não trava as demais.
-        console.warn('[conciliacao-auto-lote]', doc.id, err.message);
-        return false;
-    }
-}
-
-async function tentarConciliacaoAutoLote() {
-    // Cobre também aguardando_conciliacao_bancaria: nota do lote que já ganhou
-    // comprovante (ou avançou por outro caminho) concilia contra o extrato de
-    // origem sem exigir novo upload de extrato nos detalhes da nota.
-    const candidatas = (state.documents || []).filter(d =>
+function avisarNotasNaFilaConciliacao() {
+    const naFila = (state.documents || []).filter(d =>
         d.extrato_origem_id &&
         ['aguardando_comprovante', 'aguardando_conciliacao_bancaria'].includes(d.status) &&
-        !_conciliacaoAutoTentada.has(d.id)
+        !_filaConciliacaoAvisada.has(d.id)
     );
-    if (!candidatas.length) return;
-
-    let disparadas = 0;
-    for (const doc of candidatas) {
-        if (await dispararConciliacaoAutoLote(doc)) disparadas++;
-    }
-
-    if (disparadas > 0) {
-        showToast(`${disparadas} nota(s) do lote enviada(s) para conciliação automática.`, 'success');
-    }
+    if (!naFila.length) return;
+    naFila.forEach(d => _filaConciliacaoAvisada.add(d.id));
+    showToast(naFila.length + ' nota(s) do lote na fila de conciliação. A conciliação começa em até alguns minutos.', 'info');
 }
 
 window.updateFilters = function (key, value) {
@@ -9043,10 +8967,10 @@ async function fetchExtratoLoteVinculado(projectId) {
 // zero itens (e no n8n, nodes com zero itens de entrada simplesmente não
 // executam os seguintes — sem erro nenhum, silenciosamente). O arquivo e a
 // linha em `extratos` só servem aqui como referência: quando cada nota do
-// lote terminar a auditoria, tentarConciliacaoAutoLote() dispara a MESMA
-// chamada do fluxo manual (handleUploadExtrato) para aquela nota específica,
-// reaproveitando este file_path — sem reenviar o arquivo nem parsear de novo
-// aqui.
+// lote terminar a auditoria, a fila de conciliação do servidor
+// (/api/m1/cron-conciliacao-lote) envia aquela nota ao mesmo webhook do fluxo
+// manual (handleUploadExtrato), reaproveitando este file_path — sem reenviar o
+// arquivo nem parsear de novo aqui.
 window.handleUploadExtratoParaLote = async function (file) {
     if (!file) return;
     const projectId = document.getElementById('lote-project-selector')?.value;
