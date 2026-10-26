@@ -143,15 +143,104 @@ teste('535 linhas e 76 distintas: a listagem do extrato volta a ter 76', () => {
     assert.strictEqual(C.deduplicar(linhas, 'N1').length, 76);
 });
 
-teste('chavesUsadas: só conta linha ligada a OUTRA nota, de qualquer extrato', () => {
+teste('chavesUsadas: conta linha conciliada (mesmo sem nota) ou ligada a OUTRA nota, de qualquer extrato', () => {
     const deOutraNoutroExtrato = lanc({ extrato_id: 'E2', document_id: 'N9' });
     const destaNota = lanc({ fitid: 'Z', document_id: 'N1' });
     const livre = lanc({ fitid: 'W' });
-    const conciliadaSemDoc = lanc({ fitid: 'V', status_conciliacao: 'conciliado' });
+    const conciliadaSemDoc = lanc({ fitid: 'V', status_conciliacao: 'conciliado', document_id: null });
     const usadas = C.chavesUsadas([deOutraNoutroExtrato, destaNota, livre, conciliadaSemDoc], 'N1');
-    assert.strictEqual(usadas.size, 1);
+    assert.strictEqual(usadas.size, 2);
     assert.ok(usadas.has(C.chaveLancamento(deOutraNoutroExtrato)));
+    assert.ok(usadas.has(C.chaveLancamento(conciliadaSemDoc)), 'conciliado sem document_id já foi consumido');
     assert.ok(!usadas.has(C.chaveLancamento(destaNota)));
+    assert.ok(!usadas.has(C.chaveLancamento(livre)));
+});
+
+teste('chavesUsadas: linha com document_id igual ao da nota aberta nunca bloqueia, nem conciliada', () => {
+    const minha = lanc({ fitid: 'M', document_id: 'N1', status_conciliacao: 'conciliado' });
+    assert.strictEqual(C.chavesUsadas([minha], 'N1').size, 0);
+    assert.strictEqual(C.bloqueia(minha, 'N1'), false);
+    // para outra nota, a mesma linha bloqueia
+    assert.strictEqual(C.bloqueia(minha, 'N2'), true);
+    // sem docId (nota desconhecida), qualquer linha consumida bloqueia
+    assert.strictEqual(C.bloqueia(minha, null), true);
+    assert.strictEqual(C.bloqueia(lanc({}), 'N1'), false, 'linha pendente e livre não bloqueia');
+    assert.strictEqual(C.bloqueia(null, 'N1'), false);
+});
+
+teste('conciliado sem document_id: as cópias pendentes do mesmo lançamento não aparecem como livres', () => {
+    const pendentes = Array.from({ length: 3 }, (_, i) => lanc({ id: 'p' + i }));
+    const consumidaSemNota = lanc({ id: 'c', extrato_id: 'E2', status_conciliacao: 'conciliado', document_id: null });
+    assert.deepStrictEqual(C.selecionarCandidatos(pendentes, [consumidaSemNota], 'N1'), []);
+    // dentro das próprias candidatas também
+    assert.deepStrictEqual(C.selecionarCandidatos([...pendentes, { ...pendentes[0], id: 'c2', status_conciliacao: 'conciliado' }], [], 'N1'), []);
+    // e um lançamento de outra chave continua livre
+    const outro = lanc({ id: 'o', fitid: 'OUTRO' });
+    assert.deepStrictEqual(C.selecionarCandidatos([...pendentes, outro], [consumidaSemNota], 'N1').map(l => l.id), ['o']);
+});
+
+// ---- Conciliação automática de nota de lote (conciliarNotaAutoLote) ----
+const notaLote = (extra) => ({ id: 'N1', valor: '190.95', data_pagamento: null, autenticacao_bancaria: null, ...extra });
+const decidir = (nota, pendentes, consumidas = []) => {
+    const { metodo, achados } = C.acharCompativeis(nota, pendentes);
+    return C.decidirLancamento({ nota, metodo, achados, consumidas });
+};
+
+teste('auto-lote: 8 cópias pendentes do mesmo lançamento concilia com UMA (a de menor id), sem "múltiplos"', () => {
+    const copias = Array.from({ length: 8 }, (_, i) => lanc({ id: 'c' + (7 - i) }));
+    const r = decidir(notaLote(), copias);
+    assert.strictEqual(r.lancamento.id, 'c0');
+    assert.strictEqual(r.metodo, 'valor+data');
+});
+
+teste('auto-lote: lançamento já consumido em outro extrato (ligado ou conciliado sem nota) não é casado', () => {
+    const pendentes = [lanc({ id: 'a' }), lanc({ id: 'b' })];
+    for (const consumida of [
+        lanc({ id: 'x', extrato_id: 'E2', document_id: 'N9', status_conciliacao: 'conciliado' }),
+        lanc({ id: 'y', extrato_id: 'E2', document_id: null, status_conciliacao: 'conciliado' }),
+        lanc({ id: 'z', extrato_id: 'E2', document_id: 'N9', status_conciliacao: 'pendente' })
+    ]) {
+        const r = decidir(notaLote(), pendentes, [consumida]);
+        assert.strictEqual(r.lancamento, null);
+        assert.strictEqual(r.motivo, 'lançamento já conciliado por outra nota');
+    }
+});
+
+teste('auto-lote: dois lançamentos DIFERENTES compatíveis continuam ambíguos e não casam sozinhos', () => {
+    const r = decidir(notaLote(), [lanc({ id: 'a', fitid: 'A' }), lanc({ id: 'b', fitid: 'B' })]);
+    assert.strictEqual(r.lancamento, null);
+    assert.strictEqual(r.motivo, 'múltiplos lançamentos compatíveis, revisar manualmente');
+});
+
+teste('auto-lote: um lançamento usado e outro livre de mesmo valor: casa o livre', () => {
+    const r = decidir(notaLote(), [lanc({ id: 'a', fitid: 'A' }), lanc({ id: 'b', fitid: 'B' })],
+        [lanc({ id: 'x', fitid: 'A', extrato_id: 'E2', document_id: 'N9' })]);
+    assert.strictEqual(r.lancamento.id, 'b');
+});
+
+teste('auto-lote: critério fitid = autenticação bancária tem prioridade e não cai no valor+data', () => {
+    const nota = notaLote({ autenticacao_bancaria: ' F-77 ' });
+    const pendentes = [lanc({ id: 'a', fitid: 'f-77', valor: -500 }), lanc({ id: 'b', fitid: 'OUTRO', valor: -190.95 })];
+    const r = decidir(nota, pendentes);
+    assert.strictEqual(r.metodo, 'fitid');
+    assert.strictEqual(r.lancamento.id, 'a');
+    // o lançamento do fitid está usado: não cai para o de mesmo valor
+    const usado = decidir(nota, pendentes, [lanc({ id: 'x', fitid: 'f-77', valor: -500, extrato_id: 'E2', document_id: 'N9' })]);
+    assert.strictEqual(usado.lancamento, null);
+    assert.strictEqual(usado.motivo, 'lançamento já conciliado por outra nota');
+    // fitid sem correspondência: segue para valor+data
+    assert.strictEqual(decidir(notaLote({ autenticacao_bancaria: 'nao-existe' }), pendentes).metodo, 'valor+data');
+});
+
+teste('auto-lote: valor +-0,01 e data +-3 dias; sem compatível devolve o motivo', () => {
+    const nota = notaLote({ data_pagamento: '2026-09-03' });
+    const dentro = lanc({ id: 'a', data_lancamento: '2026-09-06', valor: -190.95 });
+    const fora = lanc({ id: 'b', data_lancamento: '2026-09-07', fitid: 'B' });
+    assert.strictEqual(decidir(nota, [dentro, fora]).lancamento.id, 'a');
+    const r = decidir(nota, [fora]);
+    assert.strictEqual(r.lancamento, null);
+    assert.strictEqual(r.motivo, 'nenhum lançamento compatível');
+    assert.strictEqual(decidir(nota, []).motivo, 'nenhum lançamento compatível');
 });
 
 teste('risco real: uma cópia ligada a outra nota e as demais pendentes não aparecem como livres', () => {

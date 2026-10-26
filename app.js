@@ -6946,18 +6946,25 @@ async function carregarPagamentoDaNota(doc) {
             if (error) throw error;
             const doValor = (l) => Math.abs(Math.abs(parseValorBR(l.valor)) - v) <= TOLERANCIA_VALOR_LANCAMENTO + 1e-6;
             const proximas = (data || []).filter(doValor);
-            // Lançamentos do projeto já ligados a notas, de qualquer extrato e sem o filtro de
-            // janela: servem só para marcar o lançamento como usado. Uma cópia ligada a outra
-            // nota tira o lançamento da lista, mesmo que as outras cópias estejam pendentes.
-            const { data: ligadas, error: errLigadas } = await supabaseClient
+            // Lançamentos do projeto já consumidos (ligados a uma nota ou conciliados, mesmo sem
+            // nota), de qualquer extrato e sem o filtro de janela: servem só para marcar o
+            // lançamento como usado. Uma cópia consumida tira o lançamento da lista, mesmo que as
+            // outras cópias estejam pendentes.
+            const colunasLanc = 'id, extrato_id, project_id, fitid, valor, data_lancamento, memo, status_conciliacao, document_id';
+            const consumidasDoValor = () => supabaseClient
                 .from('extratos_lancamentos')
-                .select('id, extrato_id, project_id, fitid, valor, data_lancamento, memo, status_conciliacao, document_id')
+                .select(colunasLanc)
                 .eq('project_id', doc.project_id)
-                .not('document_id', 'is', null)
                 .or(`${faixa(v)},${faixa(-v)}`);
-            if (errLigadas) throw errLigadas;
+            const [{ data: comNota, error: errComNota }, { data: conciliadas, error: errConciliadas }] = await Promise.all([
+                consumidasDoValor().not('document_id', 'is', null),
+                consumidasDoValor().eq('status_conciliacao', 'conciliado')
+            ]);
+            if (errComNota) throw errComNota;
+            if (errConciliadas) throw errConciliadas;
+            const ligadas = [...(comNota || []), ...(conciliadas || [])];
             // Um candidato por lançamento: fitid + data + valor (candidatos-lancamento.js).
-            const candidatos = window.CandidatosLancamento.selecionarCandidatos(proximas, (ligadas || []).filter(doValor), doc.id);
+            const candidatos = window.CandidatosLancamento.selecionarCandidatos(proximas, ligadas.filter(doValor), doc.id);
             return { candidatos, origem: null, datas };
         }
 

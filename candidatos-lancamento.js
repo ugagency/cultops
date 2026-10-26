@@ -118,12 +118,21 @@
             || copias[0]);
     }
 
-    // Chaves usadas por OUTRA nota: qualquer linha com a chave ligada (document_id) a uma nota
-    // diferente de docId, de qualquer extrato do projeto presente em `linhas`.
+    // A linha impede usar o lançamento para a nota docId? Impede quando já foi consumida:
+    // status 'conciliado' (mesmo sem document_id: no banco há conciliados sem nota) ou ligada a
+    // uma nota diferente de docId. Linha ligada à própria nota docId nunca impede.
+    function bloqueia(l, docId) {
+        if (!l) return false;
+        if (docId != null && l.document_id === docId) return false;
+        return ligadaANota(l) || l.status_conciliacao === 'conciliado';
+    }
+
+    // Chaves usadas: as que têm QUALQUER linha (de qualquer extrato do projeto presente em
+    // `linhas`) que bloqueia a nota docId.
     function chavesUsadas(linhas, docId) {
         const usadas = new Set();
         for (const l of linhas || []) {
-            if (ligadaANota(l) && l.document_id !== docId) usadas.add(chaveLancamento(l));
+            if (bloqueia(l, docId)) usadas.add(chaveLancamento(l));
         }
         return usadas;
     }
@@ -137,9 +146,48 @@
         return deduplicar((candidatas || []).filter(l => !usadas.has(chaveLancamento(l))), docId);
     }
 
+    // ---- Conciliação automática de nota de lote (server.js, conciliarNotaAutoLote) ----
+
+    // Lançamentos pendentes do extrato compatíveis com a nota, pelo 1º critério que achar algo:
+    //   'fitid': fitid igual à autenticação bancária da nota;
+    //   'valor+data': valor +-0,01 (sinal ignorado) e data de lançamento a até 3 dias da data de
+    //   pagamento (sem data de pagamento, só o valor).
+    // Cópias do mesmo lançamento aparecem todas aqui; quem deduplica é decidirLancamento.
+    function acharCompativeis(nota, pendentes) {
+        const lista = pendentes || [];
+        if (nota && nota.autenticacao_bancaria) {
+            const auth = String(nota.autenticacao_bancaria).trim().toLowerCase();
+            const porFitid = lista.filter(l => l.fitid && String(l.fitid).trim().toLowerCase() === auth);
+            if (porFitid.length) return { metodo: 'fitid', achados: porFitid };
+        }
+        const valorNota = parseFloat((nota && nota.valor) || 0);
+        const porValor = lista.filter(l => {
+            const v = parseFloat(l.valor || 0);
+            if (Math.abs(Math.abs(v) - Math.abs(valorNota)) > 0.01) return false;
+            if (!nota.data_pagamento || !l.data_lancamento) return true;
+            const diff = Math.abs((new Date(l.data_lancamento + 'T12:00:00') - new Date(nota.data_pagamento + 'T12:00:00')) / 86400000);
+            return diff <= 3;
+        });
+        return { metodo: 'valor+data', achados: porValor };
+    }
+
+    // Decide qual lançamento casar. `achados` vêm de acharCompativeis; `consumidas` são as linhas
+    // do projeto já ligadas a notas ou conciliadas, de qualquer extrato. Uma cópia por lançamento
+    // (a de menor id, para chamadas simultâneas escolherem a mesma linha), sem os já usados.
+    // Devolve { lancamento, metodo } ou { lancamento: null, motivo }.
+    function decidirLancamento({ nota, metodo, achados, consumidas }) {
+        if (!achados || !achados.length) return { lancamento: null, motivo: 'nenhum lançamento compatível' };
+        const ordenados = [...achados].sort((a, b) => (String(a.id) < String(b.id) ? -1 : (String(a.id) > String(b.id) ? 1 : 0)));
+        const livres = selecionarCandidatos(ordenados, consumidas, nota && nota.id);
+        if (!livres.length) return { lancamento: null, motivo: 'lançamento já conciliado por outra nota' };
+        if (livres.length > 1) return { lancamento: null, motivo: 'múltiplos lançamentos compatíveis, revisar manualmente' };
+        return { lancamento: livres[0], metodo };
+    }
+
     return {
         JANELA_PAGAMENTO_DIAS, JANELA_EMISSAO_ANTES_DIAS, JANELA_EMISSAO_DEPOIS_DIAS,
         dataValida, somarDias, montarFiltroCandidatos,
-        valorAbsoluto, chaveLancamento, deduplicar, chavesUsadas, selecionarCandidatos
+        valorAbsoluto, chaveLancamento, deduplicar, bloqueia, chavesUsadas, selecionarCandidatos,
+        acharCompativeis, decidirLancamento
     };
 });
