@@ -6871,7 +6871,12 @@ async function carregarExtratoDaNota(doc) {
         if (errLanc) throw errLanc;
         if (errExtrato) throw errExtrato;
 
-        const lista = lancamentos || [];
+        // O mesmo lançamento pode estar gravado várias vezes no extrato (extrato enviado mais de
+        // uma vez): uma linha por lançamento (candidatos-lancamento.js), preferindo a cópia ligada
+        // a esta nota ou a qualquer nota, para a situação ("conciliado com X") não se perder.
+        const lista = window.CandidatosLancamento
+            ? window.CandidatosLancamento.deduplicar(lancamentos || [], doc.id)
+            : (lancamentos || []);
 
         // Nomes das notas conciliadas com os OUTROS lançamentos, para a lista dizer
         // "conciliado com X" em vez de só mostrar um id.
@@ -6939,18 +6944,21 @@ async function carregarPagamentoDaNota(doc) {
             if (filtro.data_ate) consulta = consulta.lte('data_lancamento', filtro.data_ate);
             const { data, error } = await consulta.order('data_lancamento', { ascending: true });
             if (error) throw error;
-            // O mesmo lançamento pode estar gravado mais de uma vez no extrato: um por
-            // extrato e fitid, preferindo o que já está ligado a esta nota.
-            const unicos = new Map();
-            (data || []).filter(l =>
-                (!l.document_id || l.document_id === doc.id)
-                && Math.abs(Math.abs(parseValorBR(l.valor)) - v) <= TOLERANCIA_VALOR_LANCAMENTO + 1e-6
-            ).forEach(l => {
-                const chave = l.fitid ? `${l.extrato_id}|${l.fitid}` : `id|${l.id}`;
-                const atual = unicos.get(chave);
-                if (!atual || (!atual.document_id && l.document_id === doc.id)) unicos.set(chave, l);
-            });
-            return { candidatos: [...unicos.values()], origem: null, datas };
+            const doValor = (l) => Math.abs(Math.abs(parseValorBR(l.valor)) - v) <= TOLERANCIA_VALOR_LANCAMENTO + 1e-6;
+            const proximas = (data || []).filter(doValor);
+            // Lançamentos do projeto já ligados a notas, de qualquer extrato e sem o filtro de
+            // janela: servem só para marcar o lançamento como usado. Uma cópia ligada a outra
+            // nota tira o lançamento da lista, mesmo que as outras cópias estejam pendentes.
+            const { data: ligadas, error: errLigadas } = await supabaseClient
+                .from('extratos_lancamentos')
+                .select('id, extrato_id, project_id, fitid, valor, data_lancamento, memo, status_conciliacao, document_id')
+                .eq('project_id', doc.project_id)
+                .not('document_id', 'is', null)
+                .or(`${faixa(v)},${faixa(-v)}`);
+            if (errLigadas) throw errLigadas;
+            // Um candidato por lançamento: fitid + data + valor (candidatos-lancamento.js).
+            const candidatos = window.CandidatosLancamento.selecionarCandidatos(proximas, (ligadas || []).filter(doValor), doc.id);
+            return { candidatos, origem: null, datas };
         }
 
         const { data: log, error: errLog } = await supabaseClient
