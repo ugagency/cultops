@@ -212,6 +212,102 @@ const tabela = (linhas) => linhas.map(l => `${l.id}: inicia em ${l.inicio}s, ter
         assert.deepStrictEqual([r.resultados.length, r.naoProcessados.length], [0, 0]);
     });
 
+    await teste('extratoDeOutroProjeto: reconhece a mensagem do n8n (com ou sem acento, caixa e espaço)', () => {
+        assert.strictEqual(F.extratoDeOutroProjeto('Extrato de outro projeto: o PRONAC do extrato não confere'), true);
+        assert.strictEqual(F.extratoDeOutroProjeto('  EXTRATO DE OUTRO PROJETO'), true);
+        assert.strictEqual(F.extratoDeOutroProjeto('Há 2 lançamentos que atendem às regras'), false);
+        assert.strictEqual(F.extratoDeOutroProjeto('Divergência: extrato de outro projeto'), false, 'tem que começar com a mensagem');
+        assert.strictEqual(F.extratoDeOutroProjeto(null), false);
+        assert.strictEqual(F.extratoDeOutroProjeto(''), false);
+    });
+
+    await teste('extratosPausados: só eventos de pausa, pelo id do extrato', () => {
+        const eventos = [
+            { registro_id: 'ext-A', acao: F.ACAO_PAUSA },
+            { registro_id: 'n1', acao: F.ACAO_INICIO },
+            { registro_id: 'ext-B', acao: F.ACAO_FIM },
+            { registro_id: null, acao: F.ACAO_PAUSA }
+        ];
+        assert.deepStrictEqual([...F.extratosPausados(eventos)], ['ext-A']);
+        assert.strictEqual(F.extratosPausados(null).size, 0);
+        assert.strictEqual(F.ACAO_PAUSA, 'conciliacao_extrato_pausado');
+    });
+
+    await teste('pausa: 5 notas do mesmo extrato, a primeira volta com PRONAC divergente: nenhuma outra é enviada', async () => {
+        const rel = relogio();
+        const itens = Array.from({ length: 5 }, (_, i) => nota('n' + (i + 1), 'ext-ruim', 120000 - i * 1000));
+        const pausados = new Set();
+        const enviadas = [];
+        const enviar = async (item) => {
+            enviadas.push(item.id);
+            rel.t += 2000;
+            // o n8n devolveu a nota com a mensagem de PRONAC divergente
+            if (F.extratoDeOutroProjeto('Extrato de outro projeto: PRONAC 111 diferente de 222')) pausados.add(item.extrato_origem_id);
+            return { enviado: true, ok: true };
+        };
+        const r = await F.executarFila({ itens, enviar, agora: rel.agora, dormir: rel.dormir, pular: (item) => pausados.has(item.extrato_origem_id) });
+        assert.deepStrictEqual(enviadas, ['n1']);
+        assert.deepStrictEqual(r.puladas.map(n => n.id), ['n2', 'n3', 'n4', 'n5']);
+        assert.strictEqual(r.resultados.length, 1);
+        assert.strictEqual(r.naoProcessados.length, 0);
+    });
+
+    await teste('pausa: só o extrato pausado para; as notas de outros extratos seguem, com o espaçamento de 6 s', async () => {
+        const rel = relogio();
+        const itens = [
+            nota('a1', 'ext-A', 120000), nota('a2', 'ext-A', 119000), nota('a3', 'ext-A', 118000),
+            nota('b1', 'ext-B', 117000), nota('b2', 'ext-B', 116000)
+        ];
+        const pausados = new Set();
+        const inicios = [];
+        const enviar = async (item) => {
+            inicios.push([item.id, (rel.t - T0) / 1000]);
+            rel.t += 2000;
+            if (item.id === 'a1') pausados.add('ext-A');
+            return { enviado: true, ok: true };
+        };
+        const r = await F.executarFila({ itens, enviar, agora: rel.agora, dormir: rel.dormir, pular: (item) => pausados.has(item.extrato_origem_id) });
+        assert.deepStrictEqual(inicios, [['a1', 0], ['b1', 6], ['b2', 12]]);
+        assert.deepStrictEqual(r.puladas.map(n => n.id), ['a2', 'a3']);
+    });
+
+    await teste('pausa de rodadas anteriores: extrato já pausado não recebe nenhuma nota', async () => {
+        const rel = relogio();
+        const pausados = F.extratosPausados([{ registro_id: 'ext-A', acao: F.ACAO_PAUSA }]);
+        const itens = [nota('a1', 'ext-A', 120000), nota('a2', 'ext-A', 119000)];
+        const r = await F.executarFila({
+            itens, enviar: async () => assert.fail('não deveria enviar'),
+            agora: rel.agora, dormir: rel.dormir, pular: (item) => pausados.has(item.extrato_origem_id)
+        });
+        assert.strictEqual(r.resultados.length, 0);
+        assert.strictEqual(r.puladas.length, 2);
+    });
+
+    await teste('pausa termina com a troca do extrato: a nota que passa a apontar para outro extrato volta a ser enviada', async () => {
+        const rel = relogio();
+        const pausados = F.extratosPausados([{ registro_id: 'ext-ruim', acao: F.ACAO_PAUSA }]);
+        const trocada = nota('n1', 'ext-bom', 120000); // antes apontava para ext-ruim
+        const enviadas = [];
+        const r = await F.executarFila({
+            itens: [trocada], enviar: async (i) => { enviadas.push(i.id); rel.t += 1000; return { enviado: true, ok: true }; },
+            agora: rel.agora, dormir: rel.dormir, pular: (item) => pausados.has(item.extrato_origem_id)
+        });
+        assert.deepStrictEqual(enviadas, ['n1']);
+        assert.strictEqual(r.puladas.length, 0);
+    });
+
+    await teste('notas puladas por pausa não gastam espera nem orçamento', async () => {
+        const rel = relogio();
+        const pausados = new Set(['ext-A']);
+        const itens = [...Array.from({ length: 30 }, (_, i) => nota('a' + i, 'ext-A', 120000)), nota('b1', 'ext-B', 100000)];
+        const r = await F.executarFila({
+            itens, enviar: async () => { rel.t += 1000; return { enviado: true, ok: true }; },
+            agora: rel.agora, dormir: rel.dormir, pular: (item) => pausados.has(item.extrato_origem_id)
+        });
+        assert.strictEqual(r.resultados.length, 1);
+        assert.strictEqual(r.resultados[0].inicioMs, T0, 'a nota de outro extrato sai de imediato');
+    });
+
     console.log(`${ok} ok, ${falhas} falha(s)`);
     process.exit(falhas ? 1 : 0);
 })();

@@ -867,6 +867,7 @@ const state = {
     candidatosLancamento: [],
     origemPagamento: null,
     pagamentoManualAberto: false,
+    vincularExtrato: null, // janela "Vincular extrato" da lista de Documentos (null = fechada)
     pagamentoInformadoDocId: null, // nota cujo pagamento foi informado nesta sessão (erro do robô por pagamento)
     pagamentoManualRascunho: {},
     // "Ver lançamentos de outros extratos / ampliar": vale só para a nota de docId e zera ao abrir outra.
@@ -1847,6 +1848,9 @@ ${Sidebar()}
                 </div>
                 <button class="btn btn-secondary" onclick="window.clearFilters()">Limpar filtros</button>
             </div>
+            ${userPodeVincularExtrato() ? `<button class="btn btn-secondary" id="btn-vincular-extrato-dashboard" style="display: none; align-items: center; gap: 0.25rem;" onclick="window.handleAbrirVincularExtrato()">
+                Vincular extrato (<span id="count-vincular-extrato-dashboard">0</span>)
+            </button>` : ''}
             ${userCanDelete() ? `<button class="btn btn-secondary" id="btn-excluir-lote-dashboard" style="display: none; background: var(--error); color: white; border: none; align-items: center; gap: 0.25rem;" onclick="window.handleDeleteSelectedDocuments()">
                 <i data-lucide="trash-2" style="width: 16px;"></i>
                 Excluir Selecionados (<span id="count-excluir-lote-dashboard">0</span>)
@@ -1920,6 +1924,7 @@ ${Sidebar()}
                                     <span class="badge-dot"></span>
                                     ${status.label}
                                 </span>
+                                ${seloExtratoHtml(doc, 'margin-top: 0.35rem;')}
                                 ${estaTravado(doc) ? `
                                     <button type="button" title="Sem avançar há ${formatarTempoTravado(minutosParadoDoc(doc))} — clique para reprocessar"
                                         onclick="event.stopPropagation(); window.handleReprocessarDocumentoTravado('${doc.id}')"
@@ -1969,6 +1974,7 @@ ${Sidebar()}
                         <i data-lucide="${dup.icone}" style="width: 12px;"></i>
                         ${dup.label}${doc.duplicidade_revisada ? ' · revisado' : ''}
                     </button>` : ''}
+                    ${seloExtratoHtml(doc, 'align-self: flex-start;')}
                     ${travado ? `<button type="button" title="Sem avançar há ${formatarTempoTravado(minutosParadoDoc(doc))} — clique para reprocessar"
                         onclick="event.stopPropagation(); window.handleReprocessarDocumentoTravado('${doc.id}')"
                         style="align-self: flex-start; display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.15rem 0.5rem; border-radius: 9999px; border: 1px solid #FCA5A5; background: #FEE2E2; color: #B91C1C; font-size: 11px; font-weight: 600; cursor: pointer;">
@@ -3719,6 +3725,7 @@ ${Sidebar()}
                         <div style="padding: 1rem; border: 1px dashed ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'var(--error)' : 'var(--border-light)'}; border-radius: var(--radius-sm); background: ${jaPassouDaConciliacao ? bgPosConciliacao : (doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'rgba(239, 68, 68, 0.05)' : (doc.extrato_origem_id && ['aguardando_comprovante', 'aguardando_conciliacao_bancaria'].includes(doc.status)) ? 'rgba(16, 185, 129, 0.05)' : 'transparent'};">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                                 <span class="text-xs" style="font-weight: 600; text-transform: uppercase; color: ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'var(--error)' : 'inherit'};">1. Extrato Bancário</span>
+                                ${seloExtratoHtml(doc)}
                                 ${jaPassouDaConciliacao ? `<i data-lucide="check-circle-2" style="width: 16px; color: ${corPosConciliacao};"></i>` : (doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? '<i data-lucide="x-circle" style="width: 16px; color: var(--error);"></i>' : (doc.extrato_origem_id && ['aguardando_comprovante', 'aguardando_conciliacao_bancaria'].includes(doc.status)) ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>'}
                             </div>
                             ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? `
@@ -7526,6 +7533,319 @@ window.handleDeleteDocument = async function (id, filePath) {
     });
 };
 
+// ---- Vincular extrato a várias notas (lista de Documentos) ----
+// Vincula um extrato já enviado, ou um novo, a notas que já estão no Prestaí. A rota do servidor
+// (/api/conciliacao/vincular-extrato) grava o vínculo; a conciliação em si é feita pela fila do
+// servidor, uma nota por vez. O navegador não chama o n8n.
+
+function userPodeVincularExtrato() {
+    return ['admin', 'gestor', 'analista'].includes(getUserRole());
+}
+
+function nomeArquivoSeguro(nome) {
+    const acentos = new RegExp('[' + String.fromCharCode(0x300) + '-' + String.fromCharCode(0x36f) + ']', 'g');
+    return String(nome).normalize('NFD').replace(acentos, '').replace(/[^a-zA-Z0-9._-]/g, '_');
+}
+
+// O banco não guarda o nome original do arquivo; o final do caminho do Storage é o que existe.
+function nomeDoExtrato(e) {
+    return window.VinculoExtrato.nomeDoArquivo(e && e.file_path);
+}
+
+// Lista de extratos da janela "Vincular extrato", já filtrada pela busca. Fica em um bloco próprio
+// (#vincular-extrato-lista) para a busca atualizar só a lista, sem redesenhar a janela e sem
+// tirar o foco da caixa de texto.
+function extratosVincularListaHtml(v) {
+    const todos = v.extratos || [];
+    const termo = String(v.busca || '').trim();
+    const visiveis = window.VinculoExtrato.filtrarExtratos(todos, termo);
+    const rotulos = window.VinculoExtrato.ROTULO_STATUS_EXTRATO;
+    const escolhido = todos.find(e => e.id === v.extratoId);
+    const contagem = termo
+        ? `<p class="text-xs" style="color: var(--text-muted); margin-bottom: 0.35rem;">${visiveis.length} de ${todos.length} extrato${todos.length === 1 ? '' : 's'}</p>`
+        : '';
+    const corpo = visiveis.length === 0
+        ? `<p class="text-xs" style="color: var(--text-muted);">Nenhum extrato encontrado para "${escHtml(termo)}". Tente outra parte do nome, a data (dd/mm/aaaa) ou o status.</p>`
+        : `<div style="max-height: 22vh; overflow: auto; border: 1px solid var(--border-light); border-radius: var(--radius-sm);">
+            ${visiveis.map(e => `
+            <label style="display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border-light); cursor: pointer;">
+                <input type="radio" name="vincular-extrato-escolha" ${v.extratoId === e.id ? 'checked' : ''} onchange="window.vincularExtratoEscolher('${e.id}')" ${v.executando ? 'disabled' : ''}>
+                <span style="min-width: 0;">
+                    <span class="text-sm" style="font-weight: 600; overflow-wrap: anywhere;">${escHtml(nomeDoExtrato(e))}</span>
+                    <span class="text-xs" style="display: block; color: var(--text-muted);">
+                        Enviado em ${escHtml(e.created_at ? new Date(e.created_at).toLocaleString('pt-BR') : '---')} - ${escHtml(rotulos[e.status] || e.status || '---')}${e.formato ? ' - ' + escHtml(String(e.formato).toUpperCase()) : ''}
+                    </span>
+                </span>
+            </label>`).join('')}
+        </div>`;
+    // O extrato escolhido continua à vista mesmo quando a busca o esconde da lista.
+    const aviso = escolhido
+        ? `<p class="text-xs" style="margin-top: 0.4rem; font-weight: 600;">Extrato escolhido: ${escHtml(nomeDoExtrato(escolhido))}</p>`
+        : '';
+    return contagem + corpo + aviso;
+}
+
+// Selo de situação do extrato (vinculo-extrato.js): na fila de conciliação ou só vinculado.
+function seloExtratoHtml(doc, estiloExtra = '') {
+    const situacao = window.VinculoExtrato ? window.VinculoExtrato.situacaoExtrato(doc) : null;
+    if (!situacao) return '';
+    const texto = situacao === 'fila' ? 'Na fila de conciliação' : 'Extrato vinculado';
+    const dica = situacao === 'fila'
+        ? 'A nota tem extrato vinculado e será conciliada pela fila, uma por vez.'
+        : 'A nota tem extrato vinculado e ainda não chegou à conciliação.';
+    return `<span class="badge status-pending" title="${escHtml(dica)}" style="${estiloExtra}"><span class="badge-dot"></span>${texto}</span>`;
+}
+
+window.handleAbrirVincularExtrato = async function () {
+    if (!userPodeVincularExtrato()) {
+        showToast('Seu perfil não pode vincular extrato a notas.', 'error');
+        return;
+    }
+    const marcados = [...new Set([...document.querySelectorAll('.chk-doc-dashboard:checked')].map(c => c.getAttribute('data-id')))];
+    const docs = (state.documents || []).filter(d => marcados.includes(d.id) && !d.is_m2);
+    if (docs.length === 0) {
+        showToast('Selecione ao menos uma nota.', 'error');
+        return;
+    }
+    const projetos = [...new Set(docs.map(d => d.project_id))];
+    if (projetos.length > 1) {
+        showToast('Selecione notas de um só projeto: o extrato pertence a um projeto.', 'error');
+        return;
+    }
+    state.vincularExtrato = {
+        projectId: projetos[0], docIds: docs.map(d => d.id), extratos: [], carregando: true,
+        extratoId: null, busca: '', enviando: false, incluirDivergencias: false, executando: false, resultado: null, erro: null
+    };
+    render();
+    try {
+        const { data, error } = await supabaseClient
+            .from('extratos')
+            .select('id, file_path, formato, status, created_at')
+            .eq('project_id', projetos[0])
+            .order('created_at', { ascending: false })
+            .limit(50);
+        if (error) throw error;
+        if (state.vincularExtrato) state.vincularExtrato.extratos = data || [];
+    } catch (err) {
+        console.error('[vincular-extrato] lista de extratos:', err);
+        if (state.vincularExtrato) state.vincularExtrato.erro = 'Não foi possível carregar os extratos do projeto. Feche e tente de novo.';
+    } finally {
+        if (state.vincularExtrato) state.vincularExtrato.carregando = false;
+        render();
+    }
+};
+
+window.vincularExtratoFechar = function () {
+    if (state.vincularExtrato && state.vincularExtrato.executando) return;
+    state.vincularExtrato = null;
+    render();
+};
+
+window.vincularExtratoEscolher = function (extratoId) {
+    if (!state.vincularExtrato) return;
+    state.vincularExtrato.extratoId = extratoId;
+    render();
+};
+
+window.vincularExtratoBuscar = function (texto) {
+    const v = state.vincularExtrato;
+    if (!v) return;
+    v.busca = String(texto || '');
+    const lista = document.getElementById('vincular-extrato-lista');
+    if (lista) lista.innerHTML = extratosVincularListaHtml(v);
+};
+
+window.vincularExtratoDivergencias = function (marcado) {
+    if (!state.vincularExtrato) return;
+    state.vincularExtrato.incluirDivergencias = !!marcado;
+    render();
+};
+
+// Sobe o arquivo e cria a linha em `extratos`, sem chamar o n8n e sem mexer em vinculo_lote_ativo
+// (como handleUploadExtratoParaLote, que também só registra o extrato). A leitura do extrato
+// acontece quando a fila conciliar a primeira nota.
+window.vincularExtratoEnviarNovo = async function (file) {
+    const v = state.vincularExtrato;
+    if (!file || !v) return;
+    const formato = file.name.split('.').pop().toLowerCase();
+    if (!['ofx', 'csv', 'pdf'].includes(formato)) {
+        showToast('Extrato deve ser OFX, CSV ou PDF.', 'error');
+        return;
+    }
+    v.enviando = true;
+    v.erro = null;
+    render();
+    try {
+        const uuid = (crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const filePath = `${v.projectId}/${uuid}/${nomeArquivoSeguro(file.name)}`;
+        const { error: upErr } = await supabaseClient.storage.from('documentos').upload(filePath, file);
+        if (upErr) throw upErr;
+        const { data: extrato, error: insErr } = await supabaseClient
+            .from('extratos')
+            .insert({
+                project_id: v.projectId,
+                user_id: state.user.id,
+                organization_id: state.user?.app_metadata?.org_id || null,
+                file_path: filePath,
+                formato,
+                status: 'pendente'
+            })
+            .select('id, file_path, formato, status, created_at')
+            .single();
+        if (insErr) throw insErr;
+        if (state.vincularExtrato === v) {
+            v.extratos = [extrato, ...v.extratos];
+            v.extratoId = extrato.id;
+        }
+    } catch (err) {
+        console.error('[vincular-extrato] envio do extrato:', err);
+        if (state.vincularExtrato === v) v.erro = 'Não foi possível enviar o extrato: ' + (window.prestaiErroAmigavel ? window.prestaiErroAmigavel(err) : (err.message || err));
+    } finally {
+        if (state.vincularExtrato === v) v.enviando = false;
+        render();
+    }
+};
+
+window.vincularExtratoConfirmar = async function () {
+    const v = state.vincularExtrato;
+    if (!v || v.executando || !v.extratoId) return;
+    v.executando = true;
+    v.erro = null;
+    render();
+    try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session) throw new Error('Sessão expirada. Faça login novamente.');
+        const resposta = await fetch('/api/conciliacao/vincular-extrato', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
+            body: JSON.stringify({ extrato_id: v.extratoId, document_ids: v.docIds, incluir_divergencias: v.incluirDivergencias === true })
+        });
+        const corpo = await resposta.json().catch(() => ({}));
+        if (!resposta.ok) throw new Error(corpo.error || 'Não foi possível vincular o extrato agora.');
+        if (state.vincularExtrato === v) v.resultado = corpo;
+        // Atualiza a lista para os selos refletirem o vínculo.
+        await fetchDocuments();
+    } catch (err) {
+        console.error('[vincular-extrato]', err);
+        if (state.vincularExtrato === v) v.erro = (window.prestaiSuavizar ? window.prestaiSuavizar(String(err.message || err), 'error') : String(err.message || err));
+    } finally {
+        if (state.vincularExtrato === v) v.executando = false;
+        render();
+    }
+};
+
+const VincularExtratoModal = () => {
+    const v = state.vincularExtrato;
+    if (!v) return '';
+    const projeto = (state.projects || []).find(p => p.id === v.projectId);
+    const docs = v.docIds.map(id => (state.documents || []).find(d => d.id === id)).filter(Boolean);
+    const emDivergencia = docs.filter(d => ['divergencia_beneficiario', 'divergencia_valor'].includes(d.status));
+    const rotuloStatus = (d) => (STATUS_MAP[d.status] || {}).label || d.status;
+    const th = 'text-align: left; padding: 0.35rem 0.5rem; font-size: 12px; white-space: nowrap;';
+    const td = 'padding: 0.35rem 0.5rem; font-size: 12px; vertical-align: top;';
+
+    const cabecalho = `
+        <button class="modal-close" onclick="window.vincularExtratoFechar()">x</button>
+        <h3 class="h2 mb-4">Vincular extrato a ${docs.length} nota${docs.length === 1 ? '' : 's'}</h3>
+        <p class="text-xs mb-4" style="color: var(--text-muted);">Projeto: ${escHtml(projeto ? projeto.pronac : '---')}</p>`;
+
+    if (v.resultado) {
+        const r = v.resultado;
+        const rotulo = { vinculada: 'Vinculada', pulada: 'Pulada', recusada: 'Recusada' };
+        const cor = { vinculada: 'var(--success)', pulada: '#d97706', recusada: 'var(--error)' };
+        return `
+<div class="modal-overlay" onclick="window.vincularExtratoFechar()">
+    <div class="modal-content" style="max-width: 760px;" onclick="event.stopPropagation()">
+        ${cabecalho}
+        <p class="text-sm mb-4" style="font-weight: 600;">
+            ${r.resumo.vinculadas} vinculada${r.resumo.vinculadas === 1 ? '' : 's'}, ${r.resumo.puladas} pulada${r.resumo.puladas === 1 ? '' : 's'}, ${r.resumo.recusadas} recusada${r.resumo.recusadas === 1 ? '' : 's'}.
+        </p>
+        <div style="max-height: 45vh; overflow: auto; border: 1px solid var(--border-light); border-radius: var(--radius-sm);">
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead><tr><th style="${th}">Nota</th><th style="${th}">Resultado</th><th style="${th}">Motivo</th></tr></thead>
+                <tbody>
+                    ${r.itens.map(i => `
+                    <tr style="border-top: 1px solid var(--border-light);">
+                        <td style="${td} overflow-wrap: anywhere;">${escHtml(i.nome || i.id)}</td>
+                        <td style="${td} font-weight: 700; color: ${cor[i.resultado] || 'inherit'}; white-space: nowrap;">${escHtml(rotulo[i.resultado] || i.resultado)}</td>
+                        <td style="${td}">${escHtml(i.motivo)}</td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>
+        </div>
+        <p class="text-xs mt-4" style="color: var(--text-muted);">A conciliação das notas vinculadas é feita pela fila, uma nota por vez, e começa em até alguns minutos.</p>
+        <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
+            <button class="btn btn-primary" onclick="window.vincularExtratoFechar()">Fechar</button>
+        </div>
+    </div>
+</div>`;
+    }
+
+    const extratosHtml = v.carregando
+        ? '<p class="text-xs" style="color: var(--text-muted);">Carregando extratos do projeto...</p>'
+        : (v.extratos.length === 0
+            ? '<p class="text-xs" style="color: var(--text-muted);">Este projeto ainda não tem extrato enviado. Envie um novo abaixo.</p>'
+            : `<input type="search" id="vincular-extrato-busca" placeholder="Buscar extrato por nome, data (dd/mm/aaaa) ou status" autocomplete="off"
+                   value="${escHtml(v.busca || '')}" oninput="window.vincularExtratoBuscar(this.value)"
+                   style="width: 100%; padding: 0.5rem; font-size: 13px; margin-bottom: 0.5rem;" ${v.executando ? 'disabled' : ''}>
+               <div id="vincular-extrato-lista">${extratosVincularListaHtml(v)}</div>`);
+
+    const notasHtml = `
+        <div style="max-height: 26vh; overflow: auto; border: 1px solid var(--border-light); border-radius: var(--radius-sm);">
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead><tr>
+                    <th style="${th}">Número</th><th style="${th}">Fornecedor</th><th style="${th} text-align: right;">Valor</th>
+                    <th style="${th}">Emissão</th><th style="${th}">Status</th>
+                </tr></thead>
+                <tbody>
+                    ${docs.map(d => `
+                    <tr style="border-top: 1px solid var(--border-light);">
+                        <td style="${td}">${escHtml(d.numero_nf || '---')}</td>
+                        <td style="${td} overflow-wrap: anywhere;">${escHtml(d.nome_emissor || d.name || '---')}</td>
+                        <td style="${td} text-align: right; white-space: nowrap;">${d.valor != null ? escHtml(fmtValorExtrato(d.valor)) : '---'}</td>
+                        <td style="${td} white-space: nowrap;">${escHtml(fmtDataExtrato(d.data_emissao))}</td>
+                        <td style="${td}">${escHtml(rotuloStatus(d))}${d.extrato_origem_id ? '<br><span style="color: var(--text-muted);">ja tem extrato vinculado</span>' : ''}</td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>
+        </div>`;
+
+    return `
+<div class="modal-overlay" onclick="window.vincularExtratoFechar()">
+    <div class="modal-content" style="max-width: 760px;" onclick="event.stopPropagation()">
+        ${cabecalho}
+        ${v.erro ? `<p class="text-sm mb-4" role="alert" style="color: var(--error); font-weight: 600;">${escHtml(v.erro)}</p>` : ''}
+
+        <p class="text-xs mb-2" style="font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;">1. Extrato</p>
+        ${extratosHtml}
+        <div style="margin-top: 0.6rem;">
+            ${v.enviando
+                ? '<p class="text-xs" style="color: var(--primary); font-weight: 600;">Enviando extrato...</p>'
+                : `<button class="btn btn-secondary" style="font-size: 12px;" ${v.executando ? 'disabled' : ''} onclick="document.getElementById('vincular-extrato-novo-input').click()">Enviar um novo extrato (OFX, CSV ou PDF)</button>
+                   <input type="file" id="vincular-extrato-novo-input" accept=".ofx,.csv,.pdf" style="display: none;" onchange="window.vincularExtratoEnviarNovo(this.files[0])">`}
+        </div>
+
+        <p class="text-xs mt-4 mb-2" style="font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;">2. Notas selecionadas</p>
+        <p class="text-xs mb-2" style="color: var(--text-muted);">Confira o mês e o projeto: o extrato precisa ser do mesmo projeto das notas e cobrir a data dos pagamentos.</p>
+        ${notasHtml}
+
+        ${emDivergencia.length > 0 ? `
+        <label style="display: flex; gap: 0.6rem; align-items: flex-start; margin-top: 1rem; padding: 0.7rem; border: 1px solid #FDE68A; background: #FFFBEB; border-radius: var(--radius-sm); cursor: pointer;">
+            <input type="checkbox" ${v.incluirDivergencias ? 'checked' : ''} ${v.executando ? 'disabled' : ''} onchange="window.vincularExtratoDivergencias(this.checked)">
+            <span class="text-sm">
+                <strong>Estas notas já foram conferidas e serão reconferidas com o novo extrato.</strong>
+                <span class="text-xs" style="display: block; color: var(--text-secondary); margin-top: 0.2rem;">${emDivergencia.length} nota${emDivergencia.length === 1 ? '' : 's'} em divergência. Sem marcar, elas ficam de fora (puladas).</span>
+            </span>
+        </label>` : ''}
+
+        <div style="display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.25rem;">
+            <button class="btn btn-secondary" ${v.executando ? 'disabled' : ''} onclick="window.vincularExtratoFechar()">Cancelar</button>
+            <button class="btn btn-primary" ${(!v.extratoId || v.executando || v.enviando || v.carregando) ? 'disabled' : ''} onclick="window.vincularExtratoConfirmar()">${v.executando ? 'Vinculando...' : 'Vincular extrato'}</button>
+        </div>
+    </div>
+</div>`;
+};
+
 window.handleSelectAllDashboardDocs = function (checked) {
     const checkboxes = document.querySelectorAll('.chk-doc-dashboard');
     checkboxes.forEach(chk => chk.checked = checked);
@@ -7537,6 +7857,15 @@ window.handleDashboardDocCheckboxChange = function () {
     const btn = document.getElementById('btn-excluir-lote-dashboard');
     const countSpan = document.getElementById('count-excluir-lote-dashboard');
     const selectAllChk = document.getElementById('chk-dashboard-select-all');
+
+    // As caixas da tabela e dos cartões do celular marcam as mesmas notas: conta cada nota uma vez.
+    const btnVincular = document.getElementById('btn-vincular-extrato-dashboard');
+    const countVincular = document.getElementById('count-vincular-extrato-dashboard');
+    if (btnVincular && countVincular) {
+        const notasMarcadas = new Set([...selected].map(c => c.getAttribute('data-id')));
+        btnVincular.style.display = notasMarcadas.size > 0 ? 'inline-flex' : 'none';
+        countVincular.textContent = notasMarcadas.size;
+    }
 
     if (btn && countSpan) {
         if (selected.length > 0) {
@@ -10170,7 +10499,7 @@ function render() {
     // Também o formulário de pagamento manual (ids pgto-*), para não perder o que se digita.
     const focoAtivo = document.activeElement;
     const manterFoco = focoAtivo && focoAtivo.id
-        && (focoAtivo.id === 'justificativa-salic-input' || focoAtivo.id.startsWith('pgto-'))
+        && (focoAtivo.id === 'justificativa-salic-input' || focoAtivo.id === 'vincular-extrato-busca' || focoAtivo.id.startsWith('pgto-'))
         ? { id: focoAtivo.id, ini: focoAtivo.selectionStart, fim: focoAtivo.selectionEnd } : null;
 
     // Redesenhar a mesma tela (mesma nota) não pode levar o usuário de volta ao topo nem
@@ -10184,6 +10513,7 @@ function render() {
     app.innerHTML = content;
     if (state.showRubricaInstructions) app.innerHTML += RubricaInstructionsModal();
     if (state.showCapturedProjectModal) app.innerHTML += CapturedProjectModal();
+    if (state.vincularExtrato) app.innerHTML += VincularExtratoModal();
     if (state.confirmModal) app.innerHTML += ConfirmModal();
 
     if (mesmaTela) {

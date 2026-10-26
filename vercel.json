@@ -12,6 +12,7 @@
     { "src": "refresh-documento.js", "use": "@vercel/static" },
     { "src": "candidatos-lancamento.js", "use": "@vercel/static" },
     { "src": "erros-rpa.js", "use": "@vercel/static" },
+    { "src": "vinculo-extrato.js", "use": "@vercel/static" },
     { "src": "page-sidebar.js", "use": "@vercel/static" },
     { "src": "module-selector.html", "use": "@vercel/static" },
     { "src": "equipe.html", "use": "@vercel/static" },
