@@ -907,9 +907,13 @@ const state = {
     isUploadingComprovante: false,
     validandoSalic: false, // teste de login do SALIC em andamento (tela de configuracoes)
     // Documento a que pertencem os flags de upload de extrato (isUploadingExtrato,
-    // uploadConcluidoExtrato, mostrarUploadManualExtrato). Eles só zeram quando o
-    // usuário abre OUTRO documento — ver fetchDocumentDetails.
+    // isConciliandoExtrato, uploadConcluidoExtrato, mostrarUploadManualExtrato). Eles só
+    // zeram quando o usuário abre OUTRO documento — ver fetchDocumentDetails.
     extratoUiDocId: null,
+    // Extrato já enviado e registrado; falta só a resposta do webhook de conciliação
+    // (que o n8n devolve ao terminar). Separado de isUploadingExtrato para a tela não
+    // continuar dizendo "Enviando" depois de o envio acabar.
+    isConciliandoExtrato: false,
     uploadExtratoSubstituicao: false, // o upload concluído foi uma substituição de extrato
     uploadExtratoStatusRef: null,     // status do documento ao concluir; se mudar, a confirmação sai
     rubrica_versions: [],
@@ -1181,6 +1185,11 @@ const STATUS_MAP = {
         description: 'Divergência de beneficiário: o fornecedor do comprovante não corresponde ao da nota fiscal.'
     }
 };
+
+// Rótulo legível do status para textos de tela (nunca o código cru do banco).
+function rotuloStatusLegivel(status) {
+    return (STATUS_MAP[status] || {}).label || status || '---';
+}
 
 // --- Templates ---
 
@@ -3030,57 +3039,76 @@ window.handleConsolidarGuiaM2 = async function (tabGuiaAntigaId) {
     const doc = state.currentDocument;
     if (!doc) return;
 
-    state.loading = true;
-    render();
+    const guiaM2 = state.guiaDuplicataM2 && state.guiaDuplicataM2.id === tabGuiaAntigaId ? state.guiaDuplicataM2 : null;
+    const identificacaoGuia = guiaM2 && guiaM2.competencia ? ` (competência ${guiaM2.competencia})` : '';
+    // O texto descreve o que /api/m2/impostos/consolidar-duplicata faz: marca a guia do M2 como
+    // paga e vinculada a esta nota, apaga a guia criada automaticamente para a nota e registra
+    // a mudança no audit_log.
+    window.showConfirmModal({
+        title: 'Consolidar guias',
+        message: `A guia do Módulo II${identificacaoGuia} será marcada como paga e vinculada a esta nota, com a data de pagamento da nota (ou a data de hoje, se a nota ainda não tiver uma).\n\nA guia criada automaticamente para esta nota será apagada, para não ficar duplicada. A alteração fica registrada no histórico de auditoria.`,
+        confirmLabel: 'Consolidar guias',
+        onConfirm: async () => {
+            state.loading = true;
+            render();
 
-    try {
-        const { data: { session } } = await supabaseClient.auth.getSession();
-        const resp = await fetch('/api/m2/impostos/consolidar-duplicata', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${session.access_token}`
-            },
-            body: JSON.stringify({ tax_guide_id_antiga: tabGuiaAntigaId, document_id: doc.id })
-        });
-        const json = await resp.json().catch(() => ({}));
-        if (!resp.ok) throw new Error(json.error || 'Falha ao consolidar guias.');
+            try {
+                const { data: { session } } = await supabaseClient.auth.getSession();
+                const resp = await fetch('/api/m2/impostos/consolidar-duplicata', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${session.access_token}`
+                    },
+                    body: JSON.stringify({ tax_guide_id_antiga: tabGuiaAntigaId, document_id: doc.id })
+                });
+                const json = await resp.json().catch(() => ({}));
+                if (!resp.ok) throw new Error(json.error || 'Falha ao consolidar guias.');
 
-        showToast('Guias consolidadas: a guia do Módulo II foi marcada como paga.', 'success');
-        state.guiaDuplicataM2 = null;
-    } catch (err) {
-        showToast('Erro ao consolidar: ' + err.message, 'error');
-    } finally {
-        state.loading = false;
-        render();
-    }
+                showToast('Guias consolidadas: a guia do Módulo II foi marcada como paga.', 'success');
+                state.guiaDuplicataM2 = null;
+            } catch (err) {
+                showToast('Erro ao consolidar: ' + err.message, 'error');
+            } finally {
+                state.loading = false;
+                render();
+            }
+        }
+    });
 };
 
 window.handleIgnorarGuiaDuplicadaM2 = async function (taxGuideId) {
     const doc = state.currentDocument;
-    state.guiaDuplicataM2 = null;
-    render();
-
     if (!doc) return;
 
-    try {
-        const { data: { session } } = await supabaseClient.auth.getSession();
-        const resp = await fetch('/api/m2/impostos/ignorar-duplicata', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${session.access_token}`
-            },
-            body: JSON.stringify({ document_id: doc.id, tax_guide_id: taxGuideId })
-        });
-        const json = await resp.json().catch(() => ({}));
-        if (!resp.ok) throw new Error(json.error || 'Falha ao registrar decisão.');
-    } catch (err) {
-        // Não bloqueia a UI (o banner já sumiu) — só avisa que a decisão pode
-        // não ter sido registrada e a pergunta pode voltar ao reabrir.
-        console.error('[handleIgnorarGuiaDuplicadaM2]', err);
-        showToast('Decisão registrada localmente, mas houve um erro ao salvar: ' + err.message, 'warning');
-    }
+    window.showConfirmModal({
+        title: 'Manter as duas guias',
+        message: 'A decisão de que são guias diferentes será registrada no histórico de auditoria desta nota. As duas guias continuam como estão e esta pergunta não aparece de novo para esta nota e esta guia.',
+        confirmLabel: 'Manter as duas guias',
+        onConfirm: async () => {
+            state.guiaDuplicataM2 = null;
+            render();
+
+            try {
+                const { data: { session } } = await supabaseClient.auth.getSession();
+                const resp = await fetch('/api/m2/impostos/ignorar-duplicata', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${session.access_token}`
+                    },
+                    body: JSON.stringify({ document_id: doc.id, tax_guide_id: taxGuideId })
+                });
+                const json = await resp.json().catch(() => ({}));
+                if (!resp.ok) throw new Error(json.error || 'Falha ao registrar decisão.');
+            } catch (err) {
+                // Não bloqueia a UI (o banner já sumiu) — só avisa que a decisão pode
+                // não ter sido registrada e a pergunta pode voltar ao reabrir.
+                console.error('[handleIgnorarGuiaDuplicadaM2]', err);
+                showToast('Decisão registrada localmente, mas houve um erro ao salvar: ' + err.message, 'warning');
+            }
+        }
+    });
 };
 
 function renderDadosGuia(doc, esc) {
@@ -3259,8 +3287,17 @@ ${Sidebar()}
             Visualizar extrato${state.currentExtrato?.extrato?.formato ? ` (${String(state.currentExtrato.extrato.formato).toUpperCase()})` : ''}
         </button>` : '';
 
+    const barraConciliandoExtratoHtml = `<div style="padding: 0.5rem; text-align: center;">
+                        <div style="width: 100%; height: 6px; background: var(--bg-sidebar); border-radius: 3px; overflow: hidden; margin-bottom: 0.5rem;">
+                            <div style="width: 60%; height: 100%; background: var(--primary); animation: loading 2s infinite ease-in-out;"></div>
+                        </div>
+                        <p class="text-xs" style="color: var(--primary); font-weight: 600;">Extrato enviado. Conciliando com o extrato, isso pode levar alguns instantes...</p>
+                     </div>`;
+
     let extratoBoxHtml;
-    if (state.isUploadingExtrato) {
+    if (state.isConciliandoExtrato) {
+        extratoBoxHtml = barraConciliandoExtratoHtml;
+    } else if (state.isUploadingExtrato) {
         extratoBoxHtml = `<div style="padding: 0.5rem; text-align: center;">
                         <div style="width: 100%; height: 6px; background: var(--bg-sidebar); border-radius: 3px; overflow: hidden; margin-bottom: 0.5rem;">
                             <div style="width: 60%; height: 100%; background: var(--primary); animation: loading 2s infinite ease-in-out;"></div>
@@ -3742,7 +3779,7 @@ ${Sidebar()}
                                         ? 'Clique em Visualizar extrato e confira se o pagamento desta nota consta nele (valor, data e CNPJ ou nome do fornecedor). Se confirmar, use Assumir risco e continuar, no quadro Continuar por Conta e Risco do Parecer da Análise. Se não encontrar, use Substituir Extrato e envie o extrato correto.'
                                         : 'Clique em Visualizar extrato e confira se o pagamento desta nota consta nele (valor, data e CNPJ ou nome do fornecedor). Se confirmar, peça a um administrador para continuar por conta e risco. Se não encontrar, use Substituir Extrato e envie o extrato correto.'}</p>
                                 </div>
-                                ${state.isUploadingExtrato ?
+                                ${state.isConciliandoExtrato ? barraConciliandoExtratoHtml : state.isUploadingExtrato ?
                 `<div style="padding: 0.5rem; text-align: center;">
                                     <div style="width: 100%; height: 6px; background: var(--bg-sidebar); border-radius: 3px; overflow: hidden; margin-bottom: 0.5rem;">
                                         <div style="width: 60%; height: 100%; background: var(--primary); animation: loading 2s infinite ease-in-out;"></div>
@@ -4136,7 +4173,7 @@ window.handleTentarNovamenteErroRpa = function (documentId) {
         message: aviso,
         confirmLabel: 'Conferi, reenviar',
         variant: 'danger',
-        onConfirm: () => window.handleEnviarSalic(documentId)
+        onConfirm: () => window.handleEnviarSalic(documentId, { confirmado: true })
     });
 };
 
@@ -4599,7 +4636,7 @@ window.handleUsarDadosAuditoria = function (indice) {
 // O formulário de upload do extrato já existe na caixa "Extrato Bancário" do fluxo; aqui só
 // se aponta para ele, abrindo a opção de enviar outro extrato quando o do lote estiver ativo.
 window.handleSubirExtratoCorreto = function () {
-    if (!document.getElementById('vincular-extrato-input') && !state.isUploadingExtrato && !state.uploadConcluidoExtrato) {
+    if (!document.getElementById('vincular-extrato-input') && !state.isUploadingExtrato && !state.isConciliandoExtrato && !state.uploadConcluidoExtrato) {
         state.mostrarUploadManualExtrato = true;
         render();
     }
@@ -4629,32 +4666,45 @@ window.handleInformarPagamentoManual = async function (docId) {
     if (!(valor > 0)) return showToast('Informe o valor pago.', 'error');
     if (justificativa.length < 20) return showToast('A justificativa precisa ter pelo menos 20 caracteres.', 'error');
 
-    state.loading = true;
-    render();
-    try {
-        const { error } = await supabaseClient.rpc('informar_pagamento_manual', {
-            p_document_id: docId,
-            p_data: data,
-            p_nr_transacao: nr,
-            p_valor: valor,
-            p_justificativa: justificativa
-        });
-        if (error) throw error;
-        state.pagamentoManualAberto = false;
-        state.pagamentoManualRascunho = { docId };
-        state.pagamentoInformadoDocId = docId;
-        window.showToast('Pagamento informado para esta nota.', 'success');
-        await atualizarNotaAposPagamento(docId);
-    } catch (err) {
-        // Mantém o formulário preenchido para corrigir e tentar de novo.
-        window.showToast(mensagemErroRpc(err), 'error');
-        state.atualizandoNota = false;
-    } finally {
-        const redesenhar = state.loading || state.atualizandoNota;
-        state.loading = false;
-        state.atualizandoNota = false;
-        if (redesenhar) render();
-    }
+    const nota = state.currentDocument && state.currentDocument.id === docId
+        ? state.currentDocument
+        : state.documents.find(d => d.id === docId);
+    const [ano, mes, dia] = data.split('-');
+    const dataBR = ano && mes && dia ? `${dia}/${mes}/${ano}` : data;
+    // O formulário continua preenchido se o usuário cancelar: nada é redesenhado nem apagado.
+    window.showConfirmModal({
+        title: 'Gravar pagamento sem extrato',
+        message: `Data do pagamento: ${dataBR}\nNúmero da transação: ${nr}\nValor pago: ${fmtBRLM1(valor)}\n\nIsto grava o pagamento da nota sem conferência com o extrato bancário. A justificativa informada fica registrada no histórico de auditoria.\n\nStatus atual da nota: ${rotuloStatusLegivel(nota && nota.status)}. Depois de gravar, a nota pode avançar para a próxima etapa do fluxo.`,
+        confirmLabel: 'Gravar pagamento',
+        onConfirm: async () => {
+            state.loading = true;
+            render();
+            try {
+                const { error } = await supabaseClient.rpc('informar_pagamento_manual', {
+                    p_document_id: docId,
+                    p_data: data,
+                    p_nr_transacao: nr,
+                    p_valor: valor,
+                    p_justificativa: justificativa
+                });
+                if (error) throw error;
+                state.pagamentoManualAberto = false;
+                state.pagamentoManualRascunho = { docId };
+                state.pagamentoInformadoDocId = docId;
+                window.showToast('Pagamento informado para esta nota.', 'success');
+                await atualizarNotaAposPagamento(docId);
+            } catch (err) {
+                // Mantém o formulário preenchido para corrigir e tentar de novo.
+                window.showToast(mensagemErroRpc(err), 'error');
+                state.atualizandoNota = false;
+            } finally {
+                const redesenhar = state.loading || state.atualizandoNota;
+                state.loading = false;
+                state.atualizandoNota = false;
+                if (redesenhar) render();
+            }
+        }
+    });
 };
 
 // Reprocessa um documento travado numa etapa intermediária (ver estaTravado,
@@ -5295,48 +5345,61 @@ window.handleRejeitarNotaFornecedor = async function (documentId) {
         showToast('Sem permissão para rejeitar notas do fornecedor.', 'error');
         return;
     }
-    // Motivo é obrigatório: é o que o fornecedor vai ler para saber o que corrigir.
-    const motivo = (prompt('Motivo da rejeição (será exibido ao fornecedor):') || '').trim();
-    if (!motivo) {
-        showToast('A rejeição precisa de um motivo.', 'warning');
-        return;
-    }
+    const nota = state.currentDocument && state.currentDocument.id === documentId
+        ? state.currentDocument
+        : state.documents.find(d => d.id === documentId);
+    // Motivo é obrigatório (mínimo de 10 caracteres): é o que o fornecedor vai ler para saber o que corrigir.
+    window.showConfirmModal({
+        title: 'Rejeitar nota',
+        message: `Status atual: ${rotuloStatusLegivel(nota && nota.status)}\nNovo status: ${rotuloStatusLegivel('rejeitado_fornecedor')}\n\nO fornecedor verá o motivo abaixo no portal e precisará enviar um documento novo e corrigido.`,
+        confirmLabel: 'Rejeitar nota',
+        variant: 'danger',
+        motivoMinimo: 10,
+        onConfirm: async (motivo) => {
+            const { error } = await supabaseClient
+                .from('documents')
+                .update({ status: 'rejeitado_fornecedor', motivo_rejeicao_fornecedor: motivo })
+                .eq('id', documentId);
 
-    const { error } = await supabaseClient
-        .from('documents')
-        .update({ status: 'rejeitado_fornecedor', motivo_rejeicao_fornecedor: motivo })
-        .eq('id', documentId);
+            if (error) { showToast('Erro ao rejeitar: ' + error.message, 'error'); return; }
 
-    if (error) { showToast('Erro ao rejeitar: ' + error.message, 'error'); return; }
-
-    showToast('Nota rejeitada. O fornecedor verá o motivo no portal.', 'success');
-    await fetchDocumentDetails(documentId);
+            showToast('Nota rejeitada. O fornecedor verá o motivo no portal.', 'success');
+            await fetchDocumentDetails(documentId);
+        }
+    });
 };
 
 // Marca ciência da duplicidade. NÃO apaga nivel_duplicidade: o sinalizador fica
 // como histórico, só sai da contagem de pendências.
 window.handleMarcarDuplicidadeRevisada = async function (documentId) {
     if (!supabaseClient) return;
-    const { error } = await supabaseClient
-        .from('documents')
-        .update({ duplicidade_revisada: true })
-        .eq('id', documentId);
+    window.showConfirmModal({
+        title: 'Marcar duplicidade como revisada',
+        message: 'A duplicidade desta nota passa a constar como revisada e sai da contagem de pendências. O sinalizador de duplicidade continua registrado no histórico da nota.',
+        confirmLabel: 'Marcar como revisada',
+        onConfirm: async () => {
+            const { error } = await supabaseClient
+                .from('documents')
+                .update({ duplicidade_revisada: true })
+                .eq('id', documentId);
 
-    if (error) {
-        showToast('Erro ao marcar como revisado: ' + error.message, 'error');
-        return;
-    }
+            if (error) {
+                showToast('Erro ao marcar como revisado: ' + error.message, 'error');
+                return;
+            }
 
-    // Atualiza o state local sem esperar o Realtime, para o retorno ser imediato.
-    if (state.currentDocument?.id === documentId) {
-        state.currentDocument = { ...state.currentDocument, duplicidade_revisada: true };
-    }
-    state.documents = state.documents.map(d =>
-        d.id === documentId ? { ...d, duplicidade_revisada: true } : d
-    );
+            // Atualiza o state local sem esperar o Realtime, para o retorno ser imediato.
+            if (state.currentDocument?.id === documentId) {
+                state.currentDocument = { ...state.currentDocument, duplicidade_revisada: true };
+            }
+            state.documents = state.documents.map(d =>
+                d.id === documentId ? { ...d, duplicidade_revisada: true } : d
+            );
 
-    showToast('Duplicidade marcada como revisada.', 'success');
-    render();
+            showToast('Duplicidade marcada como revisada.', 'success');
+            render();
+        }
+    });
 };
 
 window.handleForgotPassword = async function () {
@@ -7014,7 +7077,7 @@ function assinaturaDaTelaDetalhes() {
         guiaDuplicataId: state.guiaDuplicataM2?.id || null,
         qtdRubricasDisponiveis: (state.rubricas_disponiveis || []).length,
         flags: [
-            !!state.uploadConcluidoExtrato, !!state.isUploadingExtrato, !!state.uploadConcluidoComprovante,
+            !!state.uploadConcluidoExtrato, !!state.isUploadingExtrato, !!state.isConciliandoExtrato, !!state.uploadConcluidoComprovante,
             !!state.isUploadingComprovante, !!state.isSalicRunning, !!state.atualizandoNota, !!state.loading
         ]
     });
@@ -7085,6 +7148,7 @@ async function fetchDocumentDetails(id, silent = false, opcoes = {}) {
     if (!silent && state.extratoUiDocId !== id) {
         state.uploadConcluidoExtrato = false;
         state.isUploadingExtrato = false;
+        state.isConciliandoExtrato = false;
         state.mostrarUploadManualExtrato = false;
         state.extratoUiDocId = id;
     }
@@ -7258,6 +7322,14 @@ window.handleVincularRubrica = async function (documentId, projectId, valorDespe
 
     const executarVinculoRubrica = () => executarVinculoRubricaImpl(documentId, projectId, valorDespesa, rubricaId, rubricaNome);
 
+    // O vínculo grava a despesa com a rubrica escolhida e devolve a nota para validação
+    // ('processing_ocr'). O mesmo resumo serve ao modal de confirmação e ao de saldo insuficiente,
+    // para nunca aparecerem dois modais seguidos.
+    const notaRubrica = state.currentDocument && state.currentDocument.id === documentId
+        ? state.currentDocument
+        : state.documents.find(d => d.id === documentId);
+    const resumoVinculoRubrica = `Rubrica escolhida: ${rubricaNome}\nValor da nota: ${fmtBRLM1(valorDespesa)}\nStatus atual: ${rotuloStatusLegivel(notaRubrica && notaRubrica.status)}\nNovo status: ${rotuloStatusLegivel('processing_ocr')}, enquanto a nota é revalidada com a nova rubrica.`;
+
     // CR-2026-001 Fase 2.2: valida saldo ANTES de gravar, enquanto o usuário
     // ainda pode mudar de ideia — não depois de processado. Só roda com o
     // flag ligado.
@@ -7280,7 +7352,7 @@ window.handleVincularRubrica = async function (documentId, projectId, valorDespe
                     : '';
                 window.showConfirmModal({
                     title: 'Saldo insuficiente na rubrica',
-                    message: `${jaEstourada}Valor da nota (R$ ${valor.toLocaleString('pt-BR')}) excede o disponível projetado (R$ ${dispProjetado.toLocaleString('pt-BR')}) em R$ ${excedente.toLocaleString('pt-BR')}. Oficial (SALIC): R$ ${parseFloat(saldoInfo.disponivel_oficial ?? 0).toLocaleString('pt-BR')}.`,
+                    message: `${jaEstourada}Valor da nota (R$ ${valor.toLocaleString('pt-BR')}) excede o disponível projetado (R$ ${dispProjetado.toLocaleString('pt-BR')}) em R$ ${excedente.toLocaleString('pt-BR')}. Oficial (SALIC): R$ ${parseFloat(saldoInfo.disponivel_oficial ?? 0).toLocaleString('pt-BR')}.\n\n${resumoVinculoRubrica}`,
                     confirmLabel: 'Vincular mesmo assim',
                     variant: 'danger',
                     onConfirm: executarVinculoRubrica
@@ -7290,7 +7362,13 @@ window.handleVincularRubrica = async function (documentId, projectId, valorDespe
         }
     }
 
-    await executarVinculoRubrica();
+    // Sem saldo insuficiente, o modal de saldo acima não aparece: este é o único.
+    window.showConfirmModal({
+        title: 'Vincular rubrica',
+        message: resumoVinculoRubrica,
+        confirmLabel: 'Vincular rubrica',
+        onConfirm: executarVinculoRubrica
+    });
 };
 
 async function executarVinculoRubricaImpl(documentId, projectId, valorDespesa, rubricaId, rubricaNome) {
@@ -9689,7 +9767,10 @@ window.handleJustificativaSalicBlur = async function (docId) {
     }
 };
 
-window.handleEnviarSalic = async function (documentId) {
+// opcoes.confirmado: quem chama já pediu a confirmação (ver handleTentarNovamenteErroRpa, que
+// tem o próprio aviso por código de erro); evita um segundo modal em cima do primeiro.
+// O envio em lote (handleIniciarEnvioLote) não passa por aqui e tem a sua confirmação.
+window.handleEnviarSalic = async function (documentId, opcoes) {
     if (!supabaseClient || !state.user) return;
 
     // Defesa em profundidade: o botão já fica desabilitado nesse caso, mas
@@ -9738,6 +9819,22 @@ window.handleEnviarSalic = async function (documentId) {
         }
     }
 
+    if (opcoes && opcoes.confirmado) return executarEnvioSalic(documentId);
+
+    const notaEnvio = docParaValidar && docParaValidar.id === documentId
+        ? docParaValidar
+        : state.documents.find(d => d.id === documentId);
+    // Este front não grava status no envio: quem grava é o robô, 'enviado_salic' quando o SALIC
+    // aceita e 'erro_rpa' quando falha (server.js, /api/salic/inserir).
+    window.showConfirmModal({
+        title: 'Enviar ao SALIC',
+        message: `Número do documento: ${(notaEnvio && notaEnvio.numero_nf) || '---'}\nFornecedor: ${(notaEnvio && notaEnvio.nome_emissor) || '---'}\nValor: ${fmtBRLM1(notaEnvio && notaEnvio.valor)}\n\nStatus atual: ${rotuloStatusLegivel(notaEnvio && notaEnvio.status)}\nSe o SALIC aceitar, o status passa para "${rotuloStatusLegivel('enviado_salic')}". Se o envio falhar, passa para "${rotuloStatusLegivel('erro_rpa')}" e o motivo aparece na nota.`,
+        confirmLabel: 'Enviar ao SALIC',
+        onConfirm: () => executarEnvioSalic(documentId)
+    });
+};
+
+async function executarEnvioSalic(documentId) {
     // O robô lê a justificativa da coluna do banco: o texto precisa estar gravado
     // ANTES da chamada. Se não gravar, não envia (o SALIC recusaria sem ela).
     try {
@@ -9866,7 +9963,7 @@ window.handleEnviarSalic = async function (documentId) {
         state.isSalicRunning = false;
         render();
     }
-};
+}
 
 window.handleVincularDocumento = async function (parentDocumentId, file, tipo, lastroInfo = null) {
     if (!file || !parentDocumentId) return;
@@ -10762,6 +10859,14 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
         console.log(`Notificando n8n sobre o novo extrato ${extratoData.id}...`);
 
         if (CONFIG.N8N_WEBHOOK_RECONCILIATION_URL) {
+            // Arquivo no Storage e registro em 'extratos' prontos: o envio acabou. O webhook só
+            // responde quando a conciliação termina, então daqui até a resposta a tela diz
+            // "Conciliando". O await abaixo continua inteiro: o erro e a devolução do status
+            // original (substituição) dependem da resposta.
+            state.isUploadingExtrato = false;
+            state.isConciliandoExtrato = true;
+            render();
+
             console.log(`Disparando webhook: ${CONFIG.N8N_WEBHOOK_RECONCILIATION_URL}`);
             const fileUrl = await urlAssinadaParaWebhook('documentos', filePath);
             const response = await fetch(CONFIG.N8N_WEBHOOK_RECONCILIATION_URL, {
@@ -10826,6 +10931,7 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
     } finally {
         state.loading = false;
         state.isUploadingExtrato = false;
+        state.isConciliandoExtrato = false;
         render();
     }
 };
