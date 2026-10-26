@@ -128,6 +128,7 @@ app.use(express.json({ limit: '5mb' }));
 const { traduzirTecnico } = require('./erros-amigaveis.js');
 const Catalogo = require('./status-catalogo.js');
 const Regras = require('./suporte-regras.js');
+const Candidatos = require('./candidatos-lancamento.js');
 app.use((req, res, next) => {
     const jsonOriginal = res.json.bind(res);
     res.json = (body) => {
@@ -5426,10 +5427,35 @@ app.post('/api/m1/cron-conciliacao-lote', async (req, res) => {
 // Lógica da conciliação automática de nota de lote, reutilizada pela rota
 // abaixo e pelo painel de suporte. Devolve { http, body } em vez de responder.
 // actorId vai para o audit_log; callerOrg nulo (suporte) pula a checagem de org.
+//
+// O mesmo lançamento pode estar gravado mais de uma vez no extrato, e já pode ter sido usado por
+// outra nota (ligado a ela, ou conciliado sem nota). A identidade do lançamento é fitid + data +
+// valor dentro do projeto (candidatos-lancamento.js): uma cópia por lançamento, e lançamento
+// usado não é casado de novo, mesmo que a cópia usada esteja em outro extrato do projeto.
+
+// Linhas do projeto já consumidas (ligadas a uma nota ou conciliadas) com os valores dos
+// lançamentos em análise, de qualquer extrato. O sinal é ignorado na chave, então busca os dois.
+async function lancamentosConsumidos(projectId, linhas) {
+    const valores = [...new Set((linhas || []).flatMap(l => {
+        const v = Number(l.valor);
+        return Number.isFinite(v) ? [v, -v] : [];
+    }))];
+    if (!projectId || !valores.length) return [];
+    const colunas = 'id, extrato_id, project_id, fitid, valor, data_lancamento, memo, status_conciliacao, document_id';
+    const base = () => supabase.from('extratos_lancamentos').select(colunas).eq('project_id', projectId).in('valor', valores);
+    const [ligadas, conciliadas] = await Promise.all([
+        base().not('document_id', 'is', null),
+        base().eq('status_conciliacao', 'conciliado')
+    ]);
+    if (ligadas.error) throw ligadas.error;
+    if (conciliadas.error) throw conciliadas.error;
+    return [...(ligadas.data || []), ...(conciliadas.data || [])];
+}
+
 async function conciliarNotaAutoLote(document_id, { callerOrg = null, actorId = null } = {}) {
     const { data: nota, error: notaErr } = await supabase
         .from('documents')
-        .select('id, status, valor, data_pagamento, autenticacao_bancaria, extrato_origem_id, organization_id')
+        .select('id, status, valor, data_pagamento, autenticacao_bancaria, extrato_origem_id, organization_id, project_id')
         .eq('id', document_id)
         .maybeSingle();
     if (notaErr) throw notaErr;
@@ -5464,55 +5490,28 @@ async function conciliarNotaAutoLote(document_id, { callerOrg = null, actorId = 
 
     const { data: lancamentos, error: lancErr } = await supabase
         .from('extratos_lancamentos')
-        .select('id, fitid, valor, data_lancamento')
+        .select('id, extrato_id, project_id, fitid, valor, data_lancamento, memo, status_conciliacao, document_id')
         .eq('extrato_id', nota.extrato_origem_id)
         .eq('status_conciliacao', 'pendente')
-        .is('document_id', null);
+        .is('document_id', null)
+        .order('id', { ascending: true });
     if (lancErr) throw lancErr;
 
     if (!lancamentos || !lancamentos.length) {
         return { http: 200, body: { conciliado: false, motivo: 'extrato sem lançamentos pendentes' } };
     }
 
-    // 1º critério: fitid === autenticacao_bancaria
-    let metodo = 'fitid';
-    let matches = [];
-    if (nota.autenticacao_bancaria) {
-        const auth = String(nota.autenticacao_bancaria).trim().toLowerCase();
-        matches = lancamentos.filter(l =>
-            l.fitid && String(l.fitid).trim().toLowerCase() === auth);
+    // 1º critério: fitid === autenticacao_bancaria; 2º: valor ±0,01 e data ±3 dias (sem
+    // data_pagamento, só valor). Depois, uma cópia por lançamento e fora os já usados por outra
+    // nota; ambíguo (lançamentos diferentes) nunca casa sozinho.
+    const { metodo, achados } = Candidatos.acharCompativeis(nota, lancamentos);
+    const consumidas = achados.length ? await lancamentosConsumidos(nota.project_id, achados) : [];
+    const decisao = Candidatos.decidirLancamento({ nota, metodo, achados, consumidas });
+    if (!decisao.lancamento) {
+        return { http: 200, body: { conciliado: false, motivo: decisao.motivo } };
     }
 
-    // 2º critério: valor ±0,01 e data ±3 dias (sem data_pagamento, só valor)
-    if (matches.length === 0) {
-        metodo = 'valor+data';
-        const valorNota = parseFloat(nota.valor || 0);
-        matches = lancamentos.filter(l => {
-            const v = parseFloat(l.valor || 0);
-            // Extrato traz saída de caixa como negativa; a nota é positiva.
-            if (Math.abs(Math.abs(v) - Math.abs(valorNota)) > 0.01) return false;
-            if (!nota.data_pagamento || !l.data_lancamento) return true;
-            // 'T12:00:00' nos dois lados: data pura não passa por new Date()
-            // cru (regra do projeto contra o deslocamento de fuso).
-            const diff = Math.abs(
-                (new Date(l.data_lancamento + 'T12:00:00')
-                    - new Date(nota.data_pagamento + 'T12:00:00')) / 86400000);
-            return diff <= 3;
-        });
-    }
-
-    if (matches.length === 0) {
-        return { http: 200, body: { conciliado: false, motivo: 'nenhum lançamento compatível' } };
-    }
-    if (matches.length > 1) {
-        // Regra inegociável: ambíguo nunca casa sozinho.
-        return { http: 200, body: {
-            conciliado: false,
-            motivo: 'múltiplos lançamentos compatíveis, revisar manualmente'
-        } };
-    }
-
-    const lancamento = matches[0];
+    const lancamento = decisao.lancamento;
 
     // Casa o lançamento só se ele AINDA estiver livre (protege contra duas
     // chamadas simultâneas para notas diferentes disputando o mesmo lançamento).
