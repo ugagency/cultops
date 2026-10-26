@@ -129,6 +129,7 @@ const { traduzirTecnico } = require('./erros-amigaveis.js');
 const Catalogo = require('./status-catalogo.js');
 const Regras = require('./suporte-regras.js');
 const Candidatos = require('./candidatos-lancamento.js');
+const VinculoExtrato = require('./vinculo-extrato.js');
 app.use((req, res, next) => {
     const jsonOriginal = res.json.bind(res);
     res.json = (body) => {
@@ -5356,6 +5357,17 @@ app.post('/api/m1/cron-conciliacao-lote', async (req, res) => {
         const ocupados = Fila.extratosOcupados(notas, eventos || [], { agoraMs });
         const pendentes = Fila.pendentes(notas, eventos || []).filter(n => !ocupados.has(n.extrato_origem_id));
 
+        // Extratos pausados (a conciliação de uma nota voltou com "Extrato de outro projeto"): não
+        // recebem mais notas. A pausa é do extrato; quando as notas passam a apontar para outro
+        // extrato, ela não as alcança mais.
+        const { data: eventosPausa, error: pausaErr } = await supabase
+            .from('processamento_eventos')
+            .select('registro_id, acao')
+            .eq('acao', Fila.ACAO_PAUSA)
+            .in('registro_id', [...new Set(notas.map(n => n.extrato_origem_id))]);
+        if (pausaErr) throw pausaErr;
+        const pausados = Fila.extratosPausados(eventosPausa || []);
+
         const filePorExtrato = new Map();
         let semArquivo = 0;
         const enviar = async (nota) => {
@@ -5389,19 +5401,36 @@ app.post('/api/m1/cron-conciliacao-lote', async (req, res) => {
                     }
                 }
             );
+
+            // Depois da nota processada: se o n8n a devolveu dizendo que o extrato é de outro
+            // projeto, o extrato todo é errado para este projeto. Registra a pausa e as demais
+            // notas dele deixam de ser enviadas.
+            if (r.ok) {
+                const { data: depois } = await supabase.from('documents').select('just_erro').eq('id', nota.id).maybeSingle();
+                if (Fila.extratoDeOutroProjeto(depois?.just_erro)) {
+                    pausados.add(nota.extrato_origem_id);
+                    await registrarEvento({
+                        entidade: 'extratos', registro_id: nota.extrato_origem_id, acao: Fila.ACAO_PAUSA,
+                        destino: 'n8n:prestai-conciliation', origem: 'cron', ok: null,
+                        detalhe: `nota ${nota.id}: ${String(depois.just_erro).slice(0, 200)}`
+                    });
+                }
+            }
             return { enviado: true, ok: r.ok };
         };
 
-        const { resultados, naoProcessados } = await Fila.executarFila({
+        const { resultados, puladas, naoProcessados } = await Fila.executarFila({
             itens: pendentes, enviar,
             agora: Date.now, dormir: (ms) => new Promise(resolve => setTimeout(resolve, ms)),
+            pular: (nota) => pausados.has(nota.extrato_origem_id),
             intervaloMs: CONCILIACAO_LOTE_INTERVALO_MS, orcamentoMs: CONCILIACAO_LOTE_ORCAMENTO_MS
         });
         const disparadas = resultados.filter(r => r.enviado && r.ok).length;
         const falhas = resultados.filter(r => r.enviado && !r.ok).length;
         const resposta = {
             ok: true, candidatas: notas.length, pendentes: pendentes.length, disparadas, falhas, sem_arquivo: semArquivo,
-            extratos_ocupados: ocupados.size, nao_processadas_na_rodada: naoProcessados.length,
+            extratos_ocupados: ocupados.size, extratos_pausados: pausados.size, puladas_por_pausa: puladas.length,
+            nao_processadas_na_rodada: naoProcessados.length,
             // Candidatas ainda sem conciliação disparada com sucesso: as da fila e as já tentadas sem retorno ok.
             aguardando_na_fila: notas.length - disparadas
         };
@@ -5547,6 +5576,105 @@ async function conciliarNotaAutoLote(document_id, { callerOrg = null, actorId = 
 
     return { http: 200, body: { conciliado: true, metodo, lancamento_id: lancamento.id } };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/conciliacao/vincular-extrato
+// Vincula um extrato a várias notas que já estão no Prestaí (grava documents.extrato_origem_id).
+// NÃO chama o n8n: a fila de conciliação (cron-conciliacao-lote) pega cada nota quando ela chega
+// à conciliação. Organização e perfil vêm do JWT, o projeto vem do banco; o corpo só diz qual
+// extrato e quais notas. As regras estão em vinculo-extrato.js (testadas em teste-vinculo-extrato.js).
+// Corpo: { extrato_id, document_ids: [...], incluir_divergencias: boolean }
+// Resposta: { ok, extrato_id, resumo, itens: [{ id, nome, resultado, motivo }] }, em que resultado é
+// 'vinculada', 'pulada' ou 'recusada'.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/api/conciliacao/vincular-extrato', requireAuth, async (req, res) => {
+    try {
+        const { extrato_id, document_ids, incluir_divergencias } = req.body || {};
+        const orgId = req.user?.app_metadata?.org_id || null;
+        const pedido = VinculoExtrato.validarPedido({ role: req.userRole, orgId, extratoId: extrato_id, documentIds: document_ids });
+        if (!pedido.ok) return res.status(pedido.http).json({ error: pedido.erro });
+        const incluirDivergencias = incluir_divergencias === true;
+
+        const { data: extrato, error: extratoErr } = await supabase
+            .from('extratos').select('id, project_id, organization_id, status').eq('id', pedido.extratoId).maybeSingle();
+        if (extratoErr) throw extratoErr;
+        let orgDoProjetoDoExtrato = null;
+        if (extrato) {
+            const { data: projetoExtrato, error: projErr } = await supabase
+                .from('projects').select('organization_id').eq('id', extrato.project_id).maybeSingle();
+            if (projErr) throw projErr;
+            orgDoProjetoDoExtrato = projetoExtrato?.organization_id || null;
+        }
+        const extratoValido = VinculoExtrato.validarExtrato({ extrato, orgDoProjeto: orgDoProjetoDoExtrato, orgId });
+        if (!extratoValido.ok) return res.status(extratoValido.http).json({ error: extratoValido.erro });
+
+        const { data: notas, error: notasErr } = await supabase
+            .from('documents')
+            .select('id, name, project_id, user_id, tipo_documento, status, extrato_origem_id')
+            .in('id', pedido.ids);
+        if (notasErr) throw notasErr;
+        const notaPorId = new Map((notas || []).map(n => [n.id, n]));
+
+        // Organização de cada nota pelo projeto dela (autoritativo), como confirmar_lancamento_nota.
+        const projetoIds = [...new Set((notas || []).map(n => n.project_id).filter(Boolean))];
+        const orgPorProjeto = new Map();
+        if (projetoIds.length) {
+            const { data: projetos, error: projetosErr } = await supabase
+                .from('projects').select('id, organization_id').in('id', projetoIds);
+            if (projetosErr) throw projetosErr;
+            (projetos || []).forEach(p => orgPorProjeto.set(p.id, p.organization_id));
+        }
+
+        const usuario = { id: req.user.id, role: req.userRole, orgId };
+        const itens = [];
+        const auditorias = [];
+        for (const id of pedido.ids) {
+            const nota = notaPorId.get(id) || null;
+            const av = VinculoExtrato.avaliarNota({
+                nota, orgDaNota: nota ? (orgPorProjeto.get(nota.project_id) || null) : null,
+                usuario, extrato, incluirDivergencias
+            });
+            let { resultado, motivo } = av;
+            if (resultado === 'vinculada') {
+                // Só grava se a nota ainda estiver como foi lida (status e extrato): uma nota que
+                // mudou no meio do caminho não é sobrescrita.
+                let consulta = supabase.from('documents').update(av.atualizar).eq('id', id).eq('status', nota.status);
+                consulta = nota.extrato_origem_id ? consulta.eq('extrato_origem_id', nota.extrato_origem_id) : consulta.is('extrato_origem_id', null);
+                const { data: gravada, error: updErr } = await consulta.select('id');
+                if (updErr) {
+                    console.error('[VINCULAR-EXTRATO] update:', updErr.message);
+                    resultado = 'recusada';
+                    motivo = 'Não foi possível gravar o vínculo desta nota.';
+                } else if (!gravada || !gravada.length) {
+                    resultado = 'pulada';
+                    motivo = 'A nota mudou durante a operação. Tente de novo.';
+                } else {
+                    const base = { tabela: 'documents', registro_id: id, alterado_por: req.user.id, origem: 'vincular_extrato' };
+                    auditorias.push({ ...base, campo: 'extrato_origem_id', valor_anterior: nota.extrato_origem_id || null, valor_novo: extrato.id });
+                    if (av.atualizar.status && av.atualizar.status !== nota.status) {
+                        auditorias.push({ ...base, campo: 'status', valor_anterior: nota.status, valor_novo: av.atualizar.status });
+                    }
+                }
+            }
+            itens.push({ id, nome: nota?.name || null, resultado, motivo });
+        }
+
+        if (auditorias.length) {
+            const { error: auditErr } = await supabase.from('audit_log').insert(auditorias);
+            if (auditErr) console.error('[VINCULAR-EXTRATO] audit_log:', auditErr.message);
+        }
+
+        const contar = (r) => itens.filter(i => i.resultado === r).length;
+        res.json({
+            ok: true, extrato_id: extrato.id,
+            resumo: { vinculadas: contar('vinculada'), puladas: contar('pulada'), recusadas: contar('recusada') },
+            itens
+        });
+    } catch (err) {
+        console.error('[VINCULAR-EXTRATO]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 app.post('/api/conciliacao/auto-lote', requireAuth, async (req, res) => {
     try {

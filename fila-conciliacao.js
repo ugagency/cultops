@@ -27,6 +27,12 @@ const JANELA_EM_ANDAMENTO_MS = 200 * 1000;
 const ACAO_INICIO = 'conciliacao_auto_lote_inicio';
 const ACAO_FIM = 'conciliacao_auto_lote';
 
+// Pausa por extrato de outro projeto: quando a conciliação de uma nota volta com a mensagem de
+// PRONAC divergente do n8n, o extrato inteiro é um extrato errado para o projeto; mandar as demais
+// notas dele só repetiria o erro. O evento tem registro_id = id do extrato. A pausa vale para esse
+// extrato: quando as notas passam a apontar para outro extrato, ela não as alcança mais.
+const ACAO_PAUSA = 'conciliacao_extrato_pausado';
+
 // Lê a carência de uma variável de ambiente (texto em milissegundos). Valor ausente, não
 // numérico ou negativo cai no padrão: uma configuração errada não pode parar nem acelerar a fila.
 function lerCarenciaMs(valor, padrao = CARENCIA_PADRAO_MS) {
@@ -34,6 +40,8 @@ function lerCarenciaMs(valor, padrao = CARENCIA_PADRAO_MS) {
     const n = Number(valor);
     return Number.isFinite(n) && n >= 0 ? n : padrao;
 }
+
+const ACENTOS = new RegExp('[' + String.fromCharCode(0x300) + '-' + String.fromCharCode(0x36f) + ']', 'g');
 
 const tempo = (v) => (v instanceof Date ? v.getTime() : new Date(v).getTime());
 
@@ -84,6 +92,21 @@ function extratosOcupados(notas, eventos, { agoraMs, janelaMs = JANELA_EM_ANDAME
     return ocupados;
 }
 
+// A nota voltou da conciliação dizendo que o extrato é de outro projeto? (documents.just_erro
+// gravado pelo n8n, começando com "Extrato de outro projeto".)
+function extratoDeOutroProjeto(justErro) {
+    return String(justErro || '').normalize('NFD').replace(ACENTOS, '').trim().toLowerCase().startsWith('extrato de outro projeto');
+}
+
+// Extratos pausados, a partir dos eventos de pausa lidos de processamento_eventos.
+function extratosPausados(eventos) {
+    const pausados = new Set();
+    for (const e of eventos || []) {
+        if (e.acao === ACAO_PAUSA && e.registro_id) pausados.add(e.registro_id);
+    }
+    return pausados;
+}
+
 // Quanto esperar antes de enviar a próxima nota, contando do início do envio anterior. Nunca
 // negativo: se o anterior demorou mais que o intervalo, a próxima sai logo em seguida. Sem envio
 // anterior, não há o que esperar.
@@ -104,13 +127,17 @@ function cabeNaRodada({ inicioRodadaMs, inicioPrevistoMs, orcamentoMs = ORCAMENT
 //    tempo), então o laço nunca tem dois envios ao mesmo tempo.
 // Uma falha (exceção) de uma nota não interrompe as demais. O laço para quando o início previsto
 // da próxima não cabe mais no orçamento; as que sobram voltam em naoProcessados.
-async function executarFila({ itens, enviar, agora, dormir, intervaloMs = INTERVALO_MS, orcamentoMs = ORCAMENTO_MS }) {
+async function executarFila({ itens, enviar, agora, dormir, pular = null, intervaloMs = INTERVALO_MS, orcamentoMs = ORCAMENTO_MS }) {
     const inicioRodadaMs = agora();
     let inicioAnteriorMs = null;
     const resultados = [];
+    const puladas = [];
     let indice = 0;
     for (; indice < itens.length; indice++) {
         const item = itens[indice];
+        // pular(item) é consultado a cada nota: um extrato pausado no meio da rodada deixa as
+        // demais notas dele de fora, sem gastar espera nem orçamento.
+        if (pular && pular(item)) { puladas.push(item); continue; }
         const espera = esperaProximoEnvio({ inicioAnteriorMs, agoraMs: agora(), intervaloMs });
         if (!cabeNaRodada({ inicioRodadaMs, inicioPrevistoMs: agora() + espera, orcamentoMs })) break;
         if (espera > 0) await dormir(espera);
@@ -124,10 +151,10 @@ async function executarFila({ itens, enviar, agora, dormir, intervaloMs = INTERV
         if (r && r.enviado) inicioAnteriorMs = inicioMs;
         resultados.push({ item, inicioMs, enviado: !!(r && r.enviado), ok: !!(r && r.ok), erro: r && r.erro });
     }
-    return { resultados, naoProcessados: itens.slice(indice) };
+    return { resultados, puladas, naoProcessados: itens.slice(indice) };
 }
 
 module.exports = {
-    STATUS_ELEGIVEIS, INTERVALO_MS, ORCAMENTO_MS, CARENCIA_PADRAO_MS, JANELA_EM_ANDAMENTO_MS, ACAO_INICIO, ACAO_FIM,
-    lerCarenciaMs, elegiveis, ultimoMarcador, pendentes, extratosOcupados, esperaProximoEnvio, cabeNaRodada, executarFila
+    STATUS_ELEGIVEIS, INTERVALO_MS, ORCAMENTO_MS, CARENCIA_PADRAO_MS, JANELA_EM_ANDAMENTO_MS, ACAO_INICIO, ACAO_FIM, ACAO_PAUSA,
+    extratoDeOutroProjeto, extratosPausados, lerCarenciaMs, elegiveis, ultimoMarcador, pendentes, extratosOcupados, esperaProximoEnvio, cabeNaRodada, executarFila
 };
