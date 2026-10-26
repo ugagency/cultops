@@ -214,6 +214,7 @@ function carregarTelaDoApp() {
     };
     vm.createContext(ctx);
     vm.runInContext(codigo + ';this.modal = VincularExtratoModal; this.selo = seloExtratoHtml; this.podeVincular = userPodeVincularExtrato; this.nomeSeguro = nomeArquivoSeguro;', ctx);
+    ctx.codigoBuscar = recorta('window.vincularExtratoBuscar', 'window.vincularExtratoDivergencias');
     return ctx;
 }
 const TELA = carregarTelaDoApp();
@@ -304,6 +305,126 @@ teste('selo: "Na fila de conciliação" e "Extrato vinculado" conforme a situaç
 
 teste('nome do arquivo do extrato novo: sem acento nem caracteres que o Storage recusa', () => {
     assert.strictEqual(TELA.nomeSeguro('Extrato Setembro (ação).ofx'), 'Extrato_Setembro__acao_.ofx');
+});
+
+// ---- Busca nos extratos já enviados ----
+const EXTRATOS_BUSCA = [
+    { id: 'e1', file_path: 'p1/uuid/Extrato_Setembro_BB.ofx', status: 'processado', formato: 'ofx', created_at: '2026-09-05T15:00:00Z' },
+    { id: 'e2', file_path: 'p1/uuid/agosto.pdf', status: 'pendente', formato: 'pdf', created_at: '2026-08-10T15:00:00Z' },
+    { id: 'e3', file_path: 'p1/uuid/Conta Poupança.csv', status: 'erro', formato: 'csv', created_at: '2026-07-01T15:00:00Z' },
+    { id: 'e4', file_path: 'u1/extrato_1789000.ofx', status: 'processado', formato: 'ofx', created_at: '2026-09-20T15:00:00Z' }
+];
+const idsBusca = (b) => V.filtrarExtratos(EXTRATOS_BUSCA, b).map(e => e.id);
+
+teste('busca: texto vazio ou só espaços devolve todos, na mesma ordem; lista ausente não quebra', () => {
+    assert.deepStrictEqual(idsBusca(''), ['e1', 'e2', 'e3', 'e4']);
+    assert.deepStrictEqual(idsBusca('   '), ['e1', 'e2', 'e3', 'e4']);
+    assert.deepStrictEqual(idsBusca(null), ['e1', 'e2', 'e3', 'e4']);
+    assert.deepStrictEqual(V.filtrarExtratos(null, 'x'), []);
+    assert.deepStrictEqual(V.filtrarExtratos([], 'x'), []);
+});
+
+teste('busca: pelo nome do arquivo, sem diferenciar caixa nem acento', () => {
+    assert.deepStrictEqual(idsBusca('setembro'), ['e1']);
+    assert.deepStrictEqual(idsBusca('SETEMBRO'), ['e1']);
+    assert.deepStrictEqual(idsBusca('poupanca'), ['e3'], 'sem acento acha "Poupança"');
+    assert.deepStrictEqual(idsBusca('poupança'), ['e3'], 'com acento também');
+    assert.deepStrictEqual(idsBusca('bb'), ['e1']);
+});
+
+teste('busca: pela data de envio (dd/mm/aaaa, só dia/mês ou mês/ano)', () => {
+    assert.deepStrictEqual(idsBusca('05/09/2026'), ['e1']);
+    assert.deepStrictEqual(idsBusca('10/08'), ['e2']);
+    assert.deepStrictEqual(idsBusca('/09/2026'), ['e1', 'e4']);
+    assert.deepStrictEqual(idsBusca('01/07/2026'), ['e3']);
+});
+
+teste('busca: pelo status, como aparece na tela e como é gravado', () => {
+    assert.deepStrictEqual(idsBusca('aguardando leitura'), ['e2']);
+    assert.deepStrictEqual(idsBusca('lido'), ['e1', 'e4']);
+    assert.deepStrictEqual(idsBusca('erro de leitura'), ['e3']);
+    assert.deepStrictEqual(idsBusca('pendente'), ['e2']);
+    assert.deepStrictEqual(idsBusca('processado'), ['e1', 'e4']);
+});
+
+teste('busca: pelo formato e combinando palavras (todas precisam aparecer, em qualquer ordem)', () => {
+    assert.deepStrictEqual(idsBusca('pdf'), ['e2']);
+    assert.deepStrictEqual(idsBusca('ofx'), ['e1', 'e4']);
+    assert.deepStrictEqual(idsBusca('ofx setembro'), ['e1']);
+    assert.deepStrictEqual(idsBusca('setembro ofx'), ['e1']);
+    assert.deepStrictEqual(idsBusca('ofx agosto'), []);
+    assert.deepStrictEqual(idsBusca('lido  09/2026'), ['e1', 'e4'], 'espaços repetidos não atrapalham');
+});
+
+teste('busca: texto que não existe devolve lista vazia; caracteres de expressão regular são só texto', () => {
+    assert.deepStrictEqual(idsBusca('nao existe'), []);
+    assert.deepStrictEqual(idsBusca('.*'), []);
+    assert.deepStrictEqual(idsBusca('(['), []);
+});
+
+teste('busca: extrato sem data ou sem caminho não quebra e continua achável pelo status', () => {
+    const esquisito = [{ id: 'x', file_path: null, status: 'pendente', formato: null, created_at: null }];
+    assert.deepStrictEqual(V.filtrarExtratos(esquisito, 'aguardando').map(e => e.id), ['x']);
+    assert.strictEqual(V.nomeDoArquivo(null), 'extrato');
+    assert.strictEqual(V.nomeDoArquivo('a/b/c.ofx'), 'c.ofx');
+});
+
+teste('janela: a caixa de busca aparece com extratos e filtra a lista; sem extratos não há caixa', () => {
+    const base = { projectId: 'p1', docIds: ['n1'], carregando: false, enviando: false, executando: false, extratoId: null, incluirDivergencias: false, resultado: null, erro: null, busca: '' };
+    TELA.state = { projects: [], documents: [notaTela()], vincularExtrato: { ...base, extratos: EXTRATOS_BUSCA } };
+    let h = TELA.modal();
+    assert.ok(h.includes('id="vincular-extrato-busca"') && h.includes('id="vincular-extrato-lista"'));
+    for (const nome of ['Extrato_Setembro_BB.ofx', 'agosto.pdf', 'extrato_1789000.ofx']) assert.ok(h.includes(nome), nome);
+    TELA.state.vincularExtrato.busca = 'agosto';
+    h = TELA.modal();
+    assert.ok(h.includes('agosto.pdf') && !h.includes('Extrato_Setembro_BB.ofx'));
+    assert.ok(h.includes('1 de 4 extratos'));
+    assert.ok(/id="vincular-extrato-busca"[^>]*value="agosto"/.test(h.replace(/\s+/g, ' ')), 'o texto digitado volta no campo depois de redesenhar');
+    TELA.state = { projects: [], documents: [notaTela()], vincularExtrato: { ...base, extratos: [] } };
+    assert.ok(!TELA.modal().includes('vincular-extrato-busca'));
+});
+
+teste('janela: busca sem resultado diz que nada foi encontrado; o extrato escolhido continua à vista', () => {
+    TELA.state = { projects: [], documents: [notaTela()], vincularExtrato: {
+        projectId: 'p1', docIds: ['n1'], carregando: false, enviando: false, executando: false, extratoId: 'e1',
+        incluirDivergencias: false, resultado: null, erro: null, extratos: EXTRATOS_BUSCA, busca: 'agosto' } };
+    let h = TELA.modal();
+    assert.ok(!h.includes('Nenhum extrato encontrado'));
+    assert.ok(h.includes('Extrato escolhido: Extrato_Setembro_BB.ofx'), 'escolhido fora do filtro continua informado');
+    TELA.state.vincularExtrato.busca = 'xyz';
+    h = TELA.modal();
+    assert.ok(h.includes('Nenhum extrato encontrado para "xyz"'));
+    assert.ok(h.includes('0 de 4 extratos'));
+    assert.ok(/<button class="btn btn-primary" (?!disabled)/.test(h), 'o botão de vincular continua habilitado com o extrato escolhido');
+});
+
+teste('janela: texto digitado na busca e nomes de arquivo não viram HTML', () => {
+    const ataque = '<img src=x onerror=alert(1)>';
+    TELA.state = { projects: [], documents: [notaTela()], vincularExtrato: {
+        projectId: 'p1', docIds: ['n1'], carregando: false, enviando: false, executando: false, extratoId: null,
+        incluirDivergencias: false, resultado: null, erro: null, busca: ataque,
+        extratos: [{ id: 'e9', file_path: 'p/u/' + ataque + '.ofx', status: 'processado', formato: 'ofx', created_at: null }] } };
+    let h = TELA.modal();
+    assert.ok(!h.includes('<img'), 'o texto digitado na busca não vira marcação');
+    TELA.state.vincularExtrato.busca = '';
+    h = TELA.modal();
+    assert.ok(!h.includes('<img') && h.includes('&lt;img src=x onerror=alert(1)&gt;.ofx'));
+});
+
+teste('janela: digitar na busca atualiza só a lista (sem redesenhar a janela e sem perder o foco)', () => {
+    const lista = { innerHTML: '' };
+    let renders = 0;
+    const ctx = { window: TELA.window, state: { projects: [], documents: [], vincularExtrato: { projectId: 'p1', docIds: [], extratos: EXTRATOS_BUSCA, extratoId: null, busca: '' } },
+        document: { getElementById: (id) => (id === 'vincular-extrato-lista' ? lista : null) }, render: () => { renders++; },
+        escHtml: TELA.escHtml, nomeDoExtrato: TELA.nomeDoExtrato, extratosVincularListaHtml: TELA.extratosVincularListaHtml };
+    vm.createContext(ctx);
+    vm.runInContext(TELA.codigoBuscar + ';this.buscar = window.vincularExtratoBuscar;', ctx);
+    ctx.buscar('setembro');
+    assert.strictEqual(ctx.state.vincularExtrato.busca, 'setembro');
+    assert.ok(lista.innerHTML.includes('Extrato_Setembro_BB.ofx') && !lista.innerHTML.includes('agosto.pdf'));
+    assert.strictEqual(renders, 0, 'não chama render()');
+    ctx.buscar('');
+    assert.ok(lista.innerHTML.includes('agosto.pdf'));
 });
 
 console.log(`${ok} ok, ${falhas} falha(s)`);

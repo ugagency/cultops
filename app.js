@@ -7542,8 +7542,6 @@ function userPodeVincularExtrato() {
     return ['admin', 'gestor', 'analista'].includes(getUserRole());
 }
 
-const ROTULO_STATUS_EXTRATO = { pendente: 'Aguardando leitura', processado: 'Lido', erro: 'Erro de leitura' };
-
 function nomeArquivoSeguro(nome) {
     const acentos = new RegExp('[' + String.fromCharCode(0x300) + '-' + String.fromCharCode(0x36f) + ']', 'g');
     return String(nome).normalize('NFD').replace(acentos, '').replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -7551,7 +7549,40 @@ function nomeArquivoSeguro(nome) {
 
 // O banco não guarda o nome original do arquivo; o final do caminho do Storage é o que existe.
 function nomeDoExtrato(e) {
-    return String((e && e.file_path) || '').split('/').pop() || 'extrato';
+    return window.VinculoExtrato.nomeDoArquivo(e && e.file_path);
+}
+
+// Lista de extratos da janela "Vincular extrato", já filtrada pela busca. Fica em um bloco próprio
+// (#vincular-extrato-lista) para a busca atualizar só a lista, sem redesenhar a janela e sem
+// tirar o foco da caixa de texto.
+function extratosVincularListaHtml(v) {
+    const todos = v.extratos || [];
+    const termo = String(v.busca || '').trim();
+    const visiveis = window.VinculoExtrato.filtrarExtratos(todos, termo);
+    const rotulos = window.VinculoExtrato.ROTULO_STATUS_EXTRATO;
+    const escolhido = todos.find(e => e.id === v.extratoId);
+    const contagem = termo
+        ? `<p class="text-xs" style="color: var(--text-muted); margin-bottom: 0.35rem;">${visiveis.length} de ${todos.length} extrato${todos.length === 1 ? '' : 's'}</p>`
+        : '';
+    const corpo = visiveis.length === 0
+        ? `<p class="text-xs" style="color: var(--text-muted);">Nenhum extrato encontrado para "${escHtml(termo)}". Tente outra parte do nome, a data (dd/mm/aaaa) ou o status.</p>`
+        : `<div style="max-height: 22vh; overflow: auto; border: 1px solid var(--border-light); border-radius: var(--radius-sm);">
+            ${visiveis.map(e => `
+            <label style="display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border-light); cursor: pointer;">
+                <input type="radio" name="vincular-extrato-escolha" ${v.extratoId === e.id ? 'checked' : ''} onchange="window.vincularExtratoEscolher('${e.id}')" ${v.executando ? 'disabled' : ''}>
+                <span style="min-width: 0;">
+                    <span class="text-sm" style="font-weight: 600; overflow-wrap: anywhere;">${escHtml(nomeDoExtrato(e))}</span>
+                    <span class="text-xs" style="display: block; color: var(--text-muted);">
+                        Enviado em ${escHtml(e.created_at ? new Date(e.created_at).toLocaleString('pt-BR') : '---')} - ${escHtml(rotulos[e.status] || e.status || '---')}${e.formato ? ' - ' + escHtml(String(e.formato).toUpperCase()) : ''}
+                    </span>
+                </span>
+            </label>`).join('')}
+        </div>`;
+    // O extrato escolhido continua à vista mesmo quando a busca o esconde da lista.
+    const aviso = escolhido
+        ? `<p class="text-xs" style="margin-top: 0.4rem; font-weight: 600;">Extrato escolhido: ${escHtml(nomeDoExtrato(escolhido))}</p>`
+        : '';
+    return contagem + corpo + aviso;
 }
 
 // Selo de situação do extrato (vinculo-extrato.js): na fila de conciliação ou só vinculado.
@@ -7583,7 +7614,7 @@ window.handleAbrirVincularExtrato = async function () {
     }
     state.vincularExtrato = {
         projectId: projetos[0], docIds: docs.map(d => d.id), extratos: [], carregando: true,
-        extratoId: null, enviando: false, incluirDivergencias: false, executando: false, resultado: null, erro: null
+        extratoId: null, busca: '', enviando: false, incluirDivergencias: false, executando: false, resultado: null, erro: null
     };
     render();
     try {
@@ -7614,6 +7645,14 @@ window.vincularExtratoEscolher = function (extratoId) {
     if (!state.vincularExtrato) return;
     state.vincularExtrato.extratoId = extratoId;
     render();
+};
+
+window.vincularExtratoBuscar = function (texto) {
+    const v = state.vincularExtrato;
+    if (!v) return;
+    v.busca = String(texto || '');
+    const lista = document.getElementById('vincular-extrato-lista');
+    if (lista) lista.innerHTML = extratosVincularListaHtml(v);
 };
 
 window.vincularExtratoDivergencias = function (marcado) {
@@ -7746,18 +7785,10 @@ const VincularExtratoModal = () => {
         ? '<p class="text-xs" style="color: var(--text-muted);">Carregando extratos do projeto...</p>'
         : (v.extratos.length === 0
             ? '<p class="text-xs" style="color: var(--text-muted);">Este projeto ainda não tem extrato enviado. Envie um novo abaixo.</p>'
-            : `<div style="max-height: 22vh; overflow: auto; border: 1px solid var(--border-light); border-radius: var(--radius-sm);">
-                ${v.extratos.map(e => `
-                <label style="display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border-light); cursor: pointer;">
-                    <input type="radio" name="vincular-extrato-escolha" ${v.extratoId === e.id ? 'checked' : ''} onchange="window.vincularExtratoEscolher('${e.id}')" ${v.executando ? 'disabled' : ''}>
-                    <span style="min-width: 0;">
-                        <span class="text-sm" style="font-weight: 600; overflow-wrap: anywhere;">${escHtml(nomeDoExtrato(e))}</span>
-                        <span class="text-xs" style="display: block; color: var(--text-muted);">
-                            Enviado em ${escHtml(e.created_at ? new Date(e.created_at).toLocaleString('pt-BR') : '---')} - ${escHtml(ROTULO_STATUS_EXTRATO[e.status] || e.status || '---')}${e.formato ? ' - ' + escHtml(String(e.formato).toUpperCase()) : ''}
-                        </span>
-                    </span>
-                </label>`).join('')}
-            </div>`);
+            : `<input type="search" id="vincular-extrato-busca" placeholder="Buscar extrato por nome, data (dd/mm/aaaa) ou status" autocomplete="off"
+                   value="${escHtml(v.busca || '')}" oninput="window.vincularExtratoBuscar(this.value)"
+                   style="width: 100%; padding: 0.5rem; font-size: 13px; margin-bottom: 0.5rem;" ${v.executando ? 'disabled' : ''}>
+               <div id="vincular-extrato-lista">${extratosVincularListaHtml(v)}</div>`);
 
     const notasHtml = `
         <div style="max-height: 26vh; overflow: auto; border: 1px solid var(--border-light); border-radius: var(--radius-sm);">
@@ -10468,7 +10499,7 @@ function render() {
     // Também o formulário de pagamento manual (ids pgto-*), para não perder o que se digita.
     const focoAtivo = document.activeElement;
     const manterFoco = focoAtivo && focoAtivo.id
-        && (focoAtivo.id === 'justificativa-salic-input' || focoAtivo.id.startsWith('pgto-'))
+        && (focoAtivo.id === 'justificativa-salic-input' || focoAtivo.id === 'vincular-extrato-busca' || focoAtivo.id.startsWith('pgto-'))
         ? { id: focoAtivo.id, ini: focoAtivo.selectionStart, fim: focoAtivo.selectionEnd } : null;
 
     // Redesenhar a mesma tela (mesma nota) não pode levar o usuário de volta ao topo nem

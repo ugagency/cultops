@@ -112,6 +112,39 @@ function avaliarNota({ nota, orgDaNota, usuario, extrato, incluirDivergencias })
     return { resultado: 'vinculada', motivo: emDivergencia ? 'Vinculada; a nota será reconferida com este extrato.' : 'Vinculada; entra na fila de conciliação.', atualizar };
 }
 
+// ---- Busca nos extratos já enviados (janela "Vincular extrato") ----
+
+const ROTULO_STATUS_EXTRATO = { pendente: 'Aguardando leitura', processado: 'Lido', erro: 'Erro de leitura' };
+
+const ACENTOS = new RegExp('[' + String.fromCharCode(0x300) + '-' + String.fromCharCode(0x36f) + ']', 'g');
+const semAcento = (t) => String(t == null ? '' : t).normalize('NFD').replace(ACENTOS, '').toLowerCase();
+
+// O banco não guarda o nome original do arquivo; o final do caminho do Storage é o que existe.
+function nomeDoArquivo(filePath) {
+    return String(filePath || '').split('/').pop() || 'extrato';
+}
+
+// Texto em que a busca procura: nome do arquivo, data de envio (dd/mm/aaaa), status (como aparece
+// na tela e como é gravado) e formato.
+function textoBuscavel(extrato) {
+    const e = extrato || {};
+    const data = e.created_at ? new Date(e.created_at).toLocaleDateString('pt-BR') : '';
+    return semAcento([nomeDoArquivo(e.file_path), data, ROTULO_STATUS_EXTRATO[e.status] || '', e.status, e.formato].join(' '));
+}
+
+// Filtra os extratos pelo texto digitado. Todas as palavras precisam aparecer (sem diferenciar
+// caixa nem acento), em qualquer ordem e em qualquer um dos campos. Texto vazio devolve tudo, na
+// ordem recebida.
+function filtrarExtratos(extratos, busca) {
+    const lista = extratos || [];
+    const termos = semAcento(busca).split(/\s+/).filter(Boolean);
+    if (termos.length === 0) return lista;
+    return lista.filter(e => {
+        const alvo = textoBuscavel(e);
+        return termos.every(t => alvo.includes(t));
+    });
+}
+
 // Status da nota em que a conciliação já foi ou está sendo feita (a nota está na fila ou já passou
 // dela): só nestes a fila de conciliação a pega.
 const STATUS_NA_FILA = ['aguardando_comprovante', 'aguardando_conciliacao_bancaria'];
@@ -135,7 +168,7 @@ function situacaoExtrato(doc) {
 
 return {
     PERFIS_VINCULO, TIPOS_VINCULAVEIS, STATUS_VINCULAVEIS, STATUS_DIVERGENCIA, STATUS_EXTRATO_RECUSADOS, MAX_NOTAS,
-    STATUS_NA_FILA, STATUS_ANTES_DA_CONCILIACAO,
-    validarPedido, validarExtrato, avaliarNota, situacaoExtrato
+    STATUS_NA_FILA, STATUS_ANTES_DA_CONCILIACAO, ROTULO_STATUS_EXTRATO,
+    validarPedido, validarExtrato, avaliarNota, situacaoExtrato, nomeDoArquivo, filtrarExtratos
 };
 });
