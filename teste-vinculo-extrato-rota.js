@@ -52,7 +52,8 @@ function zerarBanco() {
             nota(12, { status: 'processing_ocr' }),
             nota(13, { status: 'aguardando_rubrica', user_id: ANALISTA })
         ],
-        audit_log: []
+        audit_log: [],
+        processamento_eventos: []
     };
 }
 

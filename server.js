@@ -5578,6 +5578,83 @@ async function conciliarNotaAutoLote(document_id, { callerOrg = null, actorId = 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GET /api/conciliacao/extratos-pausados?project_id=<id>  (#127)
+// Extratos do projeto que a fila de conciliação pausou (a primeira nota voltou do n8n com "Extrato de
+// outro projeto") e as notas que ainda estão presas a eles. processamento_eventos tem RLS sem política:
+// só o servidor (service role) lê, por isso o front pergunta aqui. Mesmas regras de acesso da rota
+// vincular-extrato: perfil admin/gestor/analista e organização vindos do JWT, projeto conferido no
+// banco; analista só vê as notas que ele enviou. Resposta:
+// { ok, project_id, extratos: [{ id, nome, enviado_em, pausado_em, motivo, notas: [{ id, nome, numero_nf,
+//   nome_emissor, valor, data_emissao, status }] }] }
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/api/conciliacao/extratos-pausados', requireAuth, async (req, res) => {
+    try {
+        const orgId = req.user?.app_metadata?.org_id || null;
+        const pedido = VinculoExtrato.validarConsultaPausados({ role: req.userRole, orgId, projectId: req.query.project_id });
+        if (!pedido.ok) return res.status(pedido.http).json({ error: pedido.erro });
+
+        const { data: projeto, error: projErr } = await supabase
+            .from('projects').select('id, organization_id').eq('id', pedido.projectId).maybeSingle();
+        if (projErr) throw projErr;
+        if (!projeto || projeto.organization_id !== orgId) return res.status(404).json({ error: 'Projeto não encontrado.' });
+
+        const { data: extratos, error: extratosErr } = await supabase
+            .from('extratos').select('id, file_path, created_at, organization_id').eq('project_id', pedido.projectId);
+        if (extratosErr) throw extratosErr;
+        const doProjeto = (extratos || []).filter(e => !e.organization_id || e.organization_id === orgId);
+        const vazio = { ok: true, project_id: pedido.projectId, extratos: [] };
+        if (!doProjeto.length) return res.json(vazio);
+
+        const { data: eventos, error: eventosErr } = await supabase
+            .from('processamento_eventos')
+            .select('registro_id, acao, criado_em, detalhe')
+            .eq('acao', Fila.ACAO_PAUSA)
+            .in('registro_id', doProjeto.map(e => e.id));
+        if (eventosErr) throw eventosErr;
+        const pausados = Fila.extratosPausados(eventos || []);
+        if (!pausados.size) return res.json(vazio);
+
+        const { data: notas, error: notasErr } = await supabase
+            .from('documents')
+            .select('id, name, numero_nf, nome_emissor, valor, data_emissao, status, just_erro, user_id, tipo_documento, extrato_origem_id')
+            .eq('project_id', pedido.projectId)
+            .in('extrato_origem_id', [...pausados]);
+        if (notasErr) throw notasErr;
+
+        // Só conta como parada a nota que ainda espera por causa do extrato pausado (na fila ou em
+        // divergência) e que o usuário pode ver: o analista enxerga só as dele.
+        const presas = (notas || []).filter(n => VinculoExtrato.TIPOS_VINCULAVEIS.includes(n.tipo_documento)
+            && VinculoExtrato.presaAExtratoPausado(n, pausados)
+            && (req.userRole !== 'analista' || n.user_id === req.user.id));
+
+        const resposta = [];
+        for (const e of doProjeto) {
+            if (!pausados.has(e.id)) continue;
+            const notasDoExtrato = presas.filter(n => n.extrato_origem_id === e.id);
+            if (!notasDoExtrato.length) continue;
+            const pausas = (eventos || []).filter(ev => ev.registro_id === e.id).sort((x, y) => new Date(y.criado_em) - new Date(x.criado_em));
+            resposta.push({
+                id: e.id,
+                nome: VinculoExtrato.nomeDoArquivo(e.file_path),
+                enviado_em: e.created_at || null,
+                pausado_em: pausas[0]?.criado_em || null,
+                // O detalhe gravado pela fila é "nota <id>: <texto do n8n>"; só o texto interessa.
+                motivo: String(pausas[0]?.detalhe || '').replace(/^nota [0-9a-f-]{36}:\s*/i, '').trim() || null,
+                notas: notasDoExtrato.map(n => ({
+                    id: n.id, nome: n.name || null, numero_nf: n.numero_nf ?? null, nome_emissor: n.nome_emissor ?? null,
+                    valor: n.valor ?? null, data_emissao: n.data_emissao ?? null, status: n.status
+                }))
+            });
+        }
+        resposta.sort((x, y) => new Date(y.pausado_em || 0) - new Date(x.pausado_em || 0));
+        res.json({ ok: true, project_id: pedido.projectId, extratos: resposta });
+    } catch (err) {
+        console.error('[EXTRATOS-PAUSADOS]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/conciliacao/vincular-extrato
 // Vincula um extrato a várias notas que já estão no Prestaí (grava documents.extrato_origem_id).
 // NÃO chama o n8n: a fila de conciliação (cron-conciliacao-lote) pega cada nota quando ela chega
@@ -5610,10 +5687,22 @@ app.post('/api/conciliacao/vincular-extrato', requireAuth, async (req, res) => {
 
         const { data: notas, error: notasErr } = await supabase
             .from('documents')
-            .select('id, name, project_id, user_id, tipo_documento, status, extrato_origem_id')
+            .select('id, name, project_id, user_id, tipo_documento, status, extrato_origem_id, just_erro')
             .in('id', pedido.ids);
         if (notasErr) throw notasErr;
         const notaPorId = new Map((notas || []).map(n => [n.id, n]));
+
+        // Extratos pausados pela fila entre os atuais das notas pedidas: as notas presas a eles podem
+        // trocar de extrato (#127). Sem ler os eventos, não há como saber, e a nota fica pulada como antes.
+        const extratosAtuais = [...new Set((notas || []).map(n => n.extrato_origem_id).filter(Boolean))];
+        let extratosPausados = new Set();
+        if (extratosAtuais.length) {
+            const { data: eventosPausa, error: pausaErr } = await supabase
+                .from('processamento_eventos').select('registro_id, acao')
+                .eq('acao', Fila.ACAO_PAUSA).in('registro_id', extratosAtuais);
+            if (pausaErr) throw pausaErr;
+            extratosPausados = Fila.extratosPausados(eventosPausa || []);
+        }
 
         // Organização de cada nota pelo projeto dela (autoritativo), como confirmar_lancamento_nota.
         const projetoIds = [...new Set((notas || []).map(n => n.project_id).filter(Boolean))];
@@ -5632,7 +5721,7 @@ app.post('/api/conciliacao/vincular-extrato', requireAuth, async (req, res) => {
             const nota = notaPorId.get(id) || null;
             const av = VinculoExtrato.avaliarNota({
                 nota, orgDaNota: nota ? (orgPorProjeto.get(nota.project_id) || null) : null,
-                usuario, extrato, incluirDivergencias
+                usuario, extrato, incluirDivergencias, extratosPausados
             });
             let { resultado, motivo } = av;
             if (resultado === 'vinculada') {
