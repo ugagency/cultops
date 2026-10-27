@@ -388,6 +388,40 @@ let falhas = 0;
         }
     });
 
+    await caso('excluido: documento com excluido_em recebe 404 igual ao de outra organizacao e nada e gravado', async () => {
+        cenario({ doc: { excluido_em: '2026-10-20T13:00:00Z', excluido_por: 'u2' } });
+        resultadoWorker = { sucesso: true, protocolo: 'P-1' };
+        const r = await enviarComo('u1');
+        assert.equal(r.codigo, 404);
+        assert.deepEqual(r.corpo, NAO_ENCONTRADO, 'mesma resposta, sem revelar que existe nem que foi ocultado');
+        assert.deepEqual(escritas, [], 'nada em documents nem em despesas');
+        assert.equal(configRecebido, null, 'o worker nao e chamado');
+        assert.equal(chamadasStorage, 0, 'nem a URL do arquivo e assinada');
+        cenario({ doc: { organization_id: 'orgB' } });
+        const deOutraOrg = await enviarComo('u1');
+        assert.equal(r.codigo, deOutraOrg.codigo);
+        assert.deepEqual(r.corpo, deOutraOrg.corpo);
+    });
+
+    await caso('excluido: o mesmo vale no dry-run', async () => {
+        cenario({ doc: { excluido_em: '2026-10-20T13:00:00Z' } });
+        resultadoWorker = RESULTADO_DRY;
+        const r = await rodarDryRun(novoHandler());
+        assert.equal(r.codigo, 404);
+        assert.deepEqual(r.corpo, NAO_ENCONTRADO);
+        assert.deepEqual(escritas, []);
+        assert.equal(configRecebido, null);
+    });
+
+    await caso('excluido: documento com excluido_em null continua sendo enviado como antes', async () => {
+        cenario({ doc: { excluido_em: null, excluido_por: null } });
+        resultadoWorker = { sucesso: true, protocolo: 'P-2' };
+        const r = await enviarComo('u1');
+        assert.equal(r.codigo, 200);
+        assert.ok(configRecebido, 'o worker e chamado');
+        assert.ok(escritasEm('documents').some(e => e.payload && e.payload.status === 'enviado_salic'));
+    });
+
     await caso('org: documento sem organization_id recebe 404 (falha fechado)', async () => {
         cenario({ doc: { organization_id: null } });
         const r = await enviarComo('u1');
