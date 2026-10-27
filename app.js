@@ -885,6 +885,9 @@ const state = {
     all_solicitantes: [],
     vinculos_solicitantes: [],
     uploadLoteQueue: [],
+    // Andamento do "Processar todos" do lote (#121): feitos conta os documentos ja tratados
+    // (enviados ou com falha); falhas e o subconjunto de feitos que falhou.
+    uploadLoteProgresso: { ativo: false, total: 0, feitos: 0, falhas: 0 },
     // Extrato opcional vinculado ao lote atual: { id, nome, projectId }.
     // Guarda o projectId para não carimbar documentos de outro projeto —
     // a fila de lote é por usuário, não por projeto (ver fetchUploadLoteQueue).
@@ -2164,6 +2167,23 @@ const UploadLoteView = () => {
     const fila = state.uploadLoteQueue || [];
     const projetoSelecionado = state.filters.project || '';
     const rubricas = state.rubricas_disponiveis || [];
+    // Enquanto o lote e enviado (handleProcessarTodosLote), nada que mude a fila pode ser usado.
+    const progresso = state.uploadLoteProgresso || {};
+    const enviando = !!progresso.ativo;
+    const percentualEnvio = enviando && progresso.total > 0
+        ? Math.min(100, Math.round((progresso.feitos / progresso.total) * 100))
+        : 0;
+    const quadroEnvioHtml = enviando ? `
+            <div class="card mb-4" id="lote-progresso-envio" role="status" aria-live="polite">
+                <p class="text-sm" style="font-weight: 600; color: var(--primary); margin-bottom: 0.6rem;">
+                    Enviando documentos para processamento: ${progresso.feitos} de ${progresso.total}${progresso.falhas > 0 ? ` (${progresso.falhas} com falha)` : ''}
+                </p>
+                <div class="salic-progress-bar">
+                    <div class="salic-progress-fill" style="width: ${percentualEnvio}%;"></div>
+                </div>
+                <p class="text-xs" style="color: var(--text-muted); margin-top: 0.5rem;">Cada documento sai da lista assim que e enviado. Aguarde o fim para continuar.</p>
+            </div>
+    ` : '';
 
     return `
 ${Sidebar()}
@@ -2174,12 +2194,13 @@ ${Sidebar()}
         </header>
 
         <div style="max-width: 900px; margin: 0 auto;">
+            ${quadroEnvioHtml}
             <div class="card mb-4">
                 <h3 class="h2 mb-4">1. Selecionar arquivos</h3>
 
                 <div class="form-group mb-4">
                     <label>Projeto / PRONAC</label>
-                    <select id="lote-project-selector" onchange="window.handleLoteProjectChange(this.value)">
+                    <select id="lote-project-selector" onchange="window.handleLoteProjectChange(this.value)" ${enviando ? 'disabled' : ''}>
                         <option value="">Selecione um projeto...</option>
                         ${state.projects.map(p => `<option value="${p.id}" ${projetoSelecionado === p.id ? 'selected' : ''}>${p.pronac} - ${p.nome}</option>`).join('')}
                     </select>
@@ -2198,7 +2219,7 @@ ${Sidebar()}
                                     Extrato vinculado: ${state.loteExtratoVinculado.nome}
                                 </span>
                             </div>
-                            <button class="btn btn-secondary" style="padding: 0.35rem 0.75rem; font-size: 12px; flex-shrink: 0;" onclick="window.handleRemoverExtratoLote()">
+                            <button class="btn btn-secondary" style="padding: 0.35rem 0.75rem; font-size: 12px; flex-shrink: 0;" onclick="window.handleRemoverExtratoLote()" ${enviando ? 'disabled' : ''}>
                                 Trocar
                             </button>
                         </div>
@@ -2206,8 +2227,8 @@ ${Sidebar()}
                             As notas processadas abaixo nascerão vinculadas a este extrato.
                         </p>
                     ` : `
-                        <div class="upload-area" style="padding: 1.25rem;" onclick="document.getElementById('lote-extrato-input').click()">
-                            <input type="file" id="lote-extrato-input" accept=".ofx,.csv,.pdf" style="display: none;" onchange="window.handleUploadExtratoParaLote(this.files[0])">
+                        <div class="upload-area" style="padding: 1.25rem;${enviando ? ' opacity: 0.5; pointer-events: none;' : ''}" ${enviando ? 'aria-disabled="true"' : `onclick="document.getElementById('lote-extrato-input').click()"`}>
+                            <input type="file" id="lote-extrato-input" accept=".ofx,.csv,.pdf" style="display: none;" ${enviando ? 'disabled' : ''} onchange="window.handleUploadExtratoParaLote(this.files[0])">
                             <i data-lucide="landmark" style="width: 24px; color: var(--primary); margin-bottom: 0.5rem;"></i>
                             <p class="text-sm" style="font-weight: 600;">Clique para subir o extrato deste lote</p>
                             <p class="text-xs" style="color: var(--text-muted); margin-top: 0.35rem;">
@@ -2219,21 +2240,21 @@ ${Sidebar()}
                 </div>
                 ` : ''}
 
-                <div class="upload-area" onclick="if(document.getElementById('lote-project-selector').value) document.getElementById('lote-file-input').click(); else window.showToast('Selecione um projeto primeiro!', 'error');">
-                    <input type="file" id="lote-file-input" multiple accept=".pdf" style="display: none;" onchange="window.handleLoteFilesSelected(this.files)">
+                <div class="upload-area" ${enviando ? 'style="opacity: 0.5; pointer-events: none;" aria-disabled="true"' : `onclick="if(document.getElementById('lote-project-selector').value) document.getElementById('lote-file-input').click(); else window.showToast('Selecione um projeto primeiro!', 'error');"`}>
+                    <input type="file" id="lote-file-input" multiple accept=".pdf" style="display: none;" ${enviando ? 'disabled' : ''} onchange="window.handleLoteFilesSelected(this.files)">
                     <i data-lucide="layers" style="width: 32px; color: var(--primary); margin-bottom: 1rem;"></i>
                     <p class="text-sm" style="font-weight: 600;">Selecione vários PDFs ou clique para escolher</p>
                     <p class="text-xs" style="color: var(--text-muted); margin-top: 0.5rem;">Os arquivos serão enviados para a fila abaixo. Você escolhe a rubrica de cada um antes de processar.</p>
                 </div>
 
-                ${state.loading ? `<p class="text-xs mt-4" style="color: var(--primary); text-align: center;">Enviando arquivos para a fila, aguarde...</p>` : ''}
+                ${state.loading && !enviando ? `<p class="text-xs mt-4" style="color: var(--primary); text-align: center;">Enviando arquivos para a fila, aguarde...</p>` : ''}
             </div>
 
             <div class="card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                     <h3 class="h2" style="margin: 0;">2. Fila aguardando rubrica (${fila.length})</h3>
                     ${fila.length > 0 ? `
-                        <button class="btn btn-primary" onclick="window.handleProcessarTodosLote()" ${state.loading ? 'disabled' : ''}>
+                        <button class="btn btn-primary" onclick="window.handleProcessarTodosLote()" ${state.loading || enviando ? 'disabled' : ''}>
                             <i data-lucide="play" style="width: 16px;"></i> Processar todos preenchidos
                         </button>
                     ` : ''}
@@ -2265,14 +2286,14 @@ ${Sidebar()}
                                     <td style="max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${doc.name}">${doc.name}</td>
                                     <td>${doc.size || '-'}</td>
                                     <td>
-                                        <input type="text" id="lote-rubrica-${doc.id}" data-rubrica-combo data-saldo-target="lote-rubrica-saldo-${doc.id}" placeholder="${rubricas.length === 0 ? 'Selecione um projeto com rubricas...' : 'Digite para buscar rubrica...'}" autocomplete="off" style="width: 100%; padding: 0.5rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: 4px; background: white;" value="${escAttr(valorInput)}" ${rubricas.length === 0 ? 'disabled' : ''}>
+                                        <input type="text" id="lote-rubrica-${doc.id}" data-rubrica-combo data-saldo-target="lote-rubrica-saldo-${doc.id}" placeholder="${rubricas.length === 0 ? 'Selecione um projeto com rubricas...' : 'Digite para buscar rubrica...'}" autocomplete="off" style="width: 100%; padding: 0.5rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: 4px; background: white;" value="${escAttr(valorInput)}" ${rubricas.length === 0 || enviando ? 'disabled' : ''}>
                                         <div id="lote-rubrica-saldo-${doc.id}">${renderSaldoBadgeHtml(rubricaPre ? rubricaPre.id : null)}</div>
                                     </td>
                                     <td>
-                                        <button class="btn btn-primary" style="padding: 0.4rem 0.75rem;" onclick="window.handleProcessarLoteItem('${doc.id}')">
+                                        <button class="btn btn-primary" style="padding: 0.4rem 0.75rem;" onclick="window.handleProcessarLoteItem('${doc.id}')" ${enviando ? 'disabled' : ''}>
                                             <i data-lucide="play" style="width: 14px;"></i> Processar
                                         </button>
-                                        <button class="btn btn-ghost" style="padding: 0.4rem 0.5rem; color: var(--error);" onclick="window.handleExcluirLoteItem('${doc.id}', '${doc.file_path}')" title="Excluir">
+                                        <button class="btn btn-ghost" style="padding: 0.4rem 0.5rem; color: var(--error);" onclick="window.handleExcluirLoteItem('${doc.id}', '${doc.file_path}')" title="Excluir" ${enviando ? 'disabled' : ''}>
                                             <i data-lucide="trash-2" style="width: 14px;"></i>
                                         </button>
                                     </td>
@@ -9521,6 +9542,7 @@ window.handleLoteFilesSelected = async function (fileList) {
 };
 
 window.handleProcessarLoteItem = async function (documentId) {
+    if (state.uploadLoteProgresso && state.uploadLoteProgresso.ativo) return;
     const input = document.getElementById(`lote-rubrica-${documentId}`);
     const rubricaInput = input ? input.value.trim() : '';
     if (!rubricaInput) return window.showToast("Escolha a rubrica antes de processar.", 'error');
@@ -9563,6 +9585,8 @@ window.handleProcessarLoteItem = async function (documentId) {
 };
 
 window.handleProcessarTodosLote = async function () {
+    // Um segundo clique durante o envio nao pode abrir outro lote por cima.
+    if (state.uploadLoteProgresso && state.uploadLoteProgresso.ativo) return;
     const itensComRubrica = state.uploadLoteQueue
         .map(doc => {
             const input = document.getElementById(`lote-rubrica-${doc.id}`);
@@ -9633,6 +9657,17 @@ window.handleProcessarTodosLote = async function () {
         confirmLabel: avisoSaldo ? 'Processar mesmo assim' : 'Processar',
         variant: avisoSaldo ? 'danger' : 'primary',
         onConfirm: async () => {
+            // O redesenho abaixo monta os campos de rubrica a partir de state.uploadLoteQueue, e
+            // o que o usuario digitou ainda nao foi gravado (o loop grava um documento por vez).
+            // Copia antes do render() para as rubricas continuarem visiveis (#121).
+            const rubricaDigitada = {};
+            itensComRubrica.forEach(({ doc, rubricaTexto, rubricaIdFk }) => {
+                doc.rubrica = rubricaTexto;
+                doc.rubrica_id_fk = rubricaIdFk;
+                rubricaDigitada[doc.id] = { rubrica: rubricaTexto, rubrica_id_fk: rubricaIdFk };
+            });
+            const idsComFalha = [];
+            state.uploadLoteProgresso = { ativo: true, total: itensComRubrica.length, feitos: 0, falhas: 0 };
             state.loading = true;
             render();
 
@@ -9642,32 +9677,48 @@ window.handleProcessarTodosLote = async function () {
             // ao mesmo tempo podiam competir pelo mesmo lançamento. Um por vez, aguardando
             // o disparo ao n8n antes do próximo, elimina a corrida.
             let sucessos = 0, falhas = 0;
-            for (const { doc, rubricaTexto, rubricaIdFk } of itensComRubrica) {
-                try {
-                    const { error } = await supabaseClient
-                        .from('documents')
-                        .update({
-                            rubrica: rubricaTexto,
-                            rubrica_id_fk: rubricaIdFk,
-                            status: 'processing_ocr',
-                            extrato_origem_id: extratoOrigemPara(doc)
-                        })
-                        .eq('id', doc.id);
-                    if (error) throw error;
-                    await dispararOcr(doc.id, doc.file_path);
-                    sucessos++;
-                } catch (err) {
-                    console.error('[handleProcessarTodosLote]', doc.id, err);
-                    falhas++;
+            try {
+                for (const { doc, rubricaTexto, rubricaIdFk } of itensComRubrica) {
+                    try {
+                        const { error } = await supabaseClient
+                            .from('documents')
+                            .update({
+                                rubrica: rubricaTexto,
+                                rubrica_id_fk: rubricaIdFk,
+                                status: 'processing_ocr',
+                                extrato_origem_id: extratoOrigemPara(doc)
+                            })
+                            .eq('id', doc.id);
+                        if (error) throw error;
+                        await dispararOcr(doc.id, doc.file_path);
+                        sucessos++;
+                        // Enviado: sai da lista agora, sem esperar o fetch do final.
+                        state.uploadLoteQueue = state.uploadLoteQueue.filter(d => d.id !== doc.id);
+                    } catch (err) {
+                        console.error('[handleProcessarTodosLote]', doc.id, err);
+                        falhas++;
+                        idsComFalha.push(doc.id);
+                        state.uploadLoteProgresso.falhas = falhas;
+                    }
+                    state.uploadLoteProgresso.feitos = sucessos + falhas;
+                    render();
                 }
+
+                if (sucessos > 0) showToast(`${sucessos} documento(s) enviados para processamento.`, 'success');
+                if (falhas > 0) showToast(`${falhas} falharam.`, 'error');
+
+                await fetchUploadLoteQueue();
+                // O fetch traz o banco, onde a rubrica de quem falhou nunca foi gravada: devolve
+                // o que o usuario digitou para ele tentar de novo sem preencher outra vez.
+                idsComFalha.forEach(id => {
+                    const item = state.uploadLoteQueue.find(d => d.id === id);
+                    if (item) Object.assign(item, rubricaDigitada[id]);
+                });
+            } finally {
+                state.uploadLoteProgresso = { ativo: false, total: 0, feitos: 0, falhas: 0 };
+                state.loading = false;
+                render();
             }
-
-            if (sucessos > 0) showToast(`${sucessos} documento(s) enviados para processamento.`, 'success');
-            if (falhas > 0) showToast(`${falhas} falharam.`, 'error');
-
-            await fetchUploadLoteQueue();
-            state.loading = false;
-            render();
         }
     });
 };
