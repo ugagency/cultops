@@ -427,5 +427,106 @@ teste('janela: digitar na busca atualiza só a lista (sem redesenhar a janela e 
     assert.ok(lista.innerHTML.includes('agosto.pdf'));
 });
 
+// ---- Extrato pausado (#127) ----
+const PAUSADO = 'ext-pausado';
+const PAUSADOS = new Set([PAUSADO]);
+const presa = (extra = {}) => nota({ extrato_origem_id: PAUSADO, ...extra });
+const ERRO_PRONAC = 'Extrato de outro projeto: PRONAC 1 diferente de 2';
+
+teste('pausado: nota presa ao extrato pausado e revinculada a outro, nao pulada', () => {
+    const r = avaliar(presa(), { extratosPausados: PAUSADOS });
+    assert.strictEqual(r.resultado, 'vinculada');
+    assert.strictEqual(r.motivo, 'Vinculada; substitui o extrato de outro projeto.');
+    assert.deepStrictEqual(r.atualizar, { extrato_origem_id: 'ext-1' });
+    const emComprovante = avaliar(presa({ status: 'aguardando_comprovante' }), { extratosPausados: PAUSADOS });
+    assert.strictEqual(emComprovante.resultado, 'vinculada');
+});
+
+teste('pausado: sem o conjunto, ou com outro extrato pausado, a nota continua pulada como hoje', () => {
+    for (const extra of [{}, { extratosPausados: null }, { extratosPausados: new Set() }, { extratosPausados: new Set(['outro-extrato']) }]) {
+        const r = avaliar(presa(), extra);
+        assert.strictEqual(r.resultado, 'pulada');
+        assert.strictEqual(r.motivo, 'Já vinculada a outro extrato.');
+        assert.strictEqual(r.atualizar, undefined);
+    }
+    // aceita lista simples tambem
+    assert.strictEqual(avaliar(presa(), { extratosPausados: [PAUSADO] }).resultado, 'vinculada');
+});
+
+teste('pausado: a nota que disparou a pausa (divergencia) so entra com a confirmacao e volta para a conciliacao', () => {
+    for (const status of V.STATUS_DIVERGENCIA) {
+        const sem = avaliar(presa({ status, just_erro: ERRO_PRONAC }), { extratosPausados: PAUSADOS });
+        assert.strictEqual(sem.resultado, 'pulada', status);
+        assert.ok(/divergência/.test(sem.motivo));
+        const com = avaliar(presa({ status, just_erro: ERRO_PRONAC }), { extratosPausados: PAUSADOS, incluirDivergencias: true });
+        assert.strictEqual(com.resultado, 'vinculada', status);
+        assert.strictEqual(com.motivo, 'Vinculada; substitui o extrato de outro projeto.');
+        assert.deepStrictEqual(com.atualizar, { extrato_origem_id: 'ext-1', status: 'aguardando_conciliacao_bancaria', just_erro: null });
+    }
+});
+
+teste('pausado: divergencia presa a um extrato que NAO esta pausado continua pulada ("ja vinculada a outro extrato")', () => {
+    const r = avaliar(presa({ status: 'divergencia_beneficiario' }), { extratosPausados: new Set(['outro']), incluirDivergencias: true });
+    assert.strictEqual(r.resultado, 'pulada');
+    assert.strictEqual(r.motivo, 'Já vinculada a outro extrato.');
+});
+
+teste('pausado: status inesperado so entra se o erro for o de extrato de outro projeto e a nota ainda nao passou da conciliacao', () => {
+    // status fora de vinculaveis/divergencia, com o erro: tratada como reconferencia (exige confirmacao)
+    const sem = avaliar(presa({ status: 'bloqueado_conformidade', just_erro: ERRO_PRONAC }), { extratosPausados: PAUSADOS });
+    assert.strictEqual(sem.resultado, 'pulada');
+    const com = avaliar(presa({ status: 'bloqueado_conformidade', just_erro: ERRO_PRONAC }), { extratosPausados: PAUSADOS, incluirDivergencias: true });
+    assert.strictEqual(com.resultado, 'vinculada');
+    assert.deepStrictEqual(com.atualizar, { extrato_origem_id: 'ext-1', status: 'aguardando_conciliacao_bancaria', just_erro: null });
+    // sem o erro, o status inesperado continua pulado (extrato de outro) como antes
+    assert.strictEqual(avaliar(presa({ status: 'bloqueado_conformidade', just_erro: 'outro erro' }), { extratosPausados: PAUSADOS, incluirDivergencias: true }).resultado, 'pulada');
+    // nota que ja passou da conciliacao nunca e revinculada
+    for (const status of V.STATUS_ENCERRADOS) {
+        const r = avaliar(presa({ status, just_erro: ERRO_PRONAC }), { extratosPausados: PAUSADOS, incluirDivergencias: true });
+        assert.strictEqual(r.resultado, 'pulada', status);
+    }
+});
+
+teste('pausado: as demais regras valem igual (outro projeto, analista, tipo)', () => {
+    assert.strictEqual(avaliar(presa({ project_id: 'proj-2' }), { extratosPausados: PAUSADOS }).resultado, 'recusada');
+    assert.strictEqual(avaliar(presa({ user_id: 'u-outro' }), { extratosPausados: PAUSADOS, usuario: analista }).resultado, 'recusada');
+    assert.strictEqual(avaliar(presa({ tipo_documento: 'comprovante' }), { extratosPausados: PAUSADOS }).resultado, 'recusada');
+});
+
+teste('pausado: nota sem extrato entra normalmente; extrato igual ao novo continua "ja vinculada a este extrato"', () => {
+    assert.strictEqual(avaliar(nota(), { extratosPausados: PAUSADOS }).motivo, 'Vinculada; entra na fila de conciliação.');
+    const mesmo = avaliar(nota({ extrato_origem_id: 'ext-1' }), { extratosPausados: new Set(['ext-1']) });
+    assert.strictEqual(mesmo.resultado, 'pulada');
+    assert.strictEqual(mesmo.motivo, 'Já vinculada a este extrato.');
+});
+
+teste('selo: situacaoExtrato devolve "pausado" so com o conjunto de pausados; sem ele, como antes', () => {
+    const sel = (status, pausados) => V.situacaoExtrato({ status, extrato_origem_id: PAUSADO }, pausados);
+    assert.strictEqual(sel('aguardando_conciliacao_bancaria'), 'fila');
+    assert.strictEqual(sel('aguardando_conciliacao_bancaria', PAUSADOS), 'pausado');
+    assert.strictEqual(sel('aguardando_comprovante', PAUSADOS), 'pausado');
+    assert.strictEqual(sel('divergencia_beneficiario'), null, 'sem a informacao de pausa o selo e o de sempre');
+    assert.strictEqual(sel('divergencia_beneficiario', PAUSADOS), 'pausado');
+    assert.strictEqual(sel('aguardando_conciliacao_bancaria', new Set(['outro'])), 'fila');
+    assert.strictEqual(sel('liberado_rpa_airtop', PAUSADOS), null, 'nota que ja passou da conciliacao nao e afetada');
+    assert.strictEqual(V.situacaoExtrato({ status: 'aguardando_conciliacao_bancaria' }, PAUSADOS), null);
+});
+
+teste('pausado: o texto do erro reconhecido aqui e o mesmo da fila (fila-conciliacao.js)', () => {
+    const Fila = require('./fila-conciliacao.js');
+    for (const t of [ERRO_PRONAC, 'EXTRATO DE OUTRO PROJETO', '  extrato de outro projeto', 'Extrato de outro projéto', 'Divergência: extrato de outro projeto', '', null, undefined, 'Pagamento não localizado']) {
+        assert.strictEqual(V.justErroDeExtratoDeOutroProjeto(t), Fila.extratoDeOutroProjeto(t), String(t));
+    }
+});
+
+teste('consulta de extratos pausados: perfil, organizacao e projeto', () => {
+    const c = (extra) => V.validarConsultaPausados({ role: 'gestor', orgId: ORG, projectId: U(10), ...extra });
+    for (const r of ['admin', 'gestor', 'analista']) assert.strictEqual(c({ role: r }).ok, true, r);
+    for (const r of ['fornecedor', 'operador', null]) assert.deepStrictEqual([c({ role: r }).ok, c({ role: r }).http], [false, 403], String(r));
+    assert.strictEqual(c({ orgId: null }).http, 403);
+    for (const p of [undefined, '', 'abc', 123, null]) assert.strictEqual(c({ projectId: p }).http, 400, String(p));
+    assert.strictEqual(c({ projectId: ' ' + U(10) + ' ' }).projectId, U(10));
+});
+
 console.log(`${ok} ok, ${falhas} falha(s)`);
 process.exit(falhas ? 1 : 0);

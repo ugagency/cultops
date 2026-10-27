@@ -868,6 +868,10 @@ const state = {
     origemPagamento: null,
     pagamentoManualAberto: false,
     vincularExtrato: null, // janela "Vincular extrato" da lista de Documentos (null = fechada)
+    // Extratos que a fila de conciliação pausou por serem de outro projeto (#127), por projeto:
+    // { [projectId]: [{ id, nome, enviado_em, pausado_em, motivo, notas: [...] }] }. Vem do servidor
+    // (GET /api/conciliacao/extratos-pausados), porque processamento_eventos não é legível pelo navegador.
+    extratosPausados: {},
     pagamentoInformadoDocId: null, // nota cujo pagamento foi informado nesta sessão (erro do robô por pagamento)
     pagamentoManualRascunho: {},
     // "Ver lançamentos de outros extratos / ampliar": vale só para a nota de docId e zera ao abrir outra.
@@ -1772,6 +1776,7 @@ ${Sidebar()}
         <p class="page-subtitle">Bem-vindo ao Prestaí, seu assistente de conformidade financeira.</p>
     </header>
     
+    ${avisoExtratosPausadosHtml(state.filters.project)}
     <div class="metrics-grid">
         <div class="card metric-card">
             <p class="metric-label">Notas analisadas</p>
@@ -2194,6 +2199,7 @@ ${Sidebar()}
         </header>
 
         <div style="max-width: 900px; margin: 0 auto;">
+            ${avisoExtratosPausadosHtml(projetoSelecionado)}
             ${quadroEnvioHtml}
             <div class="card mb-4">
                 <h3 class="h2 mb-4">1. Selecionar arquivos</h3>
@@ -6169,6 +6175,7 @@ window.navigate = async function (view, id = null) {
         state.filters.status = '';
         await fetchProjects(); // Sempre recarrega projetos ao voltar ao dashboard
         await fetchDocuments();
+        await carregarExtratosPausados(state.filters.project);
     } else if (view === 'solicitante_dashboard') {
         await fetchSolicitanteDashboard();
     } else if (view === 'upload') {
@@ -6187,6 +6194,7 @@ window.navigate = async function (view, id = null) {
                 fetchRubricasDisponiveis(state.filters.project),
                 fetchExtratoLoteVinculado(state.filters.project),
                 carregarSaldoRubricasSeHabilitado(state.filters.project),
+                carregarExtratosPausados(state.filters.project),
             ]);
         }
     } else if (view === 'envio_lote_salic') {
@@ -7144,6 +7152,7 @@ async function fetchDocumentDetails(id, silent = false, opcoes = {}) {
     }
 
     const meuSeq = ++_detalhesSeq;
+    garantirExtratosPausadosDaNota(id);
     const outroDocumento = !state.currentDocument || state.currentDocument.id !== id;
 
     if (!silent) {
@@ -7567,6 +7576,7 @@ window.updateFilters = function (key, value) {
             // CR-2026-001 (complemento): trocar o filtro de projeto nesta tela muda
             // quais documentos aparecem, então o saldo carregado precisa acompanhar.
             if (state.currentView === 'envio_lote_salic') await atualizarSaldoEnvioLote();
+            if (key === 'project') await carregarExtratosPausados(state.filters.project);
             render();
         });
     }, 400);
@@ -7659,6 +7669,7 @@ function extratosVincularListaHtml(v) {
     const termo = String(v.busca || '').trim();
     const visiveis = window.VinculoExtrato.filtrarExtratos(todos, termo);
     const rotulos = window.VinculoExtrato.ROTULO_STATUS_EXTRATO;
+    const pausados = idsExtratosPausados();
     const escolhido = todos.find(e => e.id === v.extratoId);
     const contagem = termo
         ? `<p class="text-xs" style="color: var(--text-muted); margin-bottom: 0.35rem;">${visiveis.length} de ${todos.length} extrato${todos.length === 1 ? '' : 's'}</p>`
@@ -7668,11 +7679,11 @@ function extratosVincularListaHtml(v) {
         : `<div style="max-height: 22vh; overflow: auto; border: 1px solid var(--border-light); border-radius: var(--radius-sm);">
             ${visiveis.map(e => `
             <label style="display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border-light); cursor: pointer;">
-                <input type="radio" name="vincular-extrato-escolha" ${v.extratoId === e.id ? 'checked' : ''} onchange="window.vincularExtratoEscolher('${e.id}')" ${v.executando ? 'disabled' : ''}>
+                <input type="radio" name="vincular-extrato-escolha" ${v.extratoId === e.id ? 'checked' : ''} onchange="window.vincularExtratoEscolher('${e.id}')" ${v.executando || pausados.has(e.id) ? 'disabled' : ''}>
                 <span style="min-width: 0;">
                     <span class="text-sm" style="font-weight: 600; overflow-wrap: anywhere;">${escHtml(nomeDoExtrato(e))}</span>
                     <span class="text-xs" style="display: block; color: var(--text-muted);">
-                        Enviado em ${escHtml(e.created_at ? new Date(e.created_at).toLocaleString('pt-BR') : '---')} - ${escHtml(rotulos[e.status] || e.status || '---')}${e.formato ? ' - ' + escHtml(String(e.formato).toUpperCase()) : ''}
+                        Enviado em ${escHtml(e.created_at ? new Date(e.created_at).toLocaleString('pt-BR') : '---')} - ${escHtml(rotulos[e.status] || e.status || '---')}${e.formato ? ' - ' + escHtml(String(e.formato).toUpperCase()) : ''}${pausados.has(e.id) ? ' - extrato de outro projeto (pausado)' : ''}
                     </span>
                 </span>
             </label>`).join('')}
@@ -7684,15 +7695,55 @@ function extratosVincularListaHtml(v) {
     return contagem + corpo + aviso;
 }
 
-// Selo de situação do extrato (vinculo-extrato.js): na fila de conciliação ou só vinculado.
+// ---- Extratos pausados pela fila (#127) ----
+
+// Ids de todos os extratos pausados já carregados (de qualquer projeto).
+function idsExtratosPausados() {
+    const ids = new Set();
+    Object.values(state.extratosPausados || {}).forEach(lista => (lista || []).forEach(e => ids.add(e.id)));
+    return ids;
+}
+
+function resumirMotivoPausa(motivo) {
+    const texto = String(motivo || '').replace(/\s+/g, ' ').trim();
+    return texto.length > 160 ? texto.slice(0, 157).trimEnd() + '...' : texto;
+}
+
+// Aviso no topo da lista de Documentos e da tela de lote: um quadro por extrato pausado do projeto.
+function avisoExtratosPausadosHtml(projectId) {
+    const lista = projectId ? ((state.extratosPausados || {})[projectId] || []) : [];
+    if (lista.length === 0 || !userPodeVincularExtrato()) return '';
+    return lista.map(e => {
+        const n = (e.notas || []).length;
+        const enviado = e.enviado_em ? new Date(e.enviado_em).toLocaleDateString('pt-BR') : '---';
+        const motivo = resumirMotivoPausa(e.motivo);
+        return `
+        <div class="card mb-4" role="alert" style="border: 1px solid #FCA5A5; background: #FEF2F2;">
+            <p class="text-sm" style="margin: 0; color: #991B1B; font-weight: 600;">
+                O extrato ${escHtml(e.nome || 'extrato')}, enviado em ${escHtml(enviado)}, é de outro projeto.
+                ${n === 1 ? '1 nota está parada' : n + ' notas estão paradas'} aguardando o extrato correto.
+            </p>
+            ${motivo ? `<p class="text-xs" style="margin: 0.35rem 0 0; color: #991B1B;">Motivo: ${escHtml(motivo)}</p>` : ''}
+            <div style="margin-top: 0.75rem;">
+                <button class="btn btn-primary" onclick="window.handleVincularExtratoPausado('${escHtml(e.id)}')">Vincular o extrato correto</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// Selo de situação do extrato (vinculo-extrato.js): na fila de conciliação, só vinculado ou extrato de
+// outro projeto (pausado pela fila).
 function seloExtratoHtml(doc, estiloExtra = '') {
-    const situacao = window.VinculoExtrato ? window.VinculoExtrato.situacaoExtrato(doc) : null;
+    const situacao = window.VinculoExtrato ? window.VinculoExtrato.situacaoExtrato(doc, idsExtratosPausados()) : null;
     if (!situacao) return '';
-    const texto = situacao === 'fila' ? 'Na fila de conciliação' : 'Extrato vinculado';
-    const dica = situacao === 'fila'
-        ? 'A nota tem extrato vinculado e será conciliada pela fila, uma por vez.'
-        : 'A nota tem extrato vinculado e ainda não chegou à conciliação.';
-    return `<span class="badge status-pending" title="${escHtml(dica)}" style="${estiloExtra}"><span class="badge-dot"></span>${texto}</span>`;
+    const texto = situacao === 'pausado' ? 'Extrato de outro projeto' : situacao === 'fila' ? 'Na fila de conciliação' : 'Extrato vinculado';
+    const dica = situacao === 'pausado'
+        ? 'O extrato vinculado a esta nota é de outro projeto. A nota fica parada até vincular o extrato correto.'
+        : situacao === 'fila'
+            ? 'A nota tem extrato vinculado e será conciliada pela fila, uma por vez.'
+            : 'A nota tem extrato vinculado e ainda não chegou à conciliação.';
+    const classe = situacao === 'pausado' ? 'status-error' : 'status-pending';
+    return `<span class="badge ${classe}" title="${escHtml(dica)}" style="${estiloExtra}"><span class="badge-dot"></span>${texto}</span>`;
 }
 
 window.handleAbrirVincularExtrato = async function () {
@@ -7711,16 +7762,23 @@ window.handleAbrirVincularExtrato = async function () {
         showToast('Selecione notas de um só projeto: o extrato pertence a um projeto.', 'error');
         return;
     }
+    await abrirJanelaVincular({ projectId: projetos[0], docIds: docs.map(d => d.id) });
+};
+
+// Abre a janela e carrega os extratos do projeto. docsExtra: dados das notas quando elas não estão em
+// state.documents (a tela de lote, por exemplo); incluirDivergencias: já marcada quando as notas são as
+// presas a um extrato pausado, que incluem a que voltou em divergência.
+async function abrirJanelaVincular({ projectId, docIds, docsExtra = null, incluirDivergencias = false }) {
     state.vincularExtrato = {
-        projectId: projetos[0], docIds: docs.map(d => d.id), extratos: [], carregando: true,
-        extratoId: null, busca: '', enviando: false, incluirDivergencias: false, executando: false, resultado: null, erro: null
+        projectId, docIds, docsExtra, extratos: [], carregando: true,
+        extratoId: null, busca: '', enviando: false, incluirDivergencias, executando: false, resultado: null, erro: null
     };
     render();
     try {
         const { data, error } = await supabaseClient
             .from('extratos')
             .select('id, file_path, formato, status, created_at')
-            .eq('project_id', projetos[0])
+            .eq('project_id', projectId)
             .order('created_at', { ascending: false })
             .limit(50);
         if (error) throw error;
@@ -7732,7 +7790,59 @@ window.handleAbrirVincularExtrato = async function () {
         if (state.vincularExtrato) state.vincularExtrato.carregando = false;
         render();
     }
+}
+
+// Botão "Vincular o extrato correto" do aviso de extrato pausado: abre a janela com as notas presas a ele
+// já selecionadas.
+window.handleVincularExtratoPausado = async function (extratoId) {
+    if (!userPodeVincularExtrato()) {
+        showToast('Seu perfil não pode vincular extrato a notas.', 'error');
+        return;
+    }
+    let achado = null, projectId = null;
+    for (const [pid, lista] of Object.entries(state.extratosPausados || {})) {
+        const e = (lista || []).find(x => x.id === extratoId);
+        if (e) { achado = e; projectId = pid; }
+    }
+    if (!achado || !(achado.notas || []).length) return;
+    const notas = achado.notas;
+    await abrirJanelaVincular({
+        projectId,
+        docIds: notas.map(n => n.id),
+        docsExtra: notas.map(n => ({
+            id: n.id, name: n.nome, numero_nf: n.numero_nf, nome_emissor: n.nome_emissor, valor: n.valor,
+            data_emissao: n.data_emissao, status: n.status, extrato_origem_id: achado.id
+        })),
+        incluirDivergencias: notas.some(n => ['divergencia_beneficiario', 'divergencia_valor'].includes(n.status))
+    });
 };
+
+// Pergunta ao servidor quais extratos do projeto estão pausados e guarda por projeto. Se falhar, mantém o que
+// já havia: sem a informação, o selo e o aviso simplesmente não aparecem (comportamento de antes).
+async function carregarExtratosPausados(projectId) {
+    if (!projectId || !supabaseClient || !state.user || !userPodeVincularExtrato()) return;
+    try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session) return;
+        const resposta = await fetch('/api/conciliacao/extratos-pausados?project_id=' + encodeURIComponent(projectId), {
+            headers: { 'Authorization': 'Bearer ' + session.access_token }
+        });
+        if (!resposta.ok) throw new Error('HTTP ' + resposta.status);
+        const corpo = await resposta.json();
+        state.extratosPausados = { ...(state.extratosPausados || {}), [projectId]: Array.isArray(corpo.extratos) ? corpo.extratos : [] };
+    } catch (err) {
+        console.error('[extratos-pausados]', err);
+    }
+}
+
+// Tela da nota: carrega os pausados do projeto dela se ainda não foram (para o selo) e redesenha.
+function garantirExtratosPausadosDaNota(documentId) {
+    const d = (state.documents || []).find(x => x.id === documentId);
+    if (!d || !d.project_id || !d.extrato_origem_id || (state.extratosPausados || {})[d.project_id]) return;
+    carregarExtratosPausados(d.project_id).then(() => {
+        if (state.currentView === 'details' && !state.loading) render();
+    });
+}
 
 window.vincularExtratoFechar = function () {
     if (state.vincularExtrato && state.vincularExtrato.executando) return;
@@ -7822,8 +7932,9 @@ window.vincularExtratoConfirmar = async function () {
         const corpo = await resposta.json().catch(() => ({}));
         if (!resposta.ok) throw new Error(corpo.error || 'Não foi possível vincular o extrato agora.');
         if (state.vincularExtrato === v) v.resultado = corpo;
-        // Atualiza a lista para os selos refletirem o vínculo.
+        // Atualiza a lista para os selos refletirem o vínculo, e o aviso de extrato pausado.
         await fetchDocuments();
+        await carregarExtratosPausados(v.projectId);
     } catch (err) {
         console.error('[vincular-extrato]', err);
         if (state.vincularExtrato === v) v.erro = (window.prestaiSuavizar ? window.prestaiSuavizar(String(err.message || err), 'error') : String(err.message || err));
@@ -7837,7 +7948,8 @@ const VincularExtratoModal = () => {
     const v = state.vincularExtrato;
     if (!v) return '';
     const projeto = (state.projects || []).find(p => p.id === v.projectId);
-    const docs = v.docIds.map(id => (state.documents || []).find(d => d.id === id)).filter(Boolean);
+    const pausadosIds = idsExtratosPausados();
+    const docs = v.docIds.map(id => (state.documents || []).find(d => d.id === id) || (v.docsExtra || []).find(d => d.id === id)).filter(Boolean);
     const emDivergencia = docs.filter(d => ['divergencia_beneficiario', 'divergencia_valor'].includes(d.status));
     const rotuloStatus = (d) => (STATUS_MAP[d.status] || {}).label || d.status;
     const th = 'text-align: left; padding: 0.35rem 0.5rem; font-size: 12px; white-space: nowrap;';
@@ -7903,7 +8015,7 @@ const VincularExtratoModal = () => {
                         <td style="${td} overflow-wrap: anywhere;">${escHtml(d.nome_emissor || d.name || '---')}</td>
                         <td style="${td} text-align: right; white-space: nowrap;">${d.valor != null ? escHtml(fmtValorExtrato(d.valor)) : '---'}</td>
                         <td style="${td} white-space: nowrap;">${escHtml(fmtDataExtrato(d.data_emissao))}</td>
-                        <td style="${td}">${escHtml(rotuloStatus(d))}${d.extrato_origem_id ? '<br><span style="color: var(--text-muted);">ja tem extrato vinculado</span>' : ''}</td>
+                        <td style="${td}">${escHtml(rotuloStatus(d))}${d.extrato_origem_id ? `<br><span style="color: var(--text-muted);">${pausadosIds.has(d.extrato_origem_id) ? 'extrato vinculado e de outro projeto' : 'ja tem extrato vinculado'}</span>` : ''}</td>
                     </tr>`).join('')}
                 </tbody>
             </table>
@@ -9348,6 +9460,7 @@ window.handleLoteProjectChange = async function (projectId) {
         // vínculo próprio ativo de uma sessão anterior.
         fetchExtratoLoteVinculado(projectId),
         carregarSaldoRubricasSeHabilitado(projectId),
+        carregarExtratosPausados(projectId),
     ]);
     render();
 };
