@@ -37,6 +37,9 @@ const CODIGO = [
     bloco('window.handleInformarPagamentoManual = async function', FIM_WINDOW),
     bloco('window.handleRejeitarNotaFornecedor = async function', FIM_WINDOW),
     bloco('window.handleMarcarDuplicidadeRevisada = async function', FIM_WINDOW),
+    bloco('function bloqueioPorRubricaNaoInformada(', FIM_FUNCAO),
+    bloco('function rubricaEscolhidaIgualAtual(', FIM_FUNCAO),
+    'const MSG_MESMA_RUBRICA_BLOQUEIO = "x";',
     bloco('window.handleVincularRubrica = async function', FIM_WINDOW),
     bloco('async function executarVinculoRubricaImpl(', FIM_FUNCAO),
     bloco('window.handleEnviarSalic = async function', FIM_WINDOW),
@@ -429,7 +432,9 @@ const nota = (extra = {}) => ({ id: 'n1', project_id: 'p1', status: 'divergencia
             assert.ok(corpo.includes('showConfirmModal'), f);
         }
         const antes = require('child_process').execSync('git show origin/main:app.js', { cwd: __dirname, maxBuffer: 1 << 28 }).toString().replace(/\r\n/g, '\n');
-        for (const f of ['handleForcarAvanco', 'handleConfirmarLancamentoNota', 'handleReprocessarDocumentoTravado', 'handleAprovarNotaFornecedor']) {
+        // handleForcarAvanco mudou de proposito no #125 (anexa o motivo original ao texto de override); continua
+        // com a confirmacao (conferida acima) e o texto novo e coberto por teste-avancar-motivo-original.js.
+        for (const f of ['handleConfirmarLancamentoNota', 'handleReprocessarDocumentoTravado', 'handleAprovarNotaFornecedor']) {
             const ini = 'window.' + f + ' = ';
             const a = antes.indexOf(ini);
             const b = SRC.indexOf(ini);

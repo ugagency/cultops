@@ -4588,13 +4588,23 @@ app.get('/api/suporte/documentos/:id', requireAuth, requireSuporte, async (req, 
     }
 });
 
+// O override grava o texto em documents.just_erro e apagaria o motivo do bloqueio. Anexa o motivo anterior
+// ao final do texto (até 600 caracteres, cortado com reticências); sem motivo anterior, o texto fica como era.
+const LIMITE_MOTIVO_ORIGINAL = 600;
+function anexarMotivoOriginal(texto, justErroAnterior) {
+    const anterior = String(justErroAnterior == null ? '' : justErroAnterior).trim();
+    if (!anterior) return texto;
+    const motivo = anterior.length > LIMITE_MOTIVO_ORIGINAL ? anterior.slice(0, LIMITE_MOTIVO_ORIGINAL - 3).trimEnd() + '...' : anterior;
+    return `${texto} Motivo original: ${motivo}`;
+}
+
 // 3.4 — Avançar documento. Mapa permitido em Regras.MAPA_AVANCAR; nada fora dele.
 app.post('/api/suporte/documentos/:id/avancar', requireAuth, requireSuporte, exigirMotivo, async (req, res) => {
     const id = req.params.id;
     try {
         const { data: doc, error: getErr } = await supabase
             .from('documents')
-            .select('id, status, tipo_documento, cnpj_emissor, extrato_origem_id, project_id')
+            .select('id, status, tipo_documento, cnpj_emissor, extrato_origem_id, project_id, just_erro')
             .eq('id', id)
             .maybeSingle();
         if (getErr) throw getErr;
@@ -4603,7 +4613,7 @@ app.post('/api/suporte/documentos/:id/avancar', requireAuth, requireSuporte, exi
         const regra = Regras.regraAvancar(doc);
         if (!regra.habilitada) return res.status(409).json({ error: regra.motivo_bloqueio });
 
-        const texto = `[OVERRIDE SUPORTE] Suporte avançou manualmente de "${doc.status}" para "${regra.destino}" em ${dataBr()}.`;
+        const texto = anexarMotivoOriginal(`[OVERRIDE SUPORTE] Suporte avançou manualmente de "${doc.status}" para "${regra.destino}" em ${dataBr()}.`, doc.just_erro);
         // .eq('status'): só avança se ninguém mexeu no documento entretanto.
         const { data: atualizado, error: updErr } = await supabase
             .from('documents')

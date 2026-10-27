@@ -4492,6 +4492,16 @@ const ExtratoBancarioSection = (doc) => {
 
 // --- Handlers & API ---
 
+// O avanço manual grava o texto de override em documents.just_erro e apagaria o motivo do bloqueio.
+// Anexa o motivo anterior ao final (até 600 caracteres, cortado com reticências); sem ele, o texto fica como era.
+const LIMITE_MOTIVO_ORIGINAL = 600;
+function textoOverrideComMotivo(texto, justErroAnterior) {
+    const anterior = String(justErroAnterior == null ? '' : justErroAnterior).trim();
+    if (!anterior) return texto;
+    const motivo = anterior.length > LIMITE_MOTIVO_ORIGINAL ? anterior.slice(0, LIMITE_MOTIVO_ORIGINAL - 3).trimEnd() + '...' : anterior;
+    return `${texto} Motivo original: ${motivo}`;
+}
+
 window.handleForcarAvanco = async function (docId, currentStatus) {
     if (!userCanDelete()) {
         showToast('Apenas administradores podem forçar o avanço de status.', 'error');
@@ -4545,11 +4555,18 @@ window.handleForcarAvanco = async function (docId, currentStatus) {
             render();
 
             try {
+                // Motivo do bloqueio que o override vai sobrescrever: do documento aberto, ou do banco.
+                let justErroAnterior = docAntes && docAntes.id === docId ? docAntes.just_erro : undefined;
+                if (justErroAnterior === undefined) {
+                    const { data: atual } = await supabaseClient.from('documents').select('just_erro').eq('id', docId).maybeSingle();
+                    justErroAnterior = atual ? atual.just_erro : null;
+                }
+
                 const { error } = await supabaseClient
                     .from('documents')
                     .update({
                         status: nextStatus,
-                        just_erro: `[OVERRIDE] Gestor forçou avanço manualmente a partir do status "${currentStatus}" em ${new Date().toLocaleString('pt-BR')}.`
+                        just_erro: textoOverrideComMotivo(`[OVERRIDE] Gestor forçou avanço manualmente a partir do status "${currentStatus}" em ${new Date().toLocaleString('pt-BR')}.`, justErroAnterior)
                     })
                     .eq('id', docId);
 
@@ -7369,6 +7386,21 @@ async function fetchDocumentDetails(id, silent = false, opcoes = {}) {
     }
 }
 
+// Nota bloqueada pela auditoria de conformidade (bloqueado_conformidade) em que o usuário escolheu, em
+// "Corrigir Vínculo", a MESMA rubrica que a nota já tem: a auditoria acabou de analisá-la e recusá-la, então
+// regravar só repete o bloqueio (#125). A rubrica atual é documents.rubrica_id_fk (o que o vínculo grava, junto
+// com despesas.rubrica_id); sem esse campo, vale a rubrica da linha de despesas. Nota sem rubrica
+// (bloqueioPorRubricaNaoInformada) e os demais status não entram na regra.
+function rubricaEscolhidaIgualAtual(doc, rubricaId) {
+    if (!doc || !rubricaId || doc.status !== 'bloqueado_conformidade') return false;
+    if (bloqueioPorRubricaNaoInformada(doc)) return false;
+    const despesa = Array.isArray(doc.despesas) ? doc.despesas[0] : doc.despesas;
+    const atual = doc.rubrica_id_fk || (despesa && despesa.rubrica_id) || null;
+    return !!atual && atual === rubricaId;
+}
+
+const MSG_MESMA_RUBRICA_BLOQUEIO = 'Esta já é a rubrica da nota e a auditoria já a analisou. Escolha outra rubrica. Se a rubrica estiver correta, um administrador pode avançar a nota manualmente, informando o motivo.';
+
 window.handleVincularRubrica = async function (documentId, projectId, valorDespesa) {
     if (!userIsGestorOrAbove()) {
         showToast('Sem permissão para vincular rubrica.', 'error');
@@ -7393,14 +7425,31 @@ window.handleVincularRubrica = async function (documentId, projectId, valorDespe
     const rubricaNome = rubricaSelecionada.nome;
     if (valorDespesa === undefined || valorDespesa === null) valorDespesa = 0;
 
+    // Mesma rubrica que a auditoria acabou de recusar: não grava nem revalida, só orienta.
+    const notaAtual = state.currentDocument && state.currentDocument.id === documentId
+        ? state.currentDocument
+        : state.documents.find(d => d.id === documentId);
+    if (notaAtual && notaAtual.status === 'bloqueado_conformidade' && notaAtual.rubrica_id_fk === undefined) {
+        // O documento do state não trouxe a rubrica: busca só esse campo.
+        const { data: so } = await supabaseClient.from('documents').select('rubrica_id_fk').eq('id', documentId).maybeSingle();
+        if (so) notaAtual.rubrica_id_fk = so.rubrica_id_fk;
+    }
+    if (rubricaEscolhidaIgualAtual(notaAtual, rubricaId)) {
+        window.showConfirmModal({
+            title: 'Escolha outra rubrica',
+            message: MSG_MESMA_RUBRICA_BLOQUEIO,
+            confirmLabel: 'Entendi',
+            cancelLabel: 'Fechar'
+        });
+        return;
+    }
+
     const executarVinculoRubrica = () => executarVinculoRubricaImpl(documentId, projectId, valorDespesa, rubricaId, rubricaNome);
 
     // O vínculo grava a despesa com a rubrica escolhida e devolve a nota para validação
     // ('processing_ocr'). O mesmo resumo serve ao modal de confirmação e ao de saldo insuficiente,
     // para nunca aparecerem dois modais seguidos.
-    const notaRubrica = state.currentDocument && state.currentDocument.id === documentId
-        ? state.currentDocument
-        : state.documents.find(d => d.id === documentId);
+    const notaRubrica = notaAtual;
     const resumoVinculoRubrica = `Rubrica escolhida: ${rubricaNome}\nValor da nota: ${fmtBRLM1(valorDespesa)}\nStatus atual: ${rotuloStatusLegivel(notaRubrica && notaRubrica.status)}\nNovo status: ${rotuloStatusLegivel('processing_ocr')}, enquanto a nota é revalidada com a nova rubrica.`;
 
     // CR-2026-001 Fase 2.2: valida saldo ANTES de gravar, enquanto o usuário
