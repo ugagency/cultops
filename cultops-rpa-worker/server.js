@@ -214,13 +214,16 @@ async function executarEnvioSalic(req, res, { dryRun = false } = {}) {
         // Isolamento por organização: o client usa a service role (ignora RLS), então a
         // checagem tem que ser aqui. Documento inexistente e documento de outra organização
         // dão a MESMA resposta (404), sem revelar que o documento existe, e sem gravar nada.
+        // Documento excluído (documents.excluido_em preenchido: exclusão lógica, o app só oculta)
+        // recebe a mesma resposta: o app não o envia mais, e esta é a segunda trava para uma
+        // chamada direta com um id antigo. Também não revela que ele existe nem que foi ocultado.
         const { data: doc, error: docError } = await supabase
             .from('documents')
             .select('*, projects(pronac)')
             .eq('id', documentId)
             .single();
-        if (docError || !doc || !(await usuarioEhDaOrganizacao(userId, doc.organization_id))) {
-            console.warn(`[API] Documento ${documentId} negado ao usuário ${userId}: inexistente ou de outra organização.`);
+        if (docError || !doc || doc.excluido_em || !(await usuarioEhDaOrganizacao(userId, doc.organization_id))) {
+            console.warn(`[API] Documento ${documentId} negado ao usuário ${userId}: inexistente, excluído ou de outra organização.`);
             return res.status(404).json({ error: 'Documento não encontrado.' });
         }
         documentoAutorizado = true;
