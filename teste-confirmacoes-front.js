@@ -65,6 +65,7 @@ function criarAmbiente(opcoes = {}) {
             select() { if (!op.acao) op.acao = 'select'; return api; },
             eq(c, v) { op.filtros.push([c, v]); return api; },
             in(c, v) { op.filtros.push([c, v]); return api; },
+            is(c, v) { op.filtros.push([c, v]); return api; },
             single() { return api; },
             maybeSingle() { return api; },
             then(res, rej) {

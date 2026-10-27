@@ -348,6 +348,8 @@ app.post('/api/salic/inserir', async (req, res) => {
             .single();
 
         if (docError || !doc) throw new Error('Documento não encontrado no banco de dados.');
+        // Documento excluído (oculto) não vai ao SALIC. Responde antes do catch, que gravaria erro_rpa nele.
+        if (doc.excluido_em) return res.status(404).json({ error: 'Documento não encontrado.' });
 
         console.log(`[API] Documento identificado: ${doc.name} | Rubrica: ${doc.rubrica}`);
 
@@ -5335,6 +5337,7 @@ app.post('/api/m1/cron-conciliacao-lote', async (req, res) => {
             .select('id, status, project_id, extrato_origem_id, updated_at')
             .in('status', CONCILIACAO_LOTE_STATUS)
             .not('extrato_origem_id', 'is', null)
+            .is('excluido_em', null) // documento excluído (oculto) não vai mais para a conciliação
             .lt('updated_at', limite)
             .order('extrato_origem_id', { ascending: true })
             .order('updated_at', { ascending: true })
@@ -5578,6 +5581,196 @@ async function conciliarNotaAutoLote(document_id, { callerOrg = null, actorId = 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Exclusão lógica de documentos (ocultar e restaurar)
+// Excluir nunca apaga: grava documents.excluido_em/excluido_por; a linha continua no banco e o
+// arquivo continua no Storage. Passa pelo servidor porque o audit_log só aceita gravação com a
+// service role. Organização e perfil vêm do JWT; a organização do documento vem do projeto dele.
+//   POST /api/documentos/ocultar    { document_ids: [...] }
+//   POST /api/documentos/restaurar  { document_ids: [...] }   (só admin, como userCanDelete no app)
+//     -> { ok, alterados, itens: [{ id, resultado: 'ocultado' | 'restaurado' | 'ignorado' | 'recusado', motivo }] }
+//   GET  /api/documentos/excluidos?project_id=<opcional>      (só admin)
+//     -> { ok, documentos: [{ id, name, tipo_documento, status, project, excluido_em, excluido_por }] }
+//   GET  /api/documentos/:id/exclusao  -> { ok, excluido_em, excluido_por: { id, email } | null }
+// ─────────────────────────────────────────────────────────────────────────────
+// Mesmos perfis que as policies de documents deixam alterar: admin e gestor na organização, analista
+// só nos documentos que enviou.
+const PERFIS_OCULTAR_DOCUMENTO = ['admin', 'gestor', 'analista'];
+const UUID_DOCUMENTO = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MAX_DOCUMENTOS_EXCLUSAO = 500;
+
+function idsDocumentosDoPedido(documentIds) {
+    if (!Array.isArray(documentIds)) return null;
+    const ids = [...new Set(documentIds.filter(id => typeof id === 'string').map(id => id.trim()).filter(Boolean))];
+    if (ids.length === 0 || ids.length > MAX_DOCUMENTOS_EXCLUSAO || ids.some(id => !UUID_DOCUMENTO.test(id))) return null;
+    return ids;
+}
+
+// Organização de cada documento: a do projeto (autoritativa); sem projeto, a do próprio documento.
+async function organizacaoDosDocumentos(docs) {
+    const projetoIds = [...new Set((docs || []).map(d => d.project_id).filter(Boolean))];
+    const orgPorProjeto = new Map();
+    if (projetoIds.length) {
+        const { data, error } = await supabase.from('projects').select('id, organization_id').in('id', projetoIds);
+        if (error) throw error;
+        (data || []).forEach(p => orgPorProjeto.set(p.id, p.organization_id));
+    }
+    return (d) => (d.project_id ? orgPorProjeto.get(d.project_id) : d.organization_id) || null;
+}
+
+async function emailDoUsuario(userId, cache) {
+    if (!userId) return null;
+    if (cache && cache.has(userId)) return cache.get(userId);
+    let email = null;
+    try {
+        const { data, error } = await supabase.auth.admin.getUserById(userId);
+        if (!error) email = data?.user?.email || null;
+    } catch (e) { /* sem o e-mail, a tela mostra só a data */ }
+    if (cache) cache.set(userId, email);
+    return email;
+}
+
+async function alterarExclusaoDocumentos(req, res, acao) {
+    const ocultar = acao === 'ocultar';
+    try {
+        const orgId = req.user?.app_metadata?.org_id || null;
+        const role = req.userRole;
+        if (ocultar ? !PERFIS_OCULTAR_DOCUMENTO.includes(role) : role !== 'admin') {
+            return res.status(403).json({ error: ocultar ? 'Seu perfil não pode excluir documentos.' : 'Apenas administradores podem restaurar documentos.' });
+        }
+        if (!orgId) return res.status(403).json({ error: 'Organização do usuário não identificada.' });
+        const ids = idsDocumentosDoPedido(req.body?.document_ids);
+        if (!ids) return res.status(400).json({ error: 'Selecione ao menos um documento.' });
+
+        const { data: docs, error: docsErr } = await supabase
+            .from('documents').select('id, project_id, organization_id, user_id, excluido_em').in('id', ids);
+        if (docsErr) throw docsErr;
+        const orgDe = await organizacaoDosDocumentos(docs);
+        const porId = new Map((docs || []).map(d => [d.id, d]));
+
+        const resultado = new Map();
+        const aAlterar = [];
+        for (const id of ids) {
+            const d = porId.get(id);
+            // Documento de outra organização recebe a mesma resposta de um inexistente.
+            if (!d || orgDe(d) !== orgId) { resultado.set(id, { resultado: 'recusado', motivo: 'Documento não encontrado.' }); continue; }
+            if (role === 'analista' && d.user_id !== req.user.id) {
+                resultado.set(id, { resultado: 'recusado', motivo: 'Analista só altera documentos que ele mesmo enviou.' });
+                continue;
+            }
+            if (ocultar && d.excluido_em) { resultado.set(id, { resultado: 'ignorado', motivo: 'O documento já estava excluído.' }); continue; }
+            if (!ocultar && !d.excluido_em) { resultado.set(id, { resultado: 'ignorado', motivo: 'O documento não está excluído.' }); continue; }
+            aAlterar.push(d);
+        }
+
+        if (aAlterar.length) {
+            const agora = new Date().toISOString();
+            const campos = ocultar ? { excluido_em: agora, excluido_por: req.user.id } : { excluido_em: null, excluido_por: null };
+            // Só altera quem ainda está como foi lido: duas pessoas ao mesmo tempo não se sobrescrevem.
+            let consulta = supabase.from('documents').update(campos).in('id', aAlterar.map(d => d.id));
+            consulta = ocultar ? consulta.is('excluido_em', null) : consulta.not('excluido_em', 'is', null);
+            const { data: gravados, error: updErr } = await consulta.select('id');
+            if (updErr) throw updErr;
+            const alterados = new Set((gravados || []).map(g => g.id));
+
+            const auditorias = [];
+            for (const d of aAlterar) {
+                if (!alterados.has(d.id)) {
+                    resultado.set(d.id, { resultado: 'ignorado', motivo: 'O documento mudou durante a operação. Tente de novo.' });
+                    continue;
+                }
+                resultado.set(d.id, { resultado: ocultar ? 'ocultado' : 'restaurado', motivo: ocultar ? 'Excluído (oculto). Pode ser restaurado.' : 'Restaurado.' });
+                auditorias.push({
+                    tabela: 'documents', registro_id: d.id, campo: 'excluido_em',
+                    valor_anterior: ocultar ? null : d.excluido_em, valor_novo: ocultar ? agora : null,
+                    alterado_por: req.user.id, origem: ocultar ? 'ocultar_documento' : 'restaurar_documento'
+                });
+            }
+            if (auditorias.length) {
+                const { error: auditErr } = await supabase.from('audit_log').insert(auditorias);
+                if (auditErr) console.error('[EXCLUSAO-DOCUMENTOS] audit_log:', auditErr.message);
+            }
+        }
+
+        const itens = ids.map(id => ({ id, ...resultado.get(id) }));
+        res.json({ ok: true, alterados: itens.filter(i => i.resultado === 'ocultado' || i.resultado === 'restaurado').length, itens });
+    } catch (err) {
+        console.error('[EXCLUSAO-DOCUMENTOS]', acao, err);
+        res.status(500).json({ error: err.message });
+    }
+}
+
+app.post('/api/documentos/ocultar', requireAuth, (req, res) => alterarExclusaoDocumentos(req, res, 'ocultar'));
+app.post('/api/documentos/restaurar', requireAuth, (req, res) => alterarExclusaoDocumentos(req, res, 'restaurar'));
+
+app.get('/api/documentos/excluidos', requireAuth, async (req, res) => {
+    try {
+        const orgId = req.user?.app_metadata?.org_id || null;
+        if (req.userRole !== 'admin') return res.status(403).json({ error: 'Apenas administradores veem os documentos excluídos.' });
+        if (!orgId) return res.status(403).json({ error: 'Organização do usuário não identificada.' });
+        const projectId = typeof req.query.project_id === 'string' ? req.query.project_id.trim() : '';
+        if (projectId && !UUID_DOCUMENTO.test(projectId)) return res.status(400).json({ error: 'Projeto inválido.' });
+
+        let consultaProjetos = supabase.from('projects').select('id, pronac, nome').eq('organization_id', orgId);
+        if (projectId) consultaProjetos = consultaProjetos.eq('id', projectId);
+        const { data: projetos, error: projErr } = await consultaProjetos;
+        if (projErr) throw projErr;
+        if (projectId && !(projetos || []).length) return res.status(404).json({ error: 'Projeto não encontrado.' });
+        if (!(projetos || []).length) return res.json({ ok: true, documentos: [] });
+        const projetoPorId = new Map(projetos.map(p => [p.id, p]));
+
+        const { data: docs, error: docsErr } = await supabase
+            .from('documents')
+            .select('id, name, tipo_documento, status, project_id, excluido_em, excluido_por')
+            .in('project_id', projetos.map(p => p.id))
+            .not('excluido_em', 'is', null)
+            .order('excluido_em', { ascending: false })
+            .limit(MAX_DOCUMENTOS_EXCLUSAO);
+        if (docsErr) throw docsErr;
+
+        const cache = new Map();
+        const documentos = [];
+        for (const d of docs || []) {
+            const p = projetoPorId.get(d.project_id) || null;
+            documentos.push({
+                id: d.id, name: d.name, tipo_documento: d.tipo_documento, status: d.status,
+                project: p ? { id: p.id, pronac: p.pronac, nome: p.nome } : null,
+                excluido_em: d.excluido_em,
+                excluido_por: d.excluido_por ? { id: d.excluido_por, email: await emailDoUsuario(d.excluido_por, cache) } : null
+            });
+        }
+        documentos.sort((x, y) => new Date(y.excluido_em) - new Date(x.excluido_em));
+        res.json({ ok: true, documentos });
+    } catch (err) {
+        console.error('[DOCUMENTOS-EXCLUIDOS]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/documentos/:id/exclusao', requireAuth, async (req, res) => {
+    try {
+        const orgId = req.user?.app_metadata?.org_id || null;
+        if (!PERFIS_OCULTAR_DOCUMENTO.includes(req.userRole)) return res.status(403).json({ error: 'Acesso negado.' });
+        if (!orgId) return res.status(403).json({ error: 'Organização do usuário não identificada.' });
+        const id = String(req.params.id || '').trim();
+        if (!UUID_DOCUMENTO.test(id)) return res.status(400).json({ error: 'Documento inválido.' });
+        const { data: doc, error } = await supabase
+            .from('documents').select('id, project_id, organization_id, user_id, excluido_em, excluido_por').eq('id', id).maybeSingle();
+        if (error) throw error;
+        const orgDe = doc ? await organizacaoDosDocumentos([doc]) : null;
+        if (!doc || orgDe(doc) !== orgId || (req.userRole === 'analista' && doc.user_id !== req.user.id)) {
+            return res.status(404).json({ error: 'Documento não encontrado.' });
+        }
+        res.json({
+            ok: true, excluido_em: doc.excluido_em || null,
+            excluido_por: doc.excluido_em && doc.excluido_por ? { id: doc.excluido_por, email: await emailDoUsuario(doc.excluido_por) } : null
+        });
+    } catch (err) {
+        console.error('[DOCUMENTO-EXCLUSAO]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/conciliacao/extratos-pausados?project_id=<id>  (#127)
 // Extratos do projeto que a fila de conciliação pausou (a primeira nota voltou do n8n com "Extrato de
 // outro projeto") e as notas que ainda estão presas a eles. processamento_eventos tem RLS sem política:
@@ -5618,7 +5811,8 @@ app.get('/api/conciliacao/extratos-pausados', requireAuth, async (req, res) => {
             .from('documents')
             .select('id, name, numero_nf, nome_emissor, valor, data_emissao, status, just_erro, user_id, tipo_documento, extrato_origem_id')
             .eq('project_id', pedido.projectId)
-            .in('extrato_origem_id', [...pausados]);
+            .in('extrato_origem_id', [...pausados])
+            .is('excluido_em', null);
         if (notasErr) throw notasErr;
 
         // Só conta como parada a nota que ainda espera por causa do extrato pausado (na fila ou em
@@ -5688,7 +5882,8 @@ app.post('/api/conciliacao/vincular-extrato', requireAuth, async (req, res) => {
         const { data: notas, error: notasErr } = await supabase
             .from('documents')
             .select('id, name, project_id, user_id, tipo_documento, status, extrato_origem_id, just_erro')
-            .in('id', pedido.ids);
+            .in('id', pedido.ids)
+            .is('excluido_em', null); // excluída entre a seleção e o pedido: sai como "Nota não encontrada."
         if (notasErr) throw notasErr;
         const notaPorId = new Map((notas || []).map(n => [n.id, n]));
 
