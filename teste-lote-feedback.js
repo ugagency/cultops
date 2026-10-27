@@ -93,7 +93,7 @@ function criarAmbiente(opcoes = {}) {
             state.uploadLoteQueue = fila.filter(d => idsNoBanco.has(d.id)).map(d => ({ id: d.id, name: d.name, file_path: d.file_path, project_id: d.project_id, size: d.size, valor: d.valor, rubrica: null, rubrica_id_fk: null }));
         },
         // stubs da tela
-        Sidebar: () => '', planilhaOrcamentariaBtn: () => '', renderSaldoBadgeHtml: () => '',
+        Sidebar: () => '', planilhaOrcamentariaBtn: () => '', renderSaldoBadgeHtml: () => '', avisoExtratosPausadosHtml: () => '',
         rotuloRubrica: (r) => r.nome, escAttr: (x) => String(x == null ? '' : x)
     };
     ctx.render = () => {

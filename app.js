@@ -868,6 +868,13 @@ const state = {
     origemPagamento: null,
     pagamentoManualAberto: false,
     vincularExtrato: null, // janela "Vincular extrato" da lista de Documentos (null = fechada)
+    // Exclusão lógica: aba "Excluídos" (só quem pode excluir) e quem excluiu a nota aberta no detalhe.
+    documentosExcluidos: { carregando: false, lista: [], erro: null },
+    exclusaoDocumento: null, // { docId, email } da nota oculta aberta no detalhe
+    // Extratos que a fila de conciliação pausou por serem de outro projeto (#127), por projeto:
+    // { [projectId]: [{ id, nome, enviado_em, pausado_em, motivo, notas: [...] }] }. Vem do servidor
+    // (GET /api/conciliacao/extratos-pausados), porque processamento_eventos não é legível pelo navegador.
+    extratosPausados: {},
     pagamentoInformadoDocId: null, // nota cujo pagamento foi informado nesta sessão (erro do robô por pagamento)
     pagamentoManualRascunho: {},
     // "Ver lançamentos de outros extratos / ampliar": vale só para a nota de docId e zera ao abrir outra.
@@ -1798,6 +1805,7 @@ ${Sidebar()}
         <p class="page-subtitle">Bem-vindo ao Prestaí, seu assistente de conformidade financeira.</p>
     </header>
     
+    ${avisoExtratosPausadosHtml(state.filters.project)}
     <div class="metrics-grid">
         <div class="card metric-card">
             <p class="metric-label">Notas analisadas</p>
@@ -1889,6 +1897,7 @@ ${Sidebar()}
             ${userPodeVincularExtrato() ? `<button class="btn btn-secondary" id="btn-vincular-extrato-dashboard" style="display: none; align-items: center; gap: 0.25rem;" onclick="window.handleAbrirVincularExtrato()">
                 Vincular extrato (<span id="count-vincular-extrato-dashboard">0</span>)
             </button>` : ''}
+            ${userCanDelete() ? `<button class="btn btn-secondary" id="btn-documentos-excluidos" onclick="window.navigate('documentos_excluidos')" title="Documentos excluídos (ocultos), com opção de restaurar">Excluídos</button>` : ''}
             ${userCanDelete() ? `<button class="btn btn-secondary" id="btn-excluir-lote-dashboard" style="display: none; background: var(--error); color: white; border: none; align-items: center; gap: 0.25rem;" onclick="window.handleDeleteSelectedDocuments()">
                 <i data-lucide="trash-2" style="width: 16px;"></i>
                 Excluir Selecionados (<span id="count-excluir-lote-dashboard">0</span>)
@@ -2220,6 +2229,7 @@ ${Sidebar()}
         </header>
 
         <div style="max-width: 900px; margin: 0 auto;">
+            ${avisoExtratosPausadosHtml(projetoSelecionado)}
             ${quadroEnvioHtml}
             <div class="card mb-4">
                 <h3 class="h2 mb-4">1. Selecionar arquivos</h3>
@@ -3235,6 +3245,9 @@ ${Sidebar()}
     </div>
 </main>`;
     }
+
+    // Nota excluída (oculta): aviso em vez da tela normal.
+    if (doc.excluido_em) return DocumentoExcluidoView(doc);
 
     const steps = [
         { id: 'uploaded', label: 'Enviado', icon: 'upload-cloud' },
@@ -5120,6 +5133,7 @@ async function fetchSolicitanteDashboard() {
             .from('documents')
             .select('*, projects(pronac, nome)')
             .in('fornecedor_id', idsFornecedorDoSolicitante())
+            .is('excluido_em', null)
             .or('tipo_documento.eq.nf,tipo_documento.eq.comprovante,tipo_documento.is.null')
             .order('created_at', { ascending: false });
 
@@ -6195,6 +6209,7 @@ window.navigate = async function (view, id = null) {
         state.filters.status = '';
         await fetchProjects(); // Sempre recarrega projetos ao voltar ao dashboard
         await fetchDocuments();
+        await carregarExtratosPausados(state.filters.project);
     } else if (view === 'solicitante_dashboard') {
         await fetchSolicitanteDashboard();
     } else if (view === 'upload') {
@@ -6213,6 +6228,7 @@ window.navigate = async function (view, id = null) {
                 fetchRubricasDisponiveis(state.filters.project),
                 fetchExtratoLoteVinculado(state.filters.project),
                 carregarSaldoRubricasSeHabilitado(state.filters.project),
+                carregarExtratosPausados(state.filters.project),
             ]);
         }
     } else if (view === 'envio_lote_salic') {
@@ -6237,13 +6253,18 @@ window.navigate = async function (view, id = null) {
             await fetchRubricaVersions(state.filters.project);
             const [{ data: projFin }, { data: docsConf }] = await Promise.all([
                 supabaseClient.from('projects').select('valor_aprovado, valor_captado').eq('id', state.filters.project).single(),
-                supabaseClient.from('documents').select('nome_emissor, cnpj_emissor, valor').eq('project_id', state.filters.project).in('status', ['liberado_rpa_airtop', 'enviado_salic', 'concluido'])
+                supabaseClient.from('documents').select('nome_emissor, cnpj_emissor, valor').eq('project_id', state.filters.project).in('status', ['liberado_rpa_airtop', 'enviado_salic', 'concluido']).is('excluido_em', null)
             ]);
             state.in23ProjectFinanceiro = projFin || null;
             state.in23DocumentosConferidos = docsConf || [];
         }
     } else if (view === 'details' && id) {
         await fetchDocumentDetails(id);
+    } else if (view === 'documentos_excluidos') {
+        if (userCanDelete()) {
+            if (!state.projects || state.projects.length === 0) await fetchProjects();
+            await fetchDocumentosExcluidos();
+        }
     } else if (view === 'admin_solicitantes') {
         await fetchProjects();
         await fetchSolicitantesAdmin();
@@ -7170,6 +7191,7 @@ async function fetchDocumentDetails(id, silent = false, opcoes = {}) {
     }
 
     const meuSeq = ++_detalhesSeq;
+    garantirExtratosPausadosDaNota(id);
     const outroDocumento = !state.currentDocument || state.currentDocument.id !== id;
 
     if (!silent) {
@@ -7228,6 +7250,7 @@ async function fetchDocumentDetails(id, silent = false, opcoes = {}) {
             .from('documents')
             .select('*')
             .eq('nf_vinculada_id', id)
+            .is('excluido_em', null)
             .maybeSingle();
 
         // Traz rubricas se precisar vincular
@@ -7289,6 +7312,9 @@ async function fetchDocumentDetails(id, silent = false, opcoes = {}) {
 
         // ---- Troca atômica: nenhum await daqui até o render() ----
         state.currentDocument = data;
+        if (data && data.excluido_em && !(state.exclusaoDocumento && state.exclusaoDocumento.docId === data.id)) {
+            carregarInfoExclusao(data.id); // sem await: quem excluiu chega depois e redesenha
+        }
         state.currentComprovante = compList;
         if (rubDisponiveis) {
             state.rubricas_disponiveis = rubDisponiveis;
@@ -7503,6 +7529,7 @@ async function fetchProjects() {
                 .select('project_id, name, file_path, created_at')
                 .eq('tipo_documento', 'planilha_orcamentaria')
                 .in('project_id', ids)
+                .is('excluido_em', null)
                 .order('created_at', { ascending: false });
             (planilhas || []).forEach(pl => {
                 if (!map[pl.project_id]) map[pl.project_id] = { name: pl.name, file_path: pl.file_path };
@@ -7517,7 +7544,8 @@ async function fetchProjects() {
 async function fetchDocuments() {
     if (!supabaseClient || !state.user) return;
 
-    let query = supabaseClient.from('documents').select('*');
+    // Documentos excluídos (ocultos) só aparecem na aba "Excluídos".
+    let query = supabaseClient.from('documents').select('*').is('excluido_em', null);
 
     // Mostra Notas Fiscais, Comprovantes e registros sem tipo (legado)
     query = query.or('tipo_documento.eq.nf,tipo_documento.eq.comprovante,tipo_documento.is.null');
@@ -7593,6 +7621,7 @@ window.updateFilters = function (key, value) {
             // CR-2026-001 (complemento): trocar o filtro de projeto nesta tela muda
             // quais documentos aparecem, então o saldo carregado precisa acompanhar.
             if (state.currentView === 'envio_lote_salic') await atualizarSaldoEnvioLote();
+            if (key === 'project') await carregarExtratosPausados(state.filters.project);
             render();
         });
     }, 400);
@@ -7621,7 +7650,7 @@ window.handleDeleteDocument = async function (id, filePath) {
     }
     window.showConfirmModal({
         title: 'Excluir documento',
-        message: 'Tem certeza que deseja excluir este documento? Esta ação não pode ser desfeita.',
+        message: 'Tem certeza que deseja excluir este documento? Ele deixa de aparecer nas listas e pode ser restaurado depois, em Documentos > Excluídos.',
         confirmLabel: 'Excluir',
         variant: 'danger',
         onConfirm: async () => {
@@ -7629,25 +7658,13 @@ window.handleDeleteDocument = async function (id, filePath) {
             render();
 
             try {
-                // 1. Excluir do Storage
-                const { error: storageError } = await supabaseClient.storage
-                    .from('documentos')
-                    .remove([caminhoStorage(filePath)]);
-
-                // Ignoramos erro de "não encontrado" no storage para permitir limpar o banco
-                if (storageError && storageError.message !== 'Object not found') throw storageError;
-
-                // 2. Excluir do Banco
-                const { error: dbError } = await supabaseClient
-                    .from('documents')
-                    .delete()
-                    .eq('id', id);
-
-                if (dbError) throw dbError;
-
-                showToast("Documento excluído com sucesso.", 'success');
+                // Exclusão lógica: só oculta (excluido_em/excluido_por). O arquivo continua no Storage
+                // e a linha continua no banco.
+                const corpo = await alterarExclusaoDocumentos('ocultar', [id]);
+                const item = (corpo.itens || [])[0] || {};
+                if (item.resultado === 'ocultado') showToast('Documento excluído. Ele pode ser restaurado em Documentos > Excluídos.', 'success');
+                else showToast(item.motivo || 'Não foi possível excluir o documento.', 'error');
                 await fetchDocuments();
-                render();
             } catch (error) {
                 showToast("Erro ao excluir: " + error.message, 'error');
             } finally {
@@ -7656,6 +7673,161 @@ window.handleDeleteDocument = async function (id, filePath) {
             }
         }
     });
+};
+
+// Ocultar ou restaurar documentos pelo servidor, que grava excluido_em/excluido_por e o audit_log
+// (o navegador não grava no audit_log). Devolve { ok, alterados, itens }.
+async function alterarExclusaoDocumentos(acao, ids) {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (!session) throw new Error('Sessão expirada. Faça login novamente.');
+    const resposta = await fetch('/api/documentos/' + (acao === 'restaurar' ? 'restaurar' : 'ocultar'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
+        body: JSON.stringify({ document_ids: ids })
+    });
+    const corpo = await resposta.json().catch(() => ({}));
+    if (!resposta.ok) throw new Error(corpo.error || 'Não foi possível concluir agora.');
+    return corpo;
+}
+
+// ---- Documentos excluídos (ocultos): aba "Excluídos" e restauração ----
+
+async function fetchDocumentosExcluidos() {
+    state.documentosExcluidos = { carregando: true, lista: state.documentosExcluidos?.lista || [], erro: null };
+    try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session) throw new Error('Sessão expirada. Faça login novamente.');
+        const projeto = state.filters.project ? '?project_id=' + encodeURIComponent(state.filters.project) : '';
+        const resposta = await fetch('/api/documentos/excluidos' + projeto, { headers: { 'Authorization': 'Bearer ' + session.access_token } });
+        const corpo = await resposta.json().catch(() => ({}));
+        if (!resposta.ok) throw new Error(corpo.error || 'Não foi possível carregar os documentos excluídos.');
+        state.documentosExcluidos = { carregando: false, lista: corpo.documentos || [], erro: null };
+    } catch (err) {
+        console.error('[documentos-excluidos]', err);
+        state.documentosExcluidos = { carregando: false, lista: [], erro: err.message || 'Não foi possível carregar os documentos excluídos.' };
+    }
+}
+
+window.handleRestaurarDocumento = async function (id) {
+    if (!userCanDelete()) {
+        showToast('Apenas administradores podem restaurar documentos.', 'error');
+        return;
+    }
+    state.loading = true;
+    render();
+    try {
+        const corpo = await alterarExclusaoDocumentos('restaurar', [id]);
+        const item = (corpo.itens || [])[0] || {};
+        if (item.resultado === 'restaurado') showToast('Documento restaurado. Ele volta a aparecer nas listas.', 'success');
+        else showToast(item.motivo || 'Não foi possível restaurar o documento.', 'error');
+        if (state.currentView === 'details' && state.currentDocument && state.currentDocument.id === id) {
+            state.loading = false;
+            await fetchDocumentDetails(id, true);
+        } else {
+            await fetchDocumentosExcluidos();
+        }
+        fetchDocuments();
+    } catch (err) {
+        showToast('Erro ao restaurar: ' + err.message, 'error');
+    } finally {
+        state.loading = false;
+        render();
+    }
+};
+
+// Quem excluiu a nota oculta aberta no detalhe (o e-mail vem do servidor).
+async function carregarInfoExclusao(docId) {
+    try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session) return;
+        const resposta = await fetch('/api/documentos/' + encodeURIComponent(docId) + '/exclusao', { headers: { 'Authorization': 'Bearer ' + session.access_token } });
+        if (!resposta.ok) return;
+        const corpo = await resposta.json();
+        state.exclusaoDocumento = { docId, email: corpo.excluido_por ? corpo.excluido_por.email : null };
+        if (state.currentView === 'details' && state.currentDocument && state.currentDocument.id === docId) render();
+    } catch (err) {
+        console.error('[documento-exclusao]', err);
+    }
+}
+
+function fmtDataHoraExclusao(v) {
+    return v ? new Date(v).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '---';
+}
+
+function quemExcluiu(excluidoPorId, email) {
+    if (excluidoPorId && state.user && excluidoPorId === state.user.id) return 'você';
+    return email || 'um usuário da organização';
+}
+
+// Nota oculta aberta direto (link guardado, ou ocultada por outra pessoa com a tela aberta).
+function DocumentoExcluidoView(doc) {
+    const info = state.exclusaoDocumento && state.exclusaoDocumento.docId === doc.id ? state.exclusaoDocumento : null;
+    return `
+${Sidebar()}
+<main class="main-content view-content">
+    <header class="content-header" style="display: flex; align-items: center; gap: 1rem;">
+        <button class="btn btn-secondary" onclick="window.navigate('dashboard')" style="padding: 0.5rem;">
+            <i data-lucide="arrow-left" style="width: 18px;"></i>
+        </button>
+        <h1>Detalhes da Nota</h1>
+    </header>
+    <div class="card" role="alert" id="aviso-documento-excluido" style="border: 1px solid #FCA5A5; background: #FEF2F2;">
+        <p class="text-sm" style="margin: 0; font-weight: 700; color: #991B1B;">Este documento foi excluído (ocultado).</p>
+        <p class="text-sm" style="margin: 0.5rem 0 0; color: #991B1B;">
+            Excluído por ${escHtml(quemExcluiu(doc.excluido_por, info && info.email))} em ${escHtml(fmtDataHoraExclusao(doc.excluido_em))}.
+        </p>
+        <p class="text-xs" style="margin: 0.5rem 0 0; color: var(--text-secondary);">
+            Documento: ${escHtml(doc.name || doc.numero_nf || doc.id)}. O arquivo e os dados continuam guardados${userCanDelete() ? '' : '; um administrador pode restaurá-lo'}.
+        </p>
+        <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
+            ${userCanDelete() ? `<button class="btn btn-primary" onclick="window.handleRestaurarDocumento('${escHtml(doc.id)}')" ${state.loading ? 'disabled' : ''}>Restaurar</button>` : ''}
+            <button class="btn btn-secondary" onclick="window.navigate('dashboard')">Voltar para Documentos</button>
+        </div>
+    </div>
+</main>`;
+}
+
+// Aba "Excluídos" da lista de Documentos: só quem pode excluir (userCanDelete).
+const DocumentosExcluidosView = () => {
+    if (!userCanDelete()) {
+        return `${Sidebar()}<main class="main-content view-content"><div class="card"><p class="text-sm">Apenas administradores veem os documentos excluídos.</p></div></main>`;
+    }
+    const x = state.documentosExcluidos || { lista: [] };
+    const projeto = (state.projects || []).find(p => p.id === state.filters.project);
+    const th = 'text-align: left;';
+    const corpo = x.carregando
+        ? '<p class="text-sm" style="padding: 1.5rem; color: var(--text-muted);">Carregando documentos excluídos...</p>'
+        : x.erro
+            ? `<p class="text-sm" role="alert" style="padding: 1.5rem; color: var(--error);">${escHtml(x.erro)}</p>`
+            : x.lista.length === 0
+                ? '<p class="text-sm" style="padding: 1.5rem; color: var(--text-muted);">Nenhum documento excluído.</p>'
+                : `<table class="data-table" id="tabela-documentos-excluidos">
+                    <thead><tr><th style="${th}">Nome</th><th style="${th}">Projeto</th><th style="${th}">Excluído por</th><th style="${th}">Excluído em</th><th style="text-align: right;">Ações</th></tr></thead>
+                    <tbody>
+                        ${x.lista.map(d => `
+                        <tr>
+                            <td style="overflow-wrap: anywhere;">${escHtml(d.name || d.id)}</td>
+                            <td>${escHtml(d.project ? `${d.project.pronac || ''} - ${d.project.nome || ''}` : '---')}</td>
+                            <td>${escHtml(quemExcluiu(d.excluido_por && d.excluido_por.id, d.excluido_por && d.excluido_por.email))}</td>
+                            <td style="white-space: nowrap;">${escHtml(fmtDataHoraExclusao(d.excluido_em))}</td>
+                            <td style="text-align: right;"><button class="btn btn-secondary" onclick="window.handleRestaurarDocumento('${escHtml(d.id)}')" ${state.loading ? 'disabled' : ''}>Restaurar</button></td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>`;
+    return `
+${Sidebar()}
+<main class="main-content view-content">
+    <header class="content-header" style="display: flex; align-items: center; gap: 1rem;">
+        <button class="btn btn-secondary" onclick="window.navigate('dashboard')" style="padding: 0.5rem;">
+            <i data-lucide="arrow-left" style="width: 18px;"></i>
+        </button>
+        <div>
+            <h1>Documentos excluídos</h1>
+            <p class="page-subtitle">${projeto ? `Projeto ${escHtml(projeto.pronac)} - ${escHtml(projeto.nome)}` : 'Todos os projetos'}. Documentos ocultados: não aparecem nas listas nem nos contadores. Restaurar devolve o documento às listas.</p>
+        </div>
+    </header>
+    <div class="card">${corpo}</div>
+</main>`;
 };
 
 // ---- Vincular extrato a várias notas (lista de Documentos) ----
@@ -7685,6 +7857,7 @@ function extratosVincularListaHtml(v) {
     const termo = String(v.busca || '').trim();
     const visiveis = window.VinculoExtrato.filtrarExtratos(todos, termo);
     const rotulos = window.VinculoExtrato.ROTULO_STATUS_EXTRATO;
+    const pausados = idsExtratosPausados();
     const escolhido = todos.find(e => e.id === v.extratoId);
     const contagem = termo
         ? `<p class="text-xs" style="color: var(--text-muted); margin-bottom: 0.35rem;">${visiveis.length} de ${todos.length} extrato${todos.length === 1 ? '' : 's'}</p>`
@@ -7694,11 +7867,11 @@ function extratosVincularListaHtml(v) {
         : `<div style="max-height: 22vh; overflow: auto; border: 1px solid var(--border-light); border-radius: var(--radius-sm);">
             ${visiveis.map(e => `
             <label style="display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border-light); cursor: pointer;">
-                <input type="radio" name="vincular-extrato-escolha" ${v.extratoId === e.id ? 'checked' : ''} onchange="window.vincularExtratoEscolher('${e.id}')" ${v.executando ? 'disabled' : ''}>
+                <input type="radio" name="vincular-extrato-escolha" ${v.extratoId === e.id ? 'checked' : ''} onchange="window.vincularExtratoEscolher('${e.id}')" ${v.executando || pausados.has(e.id) ? 'disabled' : ''}>
                 <span style="min-width: 0;">
                     <span class="text-sm" style="font-weight: 600; overflow-wrap: anywhere;">${escHtml(nomeDoExtrato(e))}</span>
                     <span class="text-xs" style="display: block; color: var(--text-muted);">
-                        Enviado em ${escHtml(e.created_at ? new Date(e.created_at).toLocaleString('pt-BR') : '---')} - ${escHtml(rotulos[e.status] || e.status || '---')}${e.formato ? ' - ' + escHtml(String(e.formato).toUpperCase()) : ''}
+                        Enviado em ${escHtml(e.created_at ? new Date(e.created_at).toLocaleString('pt-BR') : '---')} - ${escHtml(rotulos[e.status] || e.status || '---')}${e.formato ? ' - ' + escHtml(String(e.formato).toUpperCase()) : ''}${pausados.has(e.id) ? ' - extrato de outro projeto (pausado)' : ''}
                     </span>
                 </span>
             </label>`).join('')}
@@ -7710,15 +7883,55 @@ function extratosVincularListaHtml(v) {
     return contagem + corpo + aviso;
 }
 
-// Selo de situação do extrato (vinculo-extrato.js): na fila de conciliação ou só vinculado.
+// ---- Extratos pausados pela fila (#127) ----
+
+// Ids de todos os extratos pausados já carregados (de qualquer projeto).
+function idsExtratosPausados() {
+    const ids = new Set();
+    Object.values(state.extratosPausados || {}).forEach(lista => (lista || []).forEach(e => ids.add(e.id)));
+    return ids;
+}
+
+function resumirMotivoPausa(motivo) {
+    const texto = String(motivo || '').replace(/\s+/g, ' ').trim();
+    return texto.length > 160 ? texto.slice(0, 157).trimEnd() + '...' : texto;
+}
+
+// Aviso no topo da lista de Documentos e da tela de lote: um quadro por extrato pausado do projeto.
+function avisoExtratosPausadosHtml(projectId) {
+    const lista = projectId ? ((state.extratosPausados || {})[projectId] || []) : [];
+    if (lista.length === 0 || !userPodeVincularExtrato()) return '';
+    return lista.map(e => {
+        const n = (e.notas || []).length;
+        const enviado = e.enviado_em ? new Date(e.enviado_em).toLocaleDateString('pt-BR') : '---';
+        const motivo = resumirMotivoPausa(e.motivo);
+        return `
+        <div class="card mb-4" role="alert" style="border: 1px solid #FCA5A5; background: #FEF2F2;">
+            <p class="text-sm" style="margin: 0; color: #991B1B; font-weight: 600;">
+                O extrato ${escHtml(e.nome || 'extrato')}, enviado em ${escHtml(enviado)}, é de outro projeto.
+                ${n === 1 ? '1 nota está parada' : n + ' notas estão paradas'} aguardando o extrato correto.
+            </p>
+            ${motivo ? `<p class="text-xs" style="margin: 0.35rem 0 0; color: #991B1B;">Motivo: ${escHtml(motivo)}</p>` : ''}
+            <div style="margin-top: 0.75rem;">
+                <button class="btn btn-primary" onclick="window.handleVincularExtratoPausado('${escHtml(e.id)}')">Vincular o extrato correto</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// Selo de situação do extrato (vinculo-extrato.js): na fila de conciliação, só vinculado ou extrato de
+// outro projeto (pausado pela fila).
 function seloExtratoHtml(doc, estiloExtra = '') {
-    const situacao = window.VinculoExtrato ? window.VinculoExtrato.situacaoExtrato(doc) : null;
+    const situacao = window.VinculoExtrato ? window.VinculoExtrato.situacaoExtrato(doc, idsExtratosPausados()) : null;
     if (!situacao) return '';
-    const texto = situacao === 'fila' ? 'Na fila de conciliação' : 'Extrato vinculado';
-    const dica = situacao === 'fila'
-        ? 'A nota tem extrato vinculado e será conciliada pela fila, uma por vez.'
-        : 'A nota tem extrato vinculado e ainda não chegou à conciliação.';
-    return `<span class="badge status-pending" title="${escHtml(dica)}" style="${estiloExtra}"><span class="badge-dot"></span>${texto}</span>`;
+    const texto = situacao === 'pausado' ? 'Extrato de outro projeto' : situacao === 'fila' ? 'Na fila de conciliação' : 'Extrato vinculado';
+    const dica = situacao === 'pausado'
+        ? 'O extrato vinculado a esta nota é de outro projeto. A nota fica parada até vincular o extrato correto.'
+        : situacao === 'fila'
+            ? 'A nota tem extrato vinculado e será conciliada pela fila, uma por vez.'
+            : 'A nota tem extrato vinculado e ainda não chegou à conciliação.';
+    const classe = situacao === 'pausado' ? 'status-error' : 'status-pending';
+    return `<span class="badge ${classe}" title="${escHtml(dica)}" style="${estiloExtra}"><span class="badge-dot"></span>${texto}</span>`;
 }
 
 window.handleAbrirVincularExtrato = async function () {
@@ -7737,16 +7950,23 @@ window.handleAbrirVincularExtrato = async function () {
         showToast('Selecione notas de um só projeto: o extrato pertence a um projeto.', 'error');
         return;
     }
+    await abrirJanelaVincular({ projectId: projetos[0], docIds: docs.map(d => d.id) });
+};
+
+// Abre a janela e carrega os extratos do projeto. docsExtra: dados das notas quando elas não estão em
+// state.documents (a tela de lote, por exemplo); incluirDivergencias: já marcada quando as notas são as
+// presas a um extrato pausado, que incluem a que voltou em divergência.
+async function abrirJanelaVincular({ projectId, docIds, docsExtra = null, incluirDivergencias = false }) {
     state.vincularExtrato = {
-        projectId: projetos[0], docIds: docs.map(d => d.id), extratos: [], carregando: true,
-        extratoId: null, busca: '', enviando: false, incluirDivergencias: false, executando: false, resultado: null, erro: null
+        projectId, docIds, docsExtra, extratos: [], carregando: true,
+        extratoId: null, busca: '', enviando: false, incluirDivergencias, executando: false, resultado: null, erro: null
     };
     render();
     try {
         const { data, error } = await supabaseClient
             .from('extratos')
             .select('id, file_path, formato, status, created_at')
-            .eq('project_id', projetos[0])
+            .eq('project_id', projectId)
             .order('created_at', { ascending: false })
             .limit(50);
         if (error) throw error;
@@ -7758,7 +7978,59 @@ window.handleAbrirVincularExtrato = async function () {
         if (state.vincularExtrato) state.vincularExtrato.carregando = false;
         render();
     }
+}
+
+// Botão "Vincular o extrato correto" do aviso de extrato pausado: abre a janela com as notas presas a ele
+// já selecionadas.
+window.handleVincularExtratoPausado = async function (extratoId) {
+    if (!userPodeVincularExtrato()) {
+        showToast('Seu perfil não pode vincular extrato a notas.', 'error');
+        return;
+    }
+    let achado = null, projectId = null;
+    for (const [pid, lista] of Object.entries(state.extratosPausados || {})) {
+        const e = (lista || []).find(x => x.id === extratoId);
+        if (e) { achado = e; projectId = pid; }
+    }
+    if (!achado || !(achado.notas || []).length) return;
+    const notas = achado.notas;
+    await abrirJanelaVincular({
+        projectId,
+        docIds: notas.map(n => n.id),
+        docsExtra: notas.map(n => ({
+            id: n.id, name: n.nome, numero_nf: n.numero_nf, nome_emissor: n.nome_emissor, valor: n.valor,
+            data_emissao: n.data_emissao, status: n.status, extrato_origem_id: achado.id
+        })),
+        incluirDivergencias: notas.some(n => ['divergencia_beneficiario', 'divergencia_valor'].includes(n.status))
+    });
 };
+
+// Pergunta ao servidor quais extratos do projeto estão pausados e guarda por projeto. Se falhar, mantém o que
+// já havia: sem a informação, o selo e o aviso simplesmente não aparecem (comportamento de antes).
+async function carregarExtratosPausados(projectId) {
+    if (!projectId || !supabaseClient || !state.user || !userPodeVincularExtrato()) return;
+    try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session) return;
+        const resposta = await fetch('/api/conciliacao/extratos-pausados?project_id=' + encodeURIComponent(projectId), {
+            headers: { 'Authorization': 'Bearer ' + session.access_token }
+        });
+        if (!resposta.ok) throw new Error('HTTP ' + resposta.status);
+        const corpo = await resposta.json();
+        state.extratosPausados = { ...(state.extratosPausados || {}), [projectId]: Array.isArray(corpo.extratos) ? corpo.extratos : [] };
+    } catch (err) {
+        console.error('[extratos-pausados]', err);
+    }
+}
+
+// Tela da nota: carrega os pausados do projeto dela se ainda não foram (para o selo) e redesenha.
+function garantirExtratosPausadosDaNota(documentId) {
+    const d = (state.documents || []).find(x => x.id === documentId);
+    if (!d || !d.project_id || !d.extrato_origem_id || (state.extratosPausados || {})[d.project_id]) return;
+    carregarExtratosPausados(d.project_id).then(() => {
+        if (state.currentView === 'details' && !state.loading) render();
+    });
+}
 
 window.vincularExtratoFechar = function () {
     if (state.vincularExtrato && state.vincularExtrato.executando) return;
@@ -7848,8 +8120,9 @@ window.vincularExtratoConfirmar = async function () {
         const corpo = await resposta.json().catch(() => ({}));
         if (!resposta.ok) throw new Error(corpo.error || 'Não foi possível vincular o extrato agora.');
         if (state.vincularExtrato === v) v.resultado = corpo;
-        // Atualiza a lista para os selos refletirem o vínculo.
+        // Atualiza a lista para os selos refletirem o vínculo, e o aviso de extrato pausado.
         await fetchDocuments();
+        await carregarExtratosPausados(v.projectId);
     } catch (err) {
         console.error('[vincular-extrato]', err);
         if (state.vincularExtrato === v) v.erro = (window.prestaiSuavizar ? window.prestaiSuavizar(String(err.message || err), 'error') : String(err.message || err));
@@ -7863,7 +8136,8 @@ const VincularExtratoModal = () => {
     const v = state.vincularExtrato;
     if (!v) return '';
     const projeto = (state.projects || []).find(p => p.id === v.projectId);
-    const docs = v.docIds.map(id => (state.documents || []).find(d => d.id === id)).filter(Boolean);
+    const pausadosIds = idsExtratosPausados();
+    const docs = v.docIds.map(id => (state.documents || []).find(d => d.id === id) || (v.docsExtra || []).find(d => d.id === id)).filter(Boolean);
     const emDivergencia = docs.filter(d => ['divergencia_beneficiario', 'divergencia_valor'].includes(d.status));
     const rotuloStatus = (d) => (STATUS_MAP[d.status] || {}).label || d.status;
     const th = 'text-align: left; padding: 0.35rem 0.5rem; font-size: 12px; white-space: nowrap;';
@@ -7929,7 +8203,7 @@ const VincularExtratoModal = () => {
                         <td style="${td} overflow-wrap: anywhere;">${escHtml(d.nome_emissor || d.name || '---')}</td>
                         <td style="${td} text-align: right; white-space: nowrap;">${d.valor != null ? escHtml(fmtValorExtrato(d.valor)) : '---'}</td>
                         <td style="${td} white-space: nowrap;">${escHtml(fmtDataExtrato(d.data_emissao))}</td>
-                        <td style="${td}">${escHtml(rotuloStatus(d))}${d.extrato_origem_id ? '<br><span style="color: var(--text-muted);">ja tem extrato vinculado</span>' : ''}</td>
+                        <td style="${td}">${escHtml(rotuloStatus(d))}${d.extrato_origem_id ? `<br><span style="color: var(--text-muted);">${pausadosIds.has(d.extrato_origem_id) ? 'extrato vinculado e de outro projeto' : 'ja tem extrato vinculado'}</span>` : ''}</td>
                     </tr>`).join('')}
                 </tbody>
             </table>
@@ -8015,18 +8289,12 @@ window.handleDeleteSelectedDocuments = async function () {
     const checkboxes = document.querySelectorAll('.chk-doc-dashboard:checked');
     if (checkboxes.length === 0) return;
 
-    const ids = [];
-    const filePaths = [];
-
-    checkboxes.forEach(chk => {
-        ids.push(chk.getAttribute('data-id'));
-        const fp = chk.getAttribute('data-file-path');
-        if (fp && fp !== 'null' && fp !== 'undefined') filePaths.push(fp);
-    });
+    // As caixas da tabela e dos cartões do celular marcam as mesmas notas: cada id uma vez.
+    const ids = [...new Set([...checkboxes].map(chk => chk.getAttribute('data-id')).filter(Boolean))];
 
     window.showConfirmModal({
         title: 'Excluir documentos selecionados',
-        message: `Tem certeza que deseja excluir os ${checkboxes.length} documentos selecionados? Esta ação não pode ser desfeita.`,
+        message: `Tem certeza que deseja excluir os ${ids.length} documentos selecionados? Eles deixam de aparecer nas listas e podem ser restaurados depois, em Documentos > Excluídos.`,
         confirmLabel: 'Excluir',
         variant: 'danger',
         onConfirm: async () => {
@@ -8034,28 +8302,12 @@ window.handleDeleteSelectedDocuments = async function () {
             render();
 
             try {
-                // 1. Excluir do Storage
-                if (filePaths.length > 0) {
-                    const { error: storageError } = await supabaseClient.storage
-                        .from('documentos')
-                        .remove(filePaths.map(caminhoStorage));
-
-                    if (storageError) {
-                        console.warn("Alguns arquivos podem não ter sido limpos do storage:", storageError.message);
-                    }
-                }
-
-                // 2. Excluir do Banco
-                const { error: dbError } = await supabaseClient
-                    .from('documents')
-                    .delete()
-                    .in('id', ids);
-
-                if (dbError) throw dbError;
-
-                showToast(`${ids.length} documentos excluídos com sucesso.`, 'success');
+                // Exclusão lógica em lote: só oculta. Nada sai do Storage nem do banco.
+                const corpo = await alterarExclusaoDocumentos('ocultar', ids);
+                const naoExcluidos = (corpo.itens || []).filter(i => i.resultado !== 'ocultado');
+                if (corpo.alterados > 0) showToast(`${corpo.alterados} documento(s) excluído(s). Podem ser restaurados em Documentos > Excluídos.`, 'success');
+                if (naoExcluidos.length > 0) showToast(`${naoExcluidos.length} documento(s) não foram excluídos: ${naoExcluidos[0].motivo}`, 'error');
                 await fetchDocuments();
-                render();
             } catch (error) {
                 showToast("Erro ao excluir documentos em lote: " + error.message, 'error');
             } finally {
@@ -8843,6 +9095,7 @@ async function generateLaudoExcel(projectId) {
             .select(LAUDO_DOC_COLUMNS)
             .eq('project_id', projectId)
             .eq('organization_id', orgId)
+            .is('excluido_em', null)
             .order('created_at', { ascending: true });
 
         if (errDocs) throw new Error(errDocs.message);
@@ -9357,6 +9610,7 @@ async function fetchUploadLoteQueue() {
         .select('*')
         .eq('user_id', state.user.id)
         .eq('status', 'aguardando_rubrica')
+        .is('excluido_em', null)
         .order('name', { ascending: true });
     if (error) {
         console.error("Erro fetchUploadLoteQueue:", error);
@@ -9374,6 +9628,7 @@ window.handleLoteProjectChange = async function (projectId) {
         // vínculo próprio ativo de uma sessão anterior.
         fetchExtratoLoteVinculado(projectId),
         carregarSaldoRubricasSeHabilitado(projectId),
+        carregarExtratosPausados(projectId),
     ]);
     render();
 };
@@ -9752,7 +10007,7 @@ window.handleProcessarTodosLote = async function () {
 window.handleExcluirLoteItem = async function (documentId, filePath) {
     window.showConfirmModal({
         title: 'Excluir arquivo da fila',
-        message: 'Excluir este arquivo da fila? Esta ação não pode ser desfeita.',
+        message: 'Excluir este arquivo da fila? Ele deixa de aparecer na fila e pode ser restaurado depois por um administrador.',
         confirmLabel: 'Excluir',
         variant: 'danger',
         onConfirm: async () => {
@@ -9760,16 +10015,10 @@ window.handleExcluirLoteItem = async function (documentId, filePath) {
             render();
 
             try {
-                const { error: storageError } = await supabaseClient.storage
-                    .from('documentos')
-                    .remove([caminhoStorage(filePath)]);
-                if (storageError && storageError.message !== 'Object not found') throw storageError;
-
-                const { error: dbError } = await supabaseClient
-                    .from('documents')
-                    .delete()
-                    .eq('id', documentId);
-                if (dbError) throw dbError;
+                // Exclusão lógica: só oculta. O PDF continua no Storage e a linha no banco.
+                const corpo = await alterarExclusaoDocumentos('ocultar', [documentId]);
+                const item = (corpo.itens || [])[0] || {};
+                if (item.resultado !== 'ocultado') throw new Error(item.motivo || 'Não foi possível excluir o arquivo.');
 
                 showToast("Arquivo removido da fila.", 'success');
                 await fetchUploadLoteQueue();
@@ -9953,7 +10202,7 @@ async function executarEnvioSalic(documentId) {
         ] = await Promise.all([
             supabaseClient.from('rubricas').select('nome, codigo, categoria, valor_utilizado').eq('project_id', doc.project_id),
             supabaseClient.from('projects').select('valor_aprovado, valor_captado').eq('id', doc.project_id).single(),
-            supabaseClient.from('documents').select('nome_emissor, cnpj_emissor, valor').eq('project_id', doc.project_id).in('status', ['liberado_rpa_airtop', 'enviado_salic', 'concluido']),
+            supabaseClient.from('documents').select('nome_emissor, cnpj_emissor, valor').eq('project_id', doc.project_id).in('status', ['liberado_rpa_airtop', 'enviado_salic', 'concluido']).is('excluido_em', null),
         ]);
 
         /* IN23-DISABLED: bloqueio de envio por IN23 desativado — Reativar quando gestão de saldo implementada
@@ -10646,6 +10895,9 @@ function render() {
         case 'details':
             content = DetailsView();
             break;
+        case 'documentos_excluidos':
+            content = DocumentosExcluidosView();
+            break;
         case 'admin_solicitantes':
             content = SolicitantesAdminView();
             break;
@@ -10808,10 +11060,17 @@ function setupRealtime() {
             (payload) => {
                 console.log('Mudança em tempo real detectada:', payload.new);
 
-                // 1. Atualiza o documento na lista geral (Dashboard)
-                state.documents = state.documents.map(doc =>
-                    doc.id === payload.new.id ? { ...doc, ...payload.new } : doc
-                );
+                // 1. Atualiza o documento na lista geral (Dashboard). Excluído (oculto) por alguém
+                // enquanto a lista estava aberta: sai da lista e dos contadores.
+                if (payload.new.excluido_em) {
+                    const estava = state.documents.some(doc => doc.id === payload.new.id);
+                    state.documents = state.documents.filter(doc => doc.id !== payload.new.id);
+                    if (estava && state.currentView === 'dashboard') render();
+                } else {
+                    state.documents = state.documents.map(doc =>
+                        doc.id === payload.new.id ? { ...doc, ...payload.new } : doc
+                    );
+                }
 
                 // 2. Se estivermos vendo os detalhes DESTE documento, fazemos um fetch silencioso 
                 // para garantir que pegamos as relações (despesas, etc) que o n8n pode ter criado.
