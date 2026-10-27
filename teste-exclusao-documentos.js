@@ -2,7 +2,7 @@
 // (documents.excluido_em/excluido_por), nunca apaga do Storage nem do banco.
 //  Parte 1 - servidor (server.js de verdade, Supabase falso em memoria, chamado por HTTP):
 //    POST /api/documentos/ocultar e /restaurar, GET /api/documentos/excluidos e /:id/exclusao:
-//    perfil, organizacao, analista so nos dele, auditoria, nada apagado; filtro nas listagens do servidor.
+//    perfil (so admin oculta e restaura; gestor e analista leem o aviso), organizacao, auditoria, nada apagado; filtro nas listagens do servidor.
 //  Parte 2 - front (funcoes recortadas do app.js, tela e Supabase falsos):
 //    os tres botoes de excluir nao chamam storage.remove nem delete(); listagens excluem os ocultos;
 //    restaurar; nota oculta aberta direto mostra o aviso; sem permissao nao ha aba Excluidos nem Restaurar.
@@ -217,21 +217,32 @@ function criarFront({ role = 'admin', userId = ADMIN, respostaServidor = null, d
         nadaApagado();
     });
 
-    await teste('ocultar: perfis e organizacao (fornecedor 403, sem org 403, outra org = nao encontrado, analista so os dele)', async () => {
+    await teste('ocultar: so admin (igual a tela); gestor, analista (ate no proprio documento), fornecedor e sem organizacao recebem 403', async () => {
         assert.strictEqual((await post('/api/documentos/ocultar', null, { document_ids: ids(1) })).status, 401);
         assert.strictEqual((await post('/api/documentos/ocultar', 'tok-fornecedor', { document_ids: ids(1) })).status, 403);
         assert.strictEqual((await post('/api/documentos/ocultar', 'tok-sem-org', { document_ids: ids(1) })).status, 403);
+        const gestor = await post('/api/documentos/ocultar', 'tok-gestor', { document_ids: ids(1, 2) });
+        assert.strictEqual(gestor.status, 403);
+        assert.strictEqual(gestor.corpo.error, 'Apenas administradores podem excluir documentos.');
+        const analistaProprio = await post('/api/documentos/ocultar', 'tok-analista', { document_ids: ids(3) });
+        assert.strictEqual(analistaProprio.status, 403, 'nem o documento que o proprio analista enviou');
+        assert.strictEqual(analistaProprio.corpo.error, 'Apenas administradores podem excluir documentos.');
+        assert.strictEqual(doc(1).excluido_em, null);
+        assert.strictEqual(doc(2).excluido_em, null);
+        assert.strictEqual(doc(3).excluido_em, null);
+        assert.strictEqual(db.audit_log.length, 0);
+        // admin continua ocultando
         assert.strictEqual((await post('/api/documentos/ocultar', 'tok-admin', { document_ids: [] })).status, 400);
         assert.strictEqual((await post('/api/documentos/ocultar', 'tok-admin', { document_ids: ['nao-uuid'] })).status, 400);
+        const admin = await post('/api/documentos/ocultar', 'tok-admin', { document_ids: ids(1, 3) });
+        assert.deepStrictEqual(admin.corpo.itens.map(i => i.resultado), ['ocultado', 'ocultado']);
+        assert.ok(doc(1).excluido_em && doc(3).excluido_em);
+    });
+
+    await teste('ocultar: outra organizacao e inexistente dao a mesma resposta (nao encontrado)', async () => {
         const outraOrg = await post('/api/documentos/ocultar', 'tok-admin', { document_ids: ids(6, 99) });
         assert.deepStrictEqual(outraOrg.corpo.itens.map(i => [i.resultado, i.motivo]), [['recusado', 'Documento não encontrado.'], ['recusado', 'Documento não encontrado.']]);
         assert.strictEqual(doc(6).excluido_em, null);
-        const analista = await post('/api/documentos/ocultar', 'tok-analista', { document_ids: ids(1, 3) });
-        assert.deepStrictEqual(analista.corpo.itens.map(i => i.resultado), ['recusado', 'ocultado']);
-        assert.strictEqual(doc(1).excluido_em, null);
-        assert.ok(doc(3).excluido_em);
-        const gestor = await post('/api/documentos/ocultar', 'tok-gestor', { document_ids: ids(2) });
-        assert.strictEqual(gestor.corpo.itens[0].resultado, 'ocultado');
     });
 
     await teste('ocultar: ja oculto e ignorado (sem nova auditoria)', async () => {
@@ -281,6 +292,12 @@ function criarFront({ role = 'admin', userId = ADMIN, respostaServidor = null, d
         assert.strictEqual((await get('/api/documentos/' + U(107) + '/exclusao', 'tok-admin')).status, 404);
         assert.strictEqual((await get('/api/documentos/' + U(104) + '/exclusao', 'tok-analista')).status, 404);
         assert.strictEqual((await get('/api/documentos/' + U(104) + '/exclusao', 'tok-fornecedor')).status, 403);
+        // gestor e analista continuam lendo o aviso (analista so nas notas que enviou)
+        for (const token of ['tok-gestor', 'tok-admin']) assert.strictEqual((await get('/api/documentos/' + U(104) + '/exclusao', token)).status, 200, token);
+        doc(4).user_id = ANALISTA;
+        const doAnalista = await get('/api/documentos/' + U(104) + '/exclusao', 'tok-analista');
+        assert.strictEqual(doAnalista.status, 200);
+        assert.deepStrictEqual(doAnalista.corpo.excluido_por, { id: ADMIN, email: 'admin@org.com' });
     });
 
     await teste('servidor: a fila de conciliacao e a vincular-extrato deixam de fora os ocultos', async () => {

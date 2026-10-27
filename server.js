@@ -5585,16 +5585,17 @@ async function conciliarNotaAutoLote(document_id, { callerOrg = null, actorId = 
 // Excluir nunca apaga: grava documents.excluido_em/excluido_por; a linha continua no banco e o
 // arquivo continua no Storage. Passa pelo servidor porque o audit_log só aceita gravação com a
 // service role. Organização e perfil vêm do JWT; a organização do documento vem do projeto dele.
-//   POST /api/documentos/ocultar    { document_ids: [...] }
-//   POST /api/documentos/restaurar  { document_ids: [...] }   (só admin, como userCanDelete no app)
+//   POST /api/documentos/ocultar    { document_ids: [...] }   (só admin, como userCanDelete no app)
+//   POST /api/documentos/restaurar  { document_ids: [...] }   (só admin)
 //     -> { ok, alterados, itens: [{ id, resultado: 'ocultado' | 'restaurado' | 'ignorado' | 'recusado', motivo }] }
 //   GET  /api/documentos/excluidos?project_id=<opcional>      (só admin)
 //     -> { ok, documentos: [{ id, name, tipo_documento, status, project, excluido_em, excluido_por }] }
 //   GET  /api/documentos/:id/exclusao  -> { ok, excluido_em, excluido_por: { id, email } | null }
+//     (admin, gestor e analista leem: é o aviso do detalhe; o analista só nas notas que enviou)
 // ─────────────────────────────────────────────────────────────────────────────
-// Mesmos perfis que as policies de documents deixam alterar: admin e gestor na organização, analista
-// só nos documentos que enviou.
-const PERFIS_OCULTAR_DOCUMENTO = ['admin', 'gestor', 'analista'];
+// Quem pode LER o aviso de que um documento foi excluído (detalhe da nota). Ocultar e restaurar são só
+// do admin, igual à tela (userCanDelete).
+const PERFIS_VER_EXCLUSAO_DOCUMENTO = ['admin', 'gestor', 'analista'];
 const UUID_DOCUMENTO = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_DOCUMENTOS_EXCLUSAO = 500;
 
@@ -5634,8 +5635,8 @@ async function alterarExclusaoDocumentos(req, res, acao) {
     try {
         const orgId = req.user?.app_metadata?.org_id || null;
         const role = req.userRole;
-        if (ocultar ? !PERFIS_OCULTAR_DOCUMENTO.includes(role) : role !== 'admin') {
-            return res.status(403).json({ error: ocultar ? 'Seu perfil não pode excluir documentos.' : 'Apenas administradores podem restaurar documentos.' });
+        if (role !== 'admin') {
+            return res.status(403).json({ error: ocultar ? 'Apenas administradores podem excluir documentos.' : 'Apenas administradores podem restaurar documentos.' });
         }
         if (!orgId) return res.status(403).json({ error: 'Organização do usuário não identificada.' });
         const ids = idsDocumentosDoPedido(req.body?.document_ids);
@@ -5653,10 +5654,6 @@ async function alterarExclusaoDocumentos(req, res, acao) {
             const d = porId.get(id);
             // Documento de outra organização recebe a mesma resposta de um inexistente.
             if (!d || orgDe(d) !== orgId) { resultado.set(id, { resultado: 'recusado', motivo: 'Documento não encontrado.' }); continue; }
-            if (role === 'analista' && d.user_id !== req.user.id) {
-                resultado.set(id, { resultado: 'recusado', motivo: 'Analista só altera documentos que ele mesmo enviou.' });
-                continue;
-            }
             if (ocultar && d.excluido_em) { resultado.set(id, { resultado: 'ignorado', motivo: 'O documento já estava excluído.' }); continue; }
             if (!ocultar && !d.excluido_em) { resultado.set(id, { resultado: 'ignorado', motivo: 'O documento não está excluído.' }); continue; }
             aAlterar.push(d);
@@ -5749,7 +5746,7 @@ app.get('/api/documentos/excluidos', requireAuth, async (req, res) => {
 app.get('/api/documentos/:id/exclusao', requireAuth, async (req, res) => {
     try {
         const orgId = req.user?.app_metadata?.org_id || null;
-        if (!PERFIS_OCULTAR_DOCUMENTO.includes(req.userRole)) return res.status(403).json({ error: 'Acesso negado.' });
+        if (!PERFIS_VER_EXCLUSAO_DOCUMENTO.includes(req.userRole)) return res.status(403).json({ error: 'Acesso negado.' });
         if (!orgId) return res.status(403).json({ error: 'Organização do usuário não identificada.' });
         const id = String(req.params.id || '').trim();
         if (!UUID_DOCUMENTO.test(id)) return res.status(400).json({ error: 'Documento inválido.' });
