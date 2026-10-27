@@ -4492,6 +4492,16 @@ const ExtratoBancarioSection = (doc) => {
 
 // --- Handlers & API ---
 
+// O avanço manual grava o texto de override em documents.just_erro e apagaria o motivo do bloqueio.
+// Anexa o motivo anterior ao final (até 600 caracteres, cortado com reticências); sem ele, o texto fica como era.
+const LIMITE_MOTIVO_ORIGINAL = 600;
+function textoOverrideComMotivo(texto, justErroAnterior) {
+    const anterior = String(justErroAnterior == null ? '' : justErroAnterior).trim();
+    if (!anterior) return texto;
+    const motivo = anterior.length > LIMITE_MOTIVO_ORIGINAL ? anterior.slice(0, LIMITE_MOTIVO_ORIGINAL - 3).trimEnd() + '...' : anterior;
+    return `${texto} Motivo original: ${motivo}`;
+}
+
 window.handleForcarAvanco = async function (docId, currentStatus) {
     if (!userCanDelete()) {
         showToast('Apenas administradores podem forçar o avanço de status.', 'error');
@@ -4545,11 +4555,18 @@ window.handleForcarAvanco = async function (docId, currentStatus) {
             render();
 
             try {
+                // Motivo do bloqueio que o override vai sobrescrever: do documento aberto, ou do banco.
+                let justErroAnterior = docAntes && docAntes.id === docId ? docAntes.just_erro : undefined;
+                if (justErroAnterior === undefined) {
+                    const { data: atual } = await supabaseClient.from('documents').select('just_erro').eq('id', docId).maybeSingle();
+                    justErroAnterior = atual ? atual.just_erro : null;
+                }
+
                 const { error } = await supabaseClient
                     .from('documents')
                     .update({
                         status: nextStatus,
-                        just_erro: `[OVERRIDE] Gestor forçou avanço manualmente a partir do status "${currentStatus}" em ${new Date().toLocaleString('pt-BR')}.`
+                        just_erro: textoOverrideComMotivo(`[OVERRIDE] Gestor forçou avanço manualmente a partir do status "${currentStatus}" em ${new Date().toLocaleString('pt-BR')}.`, justErroAnterior)
                     })
                     .eq('id', docId);
 
