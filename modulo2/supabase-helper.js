@@ -482,11 +482,14 @@ window.isSaldoRubricasHabilitado = isSaldoRubricasHabilitado;
  *
  *  - Excedida:   SÓ quando o SALIC (número oficial) já passou do aprovado.
  *  - Comprovado: o SALIC bateu exatamente o aprovado (gasto completo).
- *  - Atenção:    a PROJEÇÃO (SALIC + em trânsito + comprometido) chegou ao
- *                limite de alerta ou passou do aprovado, mas o SALIC ainda
- *                não estourou — é o alerta preventivo, não um estouro.
+ *  - Atenção:    a PROJEÇÃO (SALIC + liberadas aguardando envio + comprometido)
+ *                chegou ao limite de alerta ou passou do aprovado, mas o SALIC
+ *                ainda não estourou — é o alerta preventivo, não um estouro.
  *  - OK / Sem captura: como antes.
  * Tolerância de R$ 0,01 (mesma da detecção de divergências).
+ *
+ * Só classifica e colore (#132): nenhum status bloqueia vínculo, upload ou
+ * envio. Quando a projeção estoura, o efeito é exigir a Justificativa SALIC.
  */
 function classificarStatusSaldo({ aprovado, executadoSalic, dispProjetado, alertaAtivo, percentualAlerta }) {
     const TOL = 0.01;
@@ -508,3 +511,33 @@ function classificarStatusSaldo({ aprovado, executadoSalic, dispProjetado, alert
 }
 
 window.classificarStatusSaldo = classificarStatusSaldo;
+
+/**
+ * Saldo em duas partes (#132): o oficial é o do SALIC (disponivel_oficial,
+ * ultima_captura_em); o que está no PrestAí aparece em duas linhas separadas,
+ * liberadas aguardando envio (em_transito) e em conferência (em_conferencia,
+ * só informativo). A projeção PrestAí é o disponivel_projetado da view.
+ * Mesmas regras do M1 (app.js). Só aviso.
+ */
+const MSG_SALDO_TRANSITO_ACIMA_OFICIAL = 'As notas em trânsito somam mais que o disponível no SALIC.';
+
+function dataHoraCurtaSaldo(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    const dois = (n) => String(n).padStart(2, '0');
+    return `${dois(d.getDate())}/${dois(d.getMonth() + 1)} ${dois(d.getHours())}:${dois(d.getMinutes())}`;
+}
+
+function saldoTransitoAcimaDoOficial(s) {
+    if (!s || s.disponivel_oficial === null || s.disponivel_oficial === undefined) return false;
+    const oficial = Number(s.disponivel_oficial);
+    if (!Number.isFinite(oficial)) return false;
+    const TOL = 0.01;
+    const transito = Number(s.em_transito || 0) + Number(s.em_conferencia || 0);
+    return transito > TOL && transito > oficial + TOL;
+}
+
+window.MSG_SALDO_TRANSITO_ACIMA_OFICIAL = MSG_SALDO_TRANSITO_ACIMA_OFICIAL;
+window.dataHoraCurtaSaldo = dataHoraCurtaSaldo;
+window.saldoTransitoAcimaDoOficial = saldoTransitoAcimaDoOficial;

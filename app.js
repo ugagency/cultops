@@ -2546,7 +2546,7 @@ const EnvioLoteSalicView = () => {
                                     return `
                                     <tr>
                                         <td style="text-align: center;">
-                                            <input type="checkbox" class="chk-salic-doc" data-id="${doc.id}" data-name="${doc.name}" data-project="${projLabel}" onchange="window.handleToggleSalicDoc(this)" ${desmarcados.includes(doc.id) ? '' : 'checked'}>
+                                            <input type="checkbox" class="chk-salic-doc" data-id="${doc.id}" data-name="${doc.name}" data-project="${projLabel}" data-project-id="${doc.project_id || ''}" onchange="window.handleToggleSalicDoc(this)" ${desmarcados.includes(doc.id) ? '' : 'checked'}>
                                         </td>
                                         <td style="font-weight: 600; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${doc.name}</td>
                                         <td style="font-size: 13px; color: var(--text-secondary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${projLabel}</td>
@@ -2716,6 +2716,7 @@ window.handleIniciarEnvioLote = async function () {
         id: chk.getAttribute('data-id'),
         name: chk.getAttribute('data-name'),
         project: chk.getAttribute('data-project'),
+        projectId: chk.getAttribute('data-project-id'),
         status: 'pending',
         error: null
     }));
@@ -2938,17 +2939,54 @@ async function processarFilaSalic() {
     const errorCount = state.salicLoteQueue.filter(item => item.status === 'error').length;
     showToast(`Lote processado! Sucessos: ${successCount}, Falhas: ${errorCount}`, 'info');
 
-    // CR-2026-001 Fase 1 (complemento D5): dispara UMA captura de saldo ao
-    // fim do lote (não uma por nota) — só se pelo menos 1 envio deu certo.
-    // Fire-and-forget: não bloqueia a UI nem vira erro do lote.
+    // CR-2026-001 Fase 1 (complemento D5): ao fim do lote dispara a captura de saldo — uma
+    // por projeto com envio bem-sucedido (não uma por nota), só se pelo menos 1 deu certo.
+    // Com o filtro em "Todos os projetos" o state.filters.project é vazio, então o projeto
+    // vem dos próprios itens enviados. Fire-and-forget: não bloqueia a UI nem vira erro do lote.
     if (successCount > 0) {
-        const { data: { session } } = await supabaseClient.auth.getSession();
-        if (session) {
-            fetch('/api/saldo-salic/capturar', {
+        capturarSaldoPosLote(state.salicLoteQueue.filter(item => item.status === 'success'))
+            .catch(err => console.error('[saldo-salic] captura pós-lote falhou:', err));
+    }
+}
+
+// Projetos distintos dos itens enviados com sucesso. O item da fila guarda o id em
+// projectId (fila nova); a fila salva antes dessa versão só tem o rótulo do projeto, então
+// o id vem de state.documents e, se o documento não estiver mais na lista, do banco.
+async function projetosDosItensEnviados(itens) {
+    const ids = new Set();
+    const faltando = [];
+    for (const item of itens) {
+        const doc = (state.documents || []).find(d => d.id === item.id);
+        const projectId = item.projectId || (doc && doc.project_id) || null;
+        if (projectId) ids.add(projectId); else faltando.push(item.id);
+    }
+    if (faltando.length > 0) {
+        try {
+            const { data } = await supabaseClient.from('documents').select('id, project_id').in('id', faltando);
+            (data || []).forEach(d => { if (d.project_id) ids.add(d.project_id); });
+        } catch (err) {
+            console.error('[saldo-salic] projeto dos documentos enviados:', err);
+        }
+    }
+    return Array.from(ids);
+}
+
+// Uma captura por projeto, em sequência (o robô usa um navegador só: nunca em paralelo).
+// Falha em um projeto não impede a captura dos seguintes.
+async function capturarSaldoPosLote(itens) {
+    const projetos = await projetosDosItensEnviados(itens);
+    if (projetos.length === 0) return;
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (!session) return;
+    for (const projectId of projetos) {
+        try {
+            await fetch('/api/saldo-salic/capturar', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
-                body: JSON.stringify({ projectId: state.filters.project })
-            }).catch(err => console.error('[saldo-salic] captura pós-lote falhou:', err));
+                body: JSON.stringify({ projectId })
+            });
+        } catch (err) {
+            console.error('[saldo-salic] captura pós-lote falhou (projeto ' + projectId + '):', err);
         }
     }
 }
@@ -6110,15 +6148,12 @@ const OrcamentoView = () => {
                                             <span class="font-semibold">R$ ${aprovado.toLocaleString('pt-BR')}</span>
                                         </div>
                                     </div>
-                                    <div style="display: flex; justify-content: space-between; font-size: 11px; margin-top: 0.25rem; display:${habilitado ? 'flex' : 'none'};">
+                                    <div style="font-size: 11px; margin-top: 0.25rem; display:${habilitado ? 'block' : 'none'};">
                                         <div>
                                             <span class="text-muted">Executado (SALIC):</span>
                                             <span class="font-semibold">${fmtBRLouIndisponivel(executadoSalic)}</span>
                                         </div>
-                                        <div>
-                                            <span class="text-muted">Disponível (projeção):</span>
-                                            <span class="font-bold ${(dispProjetado !== null && dispProjetado < 0) ? 'color-error' : 'color-success'}">${fmtBRLouIndisponivel(dispProjetado)}</span>
-                                        </div>
+                                        ${habilitado ? renderSaldoDetalhesHtml(saldoInfo, { tamanho: 11, vazio: 'Indisponível', colorir: true }) : ''}
                                     </div>
                                 </div>
                             `;
@@ -6481,6 +6516,58 @@ function fmtBRLM1(v) {
     return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
+// Saldo da rubrica em duas partes (#132). O saldo oficial é o do SALIC
+// (disponivel_oficial, capturado em ultima_captura_em). O que ainda está no PrestAí
+// aparece em duas linhas separadas:
+//  - Liberadas, aguardando envio ao SALIC: em_transito / em_transito_qtd (liberado_rpa_airtop
+//    e aguardando_d3). Já descontadas da projeção.
+//  - Em conferência: em_conferencia / em_conferencia_qtd (auditoria, conciliação, revisão,
+//    divergência). Só informativo: não entra na projeção.
+// A projeção PrestAí é o disponivel_projetado da view (não se recalcula aqui). Nada disto
+// bloqueia upload, vínculo ou envio: o único efeito do saldo é exigir a Justificativa SALIC
+// (rubricaExigeJustificativaSalic).
+const MSG_TRANSITO_ACIMA_OFICIAL = 'As notas em trânsito somam mais que o disponível no SALIC.';
+
+function dataHoraCurtaSaldo(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    const dois = (n) => String(n).padStart(2, '0');
+    return `${dois(d.getDate())}/${dois(d.getMonth() + 1)} ${dois(d.getHours())}:${dois(d.getMinutes())}`;
+}
+
+// Liberadas + em conferência acima do disponível no SALIC. Só aviso.
+function saldoTransitoAcimaDoOficial(s) {
+    if (!s || s.disponivel_oficial === null || s.disponivel_oficial === undefined) return false;
+    const oficial = Number(s.disponivel_oficial);
+    if (!Number.isFinite(oficial)) return false;
+    const TOL = 0.01;
+    const transito = Number(s.em_transito || 0) + Number(s.em_conferencia || 0);
+    return transito > TOL && transito > oficial + TOL;
+}
+
+// Linhas do saldo (HTML) para o badge, o destaque e o card da rubrica. Sem s (rubrica sem
+// registro na view), mostra só o disponível no SALIC como indisponível.
+function renderSaldoDetalhesHtml(s, { tamanho = 12, vazio = '—', colorir = false } = {}) {
+    const temOficial = !!s && s.disponivel_oficial !== null && s.disponivel_oficial !== undefined;
+    const oficial = temOficial ? Number(s.disponivel_oficial) : null;
+    const corOficial = colorir && temOficial ? `color: ${oficial < 0 ? 'var(--error)' : 'var(--success)'};` : '';
+    const atualizado = (s && s.ultima_captura_em) ? dataHoraCurtaSaldo(s.ultima_captura_em) : '';
+    const linhas = [
+        `<div style="font-size:${tamanho}px; color: var(--text-secondary);">Disponível no SALIC: <strong style="${corOficial}">${temOficial ? fmtBRLM1(oficial) : vazio}</strong>${atualizado ? ` <span style="color: var(--text-muted);">Atualizado em ${atualizado}</span>` : ''}</div>`
+    ];
+    if (s) {
+        const muted = `font-size:${tamanho}px; color: var(--text-muted);`;
+        linhas.push(`<div style="${muted}">Liberadas aguardando envio: ${fmtBRLM1(s.em_transito)} (${Number(s.em_transito_qtd || 0)})</div>`);
+        linhas.push(`<div style="${muted}">Em conferência: ${fmtBRLM1(s.em_conferencia)} (${Number(s.em_conferencia_qtd || 0)})</div>`);
+        linhas.push(`<div style="${muted}">Projeção PrestAí: ${s.disponivel_projetado != null ? fmtBRLM1(s.disponivel_projetado) : vazio}</div>`);
+        if (saldoTransitoAcimaDoOficial(s)) {
+            linhas.push(`<div style="font-size:${tamanho}px; color: #FF5807;">${MSG_TRANSITO_ACIMA_OFICIAL}</div>`);
+        }
+    }
+    return linhas.join('');
+}
+
 // Retorna o HTML da caixinha de saldo (string, para embutir direto no
 // template) ou '' quando não há nada a mostrar — flag desligada, sem rubrica
 // escolhida ainda, ou sem captura do SALIC ainda para o projeto.
@@ -6488,10 +6575,9 @@ function renderSaldoBadgeHtml(rubricaId) {
     if (!state.saldoRubricasHabilitado || !rubricaId) return '';
     const s = (state.saldoRubricas || {})[rubricaId];
     const cls = classificarStatusSaldoM1(s);
-    const dispTxt = (s && s.disponivel_projetado != null) ? fmtBRLM1(s.disponivel_projetado) : '—';
-    return `<div style="margin-top:0.35rem; font-size:12px; display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
-        <span style="font-weight:600; color:${cls.cor};">${cls.label}</span>
-        <span style="color: var(--text-muted);">Disponível projetado: ${dispTxt}</span>
+    return `<div style="margin-top:0.35rem;">
+        <div style="font-size:12px; font-weight:600; color:${cls.cor};">${cls.label}</div>
+        ${renderSaldoDetalhesHtml(s)}
     </div>`;
 }
 
@@ -6514,12 +6600,11 @@ function renderSaldoBadgeDestaque(rubricaId) {
     const s = (state.saldoRubricas || {})[rubricaId];
     const cls = classificarStatusSaldoM1(s);
     const est = _estiloSaldoDestaque(cls.label);
-    const dispTxt = (s && s.disponivel_projetado != null) ? fmtBRLM1(s.disponivel_projetado) : '—';
     return `<div style="margin-top: 0.75rem; padding: 0.65rem 0.75rem; border-radius: var(--radius-sm); background: ${est.bg}; border: 1px solid ${est.borda}; display: flex; align-items: center; gap: 0.6rem;">
         <i data-lucide="${est.icone}" style="width: 18px; height: 18px; color: ${est.cor}; flex-shrink: 0;"></i>
         <div>
             <div style="font-size: 13px; font-weight: 700; color: ${est.cor};">Saldo da rubrica: ${cls.label}</div>
-            <div style="font-size: 12px; color: var(--text-secondary);">Disponível projetado: ${dispTxt}</div>
+            ${renderSaldoDetalhesHtml(s)}
         </div>
     </div>`;
 }
@@ -6530,10 +6615,11 @@ function renderSaldoBadgeDestaque(rubricaId) {
 // suficiente (saldo desligado, rubrica não carregada, valor ausente) devolve false
 // e não bloqueia nada.
 //  - "Excedida" (executado_salic > valor_aprovado): vale para qualquer status.
-//  - liberado_rpa_airtop: a nota já está contada em em_transito, então basta o
-//    disponível projetado ser negativo.
-//  - demais status (inclusive erro_rpa): a nota NÃO está contada no saldo, então
-//    compara o valor da nota com o disponível projetado.
+//  - liberado_rpa_airtop e aguardando_d3: a nota já está contada em em_transito (e,
+//    portanto, em disponivel_projetado), então basta o disponível projetado ser negativo.
+//  - demais status (inclusive erro_rpa): a nota NÃO está contada no saldo, então compara
+//    o valor que o robô vai lançar (valor_pago se preenchido, senão o valor da nota) com o
+//    disponível projetado. Notas em conferência não entram na projeção.
 function rubricaExigeJustificativaSalic(doc) {
     if (!doc || !state.saldoRubricasHabilitado || !doc.rubrica_id_fk) return false;
     const s = (state.saldoRubricas || {})[doc.rubrica_id_fk];
@@ -6543,9 +6629,10 @@ function rubricaExigeJustificativaSalic(doc) {
     const TOL = 0.01; // mesma tolerância de classificarStatusSaldoM1 (ruído de ponto flutuante)
     const disponivel = Number(s.disponivel_projetado);
     if (!Number.isFinite(disponivel)) return false;
-    if (doc.status === 'liberado_rpa_airtop') return disponivel < -TOL;
-    if (doc.valor === null || doc.valor === undefined || doc.valor === '') return false;
-    const valor = Number(doc.valor);
+    if (doc.status === 'liberado_rpa_airtop' || doc.status === 'aguardando_d3') return disponivel < -TOL;
+    const lancado = (doc.valor_pago !== null && doc.valor_pago !== undefined && doc.valor_pago !== '') ? doc.valor_pago : doc.valor;
+    if (lancado === null || lancado === undefined || lancado === '') return false;
+    const valor = Number(lancado);
     if (!Number.isFinite(valor)) return false;
     return valor > disponivel + TOL;
 }
@@ -7458,7 +7545,7 @@ window.handleVincularRubrica = async function (documentId, projectId, valorDespe
     if (await isSaldoRubricasHabilitado()) {
         const { data: saldoInfo } = await supabaseClient
             .from('v_saldo_rubricas')
-            .select('disponivel_oficial, disponivel_projetado')
+            .select('disponivel_oficial, disponivel_projetado, em_transito, em_conferencia')
             .eq('rubrica_id', rubricaId)
             .maybeSingle();
 
@@ -7472,11 +7559,14 @@ window.handleVincularRubrica = async function (documentId, projectId, valorDespe
                 const jaEstourada = dispProjetado < 0
                     ? 'Esta rubrica já estava com saldo projetado negativo antes deste lançamento (estouro pré-existente, não causado por esta nota). '
                     : '';
+                // Só aviso: o vínculo segue permitido. Se a projeção estourar, o envio ao SALIC
+                // passa a exigir a Justificativa SALIC.
+                const emTransito = Number(saldoInfo.em_transito || 0);
+                const emConferencia = Number(saldoInfo.em_conferencia || 0);
                 window.showConfirmModal({
                     title: 'Saldo insuficiente na rubrica',
-                    message: `${jaEstourada}Valor da nota (R$ ${valor.toLocaleString('pt-BR')}) excede o disponível projetado (R$ ${dispProjetado.toLocaleString('pt-BR')}) em R$ ${excedente.toLocaleString('pt-BR')}. Oficial (SALIC): R$ ${parseFloat(saldoInfo.disponivel_oficial ?? 0).toLocaleString('pt-BR')}.\n\n${resumoVinculoRubrica}`,
-                    confirmLabel: 'Vincular mesmo assim',
-                    variant: 'danger',
+                    message: `${jaEstourada}Valor da nota (R$ ${valor.toLocaleString('pt-BR')}) excede a projeção PrestAí (R$ ${dispProjetado.toLocaleString('pt-BR')}) em R$ ${excedente.toLocaleString('pt-BR')}.\nDisponível no SALIC: R$ ${parseFloat(saldoInfo.disponivel_oficial ?? 0).toLocaleString('pt-BR')}.\nEm trânsito no PrestAí: liberadas aguardando envio R$ ${emTransito.toLocaleString('pt-BR')}; em conferência R$ ${emConferencia.toLocaleString('pt-BR')}.\nO vínculo continua permitido; para enviar ao SALIC será preciso informar a Justificativa SALIC.\n\n${resumoVinculoRubrica}`,
+                    confirmLabel: 'Vincular rubrica',
                     onConfirm: executarVinculoRubrica
                 });
                 return;
@@ -9952,7 +10042,7 @@ window.handleProcessarTodosLote = async function () {
     // disponivel_projetado ANTES da confirmação — o usuário confirma o lote
     // inteiro uma vez, não nota a nota. Estouro pré-existente (saldo já
     // negativo antes deste lote) é sinalizado como tal, não como causado
-    // pelo lançamento atual.
+    // pelo lançamento atual. Só aviso (#132): o lote segue permitido.
     let avisoSaldo = '';
     if (await isSaldoRubricasHabilitado()) {
         const totalPorRubrica = {};
@@ -9964,7 +10054,7 @@ window.handleProcessarTodosLote = async function () {
         if (rubricaIds.length > 0) {
             const { data: saldos } = await supabaseClient
                 .from('v_saldo_rubricas')
-                .select('rubrica_id, nome, disponivel_projetado')
+                .select('rubrica_id, nome, disponivel_oficial, disponivel_projetado')
                 .in('rubrica_id', rubricaIds);
             const estouros = (saldos || [])
                 .filter(s => s.disponivel_projetado !== null && totalPorRubrica[s.rubrica_id] > parseFloat(s.disponivel_projetado))
@@ -9973,10 +10063,11 @@ window.handleProcessarTodosLote = async function () {
                     const disp = parseFloat(s.disponivel_projetado);
                     const excedente = total - disp;
                     const jaEstourada = disp < 0 ? ' (estouro pré-existente, não causado por este lote)' : '';
-                    return `• ${s.nome}: lote soma R$ ${total.toLocaleString('pt-BR')}, disponível (projeção) R$ ${disp.toLocaleString('pt-BR')} — excede em R$ ${excedente.toLocaleString('pt-BR')}${jaEstourada}`;
+                    const noSalic = s.disponivel_oficial != null ? `disponível no SALIC R$ ${parseFloat(s.disponivel_oficial).toLocaleString('pt-BR')}, ` : '';
+                    return `• ${s.nome}: lote soma R$ ${total.toLocaleString('pt-BR')}, ${noSalic}projeção PrestAí R$ ${disp.toLocaleString('pt-BR')} — excede em R$ ${excedente.toLocaleString('pt-BR')}${jaEstourada}`;
                 });
             if (estouros.length > 0) {
-                avisoSaldo = `\n\nRubricas que estourariam o saldo projetado:\n${estouros.join('\n')}`;
+                avisoSaldo = `\n\nRubricas que estourariam a projeção de saldo:\n${estouros.join('\n')}\nO lote segue permitido; as notas que excederem a projeção exigirão a Justificativa SALIC no envio.`;
             }
         }
     }
@@ -9984,8 +10075,8 @@ window.handleProcessarTodosLote = async function () {
     window.showConfirmModal({
         title: 'Processar documentos',
         message: `Processar ${itensComRubrica.length} documento(s)?${avisoSaldo}`,
-        confirmLabel: avisoSaldo ? 'Processar mesmo assim' : 'Processar',
-        variant: avisoSaldo ? 'danger' : 'primary',
+        confirmLabel: 'Processar',
+        variant: 'primary',
         onConfirm: async () => {
             // O redesenho abaixo monta os campos de rubrica a partir de state.uploadLoteQueue, e
             // o que o usuario digitou ainda nao foi gravado (o loop grava um documento por vez).

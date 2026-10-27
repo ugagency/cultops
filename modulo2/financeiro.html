@@ -819,7 +819,7 @@
                         .in('status', STATUS_DESPESA_EXECUTADO),
                     sb.rpc('get_valor_contratos_efetivo', { p_project_id: projectId }),
                     sb.from('v_saldo_rubricas')
-                        .select('rubrica_id, executado_salic, nfs_confirmadas_nao_absorvidas, executado_efetivo, em_transito, disponivel_oficial, disponivel_projetado, ultima_captura_em')
+                        .select('rubrica_id, executado_salic, nfs_confirmadas_nao_absorvidas, executado_efetivo, em_transito, em_transito_qtd, em_conferencia, em_conferencia_qtd, disponivel_oficial, disponivel_projetado, ultima_captura_em')
                         .eq('project_id', projectId),
                     // Cada captura bem-sucedida regrava as linhas ainda sem rubrica; a captura de
                     // origem vem junto (uma ida ao banco) e a fila é recortada logo abaixo para a
@@ -1015,6 +1015,11 @@
                 const executadoSalic = saldoSalic.executado_salic ?? null;
                 const dispOficial = saldoSalic.disponivel_oficial ?? null;
                 const emTransito = Number(saldoSalic.em_transito || 0);
+                const emTransitoQtd = Number(saldoSalic.em_transito_qtd || 0);
+                const emConferencia = Number(saldoSalic.em_conferencia || 0);
+                const emConferenciaQtd = Number(saldoSalic.em_conferencia_qtd || 0);
+                const atualizadoEm = saldoSalic.ultima_captura_em ? window.dataHoraCurtaSaldo(saldoSalic.ultima_captura_em) : '';
+                const avisoTransito = window.saldoTransitoAcimaDoOficial(saldoSalic);
                 const dispProjetado = saldoSalic.disponivel_projetado ?? null;
                 const clsProjetado = window.classificarStatusSaldo({
                     aprovado: aprov,
@@ -1032,8 +1037,9 @@
                         </td>
                         <td class="num">${fmtBRL(aprov)}</td>
                         <td class="num" style="${hide(show)}">${fmtBRLouIndisponivel(executadoSalic)}</td>
-                        <td class="num" style="${hide(show)}">${fmtBRLouIndisponivel(dispOficial)}</td>
-                        <td class="num" style="${hide(show)}">${fmtBRL(emTransito)}</td>
+                        <td class="num" style="${hide(show)}">${fmtBRLouIndisponivel(dispOficial)}${atualizadoEm ? `<div style="font-size: 0.7rem; color: var(--text-muted);">Atualizado em ${atualizadoEm}</div>` : ''}${avisoTransito ? `<div style="font-size: 0.7rem; color: #FF5807;">${window.MSG_SALDO_TRANSITO_ACIMA_OFICIAL}</div>` : ''}</td>
+                        <td class="num" style="${hide(show)}">${fmtBRL(emTransito)} (${emTransitoQtd})</td>
+                        <td class="num" style="${hide(show)}">${fmtBRL(emConferencia)} (${emConferenciaQtd})</td>
                         <td class="num" style="${hide(show)} color: ${(dispProjetado !== null && dispProjetado < 0) ? '#FF5807' : 'inherit'};">${fmtBRLouIndisponivel(dispProjetado)}</td>
                         <td style="${hide(show)}"><span class="pill ${clsProjetado.cls}">${clsProjetado.label}</span></td>
                         <td class="num" style="display:none;">${fmtBRL(util)}</td>
@@ -1052,9 +1058,10 @@
                                 <th>Rubrica</th>
                                 <th class="num">Aprovado</th>
                                 <th class="num" style="${hide(show)}">Executado (SALIC)</th>
-                                <th class="num" style="${hide(show)}">Segundo o SALIC, sobra</th>
-                                <th class="num" style="${hide(show)}">Em trânsito</th>
-                                <th class="num" style="${hide(show)}">Projeção PrestAI</th>
+                                <th class="num" style="${hide(show)}">Disponível no SALIC</th>
+                                <th class="num" style="${hide(show)}">Liberadas aguardando envio</th>
+                                <th class="num" style="${hide(show)}">Em conferência</th>
+                                <th class="num" style="${hide(show)}">Projeção PrestAí</th>
                                 <th style="${hide(show)}">Status</th>
                                 <th class="num" style="display:none;">Executado</th>
                                 <th class="num" style="display:none;">Saldo</th>
@@ -1088,6 +1095,11 @@
                 const executadoSalic = saldoSalic.executado_salic ?? null;
                 const dispOficial = saldoSalic.disponivel_oficial ?? null;
                 const emTransito = Number(saldoSalic.em_transito || 0);
+                const emTransitoQtd = Number(saldoSalic.em_transito_qtd || 0);
+                const emConferencia = Number(saldoSalic.em_conferencia || 0);
+                const emConferenciaQtd = Number(saldoSalic.em_conferencia_qtd || 0);
+                const atualizadoEm = saldoSalic.ultima_captura_em ? window.dataHoraCurtaSaldo(saldoSalic.ultima_captura_em) : '';
+                const avisoTransito = window.saldoTransitoAcimaDoOficial(saldoSalic);
                 const dispProjetado = saldoSalic.disponivel_projetado ?? null;
                 const cls = saldoRubricasHabilitado
                     ? window.classificarStatusSaldo({
@@ -1099,7 +1111,7 @@
                     })
                     : classifyRubrica(aprov, Number(r.valor_utilizado || 0), r.percentual_alerta);
                 const excedida = cls.label === 'Excedida';
-                return { r, aprov, executadoSalic, dispOficial, emTransito, dispProjetado, cls, excedida };
+                return { r, aprov, executadoSalic, dispOficial, emTransito, emTransitoQtd, emConferencia, emConferenciaQtd, atualizadoEm, avisoTransito, dispProjetado, cls, excedida };
             });
 
             const excCount = itens.filter(it => it.excedida).length;
@@ -1127,8 +1139,11 @@
                         <div class="rubrica-acc-detalhes">
                             <div><div class="lbl">Aprovado</div><div class="val">${fmtBRL(it.aprov)}</div></div>
                             <div><div class="lbl">Executado (SALIC)</div><div class="val">${fmtBRLouIndisponivel(it.executadoSalic)}</div></div>
-                            <div><div class="lbl">Segundo o SALIC, sobra</div><div class="val">${fmtBRLouIndisponivel(it.dispOficial)}</div></div>
-                            <div><div class="lbl">Em trânsito</div><div class="val">${fmtBRL(it.emTransito)}</div></div>
+                            <div><div class="lbl">Disponível no SALIC</div><div class="val">${fmtBRLouIndisponivel(it.dispOficial)}</div>${it.atualizadoEm ? `<div class="lbl">Atualizado em ${it.atualizadoEm}</div>` : ''}</div>
+                            <div><div class="lbl">Liberadas aguardando envio</div><div class="val">${fmtBRL(it.emTransito)} (${it.emTransitoQtd})</div></div>
+                            <div><div class="lbl">Em conferência</div><div class="val">${fmtBRL(it.emConferencia)} (${it.emConferenciaQtd})</div></div>
+                            <div><div class="lbl">Projeção PrestAí</div><div class="val">${fmtBRLouIndisponivel(it.dispProjetado)}</div></div>
+                            ${it.avisoTransito ? `<div style="grid-column: 1 / -1; font-size: 0.75rem; color: #FF5807;">${window.MSG_SALDO_TRANSITO_ACIMA_OFICIAL}</div>` : ''}
                         </div>` : ''}
                     </div>
                 `;
@@ -1323,7 +1338,7 @@
                     alertaAtivo: r.alerta_limite_ativo,
                     percentualAlerta: r.percentual_alerta
                 });
-                const item = { rubrica: r, aprov, executadoSalic, dispProjetado };
+                const item = { rubrica: r, aprov, executadoSalic, dispProjetado, dispOficial: saldoSalic.disponivel_oficial ?? null };
                 if (cls.key === 'excedida') excedidas.push(item);
                 else if (cls.key === 'atencao') atencao.push(item);
             }
@@ -1341,7 +1356,7 @@
             const renderItem = (a) => `
                 <div style="border: 1px solid var(--border-light); border-radius: 6px; padding: 0.6rem; margin-bottom: 0.4rem; font-size: 0.75rem;">
                     <div style="font-weight: 600;">${escapeHtml(a.rubrica.nome || '—')}</div>
-                    <div style="color: var(--text-muted);">Aprovado: ${fmtBRL(a.aprov)} · Executado SALIC: ${a.executadoSalic != null ? fmtBRL(a.executadoSalic) : '—'} · Disponível projetado: ${a.dispProjetado != null ? fmtBRL(a.dispProjetado) : '—'}</div>
+                    <div style="color: var(--text-muted);">Aprovado: ${fmtBRL(a.aprov)} · Executado SALIC: ${a.executadoSalic != null ? fmtBRL(a.executadoSalic) : '—'} · Disponível no SALIC: ${a.dispOficial != null ? fmtBRL(a.dispOficial) : '—'} · Projeção PrestAí: ${a.dispProjetado != null ? fmtBRL(a.dispProjetado) : '—'}</div>
                 </div>
             `;
 

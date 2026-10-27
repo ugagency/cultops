@@ -806,13 +806,24 @@
 
                     pillHtml = `<span class="pill ${status.cls}">${status.label.toUpperCase()}</span>`;
 
+                    // Saldo em duas partes (#132): oficial do SALIC e, separado, o que está no
+                    // PrestAí (liberadas aguardando envio; em conferência só informativo). A
+                    // projeção fica como texto secundário.
+                    const dispOficial = temCaptura && r.disponivel_oficial != null ? parseFloat(r.disponivel_oficial) : null;
+                    const atualizadoEm = r.ultima_captura_em ? window.dataHoraCurtaSaldo(r.ultima_captura_em) : '';
+                    const linhaSaldo = 'font-size: 0.7rem; font-weight: 600; color: var(--text-muted); margin-top: 2px;';
                     usoHtml = `
                         <div style="display: flex; justify-content: space-between; font-size: 0.7rem; font-weight: 600; color: var(--text-muted);">
                             <span>Executado (SALIC): <strong style="color: var(--text-primary);">${fmtOuIndisponivel(executadoSalic)}</strong></span>
                         </div>
-                        <div style="display: flex; justify-content: space-between; font-size: 0.7rem; font-weight: 600; color: var(--text-muted); margin-top: 2px;">
-                            <span>Disponível (projeção): <strong style="color: ${(dispProjetado !== null && dispProjetado < 0) ? 'var(--error)' : 'var(--text-primary)'};">${fmtOuIndisponivel(dispProjetado)}</strong></span>
-                        </div>`;
+                        <div style="${linhaSaldo}">
+                            <span>Disponível no SALIC: <strong style="color: ${(dispOficial !== null && dispOficial < 0) ? 'var(--error)' : 'var(--text-primary)'};">${fmtOuIndisponivel(dispOficial)}</strong></span>
+                            ${atualizadoEm ? `<span style="font-weight: 400;"> Atualizado em ${atualizadoEm}</span>` : ''}
+                        </div>
+                        <div style="${linhaSaldo}">Liberadas aguardando envio: ${formatCurrency(Number(r.em_transito || 0))} (${Number(r.em_transito_qtd || 0)})</div>
+                        <div style="${linhaSaldo}">Em conferência: ${formatCurrency(Number(r.em_conferencia || 0))} (${Number(r.em_conferencia_qtd || 0)})</div>
+                        <div style="${linhaSaldo} font-weight: 400;">Projeção PrestAí: <span style="color: ${(dispProjetado !== null && dispProjetado < 0) ? 'var(--error)' : 'inherit'};">${fmtOuIndisponivel(dispProjetado)}</span></div>
+                        ${window.saldoTransitoAcimaDoOficial(r) ? `<div style="font-size: 0.7rem; color: #FF5807; margin-top: 2px;">${window.MSG_SALDO_TRANSITO_ACIMA_OFICIAL}</div>` : ''}`;
                     barWidth = temCaptura ? Math.min(percent, 100) : 0;
                     if (!temCaptura) barColor = 'var(--border-light)';
                     percentHtml = temCaptura ? percent.toFixed(1) + '%' : '—';

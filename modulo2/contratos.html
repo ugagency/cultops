@@ -1467,7 +1467,10 @@
                         const disponivel = (s && s.disponivel_projetado !== null && s.disponivel_projetado !== undefined)
                             ? formatCurrency(s.disponivel_projetado)
                             : 'Indisponível';
-                        saldoTexto = `projeção ${disponivel}`;
+                        const noSalic = (s && s.disponivel_oficial !== null && s.disponivel_oficial !== undefined)
+                            ? formatCurrency(s.disponivel_oficial)
+                            : 'Indisponível';
+                        saldoTexto = `SALIC ${noSalic}; projeção PrestAí ${disponivel}`;
                     }
                     html += `<option value="${r.id}">${escapeHtml(codigo + r.nome)} (${saldoTexto})</option>`;
                 });
@@ -1548,8 +1551,8 @@
                             abrirModalConfirmGenerico({
                                 titulo: 'Saldo insuficiente na rubrica',
                                 icone: 'alert-triangle',
-                                mensagem: `Valor do contrato (${formatCurrency(valorTotal)}) excede o disponível projetado (${formatCurrency(dispProjetado)}) em ${formatCurrency(excedente)}. Oficial (SALIC): ${formatCurrency(saldoInfo.disponivel_oficial ?? 0)}. Deseja cadastrar mesmo assim?`,
-                                textoConfirmar: 'Cadastrar mesmo assim',
+                                mensagem: `Valor do contrato (${formatCurrency(valorTotal)}) excede a projeção PrestAí (${formatCurrency(dispProjetado)}) em ${formatCurrency(excedente)}. Disponível no SALIC: ${formatCurrency(saldoInfo.disponivel_oficial ?? 0)}. O cadastro continua permitido. Deseja cadastrar?`,
+                                textoConfirmar: 'Cadastrar contrato',
                                 onConfirm: continuarSalvarContrato
                             });
                             return;
