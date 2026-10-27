@@ -1194,6 +1194,35 @@ function rotuloStatusLegivel(status) {
     return (STATUS_MAP[status] || {}).label || status || '---';
 }
 
+// O gatilho documents_cria_despesa manda para 'bloqueado_conformidade' toda nota que chega sem rubrica,
+// gravando just_erro 'Rubrica não informada — selecione manualmente.'. A nota do fornecedor entra sem
+// rubrica (quem define é o gestor), então esse bloqueio é só espera. Compara sem acento nem caixa e só
+// pelo começo do texto, então o travessão e o resto da frase não importam.
+function bloqueioPorRubricaNaoInformada(doc) {
+    if (!doc || doc.status !== 'bloqueado_conformidade') return false;
+    const texto = String(doc.just_erro == null ? '' : doc.just_erro)
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+    return texto.startsWith('rubrica nao informada');
+}
+
+// Rótulo e classe do status na lista do portal do fornecedor (SolicitanteDashboardView). O fornecedor vê o
+// ESTADO, não o detalhe interno da análise: em análise, aprovada ou rejeitada. Bloqueio por outro motivo
+// (ex.: CNAE inválido) continua "Bloqueado", porque é um problema que ele precisa saber. O texto de
+// just_erro nunca vai para a tela dele; aqui só se olha para decidir o rótulo.
+function rotuloStatusFornecedor(doc) {
+    const status = doc && doc.status;
+    if (status === 'aguardando_aprovacao_fornecedor' || bloqueioPorRubricaNaoInformada(doc)) {
+        return { rotulo: 'Em análise pelo gestor', classe: 'status-pending' };
+    }
+    const base = STATUS_MAP[status] || {};
+    const m2 = !!(doc && doc.is_m2);
+    const nome = String(status || '');
+    return {
+        rotulo: base.label || (m2 ? nome.charAt(0).toUpperCase() + nome.slice(1) : status),
+        classe: base.class || (m2 ? (status === 'aprovada' ? 'status-success' : status === 'reprovada' ? 'status-error' : 'status-pending') : 'status-pending')
+    };
+}
+
 // --- Templates ---
 
 const Sidebar = () => `
@@ -1664,11 +1693,8 @@ const SolicitanteDashboardView = () => `
                         <tbody>
                             ${state.documents.map(doc => {
         // O fornecedor vê o ESTADO, não o detalhe interno da análise.
-        const emAnalise = doc.status === 'aguardando_aprovacao_fornecedor';
         const rejeitada = doc.status === 'rejeitado_fornecedor';
-        const rotulo = emAnalise ? 'Em análise pelo gestor'
-            : (STATUS_MAP[doc.status] || {}).label || (doc.is_m2 ? (doc.status.charAt(0).toUpperCase() + doc.status.slice(1)) : doc.status);
-        const classe = (STATUS_MAP[doc.status] || {}).class || (doc.is_m2 ? (doc.status === 'aprovada' ? 'status-success' : doc.status === 'reprovada' ? 'status-error' : 'status-pending') : 'status-pending');
+        const { rotulo, classe } = rotuloStatusFornecedor(doc);
         return `
                                 <tr${rejeitada ? ' style="background: rgba(239, 68, 68, 0.04);"' : ''}>
                                     <td>
