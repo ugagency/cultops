@@ -27,6 +27,12 @@ function criarFetchFalso({ obterDb, usuarios, webhook = null, antesDoPatch = nul
             const usuario = usuarios[token];
             return usuario ? json(200, { ...usuario, aud: 'authenticated' }) : json(401, { message: 'invalid' });
         }
+        // auth.admin.getUserById (service role): devolve o usuário pelo id, se existir no mapa de tokens.
+        const admin = /^\/auth\/v1\/admin\/users\/([^/]+)$/.exec(u.pathname);
+        if (u.hostname === 'fake.local' && admin) {
+            const usuario = Object.values(usuarios || {}).find(x => x.id === admin[1]);
+            return usuario ? json(200, { ...usuario, aud: 'authenticated' }) : json(404, { message: 'User not found' });
+        }
         if (webhook && u.hostname !== 'fake.local') {
             return webhook(String(url), init.body ? JSON.parse(init.body) : null);
         }
