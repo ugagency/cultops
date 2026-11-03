@@ -28,6 +28,14 @@ const CODIGO = [
     bloco('window.showConfirmModal = function', FIM_WINDOW),
     bloco('window.closeConfirmModal = function', FIM_WINDOW),
     bloco('window.__execConfirmModal = function', FIM_WINDOW),
+    bloco('function estadoLinhaLote(', FIM_FUNCAO),
+    bloco('const SELOS_LOTE = {', '\n};\n'),
+    bloco('function seloLoteHtml(', FIM_FUNCAO),
+    bloco('function linhaLoteTravada(', FIM_FUNCAO),
+    bloco('function atualizarLinhaLoteNoDom(', FIM_FUNCAO),
+    bloco('function registrarMudancaDocumentoNoLote(', FIM_FUNCAO),
+    // a leitura de verdade, com outro nome: o ambiente ja tem um fetchUploadLoteQueue falso (o "banco")
+    bloco('async function fetchUploadLoteQueue(', FIM_FUNCAO).replace('async function fetchUploadLoteQueue(', 'async function fetchUploadLoteQueueReal('),
     bloco('const UploadLoteView = () => {', '\n};\n'),
     bloco('function extratoOrigemPara(', FIM_FUNCAO),
     bloco('window.handleProcessarLoteItem = async function', FIM_WINDOW),
@@ -55,7 +63,8 @@ function criarAmbiente(opcoes = {}) {
         user: { id: 'u1' }, loading: false, confirmModal: null,
         uploadLoteQueue: fila, rubricas_disponiveis: RUBRICAS, projects: [{ id: 'p1', pronac: '123', nome: 'Projeto' }],
         filters: { project: 'p1' }, loteExtratoVinculado: null,
-        uploadLoteProgresso: { ativo: false, total: 0, feitos: 0, falhas: 0 }
+        uploadLoteProgresso: { ativo: false, total: 0, feitos: 0, falhas: 0, atual: null, ids: [], enviados: [], rubricas: {} },
+        uploadLoteFalhas: {}, uploadLoteProcessandoFora: {}, currentView: 'upload_lote'
     };
     const ctx = {
         state, console: { log() { }, error() { }, warn() { } },
@@ -63,11 +72,19 @@ function criarAmbiente(opcoes = {}) {
         showToast: (m, t) => toasts.push({ m, t }),
         supabaseClient: {
             from: () => {
-                const op = { dados: null, id: null };
+                const op = { dados: null, id: null, leitura: false };
                 const api = {
                     update(d) { op.dados = d; return api; },
+                    select() { op.leitura = true; return api; },
+                    is() { return api; },
+                    order() { return api; },
                     eq(c, v) { op.id = v; return api; },
                     then(res, rej) {
+                        // leitura da fila (fetchUploadLoteQueueReal): o banco nao tem a rubrica digitada
+                        if (op.leitura) {
+                            const linhas = fila.filter(d => idsNoBanco.has(d.id)).map(d => ({ ...d, rubrica: null, rubrica_id_fk: null }));
+                            return Promise.resolve({ data: linhas, error: null }).then(res, rej);
+                        }
                         updates.push({ id: op.id, dados: op.dados });
                         const erro = falhaEm.has(op.id) ? { message: 'falha ao gravar' } : null;
                         if (!erro) idsNoBanco.delete(op.id);
@@ -81,6 +98,7 @@ function criarAmbiente(opcoes = {}) {
         resolverRubricaPorRotulo: (txt, lista) => lista.find(r => r.nome === txt) || null,
         document: { getElementById: (id) => { const m = /^lote-rubrica-(.+)$/.exec(id); const v = m && (opcoes.digitado || DIGITADO)[m[1]]; return m ? { value: v === undefined ? '' : v } : null; } },
         dispararOcr: async (id) => {
+            if (opcoes.aoDisparar) await opcoes.aoDisparar(id, ctx);
             ocr.chamadas.push(id);
             ocr.emAndamento++; ocr.maximo = Math.max(ocr.maximo, ocr.emAndamento);
             await tick();
@@ -108,7 +126,7 @@ function criarAmbiente(opcoes = {}) {
     vm.createContext(ctx);
     vm.runInContext(CODIGO + '\n;this.UploadLoteView = UploadLoteView;', ctx);
     ctx.window.showToast = ctx.showToast;
-    return { ctx, state, window: ctx.window, updates, toasts, renders, ocr, idsNoBanco };
+    return { ctx, state, window: ctx.window, updates, toasts, renders, ocr, idsNoBanco, falhaEm };
 }
 
 // Abre o modal pelo handler de verdade e devolve a promise do onConfirm, sem o render que fecha o modal.
@@ -284,6 +302,168 @@ async function teste(nome, fn) {
         assert.strictEqual(amb.toasts.length, 0);
         await p;
         assert.strictEqual(amb.updates.length, 3);
+    });
+
+    // ---- #153: estado visivel por linha ----
+    // texto do selo de cada linha (vazio = sem selo), lido do HTML da tela
+    const selos = (html) => Object.fromEntries([...html.matchAll(/<td id="lote-selo-([^"]+)">(.*?)<\/td>/g)]
+        .map(m => [m[1], m[2].replace(/<[^>]+>/g, '')]));
+
+    await teste('selos: Aguardando envio, Subindo e Falhou nas linhas certas; linha enviada sai da lista', async () => {
+        const amb = criarAmbiente({ falhaEm: ['b'] });
+        await abrirEConfirmar(amb);
+        const doLoop = amb.renders.filter(r => r.progresso.ativo);
+        // antes do primeiro envio: a sobe, b e c aguardam, d (sem rubrica) nao e da selecao
+        deepEq(selos(doLoop[0].html), { a: 'Subindo...', b: 'Aguardando envio', c: 'Aguardando envio', d: '' });
+        // a saiu da lista; b sobe
+        deepEq(selos(doLoop[1].html), { b: 'Subindo...', c: 'Aguardando envio', d: '' });
+        assert.ok(!doLoop[1].html.includes('id="lote-linha-a"'), 'linha enviada sai da lista');
+        // b falhou: fica na lista com selo de falha e c sobe
+        deepEq(selos(doLoop[2].html), { b: 'Falhou, tente de novo', c: 'Subindo...', d: '' });
+        // depois do envio: so a falha segue com selo; o botao e os campos voltam ao normal
+        const ultimo = amb.renders[amb.renders.length - 1];
+        assert.strictEqual(ultimo.progresso.ativo, false);
+        deepEq(selos(ultimo.html), { b: 'Falhou, tente de novo', d: '' });
+        assert.ok(!/handleProcessarLoteItem\('b'\)" disabled/.test(ultimo.html));
+        assert.ok(!/id="lote-rubrica-b"[^>]*disabled/.test(ultimo.html));
+        assert.ok(/id="lote-rubrica-b"[^>]*value="Transporte"/.test(ultimo.html), 'rubrica digitada devolvida');
+        // classes dos selos, sem icones
+        assert.ok(doLoop[2].html.includes('<span class="badge status-error">Falhou, tente de novo</span>'));
+        assert.ok(doLoop[0].html.includes('<span class="badge status-pending">Aguardando envio</span>'));
+    });
+
+    await teste('selos: enquanto enviando, campos e botoes de TODAS as linhas seguem desabilitados', async () => {
+        const amb = criarAmbiente({ falhaEm: ['b'] });
+        await abrirEConfirmar(amb);
+        for (const r of amb.renders.filter(x => x.progresso.ativo)) {
+            for (const id of r.fila.map(d => d.id)) {
+                assert.ok(new RegExp(`id="lote-rubrica-${id}"[^>]*disabled`).test(r.html), 'campo ' + id);
+                assert.ok(new RegExp(`handleProcessarLoteItem\\('${id}'\\)" disabled`).test(r.html), 'botao ' + id);
+            }
+        }
+    });
+
+    await teste('selos: novo lote limpa o selo de falha de quem entra de novo e o quadro explica que nao precisa subir de novo', async () => {
+        const amb = criarAmbiente({ falhaEm: ['b'] });
+        await abrirEConfirmar(amb);
+        assert.strictEqual(amb.state.uploadLoteFalhas.b, true);
+        const durante = amb.renders.find(r => r.progresso.ativo).html;
+        assert.ok(durante.includes('O envio continua mesmo se a tela parecer parada'));
+        assert.ok(durante.includes('Não é preciso subir os documentos de novo'));
+        // segunda tentativa, agora sem falha: o selo some junto com a linha
+        amb.ctx.document = { getElementById: (id) => { const m = /^lote-rubrica-(.+)$/.exec(id); return m && m[1] === 'b' ? { value: 'Transporte' } : null; } };
+        amb.falhaEm.delete('b');
+        const falhaB = amb.updates.length;
+        await abrirEConfirmar(amb);
+        assert.ok(amb.updates.length > falhaB);
+        deepEq(amb.state.uploadLoteFalhas, {}, 'falha antiga limpa ao reenviar');
+    });
+
+    await teste('recarregamento da fila durante o envio preserva rubrica das linhas pendentes e nao traz de volta a ja enviada', async () => {
+        let leitura = null;
+        const amb = criarAmbiente({
+            aoDisparar: async (id, ctx) => {
+                // navegar para outra tela e voltar chama fetchUploadLoteQueue no meio do envio
+                if (id === 'a') {
+                    await ctx.fetchUploadLoteQueueReal();
+                    leitura = ctx.state.uploadLoteQueue.map(d => ({ id: d.id, rubrica: d.rubrica, rubrica_id_fk: d.rubrica_id_fk }));
+                }
+            }
+        });
+        await abrirEConfirmar(amb);
+        const por = Object.fromEntries(leitura.map(d => [d.id, d]));
+        // o banco devolveu todas sem rubrica; as pendentes da selecao (b, c) voltam com a digitada
+        assert.strictEqual(por.b.rubrica_id_fk, 'rub-2'); assert.strictEqual(por.b.rubrica, 'Transporte');
+        assert.strictEqual(por.c.rubrica_id_fk, 'rub-1'); assert.strictEqual(por.c.rubrica, 'Hospedagem');
+        // e a que nao era da selecao segue como o banco mandou
+        assert.strictEqual(por.d.rubrica, null); assert.strictEqual(por.d.rubrica_id_fk, null);
+        // o lote terminou normalmente
+        deepEq(amb.ocr.chamadas, ['a', 'b', 'c']);
+        assert.strictEqual(amb.updates.length, 3);
+    });
+
+    await teste('leitura da fila: quem ja foi enviado nao volta mesmo que a leitura o traga; fora do envio nada muda', async () => {
+        const amb = criarAmbiente();
+        amb.state.uploadLoteProgresso = {
+            ativo: true, total: 3, feitos: 1, falhas: 0, atual: 'b', ids: ['a', 'b', 'c'], enviados: ['a'],
+            rubricas: { a: { rubrica: 'Hospedagem', rubrica_id_fk: 'rub-1' }, b: { rubrica: 'Transporte', rubrica_id_fk: 'rub-2' }, c: { rubrica: 'Hospedagem', rubrica_id_fk: 'rub-1' } }
+        };
+        await amb.ctx.fetchUploadLoteQueueReal(); // o "banco" ainda tem as 4, como numa leitura iniciada antes da gravacao do a
+        deepEq(amb.state.uploadLoteQueue.map(d => [d.id, d.rubrica_id_fk]), [['b', 'rub-2'], ['c', 'rub-1'], ['d', null]]);
+        // sem envio ativo: o banco manda
+        amb.state.uploadLoteProgresso = { ativo: false, total: 0, feitos: 0, falhas: 0, atual: null, ids: [], enviados: [], rubricas: {} };
+        await amb.ctx.fetchUploadLoteQueueReal();
+        deepEq(amb.state.uploadLoteQueue.map(d => [d.id, d.rubrica_id_fk]), [['a', null], ['b', null], ['c', null], ['d', null]]);
+    });
+
+    // ---- #153: outra aba/dispositivo do mesmo login processando (tempo real, sem banco novo) ----
+    function domFalso(amb) {
+        const nos = {};
+        for (const id of ['a', 'b', 'c', 'd']) {
+            nos[id] = {
+                selo: { innerHTML: '' },
+                controles: [{ tagName: 'INPUT', disabled: false }, { tagName: 'BUTTON', disabled: false }, { tagName: 'BUTTON', disabled: false }]
+            };
+        }
+        amb.ctx.document = {
+            getElementById: (id) => {
+                let m = /^lote-linha-(.+)$/.exec(id);
+                if (m) return { querySelectorAll: () => nos[m[1]].controles };
+                m = /^lote-selo-(.+)$/.exec(id);
+                if (m) return nos[m[1]].selo;
+                m = /^lote-rubrica-(.+)$/.exec(id);
+                return m ? { value: DIGITADO[m[1]] || '' } : null;
+            }
+        };
+        return nos;
+    }
+
+    await teste('tempo real: documento da fila que saiu de aguardando_rubrica fora deste envio mostra Processando e trava a linha', async () => {
+        const amb = criarAmbiente();
+        const nos = domFalso(amb);
+        amb.ctx.registrarMudancaDocumentoNoLote({ id: 'a', status: 'processing_ocr' });
+        assert.strictEqual(amb.state.uploadLoteProcessandoFora.a, true);
+        assert.strictEqual(nos.a.selo.innerHTML, '<span class="badge status-completed">Processando</span>');
+        assert.ok(nos.a.controles.every(c => c.disabled), 'campo e botoes da linha travados');
+        assert.ok(nos.b.controles.every(c => !c.disabled), 'outras linhas intactas');
+        // a tela redesenhada mantem o selo e a trava so nessa linha
+        const html = amb.ctx.UploadLoteView();
+        deepEq(selos(html), { a: 'Processando', b: '', c: '', d: '' });
+        assert.ok(/id="lote-rubrica-a"[^>]*disabled/.test(html) && !/id="lote-rubrica-b"[^>]*disabled/.test(html));
+        assert.ok(/handleProcessarLoteItem\('a'\)" disabled/.test(html) && !/handleProcessarLoteItem\('b'\)" disabled/.test(html));
+        // voltou para aguardando_rubrica: destrava
+        amb.ctx.registrarMudancaDocumentoNoLote({ id: 'a', status: 'aguardando_rubrica' });
+        deepEq(amb.state.uploadLoteProcessandoFora, {});
+        assert.strictEqual(nos.a.selo.innerHTML, '');
+        assert.ok(nos.a.controles.every(c => !c.disabled));
+    });
+
+    await teste('tempo real: ignora outra tela, documento fora da fila, documento oculto e as linhas deste proprio envio', async () => {
+        const amb = criarAmbiente();
+        domFalso(amb);
+        amb.state.currentView = 'dashboard';
+        amb.ctx.registrarMudancaDocumentoNoLote({ id: 'a', status: 'processing_ocr' });
+        amb.state.currentView = 'upload_lote';
+        amb.ctx.registrarMudancaDocumentoNoLote({ id: 'zzz', status: 'processing_ocr' });
+        amb.ctx.registrarMudancaDocumentoNoLote({ id: 'a', status: 'processing_ocr', excluido_em: '2026-11-01' });
+        amb.ctx.registrarMudancaDocumentoNoLote(null);
+        amb.state.uploadLoteProgresso = { ativo: true, total: 2, feitos: 0, falhas: 0, atual: 'a', ids: ['a', 'b'], enviados: [], rubricas: {} };
+        amb.ctx.registrarMudancaDocumentoNoLote({ id: 'a', status: 'processing_ocr' }); // o proprio envio gravando
+        deepEq(amb.state.uploadLoteProcessandoFora, {});
+        // mas uma linha fora da selecao deste envio, sim
+        amb.ctx.registrarMudancaDocumentoNoLote({ id: 'd', status: 'processing_ocr' });
+        assert.strictEqual(amb.state.uploadLoteProcessandoFora.d, true);
+    });
+
+    await teste('tempo real: "Processar todos" nao reenvia o documento que outra aba ja esta processando', async () => {
+        const amb = criarAmbiente();
+        domFalso(amb);
+        amb.ctx.registrarMudancaDocumentoNoLote({ id: 'a', status: 'processing_ocr' });
+        const modal = await abrirModal(amb);
+        assert.ok(modal.message.startsWith('Processar 2 documento(s)?'), modal.message);
+        await modal.onConfirm();
+        deepEq(amb.updates.map(u => u.id), ['b', 'c']);
+        deepEq(amb.ocr.chamadas, ['b', 'c']);
     });
 
     console.log(`${ok} ok, ${falhas} falha(s)`);
