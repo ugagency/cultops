@@ -894,7 +894,14 @@ const state = {
     uploadLoteQueue: [],
     // Andamento do "Processar todos" do lote (#121): feitos conta os documentos ja tratados
     // (enviados ou com falha); falhas e o subconjunto de feitos que falhou.
-    uploadLoteProgresso: { ativo: false, total: 0, feitos: 0, falhas: 0 },
+    uploadLoteProgresso: { ativo: false, total: 0, feitos: 0, falhas: 0, atual: null, ids: [], enviados: [], rubricas: {} },
+    // Estado por linha da fila do lote (#153), alem do progresso geral acima:
+    //  - uploadLoteFalhas: ids que falharam no ultimo "Processar todos"; o selo "Falhou, tente de novo"
+    //    fica ate o documento ser enviado ou entrar em um novo lote;
+    //  - uploadLoteProcessandoFora: ids que o banco avisou (tempo real) que sairam de aguardando_rubrica
+    //    sem este navegador ter enviado, ou seja, outra aba ou dispositivo do mesmo login esta processando.
+    uploadLoteFalhas: {},
+    uploadLoteProcessandoFora: {},
     // Extrato opcional vinculado ao lote atual: { id, nome, projectId }.
     // Guarda o projectId para não carimbar documentos de outro projeto —
     // a fila de lote é por usuário, não por projeto (ver fetchUploadLoteQueue).
@@ -2198,6 +2205,66 @@ ${Sidebar()}
     </main>
     `;
 
+// --- Estado por linha da fila do lote (#153) ---
+// Retorna 'subindo' (documento em envio agora), 'aguardando' (da selecao, ainda nao enviado),
+// 'falhou' (falhou no ultimo "Processar todos"), 'processando' (outra aba ou dispositivo do mesmo
+// login esta processando) ou null (linha normal).
+function estadoLinhaLote(id) {
+    const progresso = state.uploadLoteProgresso || {};
+    const naSelecao = !!progresso.ativo && (progresso.ids || []).includes(id);
+    if ((state.uploadLoteProcessandoFora || {})[id]) return 'processando';
+    if (naSelecao && progresso.atual === id) return 'subindo';
+    if ((state.uploadLoteFalhas || {})[id]) return 'falhou';
+    if (naSelecao) return 'aguardando';
+    return null;
+}
+
+const SELOS_LOTE = {
+    aguardando: { texto: 'Aguardando envio', classe: 'status-pending' },
+    subindo: { texto: 'Subindo...', classe: 'status-completed' },
+    processando: { texto: 'Processando', classe: 'status-completed' },
+    falhou: { texto: 'Falhou, tente de novo', classe: 'status-error' }
+};
+
+function seloLoteHtml(estado) {
+    const selo = SELOS_LOTE[estado];
+    return selo ? `<span class="badge ${selo.classe}">${selo.texto}</span>` : '';
+}
+
+// Campos e botoes da linha ficam travados durante o envio do lote e enquanto outra aba processa a nota.
+function linhaLoteTravada(id) {
+    return !!(state.uploadLoteProgresso || {}).ativo || estadoLinhaLote(id) === 'processando';
+}
+
+// Atualiza so a linha, sem render(): render() recria a tabela inteira e apagaria o que o usuario
+// digitou nas rubricas das outras linhas.
+function atualizarLinhaLoteNoDom(id) {
+    const linha = document.getElementById(`lote-linha-${id}`);
+    if (!linha) return;
+    const selo = document.getElementById(`lote-selo-${id}`);
+    if (selo) selo.innerHTML = seloLoteHtml(estadoLinhaLote(id));
+    const travada = linhaLoteTravada(id);
+    const semRubricas = (state.rubricas_disponiveis || []).length === 0;
+    linha.querySelectorAll('input, button').forEach(el => {
+        el.disabled = el.tagName === 'INPUT' ? (travada || semRubricas) : travada;
+    });
+}
+
+// Tempo real: um documento da fila saiu de aguardando_rubrica e este navegador nao esta enviando.
+// Nao le nem altera banco; so usa o que o canal ja entrega.
+function registrarMudancaDocumentoNoLote(novo) {
+    if (state.currentView !== 'upload_lote' || !novo || novo.excluido_em) return;
+    if (!(state.uploadLoteQueue || []).some(d => d.id === novo.id)) return;
+    const progresso = state.uploadLoteProgresso || {};
+    if (progresso.ativo && (progresso.ids || []).includes(novo.id)) return;
+    if (!state.uploadLoteProcessandoFora) state.uploadLoteProcessandoFora = {};
+    const fora = state.uploadLoteProcessandoFora;
+    const antes = !!fora[novo.id];
+    if (novo.status === 'aguardando_rubrica') delete fora[novo.id];
+    else fora[novo.id] = true;
+    if (antes !== !!fora[novo.id]) atualizarLinhaLoteNoDom(novo.id);
+}
+
 const UploadLoteView = () => {
     const fila = state.uploadLoteQueue || [];
     const projetoSelecionado = state.filters.project || '';
@@ -2216,7 +2283,7 @@ const UploadLoteView = () => {
                 <div class="salic-progress-bar">
                     <div class="salic-progress-fill" style="width: ${percentualEnvio}%;"></div>
                 </div>
-                <p class="text-xs" style="color: var(--text-muted); margin-top: 0.5rem;">Cada documento sai da lista assim que e enviado. Aguarde o fim para continuar.</p>
+                <p class="text-xs" style="color: var(--text-muted); margin-top: 0.5rem;">O envio continua mesmo se a tela parecer parada. Não é preciso subir os documentos de novo. Cada documento sai da lista assim que é enviado; aguarde o fim para continuar.</p>
             </div>
     ` : '';
 
@@ -2308,6 +2375,7 @@ ${Sidebar()}
                                 <th>Arquivo</th>
                                 <th>Tamanho</th>
                                 <th>Rubrica</th>
+                                <th style="width: 160px;">Situação</th>
                                 <th style="width: 220px;">Ações</th>
                             </tr>
                         </thead>
@@ -2317,19 +2385,22 @@ ${Sidebar()}
         // para que a resolução no "Processar" case exatamente com a opção da lista.
         const rubricaPre = rubricas.find(r => r.id === doc.rubrica_id_fk);
         const valorInput = rubricaPre ? rotuloRubrica(rubricaPre) : (doc.rubrica || '');
+        const estadoLinha = estadoLinhaLote(doc.id);
+        const travada = linhaLoteTravada(doc.id);
         return `
-                                <tr>
+                                <tr id="lote-linha-${doc.id}" data-lote-estado="${estadoLinha || ''}">
                                     <td style="max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${doc.name}">${doc.name}</td>
                                     <td>${doc.size || '-'}</td>
                                     <td>
-                                        <input type="text" id="lote-rubrica-${doc.id}" data-rubrica-combo data-saldo-target="lote-rubrica-saldo-${doc.id}" placeholder="${rubricas.length === 0 ? 'Selecione um projeto com rubricas...' : 'Digite para buscar rubrica...'}" autocomplete="off" style="width: 100%; padding: 0.5rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: 4px; background: white;" value="${escAttr(valorInput)}" ${rubricas.length === 0 || enviando ? 'disabled' : ''}>
+                                        <input type="text" id="lote-rubrica-${doc.id}" data-rubrica-combo data-saldo-target="lote-rubrica-saldo-${doc.id}" placeholder="${rubricas.length === 0 ? 'Selecione um projeto com rubricas...' : 'Digite para buscar rubrica...'}" autocomplete="off" style="width: 100%; padding: 0.5rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: 4px; background: white;" value="${escAttr(valorInput)}" ${rubricas.length === 0 || travada ? 'disabled' : ''}>
                                         <div id="lote-rubrica-saldo-${doc.id}">${renderSaldoBadgeHtml(rubricaPre ? rubricaPre.id : null)}</div>
                                     </td>
+                                    <td id="lote-selo-${doc.id}">${seloLoteHtml(estadoLinha)}</td>
                                     <td>
-                                        <button class="btn btn-primary" style="padding: 0.4rem 0.75rem;" onclick="window.handleProcessarLoteItem('${doc.id}')" ${enviando ? 'disabled' : ''}>
+                                        <button class="btn btn-primary" style="padding: 0.4rem 0.75rem;" onclick="window.handleProcessarLoteItem('${doc.id}')" ${travada ? 'disabled' : ''}>
                                             <i data-lucide="play" style="width: 14px;"></i> Processar
                                         </button>
-                                        <button class="btn btn-ghost" style="padding: 0.4rem 0.5rem; color: var(--error);" onclick="window.handleExcluirLoteItem('${doc.id}', '${doc.file_path}')" title="Excluir" ${enviando ? 'disabled' : ''}>
+                                        <button class="btn btn-ghost" style="padding: 0.4rem 0.5rem; color: var(--error);" onclick="window.handleExcluirLoteItem('${doc.id}', '${doc.file_path}')" title="Excluir" ${travada ? 'disabled' : ''}>
                                             <i data-lucide="trash-2" style="width: 14px;"></i>
                                         </button>
                                     </td>
@@ -9755,7 +9826,22 @@ async function fetchUploadLoteQueue() {
         console.error("Erro fetchUploadLoteQueue:", error);
         return;
     }
-    state.uploadLoteQueue = data || [];
+    let fila = data || [];
+    // Durante "Processar todos" o banco ainda nao tem a rubrica digitada das linhas pendentes, e uma
+    // leitura iniciada antes de um documento ser gravado pode devolver esse documento ja enviado.
+    // Entao: a rubrica digitada volta para quem segue na selecao e quem ja foi enviado nao reaparece (#153).
+    const progresso = state.uploadLoteProgresso || {};
+    if (progresso.ativo) {
+        const enviados = new Set(progresso.enviados || []);
+        const ids = new Set(progresso.ids || []);
+        const digitadas = progresso.rubricas || {};
+        fila = fila
+            .filter(d => !enviados.has(d.id))
+            .map(d => (ids.has(d.id) && digitadas[d.id]) ? { ...d, ...digitadas[d.id] } : d);
+    }
+    state.uploadLoteQueue = fila;
+    // O banco so devolve aguardando_rubrica: quem estava marcado como processando fora ja nao esta aqui.
+    state.uploadLoteProcessandoFora = {};
 }
 window.fetchUploadLoteQueue = fetchUploadLoteQueue;
 
@@ -10021,7 +10107,7 @@ window.handleProcessarTodosLote = async function () {
                 resolvida: !!r
             };
         })
-        .filter(x => x.hasInput);
+        .filter(x => x.hasInput && !(state.uploadLoteProcessandoFora || {})[x.doc.id]);
 
     if (itensComRubrica.length === 0) {
         return window.showToast("Preencha a rubrica em pelo menos um arquivo.", 'error');
@@ -10088,7 +10174,16 @@ window.handleProcessarTodosLote = async function () {
                 rubricaDigitada[doc.id] = { rubrica: rubricaTexto, rubrica_id_fk: rubricaIdFk };
             });
             const idsComFalha = [];
-            state.uploadLoteProgresso = { ativo: true, total: itensComRubrica.length, feitos: 0, falhas: 0 };
+            // Estado por linha (#153): atual = documento em envio agora; ids = a selecao; enviados =
+            // quem ja saiu; rubricas = o que foi digitado (o fetch durante o envio devolve essas linhas).
+            state.uploadLoteFalhas = {};
+            state.uploadLoteProgresso = {
+                ativo: true, total: itensComRubrica.length, feitos: 0, falhas: 0,
+                atual: itensComRubrica[0].doc.id,
+                ids: itensComRubrica.map(x => x.doc.id),
+                enviados: [],
+                rubricas: rubricaDigitada
+            };
             state.loading = true;
             render();
 
@@ -10099,7 +10194,7 @@ window.handleProcessarTodosLote = async function () {
             // o disparo ao n8n antes do próximo, elimina a corrida.
             let sucessos = 0, falhas = 0;
             try {
-                for (const { doc, rubricaTexto, rubricaIdFk } of itensComRubrica) {
+                for (const [posicao, { doc, rubricaTexto, rubricaIdFk }] of itensComRubrica.entries()) {
                     try {
                         const { error } = await supabaseClient
                             .from('documents')
@@ -10114,14 +10209,19 @@ window.handleProcessarTodosLote = async function () {
                         await dispararOcr(doc.id, doc.file_path);
                         sucessos++;
                         // Enviado: sai da lista agora, sem esperar o fetch do final.
+                        state.uploadLoteProgresso.enviados.push(doc.id);
                         state.uploadLoteQueue = state.uploadLoteQueue.filter(d => d.id !== doc.id);
                     } catch (err) {
                         console.error('[handleProcessarTodosLote]', doc.id, err);
                         falhas++;
                         idsComFalha.push(doc.id);
+                        state.uploadLoteFalhas[doc.id] = true;
                         state.uploadLoteProgresso.falhas = falhas;
                     }
                     state.uploadLoteProgresso.feitos = sucessos + falhas;
+                    // O proximo documento ja aparece como "Subindo..." no render, antes do await dele.
+                    const proximo = itensComRubrica[posicao + 1];
+                    state.uploadLoteProgresso.atual = proximo ? proximo.doc.id : null;
                     render();
                 }
 
@@ -10136,7 +10236,7 @@ window.handleProcessarTodosLote = async function () {
                     if (item) Object.assign(item, rubricaDigitada[id]);
                 });
             } finally {
-                state.uploadLoteProgresso = { ativo: false, total: 0, feitos: 0, falhas: 0 };
+                state.uploadLoteProgresso = { ativo: false, total: 0, feitos: 0, falhas: 0, atual: null, ids: [], enviados: [], rubricas: {} };
                 state.loading = false;
                 render();
             }
@@ -11211,6 +11311,10 @@ function setupRealtime() {
                         doc.id === payload.new.id ? { ...doc, ...payload.new } : doc
                     );
                 }
+
+                // 1b. Documento da fila do lote que saiu de aguardando_rubrica sem este navegador ter
+                // enviado: outra aba ou dispositivo do mesmo login esta processando (#153).
+                registrarMudancaDocumentoNoLote(payload.new);
 
                 // 2. Se estivermos vendo os detalhes DESTE documento, fazemos um fetch silencioso 
                 // para garantir que pegamos as relações (despesas, etc) que o n8n pode ter criado.
