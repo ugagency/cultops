@@ -3896,7 +3896,7 @@ ${Sidebar()}
                     <h3 class="h2 mb-4">Parecer da Análise</h3>
                     <div style="padding: 1rem; background: ${doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') ? 'rgba(239, 68, 68, 0.05)' : 'var(--bg-sidebar)'}; border-radius: var(--radius-sm); border-left: 3px solid ${doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') ? 'var(--error)' : (doc.justification ? 'var(--success)' : 'var(--primary)')};">
                         <p class="text-sm" style="line-height: 1.6; color: var(--text-primary);">
-                            ${doc.status.includes('bloqueado') || doc.status.includes('divergencia') || doc.status === 'revisao_manual' ?
+                            ${doc.status.includes('bloqueado') || doc.status.includes('divergencia') || doc.status === 'revisao_manual' || (doc.status === 'aguardando_conformidade' && doc.just_erro) ?
             `<strong style="color: var(--error);">Atenção:</strong><br>${doc.justification || window.prestaiSuavizar?.(doc.just_erro, 'error') || 'Documento requer análise manual devido a divergências ou baixa confiança no OCR.'}` :
             (doc.justification ? `<strong style="color: var(--success);">✓ Aprovado</strong><br>${doc.justification}` : 'Aguardando processamento da IA para gerar o parecer...')
         }
@@ -4915,8 +4915,12 @@ window.handleReprocessarDocumentoTravado = async function (documentId) {
                     // re-disparar a VALIDAÇÃO, não o OCR de novo. Mesmo mecanismo já
                     // usado quando o gestor edita a rubrica manualmente
                     // (handleVincularRubrica) — reaproveitado, não duplicado.
+                    // O status fica em 'aguardando_conformidade': 'processing_ocr' aqui faria o
+                    // reprocessar cair no OCR e os crons de OCR travado mandarem a nota para
+                    // 'revisao_manual' se o n8n não responder (#150). Só limpa o erro; o trigger
+                    // trg_documents_updated_at renova updated_at e a nota sai de "travada".
                     const { error } = await supabaseClient.from('documents')
-                        .update({ status: 'processing_ocr', just_erro: null })
+                        .update({ just_erro: null })
                         .eq('id', documentId);
                     if (error) throw error;
 
@@ -4952,7 +4956,9 @@ window.handleReprocessarDocumentoTravado = async function (documentId) {
                 } else {
                     const idx = state.documents.findIndex(d => d.id === documentId);
                     if (idx !== -1) {
-                        state.documents[idx] = { ...state.documents[idx], status: 'processing_ocr', updated_at: new Date().toISOString(), just_erro: null };
+                        // Mesmo status que foi gravado: só o ramo do OCR passa a 'processing_ocr'.
+                        const statusGravado = doc.status === 'aguardando_conformidade' ? 'aguardando_conformidade' : 'processing_ocr';
+                        state.documents[idx] = { ...state.documents[idx], status: statusGravado, updated_at: new Date().toISOString(), just_erro: null };
                     }
                 }
             } catch (err) {
@@ -7605,10 +7611,10 @@ window.handleVincularRubrica = async function (documentId, projectId, valorDespe
     const executarVinculoRubrica = () => executarVinculoRubricaImpl(documentId, projectId, valorDespesa, rubricaId, rubricaNome);
 
     // O vínculo grava a despesa com a rubrica escolhida e devolve a nota para validação
-    // ('processing_ocr'). O mesmo resumo serve ao modal de confirmação e ao de saldo insuficiente,
+    // ('aguardando_conformidade'). O mesmo resumo serve ao modal de confirmação e ao de saldo insuficiente,
     // para nunca aparecerem dois modais seguidos.
     const notaRubrica = notaAtual;
-    const resumoVinculoRubrica = `Rubrica escolhida: ${rubricaNome}\nValor da nota: ${fmtBRLM1(valorDespesa)}\nStatus atual: ${rotuloStatusLegivel(notaRubrica && notaRubrica.status)}\nNovo status: ${rotuloStatusLegivel('processing_ocr')}, enquanto a nota é revalidada com a nova rubrica.`;
+    const resumoVinculoRubrica = `Rubrica escolhida: ${rubricaNome}\nValor da nota: ${fmtBRLM1(valorDespesa)}\nStatus atual: ${rotuloStatusLegivel(notaRubrica && notaRubrica.status)}\nNovo status: ${rotuloStatusLegivel('aguardando_conformidade')}, enquanto a nota é revalidada com a nova rubrica.`;
 
     // CR-2026-001 Fase 2.2: valida saldo ANTES de gravar, enquanto o usuário
     // ainda pode mudar de ideia — não depois de processado. Só roda com o
@@ -7675,10 +7681,11 @@ async function executarVinculoRubricaImpl(documentId, projectId, valorDespesa, r
         if (error) throw error;
 
         // O webhook do n8n provavelmente le de documents.rubrica — sem isso, ele revalidaria
-        // contra a rubrica antiga.
+        // contra a rubrica antiga. O OCR desta nota ja rodou, entao o status e o da validacao
+        // ('aguardando_conformidade'); 'processing_ocr' colidiria com os crons de OCR travado (#150).
         await supabaseClient
             .from('documents')
-            .update({ rubrica: rubricaNome, rubrica_id_fk: rubricaId, status: 'processing_ocr', just_erro: null })
+            .update({ rubrica: rubricaNome, rubrica_id_fk: rubricaId, status: 'aguardando_conformidade', just_erro: null })
             .eq('id', documentId);
 
         window.showToast('Rubrica atualizada! Revalidando com o n8n...', 'info');

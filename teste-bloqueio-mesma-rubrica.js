@@ -137,7 +137,7 @@ async function teste(nome, fn) {
         assert.strictEqual(despesa.acao, 'upsert');
         assert.strictEqual(despesa.d.rubrica_id, RUB_B);
         const documento = log.escritas.find(e => e.tabela === 'documents');
-        assert.deepStrictEqual({ r: documento.d.rubrica, id: documento.d.rubrica_id_fk, s: documento.d.status }, { r: 'Transporte', id: RUB_B, s: 'processing_ocr' });
+        assert.deepStrictEqual({ r: documento.d.rubrica, id: documento.d.rubrica_id_fk, s: documento.d.status }, { r: 'Transporte', id: RUB_B, s: 'aguardando_conformidade' });
         assert.strictEqual(log.n8n.length, 1);
     });
 

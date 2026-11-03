@@ -166,7 +166,15 @@ teste('nada de gestor, admin ou analista muda: STATUS_MAP e telas de gestor igua
         ['const DetailsView = ', '\n};\n']
     ]) {
         if (SRC.indexOf(inicio) < 0) continue;
-        assert.strictEqual(bloco(SRC, inicio, fim), bloco(main, inicio, fim), inicio);
+        let esperado = bloco(main, inicio, fim);
+        // unica mudanca de proposito na DetailsView desde a main (#150): o Parecer da Analise mostra o just_erro
+        // tambem em aguardando_conformidade; coberta em teste-confirmacoes-front.js
+        if (inicio.startsWith('const DetailsView')) {
+            const antes = "|| doc.status === 'revisao_manual' ?\n            `<strong style=\"color: var(--error);\">Atenção:";
+            const depois = "|| doc.status === 'revisao_manual' || (doc.status === 'aguardando_conformidade' && doc.just_erro) ?\n            `<strong style=\"color: var(--error);\">Atenção:";
+            if (esperado.includes(antes)) esperado = esperado.replace(antes, depois);
+        }
+        assert.strictEqual(bloco(SRC, inicio, fim), esperado, inicio);
     }
     // o rotulo de status do gestor continua sendo o do STATUS_MAP puro
     assert.ok(!/rotuloStatusFornecedor/.test(bloco(SRC, 'const DashboardView = () => {', '\n};\n')));
