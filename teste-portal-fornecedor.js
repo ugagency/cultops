@@ -174,7 +174,20 @@ teste('nada de gestor, admin ou analista muda: STATUS_MAP e telas de gestor igua
             const depois = "|| doc.status === 'revisao_manual' || (doc.status === 'aguardando_conformidade' && doc.just_erro) ?\n            `<strong style=\"color: var(--error);\">Atenção:";
             if (esperado.includes(antes)) esperado = esperado.replace(antes, depois);
         }
-        assert.strictEqual(bloco(SRC, inicio, fim), esperado, inicio);
+        let atual = bloco(SRC, inicio, fim);
+        // Mudanca de proposito no #150b: a mensagem do bloqueio em "Rubrica Orcamentaria" depende da causa
+        // (bloqueioEhDeRubrica); coberta em teste-mensagem-bloqueio.js. O paragrafo sai dos dois lados.
+        if (inicio.startsWith('const DetailsView')) {
+            const semMensagem = (t) => {
+                const k = t.indexOf('Documento bloqueado por conformidade');
+                if (k < 0) return t;
+                const a = t.lastIndexOf('<p class="text-xs"', k);
+                return t.slice(0, a) + t.slice(t.indexOf('</p>', k) + 4);
+            };
+            esperado = semMensagem(esperado);
+            atual = semMensagem(atual);
+        }
+        assert.strictEqual(atual, esperado, inicio);
     }
     // o rotulo de status do gestor continua sendo o do STATUS_MAP puro
     assert.ok(!/rotuloStatusFornecedor/.test(bloco(SRC, 'const DashboardView = () => {', '\n};\n')));

@@ -1221,6 +1221,21 @@ function bloqueioPorRubricaNaoInformada(doc) {
     return texto.startsWith('rubrica nao informada');
 }
 
+// Decide se o bloqueio de conformidade e de rubrica/CNAE olhando o texto da causa (just_erro; se
+// vazio, justification, onde o n8n grava o parecer em alguns bloqueios). Sem isso a tela mandava
+// revisar a rubrica em todo bloqueio, inclusive o de valor pago diferente do valor da NF (#150).
+// Os textos de rubrica gravados hoje: parecer da IA citando CNAE, "Rubrica não informada" e
+// "Rubrica ... não está cadastrada no projeto" (gatilho documents_cria_despesa). Sem acento nem caixa.
+function bloqueioEhDeRubrica(doc) {
+    if (!doc) return false;
+    const causa = String(doc.just_erro == null ? '' : doc.just_erro).trim()
+        ? doc.just_erro
+        : doc.justification;
+    const texto = String(causa == null ? '' : causa)
+        .normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    return texto.includes('cnae') || texto.includes('rubrica');
+}
+
 // Rótulo e classe do status na lista do portal do fornecedor (SolicitanteDashboardView). O fornecedor vê o
 // ESTADO, não o detalhe interno da análise: em análise, aprovada ou rejeitada. Bloqueio por outro motivo
 // (ex.: CNAE inválido) continua "Bloqueado", porque é um problema que ele precisa saber. O texto de
@@ -3950,9 +3965,11 @@ ${Sidebar()}
                                         Corrigir Vínculo
                                     </button>
                                 </div>
-                                <p class="text-xs" style="color: var(--error); margin-top: 0.25rem;">${doc.status === 'erro_rpa'
+                                <p class="text-xs" style="color: ${doc.status === 'bloqueado_conformidade' && !bloqueioEhDeRubrica(doc) ? 'var(--text-muted)' : 'var(--error)'}; margin-top: 0.25rem;">${doc.status === 'erro_rpa'
                                     ? 'O robô não conseguiu usar a rubrica desta nota. Escolha a rubrica correta: a nota volta para a fila de conferência e conciliação e pode esperar o D-3 de novo.'
-                                    : 'Documento bloqueado por conformidade. Por favor, revise a rubrica vinculada.'}</p>
+                                    : (bloqueioEhDeRubrica(doc)
+                                        ? 'Documento bloqueado por conformidade. Por favor, revise a rubrica vinculada.'
+                                        : 'Este documento está bloqueado. Leia o Parecer da Análise ao lado. Se o motivo for a rubrica, corrija o vínculo aqui.')}</p>
                             ` : `
                                 <p class="text-xs" style="color: var(--text-muted); margin-top: 0.25rem;">Vínculo de rubrica validado automaticamente para conformidade fiscal.</p>
                             `}
