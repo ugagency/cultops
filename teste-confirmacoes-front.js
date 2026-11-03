@@ -40,6 +40,7 @@ const CODIGO = [
     bloco('function bloqueioPorRubricaNaoInformada(', FIM_FUNCAO),
     bloco('function rubricaEscolhidaIgualAtual(', FIM_FUNCAO),
     'const MSG_MESMA_RUBRICA_BLOQUEIO = "x";',
+    bloco('window.handleReprocessarDocumentoTravado = async function', FIM_WINDOW),
     bloco('window.handleVincularRubrica = async function', FIM_WINDOW),
     bloco('async function executarVinculoRubricaImpl(', FIM_FUNCAO),
     bloco('window.handleEnviarSalic = async function', FIM_WINDOW),
@@ -57,7 +58,7 @@ function criarAmbiente(opcoes = {}) {
     const chamadasFetch = [];
     const toasts = [];
     const estadoNoFetchDoWebhook = [];
-    const contexto = { renders: 0 };
+    const contexto = { renders: 0, ocr: [] };
 
     const tabela = (nome) => {
         const op = { tabela: nome, acao: null, dados: null, filtros: [] };
@@ -96,7 +97,8 @@ function criarAmbiente(opcoes = {}) {
     };
     const ctx = {
         window, state, supabaseClient, console: { log() { }, error() { }, warn() { } },
-        CONFIG: { N8N_WEBHOOK_RECONCILIATION_URL: opcoes.semWebhook ? '' : 'http://n8n.local/webhook', SALIC_API_URL: '/api/salic/inserir' },
+        CONFIG: { N8N_WEBHOOK_RECONCILIATION_URL: opcoes.semWebhook ? '' : 'http://n8n.local/webhook', N8N_WEBHOOK_VALIDATION_URL: 'http://validacao.local/wh', SALIC_API_URL: '/api/salic/inserir' },
+        dispararOcr: async (id, caminho) => { contexto.ocr.push({ id, caminho }); },
         document: { getElementById: (id) => (opcoes.campos ? opcoes.campos[id] : null) },
         render: () => { contexto.renders++; },
         showToast: (msg, tipo) => { toasts.push({ msg, tipo }); },
@@ -206,7 +208,7 @@ const nota = (extra = {}) => ({ id: 'n1', project_id: 'p1', status: 'divergencia
         let t = textoModal(amb);
         assert.strictEqual(amb.state.confirmModal.title, 'Vincular rubrica');
         assert.ok(t.includes('Hospedagem') && /1\.500,50/.test(t), t);
-        assert.ok(t.includes('Bloqueado') && t.includes('Em Processamento'), 'status atual e novo em rotulo legivel: ' + t);
+        assert.ok(t.includes('Bloqueado') && t.includes('Em Auditoria IA'), 'status atual e novo em rotulo legivel: ' + t);
         assert.ok(!/bloqueado_conformidade|processing_ocr/.test(t));
         assert.strictEqual(escritas(amb), 0);
         await cancelar(amb);
@@ -216,7 +218,9 @@ const nota = (extra = {}) => ({ id: 'n1', project_id: 'p1', status: 'divergencia
         await confirmar(amb);
         const grava = amb.log.filter(o => ['upsert', 'update'].includes(o.acao));
         deepEq(grava.map(o => o.tabela), ['despesas', 'documents']);
-        assert.strictEqual(grava[1].dados.status, 'processing_ocr');
+        // #150: o OCR ja rodou; revalidar nao pode voltar para processing_ocr (colide com os crons de OCR travado)
+        assert.strictEqual(grava[1].dados.status, 'aguardando_conformidade');
+        assert.strictEqual(grava[1].dados.just_erro, null);
         assert.strictEqual(amb.state.loading, false);
 
         // saldo ligado e insuficiente: o modal de saldo e o unico, e traz o resumo
@@ -236,7 +240,7 @@ const nota = (extra = {}) => ({ id: 'n1', project_id: 'p1', status: 'divergencia
         assert.strictEqual(modais, 1, 'um unico modal');
         t = textoModal(amb);
         assert.strictEqual(amb.state.confirmModal.title, 'Saldo insuficiente na rubrica');
-        assert.ok(t.includes('Hospedagem') && t.includes('Em Processamento'), t);
+        assert.ok(t.includes('Hospedagem') && t.includes('Em Auditoria IA'), t);
         assert.strictEqual(escritas(amb), 0);
         await confirmar(amb);
         assert.strictEqual(modais, 1, 'confirmar o de saldo nao abre outro');
@@ -434,12 +438,82 @@ const nota = (extra = {}) => ({ id: 'n1', project_id: 'p1', status: 'divergencia
         const antes = require('child_process').execSync('git show origin/main:app.js', { cwd: __dirname, maxBuffer: 1 << 28 }).toString().replace(/\r\n/g, '\n');
         // handleForcarAvanco mudou de proposito no #125 (anexa o motivo original ao texto de override); continua
         // com a confirmacao (conferida acima) e o texto novo e coberto por teste-avancar-motivo-original.js.
-        for (const f of ['handleConfirmarLancamentoNota', 'handleReprocessarDocumentoTravado', 'handleAprovarNotaFornecedor']) {
+        // handleReprocessarDocumentoTravado mudou de proposito no #150 (ramo da validacao); coberto nos testes #150 abaixo.
+        for (const f of ['handleConfirmarLancamentoNota', 'handleAprovarNotaFornecedor']) {
             const ini = 'window.' + f + ' = ';
             const a = antes.indexOf(ini);
             const b = SRC.indexOf(ini);
             assert.strictEqual(antes.slice(a, antes.indexOf(FIM_WINDOW, a)), SRC.slice(b, SRC.indexOf(FIM_WINDOW, b)), f + ' foi alterada');
         }
+    });
+
+    // ---------------------------------------------------------------- #150
+    const docTravado = (status) => ({ id: 'n1', status, file_path: 'p1/n1.pdf', cnpj_emissor: '123', rubrica_id_fk: 'rub-1', rubrica: 'Hospedagem', just_erro: 'Nao foi possivel validar', updated_at: '2020-01-01T00:00:00Z' });
+    const validacoes = (amb) => amb.chamadasFetch.filter(c => String(c.url).includes('validacao.local'));
+
+    await teste('#150: reprocessar nota travada em aguardando_conformidade refaz a VALIDACAO sem trocar o status e sem OCR', async () => {
+        const amb = criarAmbiente();
+        amb.state.documents = [docTravado('aguardando_conformidade')];
+        await amb.window.handleReprocessarDocumentoTravado('n1');
+        await confirmar(amb);
+        const gravacoes = amb.log.filter(o => o.acao === 'update');
+        assert.strictEqual(gravacoes.length, 1);
+        // so limpa o erro: o status nao e enviado (o trigger de updated_at renova a data no banco)
+        deepEq(gravacoes[0].dados, { just_erro: null });
+        deepEq(amb.contexto.ocr, [], 'nao refaz o OCR');
+        assert.strictEqual(validacoes(amb).length, 1);
+        assert.strictEqual(validacoes(amb)[0].body.document_id, 'n1');
+        assert.strictEqual(validacoes(amb)[0].body.rubrica_id, 'rub-1');
+        // atualizacao otimista coerente com o que foi gravado
+        assert.strictEqual(amb.state.documents[0].status, 'aguardando_conformidade');
+        assert.strictEqual(amb.state.documents[0].just_erro, null);
+        assert.ok(new Date(amb.state.documents[0].updated_at) > new Date('2025-01-01'), 'updated_at renovado');
+    });
+
+    await teste('#150: reprocessar nota travada em processing_ocr continua refazendo o OCR (ramo nao tocado)', async () => {
+        const amb = criarAmbiente();
+        amb.state.documents = [docTravado('processing_ocr')];
+        await amb.window.handleReprocessarDocumentoTravado('n1');
+        await confirmar(amb);
+        const gravacoes = amb.log.filter(o => o.acao === 'update');
+        deepEq(gravacoes.map(g => g.dados), [{ status: 'processing_ocr', just_erro: null }]);
+        deepEq(amb.contexto.ocr, [{ id: 'n1', caminho: 'p1/n1.pdf' }]);
+        assert.strictEqual(validacoes(amb).length, 0);
+        assert.strictEqual(amb.state.documents[0].status, 'processing_ocr');
+    });
+
+    await teste('#150: vincular rubrica grava aguardando_conformidade e chama a validacao com a rubrica nova', async () => {
+        const amb = criarAmbiente({ campos: { 'vincular-rubrica-input': { value: 'Hospedagem' } } });
+        amb.state.currentDocument = nota({ status: 'bloqueado_conformidade' });
+        await amb.window.handleVincularRubrica('n1', 'p1', 1500.5);
+        await confirmar(amb);
+        const doc = amb.log.filter(o => o.acao === 'update' && o.tabela === 'documents');
+        deepEq(doc.map(o => o.dados), [{ rubrica: 'Hospedagem', rubrica_id_fk: 'rub-1', status: 'aguardando_conformidade', just_erro: null }]);
+        assert.strictEqual(validacoes(amb).length, 1);
+        assert.strictEqual(validacoes(amb)[0].body.rubrica_id, 'rub-1');
+        deepEq(amb.contexto.ocr, []);
+    });
+
+    await teste('#150: Parecer da Analise mostra a mensagem da validacao em aguardando_conformidade (so com just_erro)', async () => {
+        const ini = SRC.indexOf('<h3 class="h2 mb-4">Parecer da Análise</h3>');
+        assert.ok(ini > 0);
+        const marca = '<p class="text-sm" style="line-height: 1.6; color: var(--text-primary);">';
+        const abre = SRC.indexOf(marca, ini);
+        const fecha = SRC.indexOf('</p>', abre);
+        const corpo = SRC.slice(abre + marca.length, fecha);
+        const parecer = vm.runInNewContext('(doc, window) => `' + corpo + '`', {});
+        const win = { prestaiSuavizar: (t) => 'suave: ' + t };
+        const MSG = 'Nao foi possivel validar o CNAE automaticamente. Use Reprocessar para tentar novamente.';
+        const com = parecer({ status: 'aguardando_conformidade', just_erro: MSG }, win);
+        assert.ok(com.includes('Atenção:') && com.includes('suave: ' + MSG), com);
+        // sem just_erro: igual a hoje
+        const sem = parecer({ status: 'aguardando_conformidade', just_erro: null }, win);
+        assert.ok(!sem.includes('Atenção:') && sem.includes('Aguardando processamento da IA'), sem);
+        // os casos que ja existiam seguem iguais
+        for (const status of ['bloqueado_conformidade', 'divergencia_valor', 'revisao_manual']) {
+            assert.ok(parecer({ status, just_erro: MSG }, win).includes('Atenção:'), status);
+        }
+        assert.ok(!parecer({ status: 'processing_ocr', just_erro: MSG }, win).includes('Atenção:'));
     });
 
     // ---------------------------------------------------------------- #129
