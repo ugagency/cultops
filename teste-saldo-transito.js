@@ -241,6 +241,12 @@ async function teste(nome, fn) {
         bloco('window.showConfirmModal = function', FIM_W),
         bloco('window.closeConfirmModal = function', FIM_W),
         bloco('window.__execConfirmModal = function', FIM_W),
+        bloco('let _loteContadorTimer = null;', ' = null;'),
+        bloco('function segundosLoteAtual(', FIM_F),
+        bloco('function pararContadorLote(', FIM_F),
+        bloco('function atualizarSegundosLote(', FIM_F),
+        bloco('function definirAtualLote(', FIM_F),
+        bloco('function avisarSaidaDuranteEnvioLote(', FIM_F),
         bloco('function extratoOrigemPara(', FIM_F),
         bloco('window.handleProcessarTodosLote = async function', FIM_W)
     ].join('\n');
@@ -253,7 +259,8 @@ async function teste(nome, fn) {
             uploadLoteQueue: [{ id: 'a', name: 'a.pdf', file_path: 'p1/a.pdf', project_id: 'p1', valor: 3000 }]
         };
         const ctx = {
-            state, console: { log() { }, error() { }, warn() { } }, window: {},
+            state, console: { log() { }, error() { }, warn() { } }, window: { addEventListener() { }, removeEventListener() { } },
+            setInterval: () => 1, clearInterval() { },
             document: { getElementById: () => ({ value: 'Hospedagem' }) },
             render() { }, showToast() { }, resolverRubricaPorRotulo: (t, l) => l.find(r => r.nome === t) || null,
             isSaldoRubricasHabilitado: async () => true, dispararOcr: async () => { }, fetchUploadLoteQueue: async () => { },

@@ -1598,3 +1598,87 @@ optgroup option { font-weight: 400; color: var(--text-primary); }
     color: var(--text-muted);
     text-align: center;
 }
+
+/* Progresso do envio em lote (#153) -------------------------------------- */
+/* Quadro fixo no topo da area de conteudo enquanto o lote e enviado; abaixo da sidebar
+   mobile (1000), do hamburger (1100) e dos modais (2000). Fundo opaco para a fila nao
+   aparecer por tras ao rolar. */
+.lote-progresso-envio {
+    position: sticky;
+    top: 0.75rem;
+    z-index: 50;
+    background: var(--bg-card, #FFFFFF);
+}
+
+@media (max-width: 768px) {
+    /* Deixa o hamburger (fixo no canto superior esquerdo) livre. */
+    .lote-progresso-envio { top: 3.75rem; }
+}
+
+/* Um segmento por documento. */
+.lote-segmentos {
+    display: flex;
+    gap: 3px;
+    height: 10px;
+}
+
+.lote-seg {
+    flex: 1 1 0;
+    min-width: 4px;
+    border-radius: 999px;
+    background: var(--border-subtle);
+    position: relative;
+    overflow: hidden;
+}
+
+.lote-seg-ok { background: var(--success); }
+.lote-seg-falha { background: var(--error); }
+
+/* Documento atual: faixa em movimento continuo, so indica atividade (nao e percentual). */
+.lote-seg-atual::after,
+.lote-barra-indet > span {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 40%;
+    border-radius: inherit;
+    background: var(--primary);
+    animation: lote-corre 1.3s ease-in-out infinite;
+}
+
+/* Barra fina indeterminada abaixo do selo "Subindo...". */
+.lote-barra-indet {
+    position: relative;
+    height: 3px;
+    margin-top: 6px;
+    min-width: 90px;
+    max-width: 140px;
+    border-radius: 999px;
+    background: var(--border-subtle);
+    overflow: hidden;
+}
+
+@keyframes lote-corre {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(250%); }
+}
+
+/* Sem animacao: o segmento atual fica cheio na cor de destaque e a barra fina some; o selo
+   continua mostrando os segundos em texto. */
+@media (prefers-reduced-motion: reduce) {
+    .lote-seg-atual { background: var(--primary); }
+    .lote-seg-atual::after,
+    .lote-barra-indet > span { animation: none; }
+    .lote-seg-atual::after { display: none; }
+    .lote-barra-indet { display: none; }
+}
+
+/* Os breakpoints de 1400px e 768px usam overflow-x: hidden em html e body, o que faz o body virar
+   um container de rolagem proprio e anula o position: sticky de qualquer filho (o quadro de
+   progresso ficava na posicao original). overflow-x: clip corta o mesmo conteudo sem criar
+   container de rolagem; navegador sem suporte mantem o hidden e perde so o sticky. */
+@supports (overflow: clip) {
+    html, body { overflow-x: clip; }
+}

@@ -894,7 +894,9 @@ const state = {
     uploadLoteQueue: [],
     // Andamento do "Processar todos" do lote (#121): feitos conta os documentos ja tratados
     // (enviados ou com falha); falhas e o subconjunto de feitos que falhou.
-    uploadLoteProgresso: { ativo: false, total: 0, feitos: 0, falhas: 0, atual: null, ids: [], enviados: [], rubricas: {} },
+    uploadLoteProgresso: { ativo: false, total: 0, feitos: 0, falhas: 0, atual: null, atualDesde: null, ids: [], enviados: [], rubricas: {} },
+    // Upload dos PDFs para a fila (handleLoteFilesSelected), por arquivo (#153): { ativo, total, concluidos, falhas, estados[] }.
+    uploadArquivosProgresso: null,
     // Estado por linha da fila do lote (#153), alem do progresso geral acima:
     //  - uploadLoteFalhas: ids que falharam no ultimo "Processar todos"; o selo "Falhou, tente de novo"
     //    fica ate o documento ser enviado ou entrar em um novo lote;
@@ -2226,9 +2228,69 @@ const SELOS_LOTE = {
     falhou: { texto: 'Falhou, tente de novo', classe: 'status-error' }
 };
 
-function seloLoteHtml(estado) {
+function seloLoteHtml(estado, id, segundos = 0) {
     const selo = SELOS_LOTE[estado];
-    return selo ? `<span class="badge ${selo.classe}">${selo.texto}</span>` : '';
+    if (!selo) return '';
+    if (estado === 'subindo') {
+        // Segundos e barra indeterminada so indicam atividade: nao ha percentual real do documento atual.
+        return `<span class="badge ${selo.classe}">${selo.texto} <span id="lote-segundos-${id}">${segundos}s</span></span>`
+            + '<div class="lote-barra-indet" aria-hidden="true"><span></span></div>';
+    }
+    return `<span class="badge ${selo.classe}">${selo.texto}</span>`;
+}
+
+// Segundos desde que o documento atual comecou a subir.
+function segundosLoteAtual() {
+    const desde = (state.uploadLoteProgresso || {}).atualDesde;
+    return desde ? Math.max(0, Math.floor((Date.now() - desde) / 1000)) : 0;
+}
+
+// O contador mexe so no texto dos segundos (getElementById): render() recriaria a tabela e
+// apagaria o que foi digitado nas outras linhas. Um intervalo por documento; parado ao trocar
+// de documento e ao fim do lote.
+let _loteContadorTimer = null;
+function pararContadorLote() {
+    if (_loteContadorTimer) { clearInterval(_loteContadorTimer); _loteContadorTimer = null; }
+}
+function atualizarSegundosLote() {
+    const p = state.uploadLoteProgresso || {};
+    if (!p.ativo || !p.atual) return;
+    const el = document.getElementById(`lote-segundos-${p.atual}`);
+    if (el) el.textContent = `${segundosLoteAtual()}s`;
+}
+function definirAtualLote(id) {
+    pararContadorLote();
+    const p = state.uploadLoteProgresso;
+    p.atual = id;
+    p.atualDesde = id ? Date.now() : null;
+    if (id) _loteContadorTimer = setInterval(atualizarSegundosLote, 1000);
+}
+
+// Pede confirmacao ao sair ou atualizar enquanto o laço do envio (que roda neste navegador) esta ativo.
+function avisarSaidaDuranteEnvioLote(e) {
+    e.preventDefault();
+    e.returnValue = '';
+    return '';
+}
+
+// Barra segmentada, um segmento por item: 'ok' (concluido), 'atual' (em movimento), 'espera', 'falha'.
+function segmentosLoteHtml(estados) {
+    return `<div class="lote-segmentos" aria-hidden="true">${estados.map(e => `<span class="lote-seg lote-seg-${e}"></span>`).join('')}</div>`;
+}
+
+// Progresso do upload dos PDFs para a fila. Os envios sao paralelos, entao "feitos" e o que conta;
+// os segmentos ainda pendentes ficam em movimento.
+function conteudoUploadArquivosHtml(p) {
+    const feitos = p.concluidos + p.falhas;
+    return `<p class="text-sm" style="font-weight: 600; color: var(--primary); margin-bottom: 0.5rem;">Enviando arquivos para a fila: ${feitos} de ${p.total}</p>`
+        + segmentosLoteHtml(p.estados)
+        + `<p class="text-xs" style="color: var(--text-muted); margin-top: 0.5rem;">Concluídos: ${p.concluidos}.${p.falhas > 0 ? ` Com falha: ${p.falhas}.` : ''}</p>`;
+}
+
+function atualizarProgressoUploadLoteNoDom() {
+    const p = state.uploadArquivosProgresso;
+    const el = document.getElementById('lote-progresso-upload');
+    if (p && p.ativo && el) el.innerHTML = conteudoUploadArquivosHtml(p);
 }
 
 // Campos e botoes da linha ficam travados durante o envio do lote e enquanto outra aba processa a nota.
@@ -2242,7 +2304,7 @@ function atualizarLinhaLoteNoDom(id) {
     const linha = document.getElementById(`lote-linha-${id}`);
     if (!linha) return;
     const selo = document.getElementById(`lote-selo-${id}`);
-    if (selo) selo.innerHTML = seloLoteHtml(estadoLinhaLote(id));
+    if (selo) selo.innerHTML = seloLoteHtml(estadoLinhaLote(id), id, segundosLoteAtual());
     const travada = linhaLoteTravada(id);
     const semRubricas = (state.rubricas_disponiveis || []).length === 0;
     linha.querySelectorAll('input, button').forEach(el => {
@@ -2272,20 +2334,24 @@ const UploadLoteView = () => {
     // Enquanto o lote e enviado (handleProcessarTodosLote), nada que mude a fila pode ser usado.
     const progresso = state.uploadLoteProgresso || {};
     const enviando = !!progresso.ativo;
-    const percentualEnvio = enviando && progresso.total > 0
-        ? Math.min(100, Math.round((progresso.feitos / progresso.total) * 100))
-        : 0;
+    // Barra segmentada (#153): um segmento por documento do lote, sem percentual falso do atual.
+    const idsEnvio = progresso.ids || [];
+    const enviadosEnvio = progresso.enviados || [];
+    const posicaoAtual = progresso.atual ? idsEnvio.indexOf(progresso.atual) + 1 : 0;
+    const estadosSegmentos = idsEnvio.map(id => enviadosEnvio.includes(id) ? 'ok'
+        : (state.uploadLoteFalhas || {})[id] ? 'falha'
+            : progresso.atual === id ? 'atual' : 'espera');
     const quadroEnvioHtml = enviando ? `
-            <div class="card mb-4" id="lote-progresso-envio" role="status" aria-live="polite">
+            <div class="card mb-4 lote-progresso-envio" id="lote-progresso-envio" role="status" aria-live="polite">
                 <p class="text-sm" style="font-weight: 600; color: var(--primary); margin-bottom: 0.6rem;">
-                    Enviando documentos para processamento: ${progresso.feitos} de ${progresso.total}${progresso.falhas > 0 ? ` (${progresso.falhas} com falha)` : ''}
+                    ${posicaoAtual > 0 ? `Enviando documento ${posicaoAtual} de ${progresso.total}` : 'Finalizando o envio'}
                 </p>
-                <div class="salic-progress-bar">
-                    <div class="salic-progress-fill" style="width: ${percentualEnvio}%;"></div>
-                </div>
-                <p class="text-xs" style="color: var(--text-muted); margin-top: 0.5rem;">O envio continua mesmo se a tela parecer parada. Não é preciso subir os documentos de novo. Cada documento sai da lista assim que é enviado; aguarde o fim para continuar.</p>
+                ${segmentosLoteHtml(estadosSegmentos)}
+                <p class="text-xs" style="color: var(--text-secondary); margin-top: 0.5rem;">Concluídos: ${enviadosEnvio.length}.${progresso.falhas > 0 ? ` Com falha: ${progresso.falhas}.` : ''}</p>
+                <p class="text-xs" style="color: var(--text-muted); margin-top: 0.35rem;">Mantenha esta página aberta até terminar. Se você sair ou atualizar, os documentos que ainda não foram enviados continuam na fila e podem ser processados de novo.</p>
             </div>
     ` : '';
+    const uploadArquivos = state.uploadArquivosProgresso;
 
     return `
 ${Sidebar()}
@@ -2350,7 +2416,9 @@ ${Sidebar()}
                     <p class="text-xs" style="color: var(--text-muted); margin-top: 0.5rem;">Os arquivos serão enviados para a fila abaixo. Você escolhe a rubrica de cada um antes de processar.</p>
                 </div>
 
-                ${state.loading && !enviando ? `<p class="text-xs mt-4" style="color: var(--primary); text-align: center;">Enviando arquivos para a fila, aguarde...</p>` : ''}
+                ${uploadArquivos && uploadArquivos.ativo
+        ? `<div class="mt-4" id="lote-progresso-upload" role="status" aria-live="polite">${conteudoUploadArquivosHtml(uploadArquivos)}</div>`
+        : (state.loading && !enviando ? `<p class="text-xs mt-4" style="color: var(--primary); text-align: center;">Enviando arquivos para a fila, aguarde...</p>` : '')}
             </div>
 
             <div class="card">
@@ -2395,7 +2463,7 @@ ${Sidebar()}
                                         <input type="text" id="lote-rubrica-${doc.id}" data-rubrica-combo data-saldo-target="lote-rubrica-saldo-${doc.id}" placeholder="${rubricas.length === 0 ? 'Selecione um projeto com rubricas...' : 'Digite para buscar rubrica...'}" autocomplete="off" style="width: 100%; padding: 0.5rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: 4px; background: white;" value="${escAttr(valorInput)}" ${rubricas.length === 0 || travada ? 'disabled' : ''}>
                                         <div id="lote-rubrica-saldo-${doc.id}">${renderSaldoBadgeHtml(rubricaPre ? rubricaPre.id : null)}</div>
                                     </td>
-                                    <td id="lote-selo-${doc.id}">${seloLoteHtml(estadoLinha)}</td>
+                                    <td id="lote-selo-${doc.id}">${seloLoteHtml(estadoLinha, doc.id, segundosLoteAtual())}</td>
                                     <td>
                                         <button class="btn btn-primary" style="padding: 0.4rem 0.75rem;" onclick="window.handleProcessarLoteItem('${doc.id}')" ${travada ? 'disabled' : ''}>
                                             <i data-lucide="play" style="width: 14px;"></i> Processar
@@ -10029,15 +10097,28 @@ window.handleLoteFilesSelected = async function (fileList) {
     if (!fileList || fileList.length === 0) return;
 
     const arquivos = Array.from(fileList);
+    // Progresso por arquivo (#153): 'atual' = ainda subindo (em movimento), depois 'ok' ou 'falha'.
+    // Cada termino atualiza so o quadro (getElementById), sem render() que apagaria rubricas digitadas.
+    state.uploadArquivosProgresso = { ativo: true, total: arquivos.length, concluidos: 0, falhas: 0, estados: arquivos.map(() => 'atual') };
     state.loading = true;
     render();
+    const marcarArquivo = (i, estado) => {
+        const p = state.uploadArquivosProgresso;
+        if (!p) return;
+        p.estados[i] = estado;
+        if (estado === 'ok') p.concluidos++; else p.falhas++;
+        atualizarProgressoUploadLoteNoDom();
+    };
 
     const resultados = await Promise.allSettled(
-        arquivos.map(file => subirParaStorage(file, projectId, {
+        arquivos.map((file, i) => subirParaStorage(file, projectId, {
             status: 'aguardando_rubrica',
             rubrica: null,
             tipo_documento: 'nf'
-        }))
+        }).then(
+            r => { marcarArquivo(i, 'ok'); return r; },
+            e => { marcarArquivo(i, 'falha'); throw e; }
+        ))
     );
 
     const sucessos = resultados.filter(r => r.status === 'fulfilled').length;
@@ -10050,6 +10131,7 @@ window.handleLoteFilesSelected = async function (fileList) {
     }
 
     await fetchUploadLoteQueue();
+    state.uploadArquivosProgresso = null;
     state.loading = false;
     render();
 };
@@ -10186,13 +10268,13 @@ window.handleProcessarTodosLote = async function () {
             state.uploadLoteFalhas = {};
             state.uploadLoteProgresso = {
                 ativo: true, total: itensComRubrica.length, feitos: 0, falhas: 0,
-                atual: itensComRubrica[0].doc.id,
+                atual: null, atualDesde: null,
                 ids: itensComRubrica.map(x => x.doc.id),
                 enviados: [],
                 rubricas: rubricaDigitada
             };
+            definirAtualLote(itensComRubrica[0].doc.id);
             state.loading = true;
-            render();
 
             // Sequencial, não Promise.allSettled: documentos do mesmo lote (mesmo extrato)
             // disparados em paralelo corriam risco de corrida na conciliação — o n8n busca
@@ -10201,6 +10283,9 @@ window.handleProcessarTodosLote = async function () {
             // o disparo ao n8n antes do próximo, elimina a corrida.
             let sucessos = 0, falhas = 0;
             try {
+                // O laco roda neste navegador: sair ou atualizar o interrompe. O aviso sai no finally.
+                window.addEventListener('beforeunload', avisarSaidaDuranteEnvioLote);
+                render();
                 for (const [posicao, { doc, rubricaTexto, rubricaIdFk }] of itensComRubrica.entries()) {
                     try {
                         const { error } = await supabaseClient
@@ -10228,7 +10313,7 @@ window.handleProcessarTodosLote = async function () {
                     state.uploadLoteProgresso.feitos = sucessos + falhas;
                     // O proximo documento ja aparece como "Subindo..." no render, antes do await dele.
                     const proximo = itensComRubrica[posicao + 1];
-                    state.uploadLoteProgresso.atual = proximo ? proximo.doc.id : null;
+                    definirAtualLote(proximo ? proximo.doc.id : null);
                     render();
                 }
 
@@ -10243,7 +10328,9 @@ window.handleProcessarTodosLote = async function () {
                     if (item) Object.assign(item, rubricaDigitada[id]);
                 });
             } finally {
-                state.uploadLoteProgresso = { ativo: false, total: 0, feitos: 0, falhas: 0, atual: null, ids: [], enviados: [], rubricas: {} };
+                pararContadorLote();
+                window.removeEventListener('beforeunload', avisarSaidaDuranteEnvioLote);
+                state.uploadLoteProgresso = { ativo: false, total: 0, feitos: 0, falhas: 0, atual: null, atualDesde: null, ids: [], enviados: [], rubricas: {} };
                 state.loading = false;
                 render();
             }

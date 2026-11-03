@@ -31,6 +31,16 @@ const CODIGO = [
     bloco('function estadoLinhaLote(', FIM_FUNCAO),
     bloco('const SELOS_LOTE = {', '\n};\n'),
     bloco('function seloLoteHtml(', FIM_FUNCAO),
+    bloco('function segundosLoteAtual(', FIM_FUNCAO),
+    bloco('let _loteContadorTimer = null;', ' = null;'),
+    bloco('function pararContadorLote(', FIM_FUNCAO),
+    bloco('function atualizarSegundosLote(', FIM_FUNCAO),
+    bloco('function definirAtualLote(', FIM_FUNCAO),
+    bloco('function avisarSaidaDuranteEnvioLote(', FIM_FUNCAO),
+    bloco('function segmentosLoteHtml(', FIM_FUNCAO),
+    bloco('function conteudoUploadArquivosHtml(', FIM_FUNCAO),
+    bloco('function atualizarProgressoUploadLoteNoDom(', FIM_FUNCAO),
+    bloco('window.handleLoteFilesSelected = async function', FIM_WINDOW),
     bloco('function linhaLoteTravada(', FIM_FUNCAO),
     bloco('function atualizarLinhaLoteNoDom(', FIM_FUNCAO),
     bloco('function registrarMudancaDocumentoNoLote(', FIM_FUNCAO),
@@ -42,6 +52,8 @@ const CODIGO = [
     bloco('window.handleProcessarTodosLote = async function', FIM_WINDOW)
 ].join('\n');
 
+// estado de cada segmento da barra segmentada do quadro, na ordem do lote
+const segmentos = (html) => [...html.matchAll(/class="lote-seg lote-seg-([a-z]+)"/g)].map(m => m[1]);
 const tick = async () => { for (let i = 0; i < 8; i++) await new Promise(r => setImmediate(r)); };
 const deepEq = (a, b, m) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)), m);
 
@@ -55,6 +67,8 @@ function criarAmbiente(opcoes = {}) {
     const toasts = [];
     const renders = [];
     const ocr = { chamadas: [], emAndamento: 0, maximo: 0 };
+    const saida = [];
+    const timers = [];
     const falhaEm = new Set(opcoes.falhaEm || []);
     const ocrLanca = new Set(opcoes.ocrLanca || []);
     const idsNoBanco = new Set(fila.map(d => d.id));
@@ -63,12 +77,19 @@ function criarAmbiente(opcoes = {}) {
         user: { id: 'u1' }, loading: false, confirmModal: null,
         uploadLoteQueue: fila, rubricas_disponiveis: RUBRICAS, projects: [{ id: 'p1', pronac: '123', nome: 'Projeto' }],
         filters: { project: 'p1' }, loteExtratoVinculado: null,
-        uploadLoteProgresso: { ativo: false, total: 0, feitos: 0, falhas: 0, atual: null, ids: [], enviados: [], rubricas: {} },
-        uploadLoteFalhas: {}, uploadLoteProcessandoFora: {}, currentView: 'upload_lote'
+        uploadLoteProgresso: { ativo: false, total: 0, feitos: 0, falhas: 0, atual: null, atualDesde: null, ids: [], enviados: [], rubricas: {} },
+        uploadLoteFalhas: {}, uploadLoteProcessandoFora: {}, uploadArquivosProgresso: null, currentView: 'upload_lote'
     };
     const ctx = {
         state, console: { log() { }, error() { }, warn() { } },
-        window: { showToast: (m, t) => toasts.push({ m, t }) },
+        window: {
+            showToast: (m, t) => toasts.push({ m, t }),
+            addEventListener: (tipo, fn) => saida.push({ acao: 'add', tipo, fn }),
+            removeEventListener: (tipo, fn) => saida.push({ acao: 'remove', tipo, fn })
+        },
+        // intervalos falsos: cada setInterval vira um registro que o teste dispara na mao
+        setInterval: (fn, ms) => { const t = { fn, ms, ativo: true }; timers.push(t); return t; },
+        clearInterval: (t) => { if (t) t.ativo = false; },
         showToast: (m, t) => toasts.push({ m, t }),
         supabaseClient: {
             from: () => {
@@ -126,7 +147,7 @@ function criarAmbiente(opcoes = {}) {
     vm.createContext(ctx);
     vm.runInContext(CODIGO + '\n;this.UploadLoteView = UploadLoteView;', ctx);
     ctx.window.showToast = ctx.showToast;
-    return { ctx, state, window: ctx.window, updates, toasts, renders, ocr, idsNoBanco, falhaEm };
+    return { ctx, state, window: ctx.window, updates, toasts, renders, ocr, idsNoBanco, falhaEm, saida, timers };
 }
 
 // Abre o modal pelo handler de verdade e devolve a promise do onConfirm, sem o render que fecha o modal.
@@ -189,7 +210,7 @@ async function teste(nome, fn) {
         assert.ok(/id="lote-rubrica-d"[^>]*value=""/.test(primeiro.html));
         assert.strictEqual(primeiro.progresso.ativo, true);
         assert.strictEqual(primeiro.progresso.total, 3);
-        assert.ok(primeiro.html.includes('Enviando documentos para processamento: 0 de 3'));
+        assert.ok(primeiro.html.includes('Enviando documento 1 de 3'));
         await p;
     });
 
@@ -199,15 +220,21 @@ async function teste(nome, fn) {
         const doLoop = amb.renders.filter(r => r.progresso.ativo);
         deepEq(doLoop.map(r => r.progresso.feitos), [0, 1, 2, 3]);
         deepEq(doLoop.map(r => r.fila.map(d => d.id).join('')), ['abcd', 'bcd', 'cd', 'd']);
-        assert.ok(doLoop[1].html.includes('1 de 3') && doLoop[2].html.includes('2 de 3') && doLoop[3].html.includes('3 de 3'));
-        assert.ok(!doLoop[3].html.includes('com falha'), 'sem falhas nao aparece "com falha"');
+        // "Enviando documento X de N" acompanha o documento atual; depois do ultimo vira "Finalizando"
+        assert.ok(doLoop[0].html.includes('Enviando documento 1 de 3') && doLoop[1].html.includes('Enviando documento 2 de 3') && doLoop[2].html.includes('Enviando documento 3 de 3'));
+        assert.ok(doLoop[3].html.includes('Finalizando o envio'));
+        assert.ok(doLoop[0].html.includes('Concluídos: 0.') && doLoop[1].html.includes('Concluídos: 1.') && doLoop[3].html.includes('Concluídos: 3.'));
+        assert.ok(!doLoop[3].html.includes('Com falha'), 'sem falhas nao aparece "Com falha"');
         // barra proporcional
-        assert.ok(doLoop[0].html.includes('width: 0%') && doLoop[1].html.includes('width: 33%') && doLoop[2].html.includes('width: 67%') && doLoop[3].html.includes('width: 100%'));
+        deepEq(segmentos(doLoop[0].html), ['atual', 'espera', 'espera']);
+        deepEq(segmentos(doLoop[1].html), ['ok', 'atual', 'espera']);
+        deepEq(segmentos(doLoop[2].html), ['ok', 'ok', 'atual']);
+        deepEq(segmentos(doLoop[3].html), ['ok', 'ok', 'ok']);
         // fim: quadro some, botao volta, sobra so a nota sem rubrica
         const ultimo = amb.renders[amb.renders.length - 1];
         assert.strictEqual(ultimo.progresso.ativo, false);
         assert.strictEqual(ultimo.loading, false);
-        assert.ok(!ultimo.html.includes('Enviando documentos para processamento'));
+        assert.ok(!ultimo.html.includes('Enviando documento'));
         assert.ok(/onclick="window.handleProcessarTodosLote\(\)" (?!disabled)/.test(ultimo.html));
         deepEq(ultimo.fila.map(d => d.id), ['d']);
         assert.ok(amb.toasts.some(t => t.t === 'success' && t.m.startsWith('3 documento(s) enviados')));
@@ -233,7 +260,8 @@ async function teste(nome, fn) {
         const doLoop = amb.renders.filter(r => r.progresso.ativo);
         deepEq(doLoop.map(r => r.progresso.feitos), [0, 1, 2, 3]);
         deepEq(doLoop.map(r => r.progresso.falhas), [0, 0, 1, 1]);
-        assert.ok(doLoop[2].html.includes('2 de 3 (1 com falha)'));
+        assert.ok(doLoop[2].html.includes('Enviando documento 3 de 3') && doLoop[2].html.includes('Concluídos: 1. Com falha: 1.'));
+        deepEq(segmentos(doLoop[2].html), ['ok', 'falha', 'atual']);
         deepEq(doLoop[2].fila.map(d => d.id), ['b', 'c', 'd'], 'o b nao sai da lista');
         // depois do fetch final (que traz o banco, sem a rubrica) o b continua com a rubrica digitada
         const ultimo = amb.renders[amb.renders.length - 1];
@@ -250,7 +278,7 @@ async function teste(nome, fn) {
         await abrirEConfirmar(amb);
         deepEq(amb.ocr.chamadas, ['a', 'b', 'c']);
         assert.strictEqual(amb.state.uploadLoteProgresso.ativo, false);
-        assert.ok(amb.renders.some(r => r.html.includes('3 de 3 (1 com falha)')));
+        assert.ok(amb.renders.some(r => r.html.includes('Concluídos: 2. Com falha: 1.')));
     });
 
     await teste('o estado de progresso e desligado mesmo com excecao fora do loop (fetch final quebra)', async () => {
@@ -260,7 +288,7 @@ async function teste(nome, fn) {
         assert.strictEqual(amb.state.loading, false);
         const ultimo = amb.renders[amb.renders.length - 1];
         assert.strictEqual(ultimo.progresso.ativo, false);
-        assert.ok(!ultimo.html.includes('Enviando documentos para processamento'));
+        assert.ok(!ultimo.html.includes('Enviando documento'));
     });
 
     await teste('o estado de progresso e desligado se o render quebrar no meio do loop', async () => {
@@ -307,7 +335,7 @@ async function teste(nome, fn) {
     // ---- #153: estado visivel por linha ----
     // texto do selo de cada linha (vazio = sem selo), lido do HTML da tela
     const selos = (html) => Object.fromEntries([...html.matchAll(/<td id="lote-selo-([^"]+)">(.*?)<\/td>/g)]
-        .map(m => [m[1], m[2].replace(/<[^>]+>/g, '')]));
+        .map(m => [m[1], m[2].replace(/<[^>]+>/g, '').replace(/ \d+s$/, '')]));
 
     await teste('selos: Aguardando envio, Subindo e Falhou nas linhas certas; linha enviada sai da lista', async () => {
         const amb = criarAmbiente({ falhaEm: ['b'] });
@@ -348,8 +376,9 @@ async function teste(nome, fn) {
         await abrirEConfirmar(amb);
         assert.strictEqual(amb.state.uploadLoteFalhas.b, true);
         const durante = amb.renders.find(r => r.progresso.ativo).html;
-        assert.ok(durante.includes('O envio continua mesmo se a tela parecer parada'));
-        assert.ok(durante.includes('Não é preciso subir os documentos de novo'));
+        assert.ok(durante.includes('Mantenha esta página aberta até terminar'));
+        assert.ok(durante.includes('continuam na fila e podem ser processados de novo'));
+        assert.ok(!durante.includes('continua mesmo se a tela parecer parada'), 'texto antigo, que induzia a erro, saiu');
         // segunda tentativa, agora sem falha: o selo some junto com a linha
         amb.ctx.document = { getElementById: (id) => { const m = /^lote-rubrica-(.+)$/.exec(id); return m && m[1] === 'b' ? { value: 'Transporte' } : null; } };
         amb.falhaEm.delete('b');
@@ -464,6 +493,130 @@ async function teste(nome, fn) {
         await modal.onConfirm();
         deepEq(amb.updates.map(u => u.id), ['b', 'c']);
         deepEq(amb.ocr.chamadas, ['b', 'c']);
+    });
+
+    // ---- #153 (interatividade): barra segmentada, contador por documento, aviso de saida, upload por arquivo ----
+    await teste('quadro: role=status/aria-live e barra segmentada sem percentual; falha e concluido nas cores certas', async () => {
+        const amb = criarAmbiente({ falhaEm: ['a'] });
+        await abrirEConfirmar(amb);
+        const doLoop = amb.renders.filter(r => r.progresso.ativo);
+        assert.ok(/id="lote-progresso-envio" role="status" aria-live="polite"/.test(doLoop[0].html));
+        const quadro = doLoop[0].html.slice(doLoop[0].html.indexOf('id="lote-progresso-envio"'), doLoop[0].html.indexOf('Mantenha esta'));
+        assert.ok(!quadro.includes('salic-progress-fill') && !/width:\s*\d+%/.test(quadro) && !/\d+\s*%/.test(quadro), 'sem percentual falso');
+        deepEq(segmentos(doLoop[1].html), ['falha', 'atual', 'espera']);
+        assert.ok(doLoop[1].html.includes('Enviando documento 2 de 3') && doLoop[1].html.includes('Concluídos: 0. Com falha: 1.'));
+    });
+
+    await teste('linha atual: selo Subindo com segundos e barra fina; so ela, e nunca em render do fim', async () => {
+        const amb = criarAmbiente();
+        await abrirEConfirmar(amb);
+        const durante = amb.renders.filter(r => r.progresso.ativo);
+        for (const r of durante.slice(0, 3)) {
+            assert.strictEqual((r.html.match(/lote-barra-indet/g) || []).length, 1, 'uma barra, so na linha atual');
+            const atual = r.progresso.atual;
+            assert.ok(new RegExp(`<td id="lote-selo-${atual}"><span class="badge status-completed">Subindo\\.\\.\\. <span id="lote-segundos-${atual}">\\d+s</span></span><div class="lote-barra-indet"`).test(r.html), 'selo da linha ' + atual);
+        }
+        const ultimo = amb.renders[amb.renders.length - 1];
+        assert.ok(!ultimo.html.includes('lote-barra-indet') && !ultimo.html.includes('lote-segundos-'));
+    });
+
+    await teste('contador: um intervalo por documento, atualiza so o texto dos segundos (sem render) e tudo para no fim', async () => {
+        const amb = criarAmbiente();
+        // dispararOcr(a) so termina depois dos ticks
+        let liberar; const trava = new Promise(r => { liberar = r; });
+        amb.ctx.dispararOcr = async (id) => { if (id === 'a') await trava; };
+        const modal = await abrirModal(amb);
+        const p = modal.onConfirm();
+        await tick();
+        assert.strictEqual(amb.timers.length, 1);
+        assert.strictEqual(amb.timers[0].ms, 1000);
+        assert.ok(amb.timers[0].ativo);
+        // o tick troca so o texto do elemento, sem render()
+        const el = { textContent: '0s' };
+        amb.ctx.document = { getElementById: (id) => id === 'lote-segundos-a' ? el : null };
+        const rendersAntes = amb.renders.length;
+        amb.state.uploadLoteProgresso.atualDesde = Date.now() - 12500;
+        amb.timers[0].fn();
+        assert.strictEqual(el.textContent, '12s');
+        assert.strictEqual(amb.renders.length, rendersAntes, 'nenhum render()');
+        liberar();
+        await p;
+        // um intervalo por documento enviado; o de cada documento para quando ele termina; nenhum sobra
+        assert.strictEqual(amb.timers.length, 3);
+        assert.ok(amb.timers.every(t => !t.ativo), 'todos parados no fim do lote');
+        assert.strictEqual(amb.state.uploadLoteProgresso.atualDesde, null);
+    });
+
+    await teste('contador: parado tambem quando o lote termina com excecao', async () => {
+        const amb = criarAmbiente({ fetchLanca: true });
+        await assert.rejects(() => abrirEConfirmar(amb), /fetch quebrou/);
+        assert.ok(amb.timers.length >= 1 && amb.timers.every(t => !t.ativo));
+    });
+
+    await teste('beforeunload: registrado durante o envio e removido no fim, inclusive com excecao', async () => {
+        let amb = criarAmbiente();
+        let noMeio = null;
+        amb.ctx.dispararOcr = async (id) => { if (id === 'b') noMeio = amb.saida.map(s => s.acao); };
+        await abrirEConfirmar(amb);
+        deepEq(noMeio, ['add'], 'registrado e ainda nao removido no meio do envio');
+        deepEq(amb.saida.map(s => s.acao + ':' + s.tipo), ['add:beforeunload', 'remove:beforeunload']);
+        assert.strictEqual(amb.saida[0].fn, amb.saida[1].fn, 'remove o mesmo listener que registrou');
+        // o listener pede confirmacao de verdade
+        const ev = { preventDefault() { this.parou = true; }, returnValue: undefined };
+        amb.saida[0].fn(ev);
+        assert.strictEqual(ev.parou, true); assert.strictEqual(ev.returnValue, '');
+        amb = criarAmbiente({ fetchLanca: true });
+        await assert.rejects(() => abrirEConfirmar(amb), /fetch quebrou/);
+        deepEq(amb.saida.map(s => s.acao), ['add', 'remove']);
+        // cancelar o modal nao registra nada
+        amb = criarAmbiente();
+        await amb.window.handleProcessarTodosLote();
+        amb.window.closeConfirmModal();
+        deepEq(amb.saida, []);
+    });
+
+    await teste('estilo: quadro sticky abaixo de modais e sidebar mobile, fundo opaco, e reduced-motion sem animacao', async () => {
+        const css = fs.readFileSync(path.join(__dirname, 'style.css'), 'utf8').replace(/\r\n/g, '\n');
+        const ini = css.indexOf('.lote-progresso-envio {');
+        const regra = css.slice(ini, css.indexOf('}', ini));
+        assert.ok(/position:\s*sticky/.test(regra) && /background:\s*var\(--bg-card/.test(regra));
+        const z = Number((/z-index:\s*(\d+)/.exec(regra) || [])[1]);
+        assert.ok(z > 0 && z < 100, 'z-index ' + z + ' abaixo de sidebar (100), overlay/menu mobile (998/1000) e modais (2000)');
+        const rm = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce) {\n    .lote-seg-atual'));
+        assert.ok(rm.includes('animation: none') && rm.includes('.lote-barra-indet { display: none; }'));
+        const idx = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+        assert.ok(/style\.css\?v=1\.0\.21/.test(idx) && /app\.js\?v=1\.0\.21/.test(idx));
+    });
+
+    // upload dos PDFs para a fila: progresso por arquivo sem render() a cada termino
+    await teste('upload dos PDFs: X de N e barra segmentada por arquivo, atualizados sem render()', async () => {
+        const amb = criarAmbiente();
+        const caixa = { innerHTML: '' };
+        amb.ctx.document = { getElementById: (id) => id === 'lote-project-selector' ? { value: 'p1' } : (id === 'lote-progresso-upload' ? caixa : null) };
+        const resolvedores = [];
+        amb.ctx.subirParaStorage = (file) => new Promise((res, rej) => resolvedores.push({ res, rej, file }));
+        const p = amb.window.handleLoteFilesSelected([{ name: '1.pdf' }, { name: '2.pdf' }, { name: '3.pdf' }]);
+        await tick();
+        const inicial = amb.renders[amb.renders.length - 1];
+        assert.ok(inicial.html.includes('id="lote-progresso-upload" role="status" aria-live="polite"'));
+        assert.ok(inicial.html.includes('Enviando arquivos para a fila: 0 de 3'));
+        deepEq(segmentos(inicial.html), ['atual', 'atual', 'atual']);
+        const rendersAntes = amb.renders.length;
+        resolvedores[1].res({ id: 'x' });
+        await tick();
+        assert.ok(caixa.innerHTML.includes('1 de 3') && caixa.innerHTML.includes('Concluídos: 1.'));
+        deepEq(segmentos(caixa.innerHTML), ['atual', 'ok', 'atual']);
+        resolvedores[0].rej(new Error('quebrou'));
+        await tick();
+        assert.ok(caixa.innerHTML.includes('2 de 3') && caixa.innerHTML.includes('Concluídos: 1. Com falha: 1.'));
+        deepEq(segmentos(caixa.innerHTML), ['falha', 'ok', 'atual']);
+        assert.strictEqual(amb.renders.length, rendersAntes, 'termino de cada arquivo nao redesenha a tela');
+        resolvedores[2].res({ id: 'y' });
+        await p;
+        assert.strictEqual(amb.state.uploadArquivosProgresso, null);
+        assert.strictEqual(amb.state.loading, false);
+        assert.ok(!amb.renders[amb.renders.length - 1].html.includes('lote-progresso-upload'));
+        assert.ok(amb.toasts.some(t => t.m.startsWith('2 arquivo(s) adicionado(s)')));
     });
 
     console.log(`${ok} ok, ${falhas} falha(s)`);
