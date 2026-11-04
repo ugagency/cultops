@@ -46,7 +46,30 @@ const CODIGO = [
     bloco('window.handleEnviarSalic = async function', FIM_WINDOW),
     bloco('async function executarEnvioSalic(', FIM_FUNCAO),
     bloco('window.handleTentarNovamenteErroRpa = function', FIM_WINDOW),
-    bloco('window.handleUploadExtrato = async function', FIM_WINDOW)
+    bloco('window.handleUploadExtrato = async function', FIM_WINDOW),
+    // #163 e #157
+    bloco('const TOLERANCIA_VALOR_LANCAMENTO =', ';\n'),
+    bloco('function fmtValorExtrato(', FIM_FUNCAO),
+    bloco('function mensagemAmpliarBusca(', FIM_FUNCAO),
+    bloco('function lancamentoForaDoPeriodo(', FIM_FUNCAO),
+    bloco('window.handleAmpliarCandidatos = async function', FIM_WINDOW),
+    bloco('window.handleConfirmarLancamentoNota = function', FIM_WINDOW),
+    bloco('window.handleAtualizarSaldoSalic = function', FIM_WINDOW),
+    bloco('async function executarAtualizarSaldoSalic(', FIM_FUNCAO),
+    bloco('window.handleRemoverExtratoLote = function', FIM_WINDOW),
+    bloco('async function executarRemoverExtratoLote(', FIM_FUNCAO),
+    bloco('window.handleIniciarEnvioLote = async function', FIM_WINDOW),
+    bloco('async function iniciarEnvioLoteConfirmado(', FIM_FUNCAO),
+    bloco('window.salvarCamposManuais = async function', FIM_WINDOW),
+    bloco('async function executarSalvarCamposManuais(', FIM_FUNCAO),
+    bloco('function normalizarTextoAuditoria(', FIM_FUNCAO),
+    bloco('function auditoriaListouLancamentosAceitos(', FIM_FUNCAO),
+    bloco('function auditoriaRejeitouLancamentos(', FIM_FUNCAO),
+    bloco('function lancamentosCitadosAuditoria(', FIM_FUNCAO),
+    bloco('function lancamentosRecusadosAuditoria(', FIM_FUNCAO),
+    bloco('function extrairLancamentosDoTexto(', FIM_FUNCAO),
+    bloco('window.handleUsarLancamentoRecusado = function', FIM_WINDOW),
+    bloco('function abrirFormularioComLancamento(', FIM_FUNCAO)
 ].join('\n');
 
 const tick = async () => { for (let i = 0; i < 6; i++) await new Promise(r => setImmediate(r)); };
@@ -99,7 +122,13 @@ function criarAmbiente(opcoes = {}) {
         window, state, supabaseClient, console: { log() { }, error() { }, warn() { } },
         CONFIG: { N8N_WEBHOOK_RECONCILIATION_URL: opcoes.semWebhook ? '' : 'http://n8n.local/webhook', N8N_WEBHOOK_VALIDATION_URL: 'http://validacao.local/wh', SALIC_API_URL: '/api/salic/inserir' },
         dispararOcr: async (id, caminho) => { contexto.ocr.push({ id, caminho }); },
-        document: { getElementById: (id) => (opcoes.campos ? opcoes.campos[id] : null) },
+        document: { getElementById: (id) => (opcoes.campos ? opcoes.campos[id] : null), querySelectorAll: () => opcoes.checks || [] },
+        filtroCandidatosDaNota: () => ({ escopo: opcoes.escopo || 'extrato' }),
+        fmtDataExtrato: (d) => (d ? String(d) : '---'),
+        fetchSaldoRubricas: async () => { },
+        atualizarSaldoEnvioLote: async () => { },
+        salvarFilaSalic: () => { },
+        processarFilaSalic: () => { contexto.fila = (contexto.fila || 0) + 1; },
         render: () => { contexto.renders++; },
         showToast: (msg, tipo) => { toasts.push({ msg, tipo }); },
         setTimeout: () => 0,
@@ -127,6 +156,7 @@ function criarAmbiente(opcoes = {}) {
         escAttr: (x) => String(x)
     };
     ctx.window.showToast = ctx.showToast;
+    ctx.window.CandidatosLancamento = require('./candidatos-lancamento.js');
     ctx.window.location = { href: '' };
     vm.createContext(ctx);
     vm.runInContext(CODIGO, ctx);
@@ -439,12 +469,202 @@ const nota = (extra = {}) => ({ id: 'n1', project_id: 'p1', status: 'divergencia
         // handleForcarAvanco mudou de proposito no #125 (anexa o motivo original ao texto de override); continua
         // com a confirmacao (conferida acima) e o texto novo e coberto por teste-avancar-motivo-original.js.
         // handleReprocessarDocumentoTravado mudou de proposito no #150 (ramo da validacao); coberto nos testes #150 abaixo.
-        for (const f of ['handleConfirmarLancamentoNota', 'handleAprovarNotaFornecedor']) {
+        // handleConfirmarLancamentoNota mudou de proposito no #163 (aviso de lancamento fora do periodo); coberto nos testes #163 abaixo.
+        for (const f of ['handleAprovarNotaFornecedor']) {
             const ini = 'window.' + f + ' = ';
             const a = antes.indexOf(ini);
             const b = SRC.indexOf(ini);
             assert.strictEqual(antes.slice(a, antes.indexOf(FIM_WINDOW, a)), SRC.slice(b, SRC.indexOf(FIM_WINDOW, b)), f + ' foi alterada');
         }
+    });
+
+    // ---------------------------------------------------------------- #163
+    const chk = (id, nome) => ({ getAttribute: (a) => ({ 'data-id': id, 'data-name': nome, 'data-project': 'P', 'data-project-id': 'p1' })[a] });
+
+    await teste('#163: Procurar em outros extratos pede confirmacao com o criterio; cancelar nao amplia, confirmar amplia', async () => {
+        const amb = criarAmbiente({ escopo: 'extrato' });
+        amb.state.currentDocument = nota({ id: 'n1' });
+        await amb.window.handleAmpliarCandidatos('n1');
+        assert.strictEqual(amb.state.confirmModal.title, 'Procurar em outros extratos');
+        const t = textoModal(amb);
+        assert.ok(t.includes('sai do extrato conferido') && t.includes('R$ 0,02') && t.includes('nenhuma outra nota usou') && t.includes('um lançamento de outro mês'));
+        await cancelar(amb);
+        assert.strictEqual(amb.state.ampliarCandidatos, undefined);
+        await amb.window.handleAmpliarCandidatos('n1');
+        await confirmar(amb);
+        deepEq(amb.state.ampliarCandidatos, { docId: 'n1', ativo: true });
+    });
+
+    await teste('#163: o texto da confirmacao muda quando a busca sai da janela de datas, e usa a tolerancia do codigo', async () => {
+        const amb = criarAmbiente({ escopo: 'janela' });
+        amb.state.currentDocument = nota({ id: 'n1' });
+        await amb.window.handleAmpliarCandidatos('n1');
+        assert.ok(textoModal(amb).includes('sai da janela de datas desta nota'));
+        assert.ok(SRC.includes('fmtValorExtrato(TOLERANCIA_VALOR_LANCAMENTO)'), 'tolerancia nao repetida como numero');
+    });
+
+    await teste('#163: lancamento fora do periodo da nota recebe aviso na confirmacao da escolha; dentro do periodo, nao', async () => {
+        const amb = criarAmbiente();
+        amb.state.currentDocument = nota({ id: 'n1', data_pagamento: '2026-10-10' });
+        amb.state.candidatosLancamento = [
+            { id: 'l-fora', valor: 100, data_lancamento: '2026-03-01', memo: 'PIX', fitid: 'F1' },
+            { id: 'l-dentro', valor: 100, data_lancamento: '2026-10-12', memo: 'PIX', fitid: 'F2' }
+        ];
+        amb.window.handleConfirmarLancamentoNota('n1', 'l-fora');
+        assert.ok(textoModal(amb).includes('Atenção: este lançamento está fora do período desta nota.'));
+        await cancelar(amb);
+        amb.window.handleConfirmarLancamentoNota('n1', 'l-dentro');
+        assert.ok(!textoModal(amb).includes('fora do período'));
+        await cancelar(amb);
+        // nota sem data nenhuma: nunca avisa
+        amb.state.currentDocument = nota({ id: 'n1', data_pagamento: null, data_emissao: null });
+        amb.window.handleConfirmarLancamentoNota('n1', 'l-fora');
+        assert.ok(!textoModal(amb).includes('fora do período'));
+        assert.strictEqual(amb.log.filter(o => o.acao === 'update').length + amb.rpcs.length, 0);
+    });
+
+    await teste('#163: a tela rotula a busca ampliada e marca o cartao fora do periodo', () => {
+        assert.ok(SRC.includes('Lançamentos de todos os extratos do projeto com o valor desta nota ('));
+        assert.ok(SRC.includes('Fora do período desta nota</p>'));
+        assert.ok(SRC.includes('buscaAmpliada = !!state.ampliarCandidatos?.ativo && state.ampliarCandidatos.docId === doc.id'));
+    });
+
+    await teste('#163: Atualizar saldo do SALIC: cancelar nao captura; confirmar captura uma vez', async () => {
+        const amb = criarAmbiente();
+        amb.state.filters = { project: 'p1' };
+        amb.window.handleAtualizarSaldoSalic();
+        assert.ok(textoModal(amb).includes('1 a 2 minutos'));
+        await cancelar(amb);
+        assert.strictEqual(amb.chamadasFetch.filter(c => String(c.url).includes('saldo-salic')).length, 0);
+        amb.window.handleAtualizarSaldoSalic();
+        await confirmar(amb);
+        assert.strictEqual(amb.chamadasFetch.filter(c => String(c.url).includes('saldo-salic/capturar')).length, 1);
+        assert.strictEqual(amb.state.saldoSalicAtualizando, false);
+    });
+
+    await teste('#163: Trocar o extrato do lote: cancelar mantem o vinculo; confirmar desmarca no banco e na tela', async () => {
+        const amb = criarAmbiente();
+        amb.state.loteExtratoVinculado = { id: 'e1', nome: 'x.ofx', projectId: 'p1' };
+        amb.window.handleRemoverExtratoLote();
+        assert.ok(textoModal(amb).includes('O arquivo não é apagado'));
+        await cancelar(amb);
+        assert.strictEqual(escritas(amb), 0);
+        assert.ok(amb.state.loteExtratoVinculado);
+        amb.window.handleRemoverExtratoLote();
+        await confirmar(amb);
+        const up = amb.log.filter(o => o.acao === 'update');
+        deepEq(up.map(o => [o.tabela, o.dados, o.filtros]), [['extratos', { vinculo_lote_ativo: false }, [['id', 'e1']]]]);
+        assert.strictEqual(amb.state.loteExtratoVinculado, null);
+    });
+
+    await teste('#163: Iniciar envio em lote: sem selecao nao abre modal; cancelar nao envia; confirmar monta a fila e processa', async () => {
+        const vazio = criarAmbiente({ checks: [] });
+        await vazio.window.handleIniciarEnvioLote();
+        assert.strictEqual(vazio.state.confirmModal, null);
+
+        const amb = criarAmbiente({ checks: [chk('n1', 'NF 1'), chk('n2', 'NF 2')] });
+        await amb.window.handleIniciarEnvioLote();
+        assert.ok(textoModal(amb).includes('2 nota(s)'));
+        await cancelar(amb);
+        assert.strictEqual(amb.rpcs.length, 0, 'nao consultou credencial');
+        assert.ok(!amb.contexto.fila);
+        assert.ok(!amb.state.salicLoteRunning);
+        await amb.window.handleIniciarEnvioLote();
+        await confirmar(amb);
+        assert.ok(amb.rpcs.some(r => r.nome === 'has_external_credential'));
+        assert.strictEqual(amb.contexto.fila, 1);
+        assert.strictEqual(amb.state.salicLoteRunning, true);
+        assert.strictEqual(amb.state.salicLoteQueue.length, 2);
+    });
+
+    await teste('#163: Salvar campos manuais: validacao vem antes do modal; cancelar nao grava; confirmar grava', async () => {
+        const invalido = criarAmbiente({ campos: { 'input-cnpj-emissor': { value: '123' } } });
+        await invalido.window.salvarCamposManuais('n1');
+        assert.strictEqual(invalido.state.confirmModal, null);
+        assert.ok(invalido.toasts.some(t => t.tipo === 'error'));
+
+        const amb = criarAmbiente({ campos: { 'input-nome-emissor': { value: 'Grafica Aurora' } } });
+        await amb.window.salvarCamposManuais('n1');
+        assert.ok(textoModal(amb).includes('Confira com o documento fiscal original'));
+        await cancelar(amb);
+        assert.strictEqual(escritas(amb), 0);
+        await amb.window.salvarCamposManuais('n1');
+        await confirmar(amb);
+        const up = amb.log.filter(o => o.acao === 'update' && o.tabela === 'documents');
+        deepEq(up.map(o => o.dados), [{ nome_emissor: 'Grafica Aurora' }]);
+    });
+
+    // ---------------------------------------------------------------- #157
+    // O formato do just_erro vem do n8n e nao esta no repositorio: os textos abaixo seguem o padrao que o
+    // parser ja conhecia ("R$ valor em dd/mm/aaaa (descricao, documento N)"). EXEMPLO A CONFIRMAR com uma
+    // mensagem real de recusa da auditoria.
+    const TEXTO_ACEITE = 'Há 2 lançamentos que atendem as regras: R$ 3.490,69 em 04/08/2026 (TED Transf.Eletr.Disponiv ACME LTDA, documento 80.405); R$ 3.490,69 em 06/08/2026 (PIX Enviado ACME LTDA, documento 12.001)';
+    const TEXTO_RECUSA = 'Há saída com o valor da nota, mas ela não pode ser confirmada: R$ 1.200,00 em 10/10/2026 (PIX Enviado OUTRO FORNECEDOR, documento 555) pertence a outro beneficiário.';
+
+    await teste('#157: extrairLancamentosDoTexto: dois lancamentos, descricao e numero do documento separados', () => {
+        const itens = criarAmbiente().ctx.extrairLancamentosDoTexto(TEXTO_ACEITE);
+        assert.strictEqual(itens.length, 2);
+        deepEq(itens[0], { valor: 3490.69, valorTxt: '3.490,69', data: '2026-08-04', dataTxt: '04/08/2026', descricao: 'TED Transf.Eletr.Disponiv ACME LTDA', numeroDocumento: '80.405' });
+        assert.strictEqual(itens[1].numeroDocumento, '12.001');
+    });
+
+    await teste('#157: mensagem de aceite vira citados e nunca recusados; rejeicao vira recusados e nunca citados', () => {
+        const f = criarAmbiente().ctx;
+        const aceite = { just_erro: TEXTO_ACEITE }, recusa = { just_erro: TEXTO_RECUSA };
+        assert.strictEqual(f.lancamentosCitadosAuditoria(aceite).length, 2);
+        assert.strictEqual(f.lancamentosRecusadosAuditoria(aceite).length, 0);
+        assert.strictEqual(f.lancamentosCitadosAuditoria(recusa).length, 0);
+        const rec = f.lancamentosRecusadosAuditoria(recusa);
+        assert.strictEqual(rec.length, 1);
+        assert.strictEqual(rec[0].valor, 1200);
+        assert.strictEqual(rec[0].numeroDocumento, '555');
+    });
+
+    await teste('#157: rejeicao sem lancamento no padrao, texto vazio e nulo: nada e inventado', () => {
+        const f = criarAmbiente().ctx;
+        deepEq(f.lancamentosRecusadosAuditoria({ just_erro: 'Há saída com o valor da nota, mas ela não pode ser confirmada: motivo qualquer sem valores.' }), []);
+        deepEq(f.lancamentosRecusadosAuditoria({ just_erro: '' }), []);
+        deepEq(f.lancamentosRecusadosAuditoria({ just_erro: null }), []);
+        deepEq(f.lancamentosRecusadosAuditoria(null), []);
+        deepEq(f.extrairLancamentosDoTexto(''), []);
+        deepEq(f.extrairLancamentosDoTexto(undefined), []);
+        deepEq(f.extrairLancamentosDoTexto('R$ 10,00 em 40/13/2026 (x, documento 1)'), [], 'data impossivel');
+    });
+
+    await teste('#157: "Conferi, este e o pagamento": confirmacao danger; cancelar nao abre o formulario; confirmar preenche sem gravar', async () => {
+        const amb = criarAmbiente();
+        amb.state.currentDocument = nota({ id: 'n1', status: 'erro_rpa', just_erro: TEXTO_RECUSA });
+        amb.window.handleUsarLancamentoRecusado(0);
+        const m = amb.state.confirmModal;
+        assert.strictEqual(m.variant, 'danger');
+        assert.ok(m.message.startsWith('A auditoria não confirmou este lançamento. Confira no extrato o valor, a data e o beneficiário.'));
+        assert.ok(m.message.endsWith('você registra a justificativa.'));
+        await cancelar(amb);
+        assert.ok(!amb.state.pagamentoManualRascunho && !amb.state.pagamentoManualAberto);
+        amb.window.handleUsarLancamentoRecusado(0);
+        await confirmar(amb);
+        const r = amb.state.pagamentoManualRascunho;
+        assert.strictEqual(r.data, '2026-10-10');
+        assert.strictEqual(r.valor, '1200,00');
+        assert.strictEqual(r.nr, '555');
+        assert.strictEqual(r.nrConf, '');
+        assert.strictEqual(r.justificativa, 'Lançamento recusado pela auditoria e conferido pelo usuário: PIX Enviado OUTRO FORNECEDOR');
+        assert.strictEqual(amb.state.pagamentoManualAberto, true);
+        assert.strictEqual(escritas(amb), 0, 'a gravacao continua so em handleInformarPagamentoManual');
+        // mensagem que nao e de rejeicao: nada acontece
+        const outro = criarAmbiente();
+        outro.state.currentDocument = nota({ id: 'n1', just_erro: TEXTO_ACEITE });
+        outro.window.handleUsarLancamentoRecusado(0);
+        assert.strictEqual(outro.state.confirmModal, null);
+    });
+
+    await teste('#157: a tela mostra o rotulo, o botao e mantem a frase do Parecer; so no ramo de rejeicao', () => {
+        const i = SRC.indexOf('A auditoria não confirmou nenhum lançamento como pagamento desta nota. Confira o motivo no Parecer da Análise.');
+        assert.ok(i > 0);
+        const depois = SRC.slice(i, i + 1800);
+        assert.ok(depois.includes('Lançamentos recusados pela auditoria') && depois.includes('Conferi, este é o pagamento') && depois.includes('handleUsarLancamentoRecusado('));
+        assert.ok(depois.includes('recusados.length > 0'));
+        assert.ok(!SRC.includes('lançamento citado em rejeição não vira item'));
     });
 
     // ---------------------------------------------------------------- #150

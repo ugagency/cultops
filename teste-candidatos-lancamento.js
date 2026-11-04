@@ -270,5 +270,25 @@ teste('selecionarCandidatos: entradas ausentes não quebram', () => {
     assert.deepStrictEqual(C.selecionarCandidatos([], undefined, 'N1'), []);
 });
 
+teste('foraDoPeriodoDaNota (#163): janela da data_pagamento, ignorando o extrato conferido', () => {
+    const doc = { extrato_conferido_id: 'E1', data_pagamento: '2026-10-10', data_emissao: null };
+    assert.strictEqual(C.foraDoPeriodoDaNota(doc, { data_lancamento: '2026-10-10' }), false);
+    assert.strictEqual(C.foraDoPeriodoDaNota(doc, { data_lancamento: '2026-10-03' }), false, 'limite inferior (-7)');
+    assert.strictEqual(C.foraDoPeriodoDaNota(doc, { data_lancamento: '2026-10-17' }), false, 'limite superior (+7)');
+    assert.strictEqual(C.foraDoPeriodoDaNota(doc, { data_lancamento: '2026-10-02' }), true);
+    assert.strictEqual(C.foraDoPeriodoDaNota(doc, { data_lancamento: '2026-10-18' }), true);
+});
+
+teste('foraDoPeriodoDaNota (#163): sem pagamento usa a emissao (-3 a +60); sem nenhuma data nunca avisa', () => {
+    const doc = { data_pagamento: null, data_emissao: '2026-08-10' };
+    assert.strictEqual(C.foraDoPeriodoDaNota(doc, { data_lancamento: '2026-08-07' }), false);
+    assert.strictEqual(C.foraDoPeriodoDaNota(doc, { data_lancamento: '2026-08-06' }), true);
+    assert.strictEqual(C.foraDoPeriodoDaNota(doc, { data_lancamento: '2026-10-09' }), false);
+    assert.strictEqual(C.foraDoPeriodoDaNota(doc, { data_lancamento: '2026-10-10' }), true);
+    assert.strictEqual(C.foraDoPeriodoDaNota({ data_pagamento: null, data_emissao: null }, { data_lancamento: '2020-01-01' }), false);
+    assert.strictEqual(C.foraDoPeriodoDaNota(doc, { data_lancamento: null }), false);
+    assert.strictEqual(C.foraDoPeriodoDaNota(null, { data_lancamento: '2026-08-10' }), false);
+});
+
 console.log(`${ok} testes ok, ${falhas} falhas`);
 process.exit(falhas ? 1 : 0);
