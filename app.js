@@ -3206,6 +3206,33 @@ function estaTravado(doc) {
 function minutosParadoDoc(doc) {
     return (Date.now() - new Date(doc.updated_at).getTime()) / 60000;
 }
+
+// OCR que falhou de vez (#164): o documento foi para revisao_manual sem o OCR ter concluido.
+// Sinais: o cron de tentativas gravou 'ocr_max_retries_exceeded', o cron antigo gravou "[AUTO] OCR
+// excedeu ..." ou nao ha dado extraido. Em revisao_manual com OCR concluido (o gestor so precisa
+// revisar os campos) o botao NAO aparece. Documento sem tipo e tratado como nf, como nos crons.
+const ROTULO_ERRO_OCR_MAX_TENTATIVAS = 'ocr_max_retries_exceeded';
+const PREFIXO_ERRO_OCR_TIMEOUT = '[AUTO] OCR excedeu';
+function jsonExtraidoVazio(valor) {
+    if (valor == null) return true;
+    if (typeof valor === 'string') {
+        const t = valor.trim();
+        if (!t) return true;
+        try { return jsonExtraidoVazio(JSON.parse(t)); } catch (e) { return false; }
+    }
+    if (Array.isArray(valor)) return valor.length === 0;
+    if (typeof valor === 'object') return Object.keys(valor).length === 0;
+    return false;
+}
+function podeLerDocumentoDeNovo(doc) {
+    if (!doc || doc.status !== 'revisao_manual') return false;
+    const tipo = doc.tipo_documento || 'nf';
+    if (tipo !== 'nf' && tipo !== 'comprovante') return false;
+    const erro = String(doc.just_erro || '');
+    return erro === ROTULO_ERRO_OCR_MAX_TENTATIVAS
+        || erro.startsWith(PREFIXO_ERRO_OCR_TIMEOUT)
+        || jsonExtraidoVazio(doc.json_extraido);
+}
 function formatarTempoTravado(minutos) {
     if (minutos < 60) return `${Math.floor(minutos)}min`;
     const horas = Math.floor(minutos / 60);
@@ -3676,6 +3703,21 @@ ${Sidebar()}
                 <button class="btn btn-primary" style="background: #DC2626; border: none; white-space: nowrap;" onclick="window.handleReprocessarDocumentoTravado('${doc.id}')">
                     <i data-lucide="refresh-cw" style="width: 14px;"></i>
                     Reprocessar documento
+                </button>
+            </div>
+        </div>
+        ` : ''}
+
+        ${podeLerDocumentoDeNovo(doc) && ['admin', 'gestor', 'analista'].includes(getUserRole()) ? `
+        <div class="card mb-4" style="background: #FFFBEB; border-left: 4px solid #D97706; padding: 1.25rem;">
+            <div style="display: flex; gap: 1rem; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+                <div>
+                    <h4 style="font-size: 14px; margin-bottom: 0.25rem; font-weight: 700; color: #92400E;">O sistema não conseguiu ler este documento</h4>
+                    <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.5;">Você pode pedir uma nova leitura do arquivo, sem precisar apagar e enviar de novo.</p>
+                </div>
+                <button class="btn btn-primary" style="white-space: nowrap;" onclick="window.handleReprocessarDocumentoTravado('${doc.id}')">
+                    <i data-lucide="scan-text" style="width: 14px;"></i>
+                    Ler o documento de novo
                 </button>
             </div>
         </div>
@@ -5070,10 +5112,13 @@ window.handleReprocessarDocumentoTravado = async function (documentId) {
     const doc = state.documents.find(d => d.id === documentId) || state.currentDocument;
     if (!doc) return;
 
+    const leituraDeNovo = podeLerDocumentoDeNovo(doc);
     window.showConfirmModal({
-        title: 'Reprocessar documento',
-        message: 'Reenviar este documento para processamento?',
-        confirmLabel: 'Reenviar',
+        title: leituraDeNovo ? 'Ler o documento de novo' : 'Reprocessar documento',
+        message: leituraDeNovo
+            ? 'O sistema vai ler o arquivo de novo. O que foi preenchido à mão nesta nota pode ser substituído pela nova leitura.'
+            : 'Reenviar este documento para processamento?',
+        confirmLabel: leituraDeNovo ? 'Ler de novo' : 'Reenviar',
         onConfirm: async () => {
             state.loading = true;
             render();
@@ -5110,8 +5155,11 @@ window.handleReprocessarDocumentoTravado = async function (documentId) {
                 } else {
                     // processing_ocr ou validating travados: o OCR em si não completou.
                     // Reaproveita o mesmo caminho do upload original (dispararOcr).
+                    // ocr_retry_count volta a 0: sem isso, um documento que ja esgotou as 3 tentativas
+                    // seria devolvido a revisao_manual pelo cron 5 minutos depois (#164). O painel de
+                    // suporte faz o mesmo (server.js, reprocesso de OCR).
                     const { error } = await supabaseClient.from('documents')
-                        .update({ status: 'processing_ocr', just_erro: null })
+                        .update({ status: 'processing_ocr', ocr_retry_count: 0, just_erro: null })
                         .eq('id', documentId);
                     if (error) throw error;
 
@@ -6035,7 +6083,7 @@ const RubricaInstructionsModal = () => `
         <div class="steps-list">
             <div class="step-item">
                 <div class="step-number">1</div>
-                <div class="step-text">Acesse <strong>salic.cultura.gov.br</strong> e faça login com suas crednciais ou com sua conta Gov.br.</div>
+                <div class="step-text">Acesse <strong>salic.cultura.gov.br</strong> e faça login com suas credenciais ou com sua conta Gov.br.</div>
             </div>
             <div class="step-item">
                 <div class="step-number">2</div>

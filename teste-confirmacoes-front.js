@@ -40,6 +40,10 @@ const CODIGO = [
     bloco('function bloqueioPorRubricaNaoInformada(', FIM_FUNCAO),
     bloco('function rubricaEscolhidaIgualAtual(', FIM_FUNCAO),
     'const MSG_MESMA_RUBRICA_BLOQUEIO = "x";',
+    bloco('const ROTULO_ERRO_OCR_MAX_TENTATIVAS', ';\n'),
+    bloco('const PREFIXO_ERRO_OCR_TIMEOUT', ';\n'),
+    bloco('function jsonExtraidoVazio(', FIM_FUNCAO),
+    bloco('function podeLerDocumentoDeNovo(', FIM_FUNCAO),
     bloco('window.handleReprocessarDocumentoTravado = async function', FIM_WINDOW),
     bloco('window.handleVincularRubrica = async function', FIM_WINDOW),
     bloco('async function executarVinculoRubricaImpl(', FIM_FUNCAO),
@@ -872,10 +876,64 @@ const nota = (extra = {}) => ({ id: 'n1', project_id: 'p1', status: 'divergencia
         await amb.window.handleReprocessarDocumentoTravado('n1');
         await confirmar(amb);
         const gravacoes = amb.log.filter(o => o.acao === 'update');
-        deepEq(gravacoes.map(g => g.dados), [{ status: 'processing_ocr', just_erro: null }]);
+        // #164: o contador de tentativas volta a 0 junto, senao o cron devolve a nota a revisao manual
+        deepEq(gravacoes.map(g => g.dados), [{ status: 'processing_ocr', ocr_retry_count: 0, just_erro: null }]);
         deepEq(amb.contexto.ocr, [{ id: 'n1', caminho: 'p1/n1.pdf' }]);
         assert.strictEqual(validacoes(amb).length, 0);
         assert.strictEqual(amb.state.documents[0].status, 'processing_ocr');
+    });
+
+    // ---------------------------------------------------------------- #164
+    const docRevisao = (extra = {}) => ({ id: 'n1', status: 'revisao_manual', tipo_documento: 'nf', file_path: 'p1/n1.pdf', just_erro: null, json_extraido: { valor: 10 }, updated_at: '2026-01-01T00:00:00Z', ...extra });
+
+    await teste('#164: botao "Ler o documento de novo" aparece nos tres casos de OCR que nao concluiu', () => {
+        const f = amb => amb.ctx.podeLerDocumentoDeNovo;
+        const amb = criarAmbiente();
+        const pode = f(amb);
+        assert.strictEqual(pode(docRevisao({ just_erro: 'ocr_max_retries_exceeded' })), true, 'max tentativas');
+        assert.strictEqual(pode(docRevisao({ just_erro: '[AUTO] OCR excedeu 5 minutos em processamento sem concluir — movido para revisão manual em 04/11/2026 10:00' })), true, 'timeout automatico');
+        assert.strictEqual(pode(docRevisao({ json_extraido: null })), true, 'json nulo');
+        assert.strictEqual(pode(docRevisao({ json_extraido: {} })), true, 'json vazio');
+        assert.strictEqual(pode(docRevisao({ json_extraido: '' })), true, 'json texto vazio');
+        assert.strictEqual(pode(docRevisao({ json_extraido: undefined, tipo_documento: null })), true, 'sem tipo conta como nf');
+        assert.strictEqual(pode(docRevisao({ tipo_documento: 'comprovante', just_erro: 'ocr_max_retries_exceeded' })), true, 'comprovante');
+    });
+
+    await teste('#164: o botao NAO aparece em revisao manual com OCR concluido, em outro status ou outro tipo', () => {
+        const pode = criarAmbiente().ctx.podeLerDocumentoDeNovo;
+        assert.strictEqual(pode(docRevisao()), false, 'OCR concluido');
+        assert.strictEqual(pode(docRevisao({ just_erro: 'Divergencia no valor' })), false, 'erro que nao e de OCR');
+        assert.strictEqual(pode(docRevisao({ status: 'processing_ocr', json_extraido: null })), false, 'outro status');
+        assert.strictEqual(pode(docRevisao({ tipo_documento: 'planilha_orcamentaria', json_extraido: null })), false, 'outro tipo');
+        assert.strictEqual(pode(null), false);
+    });
+
+    await teste('#164: o card so e desenhado quando podeLerDocumentoDeNovo e o perfil pode gravar', () => {
+        const i = SRC.indexOf('Ler o documento de novo\n');
+        assert.ok(i > 0, 'botao no DetailsView');
+        const antes = SRC.slice(Math.max(0, i - 1400), i);
+        assert.ok(antes.includes("podeLerDocumentoDeNovo(doc) && ['admin', 'gestor', 'analista'].includes(getUserRole())"));
+    });
+
+    await teste('#164: confirmar zera o contador, volta a processing_ocr e dispara o OCR; cancelar nao grava nada', async () => {
+        const amb = criarAmbiente();
+        amb.state.documents = [docRevisao({ just_erro: 'ocr_max_retries_exceeded' })];
+        await amb.window.handleReprocessarDocumentoTravado('n1');
+        assert.strictEqual(amb.state.confirmModal.title, 'Ler o documento de novo');
+        assert.ok(amb.state.confirmModal.message.includes('O que foi preenchido à mão nesta nota pode ser substituído pela nova leitura.'));
+        await cancelar(amb);
+        assert.strictEqual(amb.log.filter(o => o.acao === 'update').length, 0);
+        deepEq(amb.contexto.ocr, []);
+        await amb.window.handleReprocessarDocumentoTravado('n1');
+        await confirmar(amb);
+        deepEq(amb.log.filter(o => o.acao === 'update').map(g => g.dados), [{ status: 'processing_ocr', ocr_retry_count: 0, just_erro: null }]);
+        deepEq(amb.contexto.ocr, [{ id: 'n1', caminho: 'p1/n1.pdf' }]);
+        assert.strictEqual(amb.state.documents[0].status, 'processing_ocr');
+    });
+
+    await teste('#164: erro de digitacao "crednciais" corrigido', () => {
+        assert.ok(!SRC.includes('crednciais'));
+        assert.ok(SRC.includes('suas credenciais ou com sua conta Gov.br'));
     });
 
     await teste('#150: vincular rubrica grava aguardando_conformidade e chama a validacao com a rubrica nova', async () => {
