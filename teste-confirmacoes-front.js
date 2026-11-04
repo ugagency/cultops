@@ -133,6 +133,7 @@ function criarAmbiente(opcoes = {}) {
         showToast: (msg, tipo) => { toasts.push({ msg, tipo }); },
         setTimeout: () => 0,
         urlAssinadaParaWebhook: async () => 'http://arquivo',
+        caminhoStorageExtrato: (projectId, nome) => `${projectId}/uuid-teste/${nome}`,
         fetch: async (url, init) => {
             chamadasFetch.push({ url, body: init && init.body ? JSON.parse(init.body) : null });
             if (String(url).includes('n8n.local')) {

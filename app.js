@@ -8243,8 +8243,16 @@ function nomeArquivoSeguro(nome) {
 }
 
 // O banco não guarda o nome original do arquivo; o final do caminho do Storage é o que existe.
+// Extratos antigos (nome interno) aparecem como "Extrato enviado em DD/MM/AAAA" (#161).
 function nomeDoExtrato(e) {
-    return window.VinculoExtrato.nomeDoArquivo(e && e.file_path);
+    return window.VinculoExtrato.nomeExibicaoExtrato(e);
+}
+
+// Caminho de Storage dos extratos enviados pelo front: <projeto>/<uuid>/<nome original seguro>.
+// O uuid evita colisao; o nome original e o que o usuario reconhece depois (#161).
+function caminhoStorageExtrato(projectId, nomeOriginal) {
+    const uuid = (crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return `${projectId}/${uuid}/${nomeArquivoSeguro(nomeOriginal)}`;
 }
 
 // Lista de extratos da janela "Vincular extrato", já filtrada pela busca. Fica em um bloco próprio
@@ -8471,8 +8479,7 @@ window.vincularExtratoEnviarNovo = async function (file) {
     v.erro = null;
     render();
     try {
-        const uuid = (crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        const filePath = `${v.projectId}/${uuid}/${nomeArquivoSeguro(file.name)}`;
+        const filePath = caminhoStorageExtrato(v.projectId, file.name);
         const { error: upErr } = await supabaseClient.storage.from('documentos').upload(filePath, file);
         if (upErr) throw upErr;
         const { data: extrato, error: insErr } = await supabaseClient
@@ -10081,7 +10088,7 @@ async function fetchExtratoLoteVinculado(projectId) {
 
     const { data, error } = await supabaseClient
         .from('extratos')
-        .select('id, file_path')
+        .select('id, file_path, created_at')
         .eq('project_id', projectId)
         .eq('user_id', state.user.id)
         .eq('vinculo_lote_ativo', true)
@@ -10093,7 +10100,7 @@ async function fetchExtratoLoteVinculado(projectId) {
 
     state.loteExtratoVinculado = {
         id: data.id,
-        nome: (data.file_path || '').split('/').pop() || 'extrato',
+        nome: window.VinculoExtrato.nomeExibicaoExtrato(data),
         projectId
     };
 }
@@ -11598,8 +11605,7 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
     let statusAlterado = false;
 
     try {
-        const fileName = `extrato_${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-        const filePath = `${state.user.id}/${fileName}`;
+        const filePath = caminhoStorageExtrato(projectId, file.name);
 
         // 1. Upload para o Storage (bucket 'documentos')
         const { error: uploadError } = await supabaseClient.storage
@@ -11754,8 +11760,7 @@ window.handleUploadExtratoLote = async function (file, projectId) {
     render();
 
     try {
-        const fileName = `extrato_lote_${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-        const filePath = `${state.user.id}/${fileName}`;
+        const filePath = caminhoStorageExtrato(projectId, file.name);
 
         // 1. Upload para o Storage (mesmo bucket do fluxo 1-para-1)
         const { error: uploadError } = await supabaseClient.storage
