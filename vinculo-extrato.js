@@ -166,12 +166,32 @@ function nomeDoArquivo(filePath) {
     return String(filePath || '').split('/').pop() || 'extrato';
 }
 
+// Nomes gerados pelo front antes da padronizacao (#161): extrato_<Date.now()>_<aleatorio>.<ext> e
+// extrato_lote_<Date.now()>_<aleatorio>.<ext>. Sao nomes internos, sem valor para quem le a tela.
+const PADRAO_NOME_INTERNO_EXTRATO = /^extrato_(lote_)?\d{13}_[a-z0-9]{1,8}\.[a-z0-9]+$/i;
+
+// Nome que a tela mostra para o extrato. Uploads novos guardam o nome original (sem acento e com
+// "_" no lugar de caracteres especiais) no fim do caminho. Os antigos so tem o nome interno: para
+// eles mostra a data de envio, ou um rotulo generico quando nao ha data.
+function nomeExibicaoExtrato(extrato) {
+    const e = extrato || {};
+    const ultimo = String(e.file_path || '').split('/').pop();
+    if (ultimo && !PADRAO_NOME_INTERNO_EXTRATO.test(ultimo)) return ultimo;
+    if (e.created_at) {
+        const d = new Date(e.created_at);
+        if (!Number.isNaN(d.getTime())) {
+            return 'Extrato enviado em ' + d.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+        }
+    }
+    return 'Extrato banc\u00e1rio';
+}
+
 // Texto em que a busca procura: nome do arquivo, data de envio (dd/mm/aaaa), status (como aparece
 // na tela e como é gravado) e formato.
 function textoBuscavel(extrato) {
     const e = extrato || {};
     const data = e.created_at ? new Date(e.created_at).toLocaleDateString('pt-BR') : '';
-    return semAcento([nomeDoArquivo(e.file_path), data, ROTULO_STATUS_EXTRATO[e.status] || '', e.status, e.formato].join(' '));
+    return semAcento([nomeExibicaoExtrato(e), nomeDoArquivo(e.file_path), data, ROTULO_STATUS_EXTRATO[e.status] || '', e.status, e.formato].join(' '));
 }
 
 // Filtra os extratos pelo texto digitado. Todas as palavras precisam aparecer (sem diferenciar
@@ -214,7 +234,7 @@ function situacaoExtrato(doc, extratosPausados = null) {
 return {
     PERFIS_VINCULO, TIPOS_VINCULAVEIS, STATUS_VINCULAVEIS, STATUS_DIVERGENCIA, STATUS_EXTRATO_RECUSADOS, MAX_NOTAS,
     STATUS_NA_FILA, STATUS_ANTES_DA_CONCILIACAO, ROTULO_STATUS_EXTRATO, STATUS_PRESAS_AO_EXTRATO, STATUS_ENCERRADOS,
-    validarPedido, validarExtrato, avaliarNota, situacaoExtrato, nomeDoArquivo, filtrarExtratos,
+    validarPedido, validarExtrato, avaliarNota, situacaoExtrato, nomeDoArquivo, nomeExibicaoExtrato, filtrarExtratos,
     presaAExtratoPausado, justErroDeExtratoDeOutroProjeto, validarConsultaPausados
 };
 });

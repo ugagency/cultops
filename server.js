@@ -5836,7 +5836,7 @@ app.get('/api/conciliacao/extratos-pausados', requireAuth, async (req, res) => {
             const pausas = (eventos || []).filter(ev => ev.registro_id === e.id).sort((x, y) => new Date(y.criado_em) - new Date(x.criado_em));
             resposta.push({
                 id: e.id,
-                nome: VinculoExtrato.nomeDoArquivo(e.file_path),
+                nome: VinculoExtrato.nomeExibicaoExtrato(e),
                 enviado_em: e.created_at || null,
                 pausado_em: pausas[0]?.criado_em || null,
                 // O detalhe gravado pela fila é "nota <id>: <texto do n8n>"; só o texto interessa.
