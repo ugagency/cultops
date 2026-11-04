@@ -1929,7 +1929,7 @@ app.post('/api/m2/impostos/marcar-paga', requireAuth, async (req, res) => {
         if (guia.document_id) {
             const { error: updErr } = await supabase
                 .from('tax_guides')
-                .update({ status: 'paga', data_pagamento: agora.slice(0, 10), atualizado_em: agora })
+                .update({ status: 'paga', data_pagamento: hojeBrasil(), atualizado_em: agora })
                 .eq('id', tax_guide_id);
             if (updErr) throw updErr;
             return res.json({ success: true, document_id: guia.document_id });
@@ -1977,7 +1977,7 @@ app.post('/api/m2/impostos/marcar-paga', requireAuth, async (req, res) => {
                     valor: guia.valor,
                     valor_pago: guia.valor,
                     numero_nf: guia.numero_guia,
-                    data_pagamento: agora.slice(0, 10),
+                    data_pagamento: hojeBrasil(),
                     tipo_documento: 'guia',
                     subtipo_documento: 'guia',
                     json_extraido: jsonGuia,
@@ -2003,7 +2003,7 @@ app.post('/api/m2/impostos/marcar-paga', requireAuth, async (req, res) => {
             .from('tax_guides')
             .update({
                 status: 'paga',
-                data_pagamento: agora.slice(0, 10),
+                data_pagamento: hojeBrasil(),
                 document_id: novoDocumentId,
                 atualizado_em: agora
             })
@@ -2067,7 +2067,7 @@ app.post('/api/m2/impostos/consolidar-duplicata', requireAuth, async (req, res) 
             .update({
                 status: 'paga',
                 document_id,
-                data_pagamento: doc.data_pagamento || agora.slice(0, 10),
+                data_pagamento: doc.data_pagamento || hojeBrasil(),
                 atualizado_em: agora
             })
             .eq('id', tax_guide_id_antiga);
@@ -2388,7 +2388,7 @@ app.post('/api/m2/evidencia/notificar', async (req, res) => {
             : 'Analista';
 
         const projeto = ev.projects || {};
-        const hoje = new Date().toLocaleDateString('pt-BR');
+        const hoje = new Date().toLocaleDateString('pt-BR', { timeZone: FUSO_BRASIL });
 
         let emailData;
         if (novo_status === 'aprovada') {
@@ -2428,10 +2428,8 @@ app.post('/api/m2/cron-alerta-guias', async (req, res) => {
     }
 
     try {
-        const hoje = new Date().toISOString().split('T')[0];
-        const em7dias = new Date();
-        em7dias.setDate(em7dias.getDate() + 7);
-        const em7diasStr = em7dias.toISOString().split('T')[0];
+        const hoje = hojeBrasil();
+        const em7diasStr = somarDiasData(hoje, 7);
 
         const { data: guias, error: guiasErr } = await supabase
             .from('tax_guides')
@@ -4147,6 +4145,24 @@ async function auditar(req, a) {
 
 function dataBr() {
     return new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+}
+
+// Data de hoje no Brasil (AAAA-MM-DD). new Date().toISOString().slice(0, 10) devolve o dia em UTC:
+// depois das 21h em Brasilia ja e o dia seguinte e colunas DATE (data_pagamento, vencimentos) saem
+// com a data errada (#160).
+const FUSO_BRASIL = 'America/Sao_Paulo';
+function hojeBrasil(agora = new Date()) {
+    const partes = new Intl.DateTimeFormat('en-CA', { timeZone: FUSO_BRASIL, year: 'numeric', month: '2-digit', day: '2-digit' })
+        .formatToParts(agora);
+    const p = Object.fromEntries(partes.map(x => [x.type, x.value]));
+    return `${p.year}-${p.month}-${p.day}`;
+}
+
+// Soma dias a uma data AAAA-MM-DD sem passar por fuso (aritmetica de calendario em UTC).
+function somarDiasData(dataISO, dias) {
+    const d = new Date(`${dataISO}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + dias);
+    return d.toISOString().slice(0, 10);
 }
 
 // Lê todas as páginas de uma consulta (Postgrest corta em 1000 linhas).
@@ -6085,4 +6101,4 @@ if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
 }
 
 module.exports = app;
-module.exports.__teste = { avaliarReprocesso, planejarReprocessarTudo, exigirMotivo, motivoOpcional, MINUTOS_PROCESSAMENTO_EM_ANDAMENTO };
+module.exports.__teste = { hojeBrasil, somarDiasData, avaliarReprocesso, planejarReprocessarTudo, exigirMotivo, motivoOpcional, MINUTOS_PROCESSAMENTO_EM_ANDAMENTO };
