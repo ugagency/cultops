@@ -174,7 +174,22 @@ teste('nada de gestor, admin ou analista muda: STATUS_MAP e telas de gestor igua
             const depois = "|| doc.status === 'revisao_manual' || (doc.status === 'aguardando_conformidade' && doc.just_erro) ?\n            `<strong style=\"color: var(--error);\">Atenção:";
             if (esperado.includes(antes)) esperado = esperado.replace(antes, depois);
         }
-        assert.strictEqual(bloco(SRC, inicio, fim), esperado, inicio);
+        let atual = bloco(SRC, inicio, fim);
+        // segunda mudanca de proposito na DetailsView (#162): enquanto o extrato enviado esta sendo lido, a caixa
+        // do extrato mostra a mensagem em vez dos botoes de envio, e o aviso de erro/demora aparece acima do botao.
+        // Aqui as insercoes do #162 sao retiradas; coberto em teste-confirmacoes-front.js.
+        if (inicio.startsWith('const DetailsView')) {
+            const insercoes = [
+                ['    } else if (extratoEmLeituraDoDoc(doc)) {\n        // #162: sem "Subir Extrato" enquanto o extrato enviado está sendo lido.\n        extratoBoxHtml = extratoLendoHtml();\n', ''],
+                ['${avisoLeituraExtratoHtml(doc)}<button', '<button'],
+                [' : extratoEmLeituraDoDoc(doc) ? extratoLendoHtml() :\n', ' :\n']
+            ];
+            for (const [de, para] of insercoes) {
+                assert.ok(atual.includes(de), 'insercao do #162 nao encontrada: ' + de.slice(0, 50));
+                atual = atual.split(de).join(para);
+            }
+        }
+        assert.strictEqual(atual, esperado, inicio);
     }
     // o rotulo de status do gestor continua sendo o do STATUS_MAP puro
     assert.ok(!/rotuloStatusFornecedor/.test(bloco(SRC, 'const DashboardView = () => {', '\n};\n')));

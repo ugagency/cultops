@@ -47,6 +47,22 @@ const CODIGO = [
     bloco('async function executarEnvioSalic(', FIM_FUNCAO),
     bloco('window.handleTentarNovamenteErroRpa = function', FIM_WINDOW),
     bloco('window.handleUploadExtrato = async function', FIM_WINDOW),
+    // #162
+    bloco('const EXTRATO_LEITURA_INTERVALO_MS =', ';\n'),
+    bloco('const EXTRATO_LEITURA_LIMITE_MS =', ';\n'),
+    bloco('const MSG_EXTRATO_LENDO =', ';\n'),
+    bloco('const MSG_EXTRATO_ERRO_LEITURA =', ';\n'),
+    bloco('const MSG_EXTRATO_LEITURA_DEMORA =', ';\n'),
+    bloco('let temporizadorExtratoEmLeitura =', ';\n'),
+    bloco('function extratoEmLeituraDoDoc(', FIM_FUNCAO),
+    bloco('function avisoLeituraExtratoHtml(', FIM_FUNCAO),
+    bloco('function extratoLendoHtml(', FIM_FUNCAO),
+    bloco('function pararAcompanhamentoExtrato(', FIM_FUNCAO),
+    bloco('function iniciarAcompanhamentoExtrato(', FIM_FUNCAO),
+    bloco('function agendarConsultaExtratoEmLeitura(', FIM_FUNCAO),
+    bloco('async function devolverStatusOriginalDaSubstituicao(', FIM_FUNCAO),
+    bloco('async function consultarExtratoEmLeitura(', FIM_FUNCAO),
+    bloco('window.handleSubirExtratoCorreto = function', FIM_WINDOW),
     // #163 e #157
     bloco('const TOLERANCIA_VALOR_LANCAMENTO =', ';\n'),
     bloco('function fmtValorExtrato(', FIM_FUNCAO),
@@ -81,7 +97,11 @@ function criarAmbiente(opcoes = {}) {
     const chamadasFetch = [];
     const toasts = [];
     const estadoNoFetchDoWebhook = [];
-    const contexto = { renders: 0, ocr: [] };
+    const contexto = { renders: 0, ocr: [], refresh: [] };
+    // #162: relogio e temporizadores falsos; status do extrato que a consulta periodica enxerga
+    const relogio = { t: 1700000000000, timers: [] };
+    class DataFalsa extends Date { static now() { return relogio.t; } }
+    const extratoStatus = { valor: 'pendente' };
 
     const tabela = (nome) => {
         const op = { tabela: nome, acao: null, dados: null, filtros: [] };
@@ -98,7 +118,7 @@ function criarAmbiente(opcoes = {}) {
             then(res, rej) {
                 log.push(op);
                 const falha = opcoes.falhaUpdate && op.acao === 'update' && op.dados && op.dados.status === 'aguardando_conciliacao_bancaria';
-                const data = nome === 'extratos' ? { id: 'ext-1' } : null;
+                const data = nome === 'extratos' ? (op.acao === 'select' ? { status: extratoStatus.valor } : { id: 'ext-1' }) : null;
                 return Promise.resolve({ data, error: falha ? { message: 'falha' } : null }).then(res, rej);
             }
         };
@@ -131,13 +151,16 @@ function criarAmbiente(opcoes = {}) {
         processarFilaSalic: () => { contexto.fila = (contexto.fila || 0) + 1; },
         render: () => { contexto.renders++; },
         showToast: (msg, tipo) => { toasts.push({ msg, tipo }); },
-        setTimeout: () => 0,
+        setTimeout: (fn, ms) => { relogio.timers.push({ fn, ms, ativo: true }); return relogio.timers.length; },
+        clearTimeout: (id) => { if (relogio.timers[id - 1]) relogio.timers[id - 1].ativo = false; },
+        Date: DataFalsa,
         urlAssinadaParaWebhook: async () => 'http://arquivo',
         caminhoStorageExtrato: (projectId, nome) => `${projectId}/uuid-teste/${nome}`,
         fetch: async (url, init) => {
             chamadasFetch.push({ url, body: init && init.body ? JSON.parse(init.body) : null });
             if (String(url).includes('n8n.local')) {
                 estadoNoFetchDoWebhook.push({ upload: state.isUploadingExtrato, conciliando: state.isConciliandoExtrato });
+                if (opcoes.webhookRede) throw new TypeError('Failed to fetch');
                 if (opcoes.webhookFalha) return { ok: false, status: 500, statusText: 'x', json: async () => ({}) };
             }
             return { ok: true, status: 200, json: async () => ({ success: true }) };
@@ -152,7 +175,7 @@ function criarAmbiente(opcoes = {}) {
         resolverRubricaPorRotulo: () => ({ id: 'rub-1', nome: 'Hospedagem' }),
         fetchDocumentDetails: async () => { },
         atualizarNotaAposPagamento: async () => { },
-        agendarRefreshDocumento: () => { },
+        agendarRefreshDocumento: (id, op) => { contexto.refresh.push({ id, forcar: !!(op && op.forcar) }); },
         mensagemErroRpc: (e) => e.message,
         escAttr: (x) => String(x)
     };
@@ -161,7 +184,7 @@ function criarAmbiente(opcoes = {}) {
     ctx.window.location = { href: '' };
     vm.createContext(ctx);
     vm.runInContext(CODIGO, ctx);
-    return { ctx, state, window, log, rpcs, chamadasFetch, toasts, estadoNoFetchDoWebhook, contexto };
+    return { ctx, state, window, log, rpcs, chamadasFetch, toasts, estadoNoFetchDoWebhook, contexto, relogio, extratoStatus };
 }
 
 const enviosAoRobo = (amb) => amb.chamadasFetch.filter(c => String(c.url).includes('salic/inserir'));
@@ -477,6 +500,158 @@ const nota = (extra = {}) => ({ id: 'n1', project_id: 'p1', status: 'divergencia
             const b = SRC.indexOf(ini);
             assert.strictEqual(antes.slice(a, antes.indexOf(FIM_WINDOW, a)), SRC.slice(b, SRC.indexOf(FIM_WINDOW, b)), f + ' foi alterada');
         }
+    });
+
+    // ---------------------------------------------------------------- #162
+    const arquivoOfx = { name: 'extrato.ofx' };
+    const docEmTela = (extra = {}) => ({ id: 'n1', status: 'aguardando_conciliacao_bancaria', just_erro: null, project_id: 'p1', ...extra });
+    const preparar = (opcoes = {}, doc = docEmTela()) => {
+        const amb = criarAmbiente(opcoes);
+        amb.state.currentView = 'details';
+        amb.state.currentDocument = doc;
+        amb.state.documents = [doc];
+        return amb;
+    };
+    const subiu = (amb, replace = false) => amb.window.handleUploadExtrato(arquivoOfx, 'p1', 'n1', '', replace);
+    // so as consultas do acompanhamento (5 s); o setTimeout de 2,5 s do refresh pos-upload e outro assunto
+    const timersAtivos = (amb) => amb.relogio.timers.filter(t => t.ativo && t.ms === 5000);
+    const refreshForcado = (amb) => amb.contexto.refresh.filter(r => r.forcar);
+    // avanca o relogio falso e roda os temporizadores pendentes (uma rodada de consulta por chamada)
+    async function passar(amb, ms) {
+        amb.relogio.t += ms;
+        const pendentes = amb.relogio.timers.filter(t => t.ativo);
+        pendentes.forEach(t => { t.ativo = false; });
+        for (const t of pendentes) { await t.fn(); await tick(); }
+    }
+
+    await teste('#162: depois do insert a tela passa a acompanhar o extrato; ao sair de pendente encerra e atualiza o documento', async () => {
+        const amb = preparar();
+        await subiu(amb);
+        deepEq({ doc: amb.state.extratoEmLeitura.docId, ext: amb.state.extratoEmLeitura.extratoId }, { doc: 'n1', ext: 'ext-1' });
+        assert.strictEqual(timersAtivos(amb).length, 1);
+        assert.strictEqual(timersAtivos(amb)[0].ms, 5000);
+        await passar(amb, 5000);
+        assert.ok(amb.state.extratoEmLeitura, 'ainda pendente: continua acompanhando');
+        assert.strictEqual(timersAtivos(amb).length, 1);
+        amb.extratoStatus.valor = 'processado';
+        await passar(amb, 5000);
+        assert.strictEqual(amb.state.extratoEmLeitura, null);
+        assert.strictEqual(amb.state.avisoLeituraExtrato, null);
+        deepEq(refreshForcado(amb), [{ id: 'n1', forcar: true }]);
+        assert.strictEqual(timersAtivos(amb).length, 0);
+    });
+
+    await teste('#162: extrato com status erro mostra a mensagem de erro e libera o envio', async () => {
+        const amb = preparar();
+        await subiu(amb);
+        amb.extratoStatus.valor = 'erro';
+        await passar(amb, 5000);
+        deepEq(amb.state.avisoLeituraExtrato, { docId: 'n1', tipo: 'erro' });
+        assert.strictEqual(amb.state.extratoEmLeitura, null);
+        deepEq(refreshForcado(amb), [{ id: 'n1', forcar: true }]);
+        assert.ok(amb.ctx.avisoLeituraExtratoHtml({ id: 'n1' }).includes('Não foi possível ler este extrato. Envie o arquivo de novo ou informe o pagamento manualmente.'));
+        assert.strictEqual(amb.ctx.avisoLeituraExtratoHtml({ id: 'outro' }), '');
+    });
+
+    await teste('#162: passou de 3 minutos pendente: mostra "A leitura esta demorando", libera o envio e atualiza', async () => {
+        const amb = preparar();
+        await subiu(amb);
+        for (let i = 0; i < 35; i++) await passar(amb, 5000); // 175 s
+        assert.ok(amb.state.extratoEmLeitura, 'antes dos 3 minutos continua acompanhando');
+        await passar(amb, 5000); // 180 s
+        assert.strictEqual(amb.state.extratoEmLeitura, null);
+        deepEq(amb.state.avisoLeituraExtrato, { docId: 'n1', tipo: 'demora' });
+        assert.ok(amb.ctx.avisoLeituraExtratoHtml({ id: 'n1' }).includes('A leitura está demorando. Você pode aguardar ou enviar outro arquivo.'));
+        deepEq(refreshForcado(amb), [{ id: 'n1', forcar: true }]);
+        // primeiro envio (nao e substituicao): nada a devolver
+        assert.strictEqual(amb.log.filter(o => o.acao === 'update').length, 0);
+    });
+
+    await teste('#162: substituicao que estoura o tempo devolve o status original, mas so se o documento ainda estiver no status do envio', async () => {
+        const original = docEmTela({ status: 'divergencia_beneficiario', just_erro: 'Beneficiario diferente' });
+        const amb = preparar({}, original);
+        await subiu(amb, true);
+        deepEq(amb.log.filter(o => o.acao === 'update').map(o => o.dados), [{ status: 'aguardando_conciliacao_bancaria', just_erro: null }]);
+        for (let i = 0; i < 36; i++) await passar(amb, 5000);
+        const ups = amb.log.filter(o => o.acao === 'update');
+        deepEq(ups.map(o => o.dados), [{ status: 'aguardando_conciliacao_bancaria', just_erro: null }, { status: 'divergencia_beneficiario', just_erro: 'Beneficiario diferente' }]);
+        deepEq(ups[1].filtros, [['id', 'n1'], ['status', 'aguardando_conciliacao_bancaria']], 'so devolve se o status ainda for o do envio');
+        assert.strictEqual(amb.state.currentDocument.status, 'divergencia_beneficiario');
+    });
+
+    await teste('#162: falha de rede no webhook com o extrato ja gravado nao e erro definitivo nem devolve o status antigo', async () => {
+        const original = docEmTela({ status: 'divergencia_beneficiario', just_erro: 'Beneficiario diferente' });
+        const amb = preparar({ webhookRede: true }, original);
+        await subiu(amb, true);
+        assert.ok(amb.state.extratoEmLeitura, 'continua acompanhando');
+        assert.strictEqual(amb.toasts.filter(t => t.tipo === 'error').length, 0);
+        assert.ok(amb.toasts.some(t => t.tipo === 'info'));
+        // nenhum UPDATE de devolucao: so o do envio
+        deepEq(amb.log.filter(o => o.acao === 'update').map(o => o.dados), [{ status: 'aguardando_conciliacao_bancaria', just_erro: null }]);
+        assert.strictEqual(amb.state.currentDocument.status, 'aguardando_conciliacao_bancaria');
+        assert.strictEqual(amb.state.isUploadingExtrato, false);
+        assert.strictEqual(amb.state.isConciliandoExtrato, false);
+        amb.extratoStatus.valor = 'processado';
+        await passar(amb, 5000);
+        assert.strictEqual(amb.state.extratoEmLeitura, null);
+        assert.strictEqual(amb.log.filter(o => o.acao === 'update').length, 1, 'continua sem devolucao');
+    });
+
+    await teste('#162: resposta HTTP de erro do webhook continua sendo erro: para o acompanhamento e devolve o status', async () => {
+        const original = docEmTela({ status: 'divergencia_beneficiario', just_erro: 'Beneficiario diferente' });
+        const amb = preparar({ webhookFalha: true }, original);
+        await subiu(amb, true);
+        assert.strictEqual(amb.state.extratoEmLeitura, null);
+        assert.strictEqual(timersAtivos(amb).length, 0);
+        assert.ok(amb.toasts.some(t => t.tipo === 'error'));
+        deepEq(amb.log.filter(o => o.acao === 'update').map(o => o.dados), [{ status: 'aguardando_conciliacao_bancaria', just_erro: null }, { status: 'divergencia_beneficiario', just_erro: 'Beneficiario diferente' }]);
+    });
+
+    await teste('#162: trocar de documento durante a leitura encerra o acompanhamento sem atualizar nada', async () => {
+        const amb = preparar();
+        await subiu(amb);
+        amb.state.currentDocument = docEmTela({ id: 'outro' });
+        amb.extratoStatus.valor = 'processado';
+        await passar(amb, 5000);
+        assert.strictEqual(amb.state.extratoEmLeitura, null);
+        assert.strictEqual(refreshForcado(amb).length, 0);
+        assert.strictEqual(timersAtivos(amb).length, 0);
+    });
+
+    await teste('#162: novo envio reinicia o acompanhamento e apaga o aviso anterior', async () => {
+        const amb = preparar();
+        await subiu(amb);
+        amb.state.avisoLeituraExtrato = { docId: 'n1', tipo: 'demora' };
+        const primeiro = timersAtivos(amb)[0];
+        await subiu(amb);
+        assert.strictEqual(primeiro.ativo, false, 'consulta antiga cancelada');
+        assert.strictEqual(timersAtivos(amb).length, 1);
+        assert.strictEqual(amb.state.avisoLeituraExtrato, null);
+    });
+
+    await teste('#162: a tela esconde os tres botoes de envio durante a leitura e mostra a mensagem', () => {
+        const amb = criarAmbiente();
+        amb.state.extratoEmLeitura = { docId: 'n1', extratoId: 'e1', desde: 0, original: null };
+        assert.strictEqual(amb.ctx.extratoEmLeituraDoDoc({ id: 'n1' }), true);
+        assert.strictEqual(amb.ctx.extratoEmLeituraDoDoc({ id: 'n2' }), false);
+        assert.ok(amb.ctx.extratoLendoHtml().includes('Extrato recebido. Lendo e conciliando, pode levar cerca de 1 minuto. Não é preciso enviar de novo.'));
+        // caixa do extrato e bloco de divergencia: o ramo da leitura vem antes do botao
+        assert.ok(/else if \(extratoEmLeituraDoDoc\(doc\)\) \{\n[^\n]*\n\s*extratoBoxHtml = extratoLendoHtml\(\);/.test(SRC));
+        assert.ok(SRC.includes(': extratoEmLeituraDoDoc(doc) ? extratoLendoHtml() :'));
+        assert.ok(SRC.includes("${temSubstituir || extratoEmLeituraDoDoc(doc) ? '' : `<button"));
+        // "Subir o extrato correto" tambem nao age durante a leitura
+        const corpo = bloco('window.handleSubirExtratoCorreto = function', FIM_WINDOW);
+        assert.ok(corpo.indexOf('state.extratoEmLeitura') > 0 && corpo.indexOf('state.extratoEmLeitura') < corpo.indexOf('mostrarUploadManualExtrato'));
+        // tempos como constantes nomeadas
+        assert.ok(SRC.includes('const EXTRATO_LEITURA_INTERVALO_MS = 5000;') && SRC.includes('const EXTRATO_LEITURA_LIMITE_MS = 3 * 60 * 1000;'));
+    });
+
+    await teste('#162: janela Vincular extrato mostra o arquivo enviado, troca o botao e diz que a conciliacao comeca em ate 1 minuto', () => {
+        assert.ok(SRC.includes('v.enviadoNome = file.name;'));
+        assert.ok(SRC.includes('Extrato enviado: ${escHtml(v.enviadoNome)}'));
+        assert.ok(SRC.includes("v.enviadoNome ? 'Enviar outro extrato'"));
+        assert.ok(SRC.includes('e começa em até 1 minuto.'));
+        assert.ok(!SRC.includes('e começa em até alguns minutos.'));
     });
 
     // ---------------------------------------------------------------- #163
