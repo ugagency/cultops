@@ -50,7 +50,46 @@ const CODIGO = [
     bloco('window.handleEnviarSalic = async function', FIM_WINDOW),
     bloco('async function executarEnvioSalic(', FIM_FUNCAO),
     bloco('window.handleTentarNovamenteErroRpa = function', FIM_WINDOW),
-    bloco('window.handleUploadExtrato = async function', FIM_WINDOW)
+    bloco('window.handleUploadExtrato = async function', FIM_WINDOW),
+    // #162
+    bloco('const EXTRATO_LEITURA_INTERVALO_MS =', ';\n'),
+    bloco('const EXTRATO_LEITURA_LIMITE_MS =', ';\n'),
+    bloco('const MSG_EXTRATO_LENDO =', ';\n'),
+    bloco('const MSG_EXTRATO_ERRO_LEITURA =', ';\n'),
+    bloco('const MSG_EXTRATO_LEITURA_DEMORA =', ';\n'),
+    bloco('let temporizadorExtratoEmLeitura =', ';\n'),
+    bloco('function extratoEmLeituraDoDoc(', FIM_FUNCAO),
+    bloco('function avisoLeituraExtratoHtml(', FIM_FUNCAO),
+    bloco('function extratoLendoHtml(', FIM_FUNCAO),
+    bloco('function pararAcompanhamentoExtrato(', FIM_FUNCAO),
+    bloco('function iniciarAcompanhamentoExtrato(', FIM_FUNCAO),
+    bloco('function agendarConsultaExtratoEmLeitura(', FIM_FUNCAO),
+    bloco('async function devolverStatusOriginalDaSubstituicao(', FIM_FUNCAO),
+    bloco('async function consultarExtratoEmLeitura(', FIM_FUNCAO),
+    bloco('window.handleSubirExtratoCorreto = function', FIM_WINDOW),
+    // #163 e #157
+    bloco('const TOLERANCIA_VALOR_LANCAMENTO =', ';\n'),
+    bloco('function fmtValorExtrato(', FIM_FUNCAO),
+    bloco('function mensagemAmpliarBusca(', FIM_FUNCAO),
+    bloco('function lancamentoForaDoPeriodo(', FIM_FUNCAO),
+    bloco('window.handleAmpliarCandidatos = async function', FIM_WINDOW),
+    bloco('window.handleConfirmarLancamentoNota = function', FIM_WINDOW),
+    bloco('window.handleAtualizarSaldoSalic = function', FIM_WINDOW),
+    bloco('async function executarAtualizarSaldoSalic(', FIM_FUNCAO),
+    bloco('window.handleRemoverExtratoLote = function', FIM_WINDOW),
+    bloco('async function executarRemoverExtratoLote(', FIM_FUNCAO),
+    bloco('window.handleIniciarEnvioLote = async function', FIM_WINDOW),
+    bloco('async function iniciarEnvioLoteConfirmado(', FIM_FUNCAO),
+    bloco('window.salvarCamposManuais = async function', FIM_WINDOW),
+    bloco('async function executarSalvarCamposManuais(', FIM_FUNCAO),
+    bloco('function normalizarTextoAuditoria(', FIM_FUNCAO),
+    bloco('function auditoriaListouLancamentosAceitos(', FIM_FUNCAO),
+    bloco('function auditoriaRejeitouLancamentos(', FIM_FUNCAO),
+    bloco('function lancamentosCitadosAuditoria(', FIM_FUNCAO),
+    bloco('function lancamentosRecusadosAuditoria(', FIM_FUNCAO),
+    bloco('function extrairLancamentosDoTexto(', FIM_FUNCAO),
+    bloco('window.handleUsarLancamentoRecusado = function', FIM_WINDOW),
+    bloco('function abrirFormularioComLancamento(', FIM_FUNCAO)
 ].join('\n');
 
 const tick = async () => { for (let i = 0; i < 6; i++) await new Promise(r => setImmediate(r)); };
@@ -62,7 +101,11 @@ function criarAmbiente(opcoes = {}) {
     const chamadasFetch = [];
     const toasts = [];
     const estadoNoFetchDoWebhook = [];
-    const contexto = { renders: 0, ocr: [] };
+    const contexto = { renders: 0, ocr: [], refresh: [] };
+    // #162: relogio e temporizadores falsos; status do extrato que a consulta periodica enxerga
+    const relogio = { t: 1700000000000, timers: [] };
+    class DataFalsa extends Date { static now() { return relogio.t; } }
+    const extratoStatus = { valor: 'pendente' };
 
     const tabela = (nome) => {
         const op = { tabela: nome, acao: null, dados: null, filtros: [] };
@@ -79,7 +122,7 @@ function criarAmbiente(opcoes = {}) {
             then(res, rej) {
                 log.push(op);
                 const falha = opcoes.falhaUpdate && op.acao === 'update' && op.dados && op.dados.status === 'aguardando_conciliacao_bancaria';
-                const data = nome === 'extratos' ? { id: 'ext-1' } : null;
+                const data = nome === 'extratos' ? (op.acao === 'select' ? { status: extratoStatus.valor } : { id: 'ext-1' }) : null;
                 return Promise.resolve({ data, error: falha ? { message: 'falha' } : null }).then(res, rej);
             }
         };
@@ -103,15 +146,25 @@ function criarAmbiente(opcoes = {}) {
         window, state, supabaseClient, console: { log() { }, error() { }, warn() { } },
         CONFIG: { N8N_WEBHOOK_RECONCILIATION_URL: opcoes.semWebhook ? '' : 'http://n8n.local/webhook', N8N_WEBHOOK_VALIDATION_URL: 'http://validacao.local/wh', SALIC_API_URL: '/api/salic/inserir' },
         dispararOcr: async (id, caminho) => { contexto.ocr.push({ id, caminho }); },
-        document: { getElementById: (id) => (opcoes.campos ? opcoes.campos[id] : null) },
+        document: { getElementById: (id) => (opcoes.campos ? opcoes.campos[id] : null), querySelectorAll: () => opcoes.checks || [] },
+        filtroCandidatosDaNota: () => ({ escopo: opcoes.escopo || 'extrato' }),
+        fmtDataExtrato: (d) => (d ? String(d) : '---'),
+        fetchSaldoRubricas: async () => { },
+        atualizarSaldoEnvioLote: async () => { },
+        salvarFilaSalic: () => { },
+        processarFilaSalic: () => { contexto.fila = (contexto.fila || 0) + 1; },
         render: () => { contexto.renders++; },
         showToast: (msg, tipo) => { toasts.push({ msg, tipo }); },
-        setTimeout: () => 0,
+        setTimeout: (fn, ms) => { relogio.timers.push({ fn, ms, ativo: true }); return relogio.timers.length; },
+        clearTimeout: (id) => { if (relogio.timers[id - 1]) relogio.timers[id - 1].ativo = false; },
+        Date: DataFalsa,
         urlAssinadaParaWebhook: async () => 'http://arquivo',
+        caminhoStorageExtrato: (projectId, nome) => `${projectId}/uuid-teste/${nome}`,
         fetch: async (url, init) => {
             chamadasFetch.push({ url, body: init && init.body ? JSON.parse(init.body) : null });
             if (String(url).includes('n8n.local')) {
                 estadoNoFetchDoWebhook.push({ upload: state.isUploadingExtrato, conciliando: state.isConciliandoExtrato });
+                if (opcoes.webhookRede) throw new TypeError('Failed to fetch');
                 if (opcoes.webhookFalha) return { ok: false, status: 500, statusText: 'x', json: async () => ({}) };
             }
             return { ok: true, status: 200, json: async () => ({ success: true }) };
@@ -126,15 +179,16 @@ function criarAmbiente(opcoes = {}) {
         resolverRubricaPorRotulo: () => ({ id: 'rub-1', nome: 'Hospedagem' }),
         fetchDocumentDetails: async () => { },
         atualizarNotaAposPagamento: async () => { },
-        agendarRefreshDocumento: () => { },
+        agendarRefreshDocumento: (id, op) => { contexto.refresh.push({ id, forcar: !!(op && op.forcar) }); },
         mensagemErroRpc: (e) => e.message,
         escAttr: (x) => String(x)
     };
     ctx.window.showToast = ctx.showToast;
+    ctx.window.CandidatosLancamento = require('./candidatos-lancamento.js');
     ctx.window.location = { href: '' };
     vm.createContext(ctx);
     vm.runInContext(CODIGO, ctx);
-    return { ctx, state, window, log, rpcs, chamadasFetch, toasts, estadoNoFetchDoWebhook, contexto };
+    return { ctx, state, window, log, rpcs, chamadasFetch, toasts, estadoNoFetchDoWebhook, contexto, relogio, extratoStatus };
 }
 
 const enviosAoRobo = (amb) => amb.chamadasFetch.filter(c => String(c.url).includes('salic/inserir'));
@@ -443,12 +497,354 @@ const nota = (extra = {}) => ({ id: 'n1', project_id: 'p1', status: 'divergencia
         // handleForcarAvanco mudou de proposito no #125 (anexa o motivo original ao texto de override); continua
         // com a confirmacao (conferida acima) e o texto novo e coberto por teste-avancar-motivo-original.js.
         // handleReprocessarDocumentoTravado mudou de proposito no #150 (ramo da validacao); coberto nos testes #150 abaixo.
-        for (const f of ['handleConfirmarLancamentoNota', 'handleAprovarNotaFornecedor']) {
+        // handleConfirmarLancamentoNota mudou de proposito no #163 (aviso de lancamento fora do periodo); coberto nos testes #163 abaixo.
+        for (const f of ['handleAprovarNotaFornecedor']) {
             const ini = 'window.' + f + ' = ';
             const a = antes.indexOf(ini);
             const b = SRC.indexOf(ini);
             assert.strictEqual(antes.slice(a, antes.indexOf(FIM_WINDOW, a)), SRC.slice(b, SRC.indexOf(FIM_WINDOW, b)), f + ' foi alterada');
         }
+    });
+
+    // ---------------------------------------------------------------- #162
+    const arquivoOfx = { name: 'extrato.ofx' };
+    const docEmTela = (extra = {}) => ({ id: 'n1', status: 'aguardando_conciliacao_bancaria', just_erro: null, project_id: 'p1', ...extra });
+    const preparar = (opcoes = {}, doc = docEmTela()) => {
+        const amb = criarAmbiente(opcoes);
+        amb.state.currentView = 'details';
+        amb.state.currentDocument = doc;
+        amb.state.documents = [doc];
+        return amb;
+    };
+    const subiu = (amb, replace = false) => amb.window.handleUploadExtrato(arquivoOfx, 'p1', 'n1', '', replace);
+    // so as consultas do acompanhamento (5 s); o setTimeout de 2,5 s do refresh pos-upload e outro assunto
+    const timersAtivos = (amb) => amb.relogio.timers.filter(t => t.ativo && t.ms === 5000);
+    const refreshForcado = (amb) => amb.contexto.refresh.filter(r => r.forcar);
+    // avanca o relogio falso e roda os temporizadores pendentes (uma rodada de consulta por chamada)
+    async function passar(amb, ms) {
+        amb.relogio.t += ms;
+        const pendentes = amb.relogio.timers.filter(t => t.ativo);
+        pendentes.forEach(t => { t.ativo = false; });
+        for (const t of pendentes) { await t.fn(); await tick(); }
+    }
+
+    await teste('#162: depois do insert a tela passa a acompanhar o extrato; ao sair de pendente encerra e atualiza o documento', async () => {
+        const amb = preparar();
+        await subiu(amb);
+        deepEq({ doc: amb.state.extratoEmLeitura.docId, ext: amb.state.extratoEmLeitura.extratoId }, { doc: 'n1', ext: 'ext-1' });
+        assert.strictEqual(timersAtivos(amb).length, 1);
+        assert.strictEqual(timersAtivos(amb)[0].ms, 5000);
+        await passar(amb, 5000);
+        assert.ok(amb.state.extratoEmLeitura, 'ainda pendente: continua acompanhando');
+        assert.strictEqual(timersAtivos(amb).length, 1);
+        amb.extratoStatus.valor = 'processado';
+        await passar(amb, 5000);
+        assert.strictEqual(amb.state.extratoEmLeitura, null);
+        assert.strictEqual(amb.state.avisoLeituraExtrato, null);
+        deepEq(refreshForcado(amb), [{ id: 'n1', forcar: true }]);
+        assert.strictEqual(timersAtivos(amb).length, 0);
+    });
+
+    await teste('#162: extrato com status erro mostra a mensagem de erro e libera o envio', async () => {
+        const amb = preparar();
+        await subiu(amb);
+        amb.extratoStatus.valor = 'erro';
+        await passar(amb, 5000);
+        deepEq(amb.state.avisoLeituraExtrato, { docId: 'n1', tipo: 'erro' });
+        assert.strictEqual(amb.state.extratoEmLeitura, null);
+        deepEq(refreshForcado(amb), [{ id: 'n1', forcar: true }]);
+        assert.ok(amb.ctx.avisoLeituraExtratoHtml({ id: 'n1' }).includes('Não foi possível ler este extrato. Envie o arquivo de novo ou informe o pagamento manualmente.'));
+        assert.strictEqual(amb.ctx.avisoLeituraExtratoHtml({ id: 'outro' }), '');
+    });
+
+    await teste('#162: passou de 3 minutos pendente: mostra "A leitura esta demorando", libera o envio e atualiza', async () => {
+        const amb = preparar();
+        await subiu(amb);
+        for (let i = 0; i < 35; i++) await passar(amb, 5000); // 175 s
+        assert.ok(amb.state.extratoEmLeitura, 'antes dos 3 minutos continua acompanhando');
+        await passar(amb, 5000); // 180 s
+        assert.strictEqual(amb.state.extratoEmLeitura, null);
+        deepEq(amb.state.avisoLeituraExtrato, { docId: 'n1', tipo: 'demora' });
+        assert.ok(amb.ctx.avisoLeituraExtratoHtml({ id: 'n1' }).includes('A leitura está demorando. Você pode aguardar ou enviar outro arquivo.'));
+        deepEq(refreshForcado(amb), [{ id: 'n1', forcar: true }]);
+        // primeiro envio (nao e substituicao): nada a devolver
+        assert.strictEqual(amb.log.filter(o => o.acao === 'update').length, 0);
+    });
+
+    await teste('#162: substituicao que estoura o tempo devolve o status original, mas so se o documento ainda estiver no status do envio', async () => {
+        const original = docEmTela({ status: 'divergencia_beneficiario', just_erro: 'Beneficiario diferente' });
+        const amb = preparar({}, original);
+        await subiu(amb, true);
+        deepEq(amb.log.filter(o => o.acao === 'update').map(o => o.dados), [{ status: 'aguardando_conciliacao_bancaria', just_erro: null }]);
+        for (let i = 0; i < 36; i++) await passar(amb, 5000);
+        const ups = amb.log.filter(o => o.acao === 'update');
+        deepEq(ups.map(o => o.dados), [{ status: 'aguardando_conciliacao_bancaria', just_erro: null }, { status: 'divergencia_beneficiario', just_erro: 'Beneficiario diferente' }]);
+        deepEq(ups[1].filtros, [['id', 'n1'], ['status', 'aguardando_conciliacao_bancaria']], 'so devolve se o status ainda for o do envio');
+        assert.strictEqual(amb.state.currentDocument.status, 'divergencia_beneficiario');
+    });
+
+    await teste('#162: falha de rede no webhook com o extrato ja gravado nao e erro definitivo nem devolve o status antigo', async () => {
+        const original = docEmTela({ status: 'divergencia_beneficiario', just_erro: 'Beneficiario diferente' });
+        const amb = preparar({ webhookRede: true }, original);
+        await subiu(amb, true);
+        assert.ok(amb.state.extratoEmLeitura, 'continua acompanhando');
+        assert.strictEqual(amb.toasts.filter(t => t.tipo === 'error').length, 0);
+        assert.ok(amb.toasts.some(t => t.tipo === 'info'));
+        // nenhum UPDATE de devolucao: so o do envio
+        deepEq(amb.log.filter(o => o.acao === 'update').map(o => o.dados), [{ status: 'aguardando_conciliacao_bancaria', just_erro: null }]);
+        assert.strictEqual(amb.state.currentDocument.status, 'aguardando_conciliacao_bancaria');
+        assert.strictEqual(amb.state.isUploadingExtrato, false);
+        assert.strictEqual(amb.state.isConciliandoExtrato, false);
+        amb.extratoStatus.valor = 'processado';
+        await passar(amb, 5000);
+        assert.strictEqual(amb.state.extratoEmLeitura, null);
+        assert.strictEqual(amb.log.filter(o => o.acao === 'update').length, 1, 'continua sem devolucao');
+    });
+
+    await teste('#162: resposta HTTP de erro do webhook continua sendo erro: para o acompanhamento e devolve o status', async () => {
+        const original = docEmTela({ status: 'divergencia_beneficiario', just_erro: 'Beneficiario diferente' });
+        const amb = preparar({ webhookFalha: true }, original);
+        await subiu(amb, true);
+        assert.strictEqual(amb.state.extratoEmLeitura, null);
+        assert.strictEqual(timersAtivos(amb).length, 0);
+        assert.ok(amb.toasts.some(t => t.tipo === 'error'));
+        deepEq(amb.log.filter(o => o.acao === 'update').map(o => o.dados), [{ status: 'aguardando_conciliacao_bancaria', just_erro: null }, { status: 'divergencia_beneficiario', just_erro: 'Beneficiario diferente' }]);
+    });
+
+    await teste('#162: trocar de documento durante a leitura encerra o acompanhamento sem atualizar nada', async () => {
+        const amb = preparar();
+        await subiu(amb);
+        amb.state.currentDocument = docEmTela({ id: 'outro' });
+        amb.extratoStatus.valor = 'processado';
+        await passar(amb, 5000);
+        assert.strictEqual(amb.state.extratoEmLeitura, null);
+        assert.strictEqual(refreshForcado(amb).length, 0);
+        assert.strictEqual(timersAtivos(amb).length, 0);
+    });
+
+    await teste('#162: novo envio reinicia o acompanhamento e apaga o aviso anterior', async () => {
+        const amb = preparar();
+        await subiu(amb);
+        amb.state.avisoLeituraExtrato = { docId: 'n1', tipo: 'demora' };
+        const primeiro = timersAtivos(amb)[0];
+        await subiu(amb);
+        assert.strictEqual(primeiro.ativo, false, 'consulta antiga cancelada');
+        assert.strictEqual(timersAtivos(amb).length, 1);
+        assert.strictEqual(amb.state.avisoLeituraExtrato, null);
+    });
+
+    await teste('#162: a tela esconde os tres botoes de envio durante a leitura e mostra a mensagem', () => {
+        const amb = criarAmbiente();
+        amb.state.extratoEmLeitura = { docId: 'n1', extratoId: 'e1', desde: 0, original: null };
+        assert.strictEqual(amb.ctx.extratoEmLeituraDoDoc({ id: 'n1' }), true);
+        assert.strictEqual(amb.ctx.extratoEmLeituraDoDoc({ id: 'n2' }), false);
+        assert.ok(amb.ctx.extratoLendoHtml().includes('Extrato recebido. Lendo e conciliando, pode levar cerca de 1 minuto. Não é preciso enviar de novo.'));
+        // caixa do extrato e bloco de divergencia: o ramo da leitura vem antes do botao
+        assert.ok(/else if \(extratoEmLeituraDoDoc\(doc\)\) \{\n[^\n]*\n\s*extratoBoxHtml = extratoLendoHtml\(\);/.test(SRC));
+        assert.ok(SRC.includes(': extratoEmLeituraDoDoc(doc) ? extratoLendoHtml() :'));
+        assert.ok(SRC.includes("${temSubstituir || extratoEmLeituraDoDoc(doc) ? '' : `<button"));
+        // "Subir o extrato correto" tambem nao age durante a leitura
+        const corpo = bloco('window.handleSubirExtratoCorreto = function', FIM_WINDOW);
+        assert.ok(corpo.indexOf('state.extratoEmLeitura') > 0 && corpo.indexOf('state.extratoEmLeitura') < corpo.indexOf('mostrarUploadManualExtrato'));
+        // tempos como constantes nomeadas
+        assert.ok(SRC.includes('const EXTRATO_LEITURA_INTERVALO_MS = 5000;') && SRC.includes('const EXTRATO_LEITURA_LIMITE_MS = 3 * 60 * 1000;'));
+    });
+
+    await teste('#162: janela Vincular extrato mostra o arquivo enviado, troca o botao e diz que a conciliacao comeca em ate 1 minuto', () => {
+        assert.ok(SRC.includes('v.enviadoNome = file.name;'));
+        assert.ok(SRC.includes('Extrato enviado: ${escHtml(v.enviadoNome)}'));
+        assert.ok(SRC.includes("v.enviadoNome ? 'Enviar outro extrato'"));
+        assert.ok(SRC.includes('e começa em até 1 minuto.'));
+        assert.ok(!SRC.includes('e começa em até alguns minutos.'));
+    });
+
+    // ---------------------------------------------------------------- #163
+    const chk = (id, nome) => ({ getAttribute: (a) => ({ 'data-id': id, 'data-name': nome, 'data-project': 'P', 'data-project-id': 'p1' })[a] });
+
+    await teste('#163: Procurar em outros extratos pede confirmacao com o criterio; cancelar nao amplia, confirmar amplia', async () => {
+        const amb = criarAmbiente({ escopo: 'extrato' });
+        amb.state.currentDocument = nota({ id: 'n1' });
+        await amb.window.handleAmpliarCandidatos('n1');
+        assert.strictEqual(amb.state.confirmModal.title, 'Procurar em outros extratos');
+        const t = textoModal(amb);
+        assert.ok(t.includes('sai do extrato conferido') && t.includes('R$ 0,02') && t.includes('nenhuma outra nota usou') && t.includes('um lançamento de outro mês'));
+        await cancelar(amb);
+        assert.strictEqual(amb.state.ampliarCandidatos, undefined);
+        await amb.window.handleAmpliarCandidatos('n1');
+        await confirmar(amb);
+        deepEq(amb.state.ampliarCandidatos, { docId: 'n1', ativo: true });
+    });
+
+    await teste('#163: o texto da confirmacao muda quando a busca sai da janela de datas, e usa a tolerancia do codigo', async () => {
+        const amb = criarAmbiente({ escopo: 'janela' });
+        amb.state.currentDocument = nota({ id: 'n1' });
+        await amb.window.handleAmpliarCandidatos('n1');
+        assert.ok(textoModal(amb).includes('sai da janela de datas desta nota'));
+        assert.ok(SRC.includes('fmtValorExtrato(TOLERANCIA_VALOR_LANCAMENTO)'), 'tolerancia nao repetida como numero');
+    });
+
+    await teste('#163: lancamento fora do periodo da nota recebe aviso na confirmacao da escolha; dentro do periodo, nao', async () => {
+        const amb = criarAmbiente();
+        amb.state.currentDocument = nota({ id: 'n1', data_pagamento: '2026-10-10' });
+        amb.state.candidatosLancamento = [
+            { id: 'l-fora', valor: 100, data_lancamento: '2026-03-01', memo: 'PIX', fitid: 'F1' },
+            { id: 'l-dentro', valor: 100, data_lancamento: '2026-10-12', memo: 'PIX', fitid: 'F2' }
+        ];
+        amb.window.handleConfirmarLancamentoNota('n1', 'l-fora');
+        assert.ok(textoModal(amb).includes('Atenção: este lançamento está fora do período desta nota.'));
+        await cancelar(amb);
+        amb.window.handleConfirmarLancamentoNota('n1', 'l-dentro');
+        assert.ok(!textoModal(amb).includes('fora do período'));
+        await cancelar(amb);
+        // nota sem data nenhuma: nunca avisa
+        amb.state.currentDocument = nota({ id: 'n1', data_pagamento: null, data_emissao: null });
+        amb.window.handleConfirmarLancamentoNota('n1', 'l-fora');
+        assert.ok(!textoModal(amb).includes('fora do período'));
+        assert.strictEqual(amb.log.filter(o => o.acao === 'update').length + amb.rpcs.length, 0);
+    });
+
+    await teste('#163: a tela rotula a busca ampliada e marca o cartao fora do periodo', () => {
+        assert.ok(SRC.includes('Lançamentos de todos os extratos do projeto com o valor desta nota ('));
+        assert.ok(SRC.includes('Fora do período desta nota</p>'));
+        assert.ok(SRC.includes('buscaAmpliada = !!state.ampliarCandidatos?.ativo && state.ampliarCandidatos.docId === doc.id'));
+    });
+
+    await teste('#163: Atualizar saldo do SALIC: cancelar nao captura; confirmar captura uma vez', async () => {
+        const amb = criarAmbiente();
+        amb.state.filters = { project: 'p1' };
+        amb.window.handleAtualizarSaldoSalic();
+        assert.ok(textoModal(amb).includes('1 a 2 minutos'));
+        await cancelar(amb);
+        assert.strictEqual(amb.chamadasFetch.filter(c => String(c.url).includes('saldo-salic')).length, 0);
+        amb.window.handleAtualizarSaldoSalic();
+        await confirmar(amb);
+        assert.strictEqual(amb.chamadasFetch.filter(c => String(c.url).includes('saldo-salic/capturar')).length, 1);
+        assert.strictEqual(amb.state.saldoSalicAtualizando, false);
+    });
+
+    await teste('#163: Trocar o extrato do lote: cancelar mantem o vinculo; confirmar desmarca no banco e na tela', async () => {
+        const amb = criarAmbiente();
+        amb.state.loteExtratoVinculado = { id: 'e1', nome: 'x.ofx', projectId: 'p1' };
+        amb.window.handleRemoverExtratoLote();
+        assert.ok(textoModal(amb).includes('O arquivo não é apagado'));
+        await cancelar(amb);
+        assert.strictEqual(escritas(amb), 0);
+        assert.ok(amb.state.loteExtratoVinculado);
+        amb.window.handleRemoverExtratoLote();
+        await confirmar(amb);
+        const up = amb.log.filter(o => o.acao === 'update');
+        deepEq(up.map(o => [o.tabela, o.dados, o.filtros]), [['extratos', { vinculo_lote_ativo: false }, [['id', 'e1']]]]);
+        assert.strictEqual(amb.state.loteExtratoVinculado, null);
+    });
+
+    await teste('#163: Iniciar envio em lote: sem selecao nao abre modal; cancelar nao envia; confirmar monta a fila e processa', async () => {
+        const vazio = criarAmbiente({ checks: [] });
+        await vazio.window.handleIniciarEnvioLote();
+        assert.strictEqual(vazio.state.confirmModal, null);
+
+        const amb = criarAmbiente({ checks: [chk('n1', 'NF 1'), chk('n2', 'NF 2')] });
+        await amb.window.handleIniciarEnvioLote();
+        assert.ok(textoModal(amb).includes('2 nota(s)'));
+        await cancelar(amb);
+        assert.strictEqual(amb.rpcs.length, 0, 'nao consultou credencial');
+        assert.ok(!amb.contexto.fila);
+        assert.ok(!amb.state.salicLoteRunning);
+        await amb.window.handleIniciarEnvioLote();
+        await confirmar(amb);
+        assert.ok(amb.rpcs.some(r => r.nome === 'has_external_credential'));
+        assert.strictEqual(amb.contexto.fila, 1);
+        assert.strictEqual(amb.state.salicLoteRunning, true);
+        assert.strictEqual(amb.state.salicLoteQueue.length, 2);
+    });
+
+    await teste('#163: Salvar campos manuais: validacao vem antes do modal; cancelar nao grava; confirmar grava', async () => {
+        const invalido = criarAmbiente({ campos: { 'input-cnpj-emissor': { value: '123' } } });
+        await invalido.window.salvarCamposManuais('n1');
+        assert.strictEqual(invalido.state.confirmModal, null);
+        assert.ok(invalido.toasts.some(t => t.tipo === 'error'));
+
+        const amb = criarAmbiente({ campos: { 'input-nome-emissor': { value: 'Grafica Aurora' } } });
+        await amb.window.salvarCamposManuais('n1');
+        assert.ok(textoModal(amb).includes('Confira com o documento fiscal original'));
+        await cancelar(amb);
+        assert.strictEqual(escritas(amb), 0);
+        await amb.window.salvarCamposManuais('n1');
+        await confirmar(amb);
+        const up = amb.log.filter(o => o.acao === 'update' && o.tabela === 'documents');
+        deepEq(up.map(o => o.dados), [{ nome_emissor: 'Grafica Aurora' }]);
+    });
+
+    // ---------------------------------------------------------------- #157
+    // O formato do just_erro vem do n8n e nao esta no repositorio: os textos abaixo seguem o padrao que o
+    // parser ja conhecia ("R$ valor em dd/mm/aaaa (descricao, documento N)"). EXEMPLO A CONFIRMAR com uma
+    // mensagem real de recusa da auditoria.
+    const TEXTO_ACEITE = 'Há 2 lançamentos que atendem as regras: R$ 3.490,69 em 04/08/2026 (TED Transf.Eletr.Disponiv ACME LTDA, documento 80.405); R$ 3.490,69 em 06/08/2026 (PIX Enviado ACME LTDA, documento 12.001)';
+    const TEXTO_RECUSA = 'Há saída com o valor da nota, mas ela não pode ser confirmada: R$ 1.200,00 em 10/10/2026 (PIX Enviado OUTRO FORNECEDOR, documento 555) pertence a outro beneficiário.';
+
+    await teste('#157: extrairLancamentosDoTexto: dois lancamentos, descricao e numero do documento separados', () => {
+        const itens = criarAmbiente().ctx.extrairLancamentosDoTexto(TEXTO_ACEITE);
+        assert.strictEqual(itens.length, 2);
+        deepEq(itens[0], { valor: 3490.69, valorTxt: '3.490,69', data: '2026-08-04', dataTxt: '04/08/2026', descricao: 'TED Transf.Eletr.Disponiv ACME LTDA', numeroDocumento: '80.405' });
+        assert.strictEqual(itens[1].numeroDocumento, '12.001');
+    });
+
+    await teste('#157: mensagem de aceite vira citados e nunca recusados; rejeicao vira recusados e nunca citados', () => {
+        const f = criarAmbiente().ctx;
+        const aceite = { just_erro: TEXTO_ACEITE }, recusa = { just_erro: TEXTO_RECUSA };
+        assert.strictEqual(f.lancamentosCitadosAuditoria(aceite).length, 2);
+        assert.strictEqual(f.lancamentosRecusadosAuditoria(aceite).length, 0);
+        assert.strictEqual(f.lancamentosCitadosAuditoria(recusa).length, 0);
+        const rec = f.lancamentosRecusadosAuditoria(recusa);
+        assert.strictEqual(rec.length, 1);
+        assert.strictEqual(rec[0].valor, 1200);
+        assert.strictEqual(rec[0].numeroDocumento, '555');
+    });
+
+    await teste('#157: rejeicao sem lancamento no padrao, texto vazio e nulo: nada e inventado', () => {
+        const f = criarAmbiente().ctx;
+        deepEq(f.lancamentosRecusadosAuditoria({ just_erro: 'Há saída com o valor da nota, mas ela não pode ser confirmada: motivo qualquer sem valores.' }), []);
+        deepEq(f.lancamentosRecusadosAuditoria({ just_erro: '' }), []);
+        deepEq(f.lancamentosRecusadosAuditoria({ just_erro: null }), []);
+        deepEq(f.lancamentosRecusadosAuditoria(null), []);
+        deepEq(f.extrairLancamentosDoTexto(''), []);
+        deepEq(f.extrairLancamentosDoTexto(undefined), []);
+        deepEq(f.extrairLancamentosDoTexto('R$ 10,00 em 40/13/2026 (x, documento 1)'), [], 'data impossivel');
+    });
+
+    await teste('#157: "Conferi, este e o pagamento": confirmacao danger; cancelar nao abre o formulario; confirmar preenche sem gravar', async () => {
+        const amb = criarAmbiente();
+        amb.state.currentDocument = nota({ id: 'n1', status: 'erro_rpa', just_erro: TEXTO_RECUSA });
+        amb.window.handleUsarLancamentoRecusado(0);
+        const m = amb.state.confirmModal;
+        assert.strictEqual(m.variant, 'danger');
+        assert.ok(m.message.startsWith('A auditoria não confirmou este lançamento. Confira no extrato o valor, a data e o beneficiário.'));
+        assert.ok(m.message.endsWith('você registra a justificativa.'));
+        await cancelar(amb);
+        assert.ok(!amb.state.pagamentoManualRascunho && !amb.state.pagamentoManualAberto);
+        amb.window.handleUsarLancamentoRecusado(0);
+        await confirmar(amb);
+        const r = amb.state.pagamentoManualRascunho;
+        assert.strictEqual(r.data, '2026-10-10');
+        assert.strictEqual(r.valor, '1200,00');
+        assert.strictEqual(r.nr, '555');
+        assert.strictEqual(r.nrConf, '');
+        assert.strictEqual(r.justificativa, 'Lançamento recusado pela auditoria e conferido pelo usuário: PIX Enviado OUTRO FORNECEDOR');
+        assert.strictEqual(amb.state.pagamentoManualAberto, true);
+        assert.strictEqual(escritas(amb), 0, 'a gravacao continua so em handleInformarPagamentoManual');
+        // mensagem que nao e de rejeicao: nada acontece
+        const outro = criarAmbiente();
+        outro.state.currentDocument = nota({ id: 'n1', just_erro: TEXTO_ACEITE });
+        outro.window.handleUsarLancamentoRecusado(0);
+        assert.strictEqual(outro.state.confirmModal, null);
+    });
+
+    await teste('#157: a tela mostra o rotulo, o botao e mantem a frase do Parecer; so no ramo de rejeicao', () => {
+        const i = SRC.indexOf('A auditoria não confirmou nenhum lançamento como pagamento desta nota. Confira o motivo no Parecer da Análise.');
+        assert.ok(i > 0);
+        const depois = SRC.slice(i, i + 1800);
+        assert.ok(depois.includes('Lançamentos recusados pela auditoria') && depois.includes('Conferi, este é o pagamento') && depois.includes('handleUsarLancamentoRecusado('));
+        assert.ok(depois.includes('recusados.length > 0'));
+        assert.ok(!SRC.includes('lançamento citado em rejeição não vira item'));
     });
 
     // ---------------------------------------------------------------- #150

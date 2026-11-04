@@ -175,12 +175,24 @@ teste('nada de gestor, admin ou analista muda: STATUS_MAP e telas de gestor igua
             if (esperado.includes(antes)) esperado = esperado.replace(antes, depois);
         }
         let atual = bloco(SRC, inicio, fim);
-        // segunda mudanca de proposito na DetailsView (#164): card "Ler o documento de novo" para nota em
-        // revisao manual com OCR que nao concluiu; coberto em teste-confirmacoes-front.js
+        // mudancas de proposito na DetailsView desde a main:
+        // (#164) card "Ler o documento de novo" para nota em revisao manual com OCR que nao concluiu;
+        // (#162) enquanto o extrato enviado esta sendo lido, a caixa do extrato mostra a mensagem em vez dos
+        // botoes de envio, e o aviso de erro/demora aparece acima do botao.
+        // Aqui as duas sao retiradas; ambas cobertas em teste-confirmacoes-front.js.
         if (inicio.startsWith('const DetailsView')) {
             const card = /\n        \$\{podeLerDocumentoDeNovo\(doc\)[\s\S]*?\n        ` : ''\}\n/;
             assert.ok(card.test(atual), 'card do #164 nao encontrado na DetailsView');
             atual = atual.replace(card, '');
+            const insercoes = [
+                ['    } else if (extratoEmLeituraDoDoc(doc)) {\n        // #162: sem "Subir Extrato" enquanto o extrato enviado está sendo lido.\n        extratoBoxHtml = extratoLendoHtml();\n', ''],
+                ['${avisoLeituraExtratoHtml(doc)}<button', '<button'],
+                [' : extratoEmLeituraDoDoc(doc) ? extratoLendoHtml() :\n', ' :\n']
+            ];
+            for (const [de, para] of insercoes) {
+                assert.ok(atual.includes(de), 'insercao do #162 nao encontrada: ' + de.slice(0, 50));
+                atual = atual.split(de).join(para);
+            }
         }
         assert.strictEqual(atual, esperado, inicio);
     }

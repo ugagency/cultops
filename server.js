@@ -1929,7 +1929,7 @@ app.post('/api/m2/impostos/marcar-paga', requireAuth, async (req, res) => {
         if (guia.document_id) {
             const { error: updErr } = await supabase
                 .from('tax_guides')
-                .update({ status: 'paga', data_pagamento: agora.slice(0, 10), atualizado_em: agora })
+                .update({ status: 'paga', data_pagamento: hojeBrasil(), atualizado_em: agora })
                 .eq('id', tax_guide_id);
             if (updErr) throw updErr;
             return res.json({ success: true, document_id: guia.document_id });
@@ -1977,7 +1977,7 @@ app.post('/api/m2/impostos/marcar-paga', requireAuth, async (req, res) => {
                     valor: guia.valor,
                     valor_pago: guia.valor,
                     numero_nf: guia.numero_guia,
-                    data_pagamento: agora.slice(0, 10),
+                    data_pagamento: hojeBrasil(),
                     tipo_documento: 'guia',
                     subtipo_documento: 'guia',
                     json_extraido: jsonGuia,
@@ -2003,7 +2003,7 @@ app.post('/api/m2/impostos/marcar-paga', requireAuth, async (req, res) => {
             .from('tax_guides')
             .update({
                 status: 'paga',
-                data_pagamento: agora.slice(0, 10),
+                data_pagamento: hojeBrasil(),
                 document_id: novoDocumentId,
                 atualizado_em: agora
             })
@@ -2067,7 +2067,7 @@ app.post('/api/m2/impostos/consolidar-duplicata', requireAuth, async (req, res) 
             .update({
                 status: 'paga',
                 document_id,
-                data_pagamento: doc.data_pagamento || agora.slice(0, 10),
+                data_pagamento: doc.data_pagamento || hojeBrasil(),
                 atualizado_em: agora
             })
             .eq('id', tax_guide_id_antiga);
@@ -2388,7 +2388,7 @@ app.post('/api/m2/evidencia/notificar', async (req, res) => {
             : 'Analista';
 
         const projeto = ev.projects || {};
-        const hoje = new Date().toLocaleDateString('pt-BR');
+        const hoje = new Date().toLocaleDateString('pt-BR', { timeZone: FUSO_BRASIL });
 
         let emailData;
         if (novo_status === 'aprovada') {
@@ -2428,10 +2428,8 @@ app.post('/api/m2/cron-alerta-guias', async (req, res) => {
     }
 
     try {
-        const hoje = new Date().toISOString().split('T')[0];
-        const em7dias = new Date();
-        em7dias.setDate(em7dias.getDate() + 7);
-        const em7diasStr = em7dias.toISOString().split('T')[0];
+        const hoje = hojeBrasil();
+        const em7diasStr = somarDiasData(hoje, 7);
 
         const { data: guias, error: guiasErr } = await supabase
             .from('tax_guides')
@@ -4149,6 +4147,24 @@ function dataBr() {
     return new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
 }
 
+// Data de hoje no Brasil (AAAA-MM-DD). new Date().toISOString().slice(0, 10) devolve o dia em UTC:
+// depois das 21h em Brasilia ja e o dia seguinte e colunas DATE (data_pagamento, vencimentos) saem
+// com a data errada (#160).
+const FUSO_BRASIL = 'America/Sao_Paulo';
+function hojeBrasil(agora = new Date()) {
+    const partes = new Intl.DateTimeFormat('en-CA', { timeZone: FUSO_BRASIL, year: 'numeric', month: '2-digit', day: '2-digit' })
+        .formatToParts(agora);
+    const p = Object.fromEntries(partes.map(x => [x.type, x.value]));
+    return `${p.year}-${p.month}-${p.day}`;
+}
+
+// Soma dias a uma data AAAA-MM-DD sem passar por fuso (aritmetica de calendario em UTC).
+function somarDiasData(dataISO, dias) {
+    const d = new Date(`${dataISO}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + dias);
+    return d.toISOString().slice(0, 10);
+}
+
 // Lê todas as páginas de uma consulta (Postgrest corta em 1000 linhas).
 async function lerTudo(fabrica, pagina = 1000) {
     const out = [];
@@ -5816,7 +5832,7 @@ app.get('/api/conciliacao/extratos-pausados', requireAuth, async (req, res) => {
 
         const { data: notas, error: notasErr } = await supabase
             .from('documents')
-            .select('id, name, numero_nf, nome_emissor, valor, data_emissao, status, just_erro, user_id, tipo_documento, extrato_origem_id')
+            .select('id, name, numero_nf, nome_emissor, valor, data_emissao, status, just_erro, user_id, tipo_documento, nf_vinculada_id, extrato_origem_id')
             .eq('project_id', pedido.projectId)
             .in('extrato_origem_id', [...pausados])
             .is('excluido_em', null);
@@ -5824,7 +5840,7 @@ app.get('/api/conciliacao/extratos-pausados', requireAuth, async (req, res) => {
 
         // Só conta como parada a nota que ainda espera por causa do extrato pausado (na fila ou em
         // divergência) e que o usuário pode ver: o analista enxerga só as dele.
-        const presas = (notas || []).filter(n => VinculoExtrato.TIPOS_VINCULAVEIS.includes(n.tipo_documento)
+        const presas = (notas || []).filter(n => VinculoExtrato.notaVinculavel(n)
             && VinculoExtrato.presaAExtratoPausado(n, pausados)
             && (req.userRole !== 'analista' || n.user_id === req.user.id));
 
@@ -5836,7 +5852,7 @@ app.get('/api/conciliacao/extratos-pausados', requireAuth, async (req, res) => {
             const pausas = (eventos || []).filter(ev => ev.registro_id === e.id).sort((x, y) => new Date(y.criado_em) - new Date(x.criado_em));
             resposta.push({
                 id: e.id,
-                nome: VinculoExtrato.nomeDoArquivo(e.file_path),
+                nome: VinculoExtrato.nomeExibicaoExtrato(e),
                 enviado_em: e.created_at || null,
                 pausado_em: pausas[0]?.criado_em || null,
                 // O detalhe gravado pela fila é "nota <id>: <texto do n8n>"; só o texto interessa.
@@ -5888,7 +5904,7 @@ app.post('/api/conciliacao/vincular-extrato', requireAuth, async (req, res) => {
 
         const { data: notas, error: notasErr } = await supabase
             .from('documents')
-            .select('id, name, project_id, user_id, tipo_documento, status, extrato_origem_id, just_erro')
+            .select('id, name, project_id, user_id, tipo_documento, nf_vinculada_id, status, extrato_origem_id, just_erro')
             .in('id', pedido.ids)
             .is('excluido_em', null); // excluída entre a seleção e o pedido: sai como "Nota não encontrada."
         if (notasErr) throw notasErr;
@@ -6085,4 +6101,4 @@ if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
 }
 
 module.exports = app;
-module.exports.__teste = { avaliarReprocesso, planejarReprocessarTudo, exigirMotivo, motivoOpcional, MINUTOS_PROCESSAMENTO_EM_ANDAMENTO };
+module.exports.__teste = { hojeBrasil, somarDiasData, avaliarReprocesso, planejarReprocessarTudo, exigirMotivo, motivoOpcional, MINUTOS_PROCESSAMENTO_EM_ANDAMENTO };

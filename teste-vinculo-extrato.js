@@ -150,13 +150,31 @@ teste('a confirmação de divergência não afeta notas que não estão em diver
     assert.deepStrictEqual(r.atualizar, { extrato_origem_id: 'ext-1' });
 });
 
-teste('tipo: nf (qualquer subtipo) e sem tipo entram; comprovante e planilha não', () => {
+teste('tipo: nf (qualquer subtipo), sem tipo e comprovante (nota mista) entram; planilha não', () => {
     assert.strictEqual(avaliar(nota({ tipo_documento: 'nf', subtipo_documento: 'guia' })).resultado, 'vinculada');
     assert.strictEqual(avaliar(nota({ tipo_documento: null })).resultado, 'vinculada');
     assert.strictEqual(avaliar(nota({ tipo_documento: undefined })).resultado, 'vinculada');
-    for (const tipo of ['comprovante', 'planilha_orcamentaria']) {
-        assert.strictEqual(avaliar(nota({ tipo_documento: tipo })).resultado, 'recusada', tipo);
-    }
+    assert.strictEqual(avaliar(nota({ tipo_documento: 'planilha_orcamentaria' })).resultado, 'recusada');
+});
+
+teste('comprovante: nota mista (aponta para ela mesma ou sem vínculo) entra; anexado a outra nota é recusado', () => {
+    // No banco, comprovante é a nota mista: nf_vinculada_id = id do próprio documento.
+    const mista = avaliar(nota({ tipo_documento: 'comprovante', nf_vinculada_id: 'n1' }));
+    assert.strictEqual(mista.resultado, 'vinculada');
+    assert.deepStrictEqual(mista.atualizar, { extrato_origem_id: 'ext-1' });
+    assert.strictEqual(avaliar(nota({ tipo_documento: 'comprovante', nf_vinculada_id: null })).resultado, 'vinculada');
+    assert.strictEqual(avaliar(nota({ tipo_documento: 'comprovante' })).resultado, 'vinculada');
+    // Comprovante anexado a outra nota: a prova de pagamento dela, quem concilia é a outra nota.
+    const anexado = avaliar(nota({ tipo_documento: 'comprovante', nf_vinculada_id: 'outra-nota' }));
+    assert.strictEqual(anexado.resultado, 'recusada');
+    assert.strictEqual(anexado.motivo, 'Este tipo de documento não entra na conciliação com extrato.');
+});
+
+teste('notaVinculavel: mesma regra exposta para o servidor (fila pausada)', () => {
+    assert.strictEqual(V.notaVinculavel(nota({ tipo_documento: 'comprovante', nf_vinculada_id: 'n1' })), true);
+    assert.strictEqual(V.notaVinculavel(nota({ tipo_documento: 'comprovante', nf_vinculada_id: 'x' })), false);
+    assert.strictEqual(V.notaVinculavel(nota({ tipo_documento: 'planilha_orcamentaria' })), false);
+    assert.strictEqual(V.notaVinculavel(null), false);
 });
 
 teste('lista mista: cada nota recebe o seu resultado', () => {
@@ -369,6 +387,40 @@ teste('busca: extrato sem data ou sem caminho não quebra e continua achável pe
     assert.strictEqual(V.nomeDoArquivo('a/b/c.ofx'), 'c.ofx');
 });
 
+teste('nome de exibição (#161): nome novo, com acento e espaço, padrões antigos e sem created_at', () => {
+    const N = V.nomeExibicaoExtrato;
+    // upload novo: <projeto>/<uuid>/<nome seguro>
+    assert.strictEqual(N({ file_path: 'p1/u1/extrato_outubro.ofx', created_at: '2026-10-10T12:00:00Z' }), 'extrato_outubro.ofx');
+    // nome original com acento e espaço já vem sanitizado pelo upload; a função só devolve o último trecho
+    assert.strictEqual(N({ file_path: 'p1/u1/Extrato_Itau_Out_2026.pdf' }), 'Extrato_Itau_Out_2026.pdf');
+    // padrões antigos viram data de envio (dia em horário de Brasília)
+    assert.strictEqual(N({ file_path: 'user1/extrato_1730000000000_ab12cd.ofx', created_at: '2026-10-10T12:00:00Z' }), 'Extrato enviado em 10/10/2026');
+    assert.strictEqual(N({ file_path: 'user1/extrato_lote_1730000000000_ab12cd.csv', created_at: '2026-10-10T12:00:00Z' }), 'Extrato enviado em 10/10/2026');
+    // 23h30 no Brasil ainda é o mesmo dia, embora já seja o dia seguinte em UTC
+    assert.strictEqual(N({ file_path: 'user1/extrato_1730000000000_ab12cd.ofx', created_at: '2026-10-11T02:30:00Z' }), 'Extrato enviado em 10/10/2026');
+    // antigo sem data, data inválida, sem caminho
+    assert.strictEqual(N({ file_path: 'user1/extrato_1730000000000_ab12cd.ofx', created_at: null }), 'Extrato bancário');
+    assert.strictEqual(N({ file_path: 'user1/extrato_1730000000000_ab12cd.ofx', created_at: 'lixo' }), 'Extrato bancário');
+    assert.strictEqual(N({ file_path: null }), 'Extrato bancário');
+    assert.strictEqual(N(null), 'Extrato bancário');
+    // um nome do usuário parecido, mas fora do padrão interno, é mantido
+    assert.strictEqual(N({ file_path: 'p/u/extrato_12_abc.ofx' }), 'extrato_12_abc.ofx');
+});
+
+teste('busca (#161): extrato antigo é achado pelo texto exibido', () => {
+    const lista = [{ id: 'a', file_path: 'u/extrato_1730000000000_ab12cd.ofx', created_at: '2026-10-10T12:00:00Z', status: 'processado', formato: 'ofx' }];
+    assert.deepStrictEqual(V.filtrarExtratos(lista, 'enviado em 10/10/2026').map(e => e.id), ['a']);
+});
+
+teste('upload (#161): os três uploads de extrato usam o mesmo caminho <projeto>/<uuid>/<nome>', () => {
+    const fs = require('fs');
+    const app = fs.readFileSync(__dirname + '/app.js', 'utf8');
+    assert.ok(/function caminhoStorageExtrato\(projectId, nomeOriginal\)/.test(app));
+    assert.strictEqual((app.match(/caminhoStorageExtrato\(/g) || []).length, 4, 'definição + 3 usos');
+    assert.ok(!/extrato_lote_\$\{Date\.now\(\)\}/.test(app));
+    assert.ok(!/`extrato_\$\{Date\.now\(\)\}/.test(app));
+});
+
 teste('janela: a caixa de busca aparece com extratos e filtra a lista; sem extratos não há caixa', () => {
     const base = { projectId: 'p1', docIds: ['n1'], carregando: false, enviando: false, executando: false, extratoId: null, incluirDivergencias: false, resultado: null, erro: null, busca: '' };
     TELA.state = { projects: [], documents: [notaTela()], vincularExtrato: { ...base, extratos: EXTRATOS_BUSCA } };
@@ -490,7 +542,7 @@ teste('pausado: status inesperado so entra se o erro for o de extrato de outro p
 teste('pausado: as demais regras valem igual (outro projeto, analista, tipo)', () => {
     assert.strictEqual(avaliar(presa({ project_id: 'proj-2' }), { extratosPausados: PAUSADOS }).resultado, 'recusada');
     assert.strictEqual(avaliar(presa({ user_id: 'u-outro' }), { extratosPausados: PAUSADOS, usuario: analista }).resultado, 'recusada');
-    assert.strictEqual(avaliar(presa({ tipo_documento: 'comprovante' }), { extratosPausados: PAUSADOS }).resultado, 'recusada');
+    assert.strictEqual(avaliar(presa({ tipo_documento: 'planilha_orcamentaria' }), { extratosPausados: PAUSADOS }).resultado, 'recusada');
 });
 
 teste('pausado: nota sem extrato entra normalmente; extrato igual ao novo continua "ja vinculada a este extrato"', () => {
