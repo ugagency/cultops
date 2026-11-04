@@ -48,7 +48,7 @@ function zerarBanco() {
             nota(8, { project_id: PROJ2 }), // outro projeto
             nota(9, { project_id: PROJ_ORG2, user_id: OUTRO }), // outra organização
             nota(10, { status: 'enviado_salic' }),
-            nota(11, { tipo_documento: 'comprovante' }),
+            nota(11, { tipo_documento: 'planilha_orcamentaria' }),
             nota(12, { status: 'processing_ocr' }),
             nota(13, { status: 'aguardando_rubrica', user_id: ANALISTA })
         ],

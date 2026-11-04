@@ -150,13 +150,31 @@ teste('a confirmação de divergência não afeta notas que não estão em diver
     assert.deepStrictEqual(r.atualizar, { extrato_origem_id: 'ext-1' });
 });
 
-teste('tipo: nf (qualquer subtipo) e sem tipo entram; comprovante e planilha não', () => {
+teste('tipo: nf (qualquer subtipo), sem tipo e comprovante (nota mista) entram; planilha não', () => {
     assert.strictEqual(avaliar(nota({ tipo_documento: 'nf', subtipo_documento: 'guia' })).resultado, 'vinculada');
     assert.strictEqual(avaliar(nota({ tipo_documento: null })).resultado, 'vinculada');
     assert.strictEqual(avaliar(nota({ tipo_documento: undefined })).resultado, 'vinculada');
-    for (const tipo of ['comprovante', 'planilha_orcamentaria']) {
-        assert.strictEqual(avaliar(nota({ tipo_documento: tipo })).resultado, 'recusada', tipo);
-    }
+    assert.strictEqual(avaliar(nota({ tipo_documento: 'planilha_orcamentaria' })).resultado, 'recusada');
+});
+
+teste('comprovante: nota mista (aponta para ela mesma ou sem vínculo) entra; anexado a outra nota é recusado', () => {
+    // No banco, comprovante é a nota mista: nf_vinculada_id = id do próprio documento.
+    const mista = avaliar(nota({ tipo_documento: 'comprovante', nf_vinculada_id: 'n1' }));
+    assert.strictEqual(mista.resultado, 'vinculada');
+    assert.deepStrictEqual(mista.atualizar, { extrato_origem_id: 'ext-1' });
+    assert.strictEqual(avaliar(nota({ tipo_documento: 'comprovante', nf_vinculada_id: null })).resultado, 'vinculada');
+    assert.strictEqual(avaliar(nota({ tipo_documento: 'comprovante' })).resultado, 'vinculada');
+    // Comprovante anexado a outra nota: a prova de pagamento dela, quem concilia é a outra nota.
+    const anexado = avaliar(nota({ tipo_documento: 'comprovante', nf_vinculada_id: 'outra-nota' }));
+    assert.strictEqual(anexado.resultado, 'recusada');
+    assert.strictEqual(anexado.motivo, 'Este tipo de documento não entra na conciliação com extrato.');
+});
+
+teste('notaVinculavel: mesma regra exposta para o servidor (fila pausada)', () => {
+    assert.strictEqual(V.notaVinculavel(nota({ tipo_documento: 'comprovante', nf_vinculada_id: 'n1' })), true);
+    assert.strictEqual(V.notaVinculavel(nota({ tipo_documento: 'comprovante', nf_vinculada_id: 'x' })), false);
+    assert.strictEqual(V.notaVinculavel(nota({ tipo_documento: 'planilha_orcamentaria' })), false);
+    assert.strictEqual(V.notaVinculavel(null), false);
 });
 
 teste('lista mista: cada nota recebe o seu resultado', () => {
@@ -524,7 +542,7 @@ teste('pausado: status inesperado so entra se o erro for o de extrato de outro p
 teste('pausado: as demais regras valem igual (outro projeto, analista, tipo)', () => {
     assert.strictEqual(avaliar(presa({ project_id: 'proj-2' }), { extratosPausados: PAUSADOS }).resultado, 'recusada');
     assert.strictEqual(avaliar(presa({ user_id: 'u-outro' }), { extratosPausados: PAUSADOS, usuario: analista }).resultado, 'recusada');
-    assert.strictEqual(avaliar(presa({ tipo_documento: 'comprovante' }), { extratosPausados: PAUSADOS }).resultado, 'recusada');
+    assert.strictEqual(avaliar(presa({ tipo_documento: 'planilha_orcamentaria' }), { extratosPausados: PAUSADOS }).resultado, 'recusada');
 });
 
 teste('pausado: nota sem extrato entra normalmente; extrato igual ao novo continua "ja vinculada a este extrato"', () => {
