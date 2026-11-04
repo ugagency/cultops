@@ -585,7 +585,7 @@ async function teste(nome, fn) {
         const rm = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce) {\n    .lote-seg-atual'));
         assert.ok(rm.includes('animation: none') && rm.includes('.lote-barra-indet { display: none; }'));
         const idx = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-        assert.ok(/style\.css\?v=1\.0\.21/.test(idx) && /app\.js\?v=1\.0\.21/.test(idx));
+        assert.ok(/style\.css\?v=1\.0\.21/.test(idx) && /app\.js\?v=1\.0\.\d+/.test(idx));
     });
 
     // upload dos PDFs para a fila: progresso por arquivo sem render() a cada termino

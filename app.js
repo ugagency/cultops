@@ -934,6 +934,10 @@ const state = {
     // continuar dizendo "Enviando" depois de o envio acabar.
     isConciliandoExtrato: false,
     uploadExtratoSubstituicao: false, // o upload concluído foi uma substituição de extrato
+    // #162: extrato enviado manualmente que ainda esta sendo lido pelo n8n: { docId, extratoId, desde, original }.
+    // A tela acompanha extratos.status (nao so o status do documento) e esconde os botoes de envio.
+    extratoEmLeitura: null,
+    avisoLeituraExtrato: null,        // { docId, tipo: 'erro' | 'demora' } depois que o acompanhamento termina
     uploadExtratoStatusRef: null,     // status do documento ao concluir; se mudar, a confirmação sai
     rubrica_versions: [],
     equipe: [],
@@ -3541,6 +3545,9 @@ ${Sidebar()}
                         </div>
                         <p class="text-xs" style="color: var(--primary); font-weight: 600;">Enviando extrato...</p>
                      </div>`;
+    } else if (extratoEmLeituraDoDoc(doc)) {
+        // #162: sem "Subir Extrato" enquanto o extrato enviado está sendo lido.
+        extratoBoxHtml = extratoLendoHtml();
     } else if (state.uploadConcluidoExtrato) {
         extratoBoxHtml = `<div style="display: flex; flex-direction: column; gap: 0.25rem; text-align: center;">
                                     <p class="text-xs" style="color: var(--success); font-weight: bold;">✓ Upload do extrato já foi realizado.</p>
@@ -3553,7 +3560,7 @@ ${Sidebar()}
                                     <button class="btn btn-secondary" style="width: 100%; font-size: 10px; padding: 0.4rem; margin-top: 0.25rem;" onclick="window.toggleUploadManualExtrato()">Enviar um extrato diferente manualmente</button>
                                  </div>`;
     } else {
-        extratoBoxHtml = `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem;" onclick="document.getElementById('vincular-extrato-input').click()">
+        extratoBoxHtml = `${avisoLeituraExtratoHtml(doc)}<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem;" onclick="document.getElementById('vincular-extrato-input').click()">
                                         <i data-lucide="file-up" style="width: 14px;"></i>
                                         Subir Extrato (OFX/CSV/PDF)
                                      </button>
@@ -4022,8 +4029,8 @@ ${Sidebar()}
                                         <div style="width: 60%; height: 100%; background: var(--primary); animation: loading 2s infinite ease-in-out;"></div>
                                     </div>
                                     <p class="text-xs" style="color: var(--primary); font-weight: 600;">Enviando novo extrato...</p>
-                                 </div>` :
-                `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem;" onclick="document.getElementById('substituir-extrato-input').click()">
+                                 </div>` : extratoEmLeituraDoDoc(doc) ? extratoLendoHtml() :
+                `${avisoLeituraExtratoHtml(doc)}<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem;" onclick="document.getElementById('substituir-extrato-input').click()">
                                     <i data-lucide="refresh-cw" style="width: 14px;"></i>
                                     Substituir Extrato
                                  </button>
@@ -4526,7 +4533,7 @@ const PagamentoNotaSection = (doc) => {
                     <button class="btn btn-secondary" style="font-size: 11px; padding: 0.5rem 0.75rem;" onclick="window.togglePagamentoManual()">
                         ${state.pagamentoManualAberto ? 'Fechar formulário de pagamento' : 'Informar pagamento manualmente'}
                     </button>
-                    ${temSubstituir ? '' : `<button class="btn btn-secondary" style="font-size: 11px; padding: 0.5rem 0.75rem;" onclick="window.handleSubirExtratoCorreto()">Subir o extrato correto</button>`}
+                    ${temSubstituir || extratoEmLeituraDoDoc(doc) ? '' : `<button class="btn btn-secondary" style="font-size: 11px; padding: 0.5rem 0.75rem;" onclick="window.handleSubirExtratoCorreto()">Subir o extrato correto</button>`}
                 </div>
 
                 ${state.pagamentoManualAberto ? `
@@ -4890,6 +4897,10 @@ window.handleUsarDadosAuditoria = function (indice) {
 // O formulário de upload do extrato já existe na caixa "Extrato Bancário" do fluxo; aqui só
 // se aponta para ele, abrindo a opção de enviar outro extrato quando o do lote estiver ativo.
 window.handleSubirExtratoCorreto = function () {
+    if (state.extratoEmLeitura && state.extratoEmLeitura.docId === state.currentDocument?.id) {
+        showToast('O extrato enviado está sendo lido. Aguarde alguns instantes.', 'info');
+        return;
+    }
     if (!document.getElementById('vincular-extrato-input') && !state.isUploadingExtrato && !state.isConciliandoExtrato && !state.uploadConcluidoExtrato) {
         state.mostrarUploadManualExtrato = true;
         render();
@@ -7394,7 +7405,7 @@ function assinaturaDaTelaDetalhes() {
         guiaDuplicataId: state.guiaDuplicataM2?.id || null,
         qtdRubricasDisponiveis: (state.rubricas_disponiveis || []).length,
         flags: [
-            !!state.uploadConcluidoExtrato, !!state.isUploadingExtrato, !!state.isConciliandoExtrato, !!state.uploadConcluidoComprovante,
+            !!state.uploadConcluidoExtrato, !!state.isUploadingExtrato, !!state.isConciliandoExtrato, !!state.extratoEmLeitura, state.avisoLeituraExtrato ? state.avisoLeituraExtrato.tipo : '', !!state.uploadConcluidoComprovante,
             !!state.isUploadingComprovante, !!state.isSalicRunning, !!state.atualizandoNota, !!state.loading
         ]
     });
@@ -7468,6 +7479,8 @@ async function fetchDocumentDetails(id, silent = false, opcoes = {}) {
         state.isUploadingExtrato = false;
         state.isConciliandoExtrato = false;
         state.mostrarUploadManualExtrato = false;
+        if (state.extratoEmLeitura && state.extratoEmLeitura.docId !== id) pararAcompanhamentoExtrato();
+        if (state.avisoLeituraExtrato && state.avisoLeituraExtrato.docId !== id) state.avisoLeituraExtrato = null;
         state.extratoUiDocId = id;
     }
     state.uploadConcluidoComprovante = false;
@@ -8378,6 +8391,7 @@ window.vincularExtratoEnviarNovo = async function (file) {
         if (state.vincularExtrato === v) {
             v.extratos = [extrato, ...v.extratos];
             v.extratoId = extrato.id;
+            v.enviadoNome = file.name;
         }
     } catch (err) {
         console.error('[vincular-extrato] envio do extrato:', err);
@@ -8457,7 +8471,7 @@ const VincularExtratoModal = () => {
                 </tbody>
             </table>
         </div>
-        <p class="text-xs mt-4" style="color: var(--text-muted);">A conciliação das notas vinculadas é feita pela fila, uma nota por vez, e começa em até alguns minutos.</p>
+        <p class="text-xs mt-4" style="color: var(--text-muted);">A conciliação das notas vinculadas é feita pela fila, uma nota por vez, e começa em até 1 minuto.</p>
         <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
             <button class="btn btn-primary" onclick="window.vincularExtratoFechar()">Fechar</button>
         </div>
@@ -8502,10 +8516,11 @@ const VincularExtratoModal = () => {
 
         <p class="text-xs mb-2" style="font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;">1. Extrato</p>
         ${extratosHtml}
+        ${v.enviadoNome ? `<p class="text-xs" role="status" style="color: var(--success); font-weight: 600; margin-top: 0.6rem; overflow-wrap: anywhere;">Extrato enviado: ${escHtml(v.enviadoNome)}</p>` : ''}
         <div style="margin-top: 0.6rem;">
             ${v.enviando
                 ? '<p class="text-xs" style="color: var(--primary); font-weight: 600;">Enviando extrato...</p>'
-                : `<button class="btn btn-secondary" style="font-size: 12px;" ${v.executando ? 'disabled' : ''} onclick="document.getElementById('vincular-extrato-novo-input').click()">Enviar um novo extrato (OFX, CSV ou PDF)</button>
+                : `<button class="btn btn-secondary" style="font-size: 12px;" ${v.executando ? 'disabled' : ''} onclick="document.getElementById('vincular-extrato-novo-input').click()">${v.enviadoNome ? 'Enviar outro extrato' : 'Enviar um novo extrato (OFX, CSV ou PDF)'}</button>
                    <input type="file" id="vincular-extrato-novo-input" accept=".ofx,.csv,.pdf" style="display: none;" onchange="window.vincularExtratoEnviarNovo(this.files[0])">`}
         </div>
 
@@ -11453,6 +11468,113 @@ window.toggleUploadManualExtrato = function () {
     render();
 };
 
+// ---- #162: acompanhamento do extrato enviado manualmente --------------------------------------
+// O webhook do n8n so responde no fim da conciliacao e o status do documento pode passar por
+// etapas intermediarias; so o status do proprio extrato (extratos.status) diz se a leitura acabou.
+// A tabela extratos nao esta no realtime de documents, entao a tela consulta de tempos em tempos.
+const EXTRATO_LEITURA_INTERVALO_MS = 5000;
+const EXTRATO_LEITURA_LIMITE_MS = 3 * 60 * 1000;
+const MSG_EXTRATO_LENDO = 'Extrato recebido. Lendo e conciliando, pode levar cerca de 1 minuto. Não é preciso enviar de novo.';
+const MSG_EXTRATO_ERRO_LEITURA = 'Não foi possível ler este extrato. Envie o arquivo de novo ou informe o pagamento manualmente.';
+const MSG_EXTRATO_LEITURA_DEMORA = 'A leitura está demorando. Você pode aguardar ou enviar outro arquivo.';
+let temporizadorExtratoEmLeitura = null;
+
+function extratoEmLeituraDoDoc(doc) {
+    const e = state.extratoEmLeitura;
+    return !!(e && doc && e.docId === doc.id);
+}
+
+// Mensagem (HTML) do que aconteceu depois do acompanhamento, ou ''.
+function avisoLeituraExtratoHtml(doc) {
+    const a = state.avisoLeituraExtrato;
+    if (!a || !doc || a.docId !== doc.id) return '';
+    const texto = a.tipo === 'erro' ? MSG_EXTRATO_ERRO_LEITURA : MSG_EXTRATO_LEITURA_DEMORA;
+    const cor = a.tipo === 'erro' ? 'var(--error)' : '#d97706';
+    return `<p class="text-xs" role="status" style="color: ${cor}; font-weight: 600; line-height: 1.5; margin-bottom: 0.5rem;">${texto}</p>`;
+}
+
+function extratoLendoHtml() {
+    return `<div style="padding: 0.5rem; text-align: center;">
+                        <div style="width: 100%; height: 6px; background: var(--bg-sidebar); border-radius: 3px; overflow: hidden; margin-bottom: 0.5rem;">
+                            <div style="width: 60%; height: 100%; background: var(--primary); animation: loading 2s infinite ease-in-out;"></div>
+                        </div>
+                        <p class="text-xs" role="status" style="color: var(--primary); font-weight: 600; line-height: 1.5;">${MSG_EXTRATO_LENDO}</p>
+                     </div>`;
+}
+
+function pararAcompanhamentoExtrato() {
+    if (temporizadorExtratoEmLeitura) clearTimeout(temporizadorExtratoEmLeitura);
+    temporizadorExtratoEmLeitura = null;
+    state.extratoEmLeitura = null;
+}
+
+function iniciarAcompanhamentoExtrato(docId, extratoId) {
+    pararAcompanhamentoExtrato();
+    state.avisoLeituraExtrato = null;
+    state.extratoEmLeitura = { docId, extratoId, desde: Date.now(), original: null };
+    agendarConsultaExtratoEmLeitura();
+}
+
+function agendarConsultaExtratoEmLeitura() {
+    const acomp = state.extratoEmLeitura;
+    if (!acomp) return;
+    temporizadorExtratoEmLeitura = setTimeout(() => consultarExtratoEmLeitura(acomp), EXTRATO_LEITURA_INTERVALO_MS);
+}
+
+// Substituicao que estourou o tempo: devolve o status e o just_erro de antes do envio, mas so se o
+// documento ainda estiver no status que o envio colocou. Se a conciliacao ja andou, nao sobrescreve.
+async function devolverStatusOriginalDaSubstituicao(acomp) {
+    const original = acomp.original;
+    if (!original) return;
+    const STATUS_DO_ENVIO = 'aguardando_conciliacao_bancaria';
+    try {
+        const { error } = await supabaseClient.from('documents')
+            .update({ status: original.status, just_erro: original.just_erro })
+            .eq('id', acomp.docId)
+            .eq('status', STATUS_DO_ENVIO);
+        if (error) throw error;
+        if (state.currentDocument?.id === acomp.docId && state.currentDocument.status === STATUS_DO_ENVIO) {
+            state.currentDocument.status = original.status;
+            state.currentDocument.just_erro = original.just_erro;
+        }
+    } catch (err) {
+        console.error('[extrato-em-leitura] falha ao devolver o status original:', err);
+    }
+}
+
+async function consultarExtratoEmLeitura(acomp) {
+    temporizadorExtratoEmLeitura = null;
+    if (state.extratoEmLeitura !== acomp) return; // encerrado ou trocado por outro envio
+    if (state.currentView !== 'details' || state.currentDocument?.id !== acomp.docId) {
+        pararAcompanhamentoExtrato(); // o documento saiu da tela
+        return;
+    }
+    let status = null;
+    try {
+        const { data, error } = await supabaseClient.from('extratos').select('status').eq('id', acomp.extratoId).maybeSingle();
+        if (!error && data) status = data.status;
+    } catch (err) {
+        console.warn('[extrato-em-leitura] consulta falhou; tenta de novo:', err);
+    }
+    if (state.extratoEmLeitura !== acomp) return;
+    if (status && status !== 'pendente') {
+        pararAcompanhamentoExtrato();
+        if (status === 'erro') state.avisoLeituraExtrato = { docId: acomp.docId, tipo: 'erro' };
+        render();
+        agendarRefreshDocumento(acomp.docId, { forcar: true });
+        return;
+    }
+    if (Date.now() - acomp.desde >= EXTRATO_LEITURA_LIMITE_MS) {
+        pararAcompanhamentoExtrato();
+        state.avisoLeituraExtrato = { docId: acomp.docId, tipo: 'demora' };
+        await devolverStatusOriginalDaSubstituicao(acomp);
+        render();
+        agendarRefreshDocumento(acomp.docId, { forcar: true });
+        return;
+    }
+    agendarConsultaExtratoEmLeitura();
+}
+
 window.handleUploadExtrato = async function (file, projectId, documentId, comprovanteId, isReplace = false) {
     if (!file || !projectId || !documentId) return window.showToast("Houve um erro ao processar o upload do extrato.", 'error');
 
@@ -11465,6 +11587,7 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
     state.isUploadingExtrato = true;
     // Novo envio: a confirmação de um envio anterior não vale mais.
     state.uploadConcluidoExtrato = false;
+    state.avisoLeituraExtrato = null;
     state.extratoUiDocId = documentId;
     render();
 
@@ -11472,6 +11595,7 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
     // depois de o status ter sido alterado. Só preenchidos quando o UPDATE roda.
     let originalSubstituicao = null;
     let statusAlterado = false;
+    let falhaDeRede = false;
 
     try {
         const fileName = `extrato_${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
@@ -11499,6 +11623,10 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
 
         if (dbError) throw dbError;
 
+        // #162: extrato gravado. A partir daqui a tela acompanha a leitura pelo status do próprio
+        // extrato, mesmo que o webhook demore ou a conexão caia.
+        iniciarAcompanhamentoExtrato(documentId, extratoData.id);
+
         // Substituição: o status só muda agora, com o arquivo já no Storage e o
         // registro em 'extratos' criado. Se o upload falhasse antes, o alerta de
         // divergência do documento ficaria intacto.
@@ -11515,6 +11643,9 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
                     .single();
                 if (origError) throw origError;
                 originalSubstituicao = { status: docOriginal.status, just_erro: docOriginal.just_erro ?? null };
+            }
+            if (state.extratoEmLeitura && state.extratoEmLeitura.extratoId === extratoData.id) {
+                state.extratoEmLeitura.original = originalSubstituicao;
             }
 
             const { error: resetError } = await supabaseClient
@@ -11543,33 +11674,47 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
 
             console.log(`Disparando webhook: ${CONFIG.N8N_WEBHOOK_RECONCILIATION_URL}`);
             const fileUrl = await urlAssinadaParaWebhook('documentos', filePath);
-            const response = await fetch(CONFIG.N8N_WEBHOOK_RECONCILIATION_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                mode: 'cors',
-                body: JSON.stringify({
-                    extrato_id: extratoData.id,
-                    document_id: extratoData.id, // For backward compatibility
-                    nf_id: documentId, // Renomeado para nf_id
-                    comprovante_id: comprovanteId || null, // Renomeado para comprovante_id
-                    file_path: filePath,
-                    bucket: 'documentos',
-                    project_id: projectId,
-                    file_url: fileUrl || undefined
-                })
-            });
+            // Falha de REDE (conexão caiu, tempo esgotado) com o extrato já gravado não é erro
+            // definitivo: o n8n pode ter recebido e seguir trabalhando. A tela continua
+            // acompanhando extratos.status e não devolve o status antigo agora (#162). Resposta
+            // HTTP de erro (response.ok falso) continua sendo erro, como antes.
+            let response = null;
+            try {
+                response = await fetch(CONFIG.N8N_WEBHOOK_RECONCILIATION_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    mode: 'cors',
+                    body: JSON.stringify({
+                        extrato_id: extratoData.id,
+                        document_id: extratoData.id, // For backward compatibility
+                        nf_id: documentId, // Renomeado para nf_id
+                        comprovante_id: comprovanteId || null, // Renomeado para comprovante_id
+                        file_path: filePath,
+                        bucket: 'documentos',
+                        project_id: projectId,
+                        file_url: fileUrl || undefined
+                    })
+                });
+            } catch (redeErr) {
+                falhaDeRede = true;
+                console.warn('[handleUploadExtrato] falha de rede ao chamar o webhook; o extrato foi gravado e segue sendo acompanhado:', redeErr);
+            }
 
-            if (!response.ok) {
+            if (response && !response.ok) {
                 console.error("Erro na resposta do n8n:", response.status, response.statusText);
                 throw window.prestaiN8nErro(response.status);
             }
 
-            console.log("n8n reconciliation ok!");
+            if (!falhaDeRede) console.log("n8n reconciliation ok!");
         }
 
-        showToast(isReplace
-            ? "Novo extrato enviado! Reprocessando a conciliação..."
-            : "Extrato enviado com sucesso! O processamento e conciliação IA foram iniciados.", 'success');
+        if (falhaDeRede) {
+            showToast('A conexão com o servidor oscilou, mas o extrato foi recebido. A leitura está sendo acompanhada.', 'info');
+        } else {
+            showToast(isReplace
+                ? "Novo extrato enviado! Reprocessando a conciliação..."
+                : "Extrato enviado com sucesso! O processamento e conciliação IA foram iniciados.", 'success');
+        }
         state.uploadConcluidoExtrato = true;
         state.uploadExtratoSubstituicao = isReplace;
         state.uploadExtratoStatusRef = isReplace
@@ -11586,6 +11731,7 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
         }, 2500);
 
     } catch (error) {
+        pararAcompanhamentoExtrato(); // erro definitivo: não há leitura a acompanhar
         // Falhou depois de o status ter mudado (ex.: webhook): devolve status e
         // just_erro originais para o alerta de divergência não se perder.
         if (statusAlterado && originalSubstituicao) {
