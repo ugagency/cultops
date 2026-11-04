@@ -68,6 +68,18 @@
         return vazio;
     }
 
+    // #163: o lançamento cai fora do período da nota? Período = janela de datas da própria nota
+    // (data_pagamento ou data_emissao), sem olhar o extrato conferido: serve para avisar quando a
+    // busca foi ampliada para outros extratos. Nota sem data, ou lançamento sem data: false.
+    function foraDoPeriodoDaNota(doc, lancamento) {
+        if (!doc) return false;
+        const f = montarFiltroCandidatos({ data_pagamento: doc.data_pagamento, data_emissao: doc.data_emissao }, false);
+        if (f.escopo !== 'janela') return false;
+        const data = dataValida(lancamento && lancamento.data_lancamento);
+        if (!data) return false;
+        return data < f.data_de || data > f.data_ate;
+    }
+
     // Valor absoluto com 2 casas, em texto. Aceita número, '190.95' e '190,95' (e '1.234,56').
     function valorAbsoluto(valor) {
         if (valor == null || valor === '') return '';
@@ -186,7 +198,7 @@
 
     return {
         JANELA_PAGAMENTO_DIAS, JANELA_EMISSAO_ANTES_DIAS, JANELA_EMISSAO_DEPOIS_DIAS,
-        dataValida, somarDias, montarFiltroCandidatos,
+        dataValida, somarDias, montarFiltroCandidatos, foraDoPeriodoDaNota,
         valorAbsoluto, chaveLancamento, deduplicar, bloqueia, chavesUsadas, selecionarCandidatos,
         acharCompativeis, decidirLancamento
     };

@@ -2868,6 +2868,18 @@ window.handleIniciarEnvioLote = async function () {
         return;
     }
 
+    // #163: o envio grava no SALIC; pede confirmação com a quantidade. A seleção já foi lida acima e
+    // é guardada em state.salicLoteDesmarcados, então cancelar não a perde.
+    window.showConfirmModal({
+        title: 'Enviar notas ao SALIC',
+        message: `${queue.length} nota(s) selecionada(s) serão enviadas ao SALIC pelo robô, uma de cada vez. ` +
+            'O envio grava no portal do SALIC. Você pode cancelar o lote depois, mas a nota em andamento termina antes de parar.',
+        confirmLabel: 'Iniciar envio',
+        onConfirm: () => iniciarEnvioLoteConfirmado(queue)
+    });
+};
+
+async function iniciarEnvioLoteConfirmado(queue) {
     // Verificar credenciais SALIC
     try {
         state.loading = true;
@@ -2937,7 +2949,7 @@ window.handleIniciarEnvioLote = async function () {
 
     // Inicia processamento assíncrono
     processarFilaSalic();
-};
+}
 
 window.handleCancelarLoteSalic = function () {
     state.salicLoteCancelled = true;
@@ -4302,9 +4314,12 @@ function statusConciliacaoBadge(status) {
 // Lançamentos que a auditoria da conciliação citou em documents.just_erro quando o extrato
 // conferido não tem linhas gravadas. Padrão do workflow:
 //   "R$ 3.490,69 em 04/08/2026 (TED Transf.Eletr.Disponiv ..., documento 80.405); R$ ..."
-// Só vale quando a mensagem começa com "Há N lançamentos que atendem as regras" (N >= 2): aí a
-// auditoria aceitou os lançamentos e não soube escolher. Lançamentos citados numa mensagem de
-// rejeição foram descartados por ela (outra competência, outro beneficiário) e não viram item.
+// lancamentosCitadosAuditoria só vale quando a mensagem começa com "Há N lançamentos que atendem
+// as regras" (N >= 2): aí a auditoria aceitou os lançamentos e não soube escolher.
+// Lançamentos citados numa mensagem de REJEIÇÃO foram descartados por ela (outra competência,
+// outro beneficiário): não entram em lancamentosCitadosAuditoria e não são oferecidos como
+// "Usar estes dados". Desde o #157 eles aparecem à parte, em lancamentosRecusadosAuditoria, só
+// com a confirmação explícita de quem conferiu o extrato.
 // Texto fora do padrão não gera item: nada é inventado.
 function normalizarTextoAuditoria(texto) {
     return String(texto || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
@@ -4321,7 +4336,19 @@ function auditoriaRejeitouLancamentos(doc) {
 
 function lancamentosCitadosAuditoria(doc) {
     if (!auditoriaListouLancamentosAceitos(doc)) return [];
-    const texto = String(doc?.just_erro || '');
+    return extrairLancamentosDoTexto(doc?.just_erro);
+}
+
+// Lançamentos que a auditoria recusou: só quando o just_erro é a mensagem de rejeição.
+function lancamentosRecusadosAuditoria(doc) {
+    if (!auditoriaRejeitouLancamentos(doc)) return [];
+    return extrairLancamentosDoTexto(doc?.just_erro);
+}
+
+// Parser puro do padrão "R$ valor em dd/mm/aaaa (descrição, documento N)". Não olha o início da
+// mensagem: quem chama decide se o texto é de aceite ou de rejeição.
+function extrairLancamentosDoTexto(textoOriginal) {
+    const texto = String(textoOriginal || '');
     const itens = [];
     const re = /R\$\s*(\d{1,3}(?:\.\d{3})*,\d{2})\s+em\s+(\d{2})\/(\d{2})\/(\d{4})\s*\(([^)]*)\)/g;
     let m;
@@ -4457,6 +4484,8 @@ const PagamentoNotaSection = (doc) => {
 
     const candidatos = state.candidatosLancamento || [];
     const citados = candidatos.length === 0 ? lancamentosCitadosAuditoria(doc) : [];
+    const recusados = candidatos.length === 0 ? lancamentosRecusadosAuditoria(doc) : [];
+    const buscaAmpliada = !!state.ampliarCandidatos?.ativo && state.ampliarCandidatos.docId === doc.id;
     const valoresCitados = citados.map(c => c.valor.toFixed(2));
     const pagamentosRepetidos = valoresCitados.some((v, i) => valoresCitados.indexOf(v) !== i);
     const temSubstituir = ['divergencia_valor', 'divergencia_beneficiario'].includes(doc.status);
@@ -4500,14 +4529,17 @@ const PagamentoNotaSection = (doc) => {
                         ${linha('Número da transação', `<span style="font-family: monospace;">${escAttr(doc.fitid)}</span>`)}
                     </div>
                 ` : candidatos.length > 0 ? `
-                    ${rotulo(escopo === 'extrato'
+                    ${rotulo(buscaAmpliada
+                        ? `Lançamentos de todos os extratos do projeto com o valor desta nota (${candidatos.length})`
+                        : escopo === 'extrato'
                         ? `Lançamentos do extrato conferido com o valor desta nota (${candidatos.length})`
                         : `Lançamentos do projeto com o valor desta nota (${candidatos.length})`)}
                     <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
                         ${candidatos.map(l => cartao(`
                             <p class="text-sm" style="font-weight: 600;">${fmtValorExtrato(l.valor)} em ${fmtDataExtrato(l.data_lancamento)}</p>
                             <p class="text-xs" style="color: var(--text-secondary); line-height: 1.4;">${escAttr(l.memo || '---')}</p>
-                            <p class="text-xs" style="color: var(--text-muted);">FITID: <span style="font-family: monospace;">${escAttr(l.fitid || '---')}</span></p>`,
+                            <p class="text-xs" style="color: var(--text-muted);">FITID: <span style="font-family: monospace;">${escAttr(l.fitid || '---')}</span></p>
+                            ${lancamentoForaDoPeriodo(doc, l) ? '<p class="text-xs" style="color: #d97706; font-weight: 600;">Fora do período desta nota</p>' : ''}`,
                             `<button class="btn btn-primary" style="width: 100%; font-size: 11px; padding: 0.4rem 0.75rem;" onclick="window.handleConfirmarLancamentoNota('${doc.id}', '${l.id}')" ${state.loading ? 'disabled' : ''}>Este é o lançamento</button>`)).join('')}
                     </div>
                 ` : citados.length > 0 ? `
@@ -4522,6 +4554,15 @@ const PagamentoNotaSection = (doc) => {
                     ${pagamentosRepetidos ? `<p class="text-xs" style="color: #d97706; font-weight: 600; line-height: 1.5; margin-top: 0.5rem;">Há mais de um pagamento do mesmo valor para este fornecedor. Confirme com o cliente antes de comprovar.</p>` : ''}
                 ` : auditoriaRejeitouLancamentos(doc) ? `
                     <p class="text-xs" style="color: var(--text-secondary); line-height: 1.5;">A auditoria não confirmou nenhum lançamento como pagamento desta nota. Confira o motivo no Parecer da Análise.</p>
+                    ${recusados.length > 0 ? `
+                        ${rotulo('Lançamentos recusados pela auditoria')}
+                        <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
+                            ${recusados.map((c, i) => cartao(`
+                                <p class="text-sm" style="font-weight: 600;">${fmtValorExtrato(c.valor)} em ${c.dataTxt}</p>
+                                <p class="text-xs" style="color: var(--text-secondary); line-height: 1.4;">${escAttr(c.descricao || '---')}</p>
+                                <p class="text-xs" style="color: var(--text-muted);">Documento: <span style="font-family: monospace;">${escAttr(c.numeroDocumento || '---')}</span></p>`,
+                                `<button class="btn btn-secondary" style="width: 100%; font-size: 11px; padding: 0.4rem 0.75rem;" onclick="window.handleUsarLancamentoRecusado(${i})" ${state.loading ? 'disabled' : ''}>Conferi, este é o pagamento</button>`)).join('')}
+                        </div>` : ''}
                 ` : `
                     <p class="text-xs" style="color: var(--text-muted); line-height: 1.5;">${escopo === 'extrato'
                         ? 'Nenhum lançamento livre do extrato conferido'
@@ -4812,17 +4853,41 @@ async function atualizarNotaAposPagamento(docId) {
 // "Ver lançamentos de outros extratos do projeto" / "Ampliar a busca": repete a consulta dos
 // candidatos sem o filtro de extrato e de janela. Mesmo mecanismo agrupado e forçado do
 // pagamento: nada é esvaziado antes, a lista troca de uma vez.
+// Texto da confirmação de "Procurar em outros extratos" (#163). Monta o critério a partir da
+// tolerância usada na consulta (TOLERANCIA_VALOR_LANCAMENTO), sem repetir o número.
+function mensagemAmpliarBusca(escopo) {
+    const saida = escopo === 'janela' ? 'sai da janela de datas desta nota' : 'sai do extrato conferido';
+    return `A busca ${saida} e passa a olhar todos os extratos do projeto, em qualquer data. ` +
+        `Critério: mesmo valor da nota, com diferença de até ${fmtValorExtrato(TOLERANCIA_VALOR_LANCAMENTO)}, ` +
+        'e só lançamentos que nenhuma outra nota usou. Confira a data e o histórico antes de escolher: ' +
+        'um lançamento de outro mês pode não ser o pagamento desta nota.';
+}
+
+// Lançamento fora da janela de datas da nota (aviso nos cartões e na confirmação de escolha).
+function lancamentoForaDoPeriodo(doc, l) {
+    return !!(window.CandidatosLancamento && window.CandidatosLancamento.foraDoPeriodoDaNota(doc, l));
+}
+
 window.handleAmpliarCandidatos = async function (docId) {
     if (!userPodeResolverPagamento()) return;
-    state.ampliarCandidatos = { docId, ativo: true };
-    try {
-        await atualizarNotaAposPagamento(docId);
-    } finally {
-        if (state.atualizandoNota) {
-            state.atualizandoNota = false;
-            render();
+    const doc = state.currentDocument;
+    const escopo = doc ? filtroCandidatosDaNota(doc).escopo : 'projeto';
+    window.showConfirmModal({
+        title: 'Procurar em outros extratos',
+        message: mensagemAmpliarBusca(escopo),
+        confirmLabel: 'Procurar',
+        onConfirm: async () => {
+            state.ampliarCandidatos = { docId, ativo: true };
+            try {
+                await atualizarNotaAposPagamento(docId);
+            } finally {
+                if (state.atualizandoNota) {
+                    state.atualizandoNota = false;
+                    render();
+                }
+            }
         }
-    }
+    });
 };
 
 window.handleConfirmarLancamentoNota = function (docId, lancamentoId) {
@@ -4835,7 +4900,7 @@ window.handleConfirmarLancamentoNota = function (docId, lancamentoId) {
 
     window.showConfirmModal({
         title: 'Confirmar lançamento',
-        message: `Vincular esta nota ao lançamento de ${fmtValorExtrato(l.valor)} em ${fmtDataExtrato(l.data_lancamento)}?\n\nHistórico: ${l.memo || '---'}\nFITID: ${l.fitid || '---'}\n\nO número da transação deste lançamento será usado no envio ao SALIC.`,
+        message: `Vincular esta nota ao lançamento de ${fmtValorExtrato(l.valor)} em ${fmtDataExtrato(l.data_lancamento)}?\n\nHistórico: ${l.memo || '---'}\nFITID: ${l.fitid || '---'}\n\nO número da transação deste lançamento será usado no envio ao SALIC.${lancamentoForaDoPeriodo(state.currentDocument, l) ? '\n\nAtenção: este lançamento está fora do período desta nota.' : ''}`,
         confirmLabel: 'Confirmar lançamento',
         onConfirm: async () => {
             state.loading = true;
@@ -4879,20 +4944,45 @@ window.handleUsarDadosAuditoria = function (indice) {
     const doc = state.currentDocument;
     const item = doc ? lancamentosCitadosAuditoria(doc)[indice] : null;
     if (!item) return;
+    abrirFormularioComLancamento(doc, item, `Lançamento identificado pela auditoria no extrato: ${item.descricao}`);
+};
+
+// #157: lançamento que a auditoria RECUSOU. Só segue depois de confirmar que o usuário conferiu o
+// extrato; o formulário recebe os dados e a gravação continua em handleInformarPagamentoManual
+// (mesma RPC, com a justificativa), sem outro caminho de gravação.
+window.handleUsarLancamentoRecusado = function (indice) {
+    if (!userPodeResolverPagamento()) {
+        showToast('Seu perfil não pode informar o pagamento desta nota.', 'error');
+        return;
+    }
+    const doc = state.currentDocument;
+    const item = doc ? lancamentosRecusadosAuditoria(doc)[indice] : null;
+    if (!item) return;
+    window.showConfirmModal({
+        title: 'Usar lançamento recusado pela auditoria',
+        message: 'A auditoria não confirmou este lançamento. Confira no extrato o valor, a data e o beneficiário. ' +
+            'Ao continuar, os dados vão para o formulário de pagamento e você registra a justificativa.',
+        confirmLabel: 'Continuar',
+        variant: 'danger',
+        onConfirm: () => abrirFormularioComLancamento(doc, item, `Lançamento recusado pela auditoria e conferido pelo usuário: ${item.descricao}`)
+    });
+};
+
+function abrirFormularioComLancamento(doc, item, justificativa) {
     state.pagamentoManualRascunho = {
         docId: doc.id,
         data: item.data,
         valor: item.valor.toFixed(2).replace('.', ','),
         nr: item.numeroDocumento,
         nrConf: '',
-        justificativa: `Lançamento identificado pela auditoria no extrato: ${item.descricao}`
+        justificativa
     };
     state.pagamentoManualAberto = true;
     render();
     const form = document.getElementById('pgto-formulario');
     if (form) form.scrollIntoView({ block: 'center' });
     document.getElementById('pgto-nr-conf')?.focus();
-};
+}
 
 // O formulário de upload do extrato já existe na caixa "Extrato Bancário" do fluxo; aqui só
 // se aponta para ele, abrindo a opção de enviar outro extrato quando o do lote estiver ativo.
@@ -6813,8 +6903,19 @@ function atualizarSaldoInput(inputEl) {
 
 // CR-2026-001: dispara a captura do relatório de Execução Física do SALIC para o
 // projeto selecionado (mesma rota do botão do painel M2) e recarrega o saldo.
-window.handleAtualizarSaldoSalic = async function () {
+window.handleAtualizarSaldoSalic = function () {
     const projectId = state.filters.project;
+    if (!supabaseClient || !projectId || state.saldoSalicAtualizando) return;
+    // #163: a captura acessa o SALIC com as credenciais da organização; pede confirmação antes.
+    window.showConfirmModal({
+        title: 'Atualizar saldo do SALIC',
+        message: 'O sistema vai acessar o SALIC e capturar o saldo das rubricas deste projeto. Leva de 1 a 2 minutos. Deseja continuar?',
+        confirmLabel: 'Atualizar saldo',
+        onConfirm: () => executarAtualizarSaldoSalic(projectId)
+    });
+};
+
+async function executarAtualizarSaldoSalic(projectId) {
     if (!supabaseClient || !projectId || state.saldoSalicAtualizando) return;
 
     state.saldoSalicAtualizando = true;
@@ -6846,7 +6947,7 @@ window.handleAtualizarSaldoSalic = async function () {
         state.saldoSalicAtualizando = false;
         render();
     }
-};
+}
 
 async function fetchRubricaVersions(projectId) {
     if (!supabaseClient || !projectId) return;
@@ -7105,6 +7206,18 @@ window.salvarCamposManuais = async function (documentId) {
     if (erros.length > 0) { showToast(erros.join('. '), 'error'); return; }
     if (Object.keys(updateFields).length === 0) { showToast('Nenhum campo preenchido', 'error'); return; }
 
+    // #163: os campos digitados valem para a validação e para o envio ao SALIC; pede confirmação
+    // depois de validar o que foi digitado e antes de gravar.
+    window.showConfirmModal({
+        title: 'Salvar campos',
+        message: 'Você está preenchendo manualmente dados desta nota. Confira com o documento fiscal original: ' +
+            'o que for salvo passa a valer para a validação e para o envio ao SALIC.\n\nDeseja salvar os campos?',
+        confirmLabel: 'Salvar campos',
+        onConfirm: () => executarSalvarCamposManuais(documentId, updateFields)
+    });
+};
+
+async function executarSalvarCamposManuais(documentId, updateFields) {
     const { data: doc } = await supabaseClient
         .from('documents')
         .select('status, rubrica, rubrica_id_fk, cnpj_emissor, valor, data_emissao, project_id, extrato_origem_id')
@@ -7163,7 +7276,7 @@ window.salvarCamposManuais = async function (documentId) {
 
     showToast('Campos salvos com sucesso', 'success');
     fetchDocumentDetails(documentId);
-};
+}
 
 // --- Edição manual dos dados extraídos (correção de leitura da IA) ---
 
@@ -8143,8 +8256,16 @@ function nomeArquivoSeguro(nome) {
 }
 
 // O banco não guarda o nome original do arquivo; o final do caminho do Storage é o que existe.
+// Extratos antigos (nome interno) aparecem como "Extrato enviado em DD/MM/AAAA" (#161).
 function nomeDoExtrato(e) {
-    return window.VinculoExtrato.nomeDoArquivo(e && e.file_path);
+    return window.VinculoExtrato.nomeExibicaoExtrato(e);
+}
+
+// Caminho de Storage dos extratos enviados pelo front: <projeto>/<uuid>/<nome original seguro>.
+// O uuid evita colisao; o nome original e o que o usuario reconhece depois (#161).
+function caminhoStorageExtrato(projectId, nomeOriginal) {
+    const uuid = (crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return `${projectId}/${uuid}/${nomeArquivoSeguro(nomeOriginal)}`;
 }
 
 // Lista de extratos da janela "Vincular extrato", já filtrada pela busca. Fica em um bloco próprio
@@ -8371,8 +8492,7 @@ window.vincularExtratoEnviarNovo = async function (file) {
     v.erro = null;
     render();
     try {
-        const uuid = (crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        const filePath = `${v.projectId}/${uuid}/${nomeArquivoSeguro(file.name)}`;
+        const filePath = caminhoStorageExtrato(v.projectId, file.name);
         const { error: upErr } = await supabaseClient.storage.from('documentos').upload(filePath, file);
         if (upErr) throw upErr;
         const { data: extrato, error: insErr } = await supabaseClient
@@ -9983,7 +10103,7 @@ async function fetchExtratoLoteVinculado(projectId) {
 
     const { data, error } = await supabaseClient
         .from('extratos')
-        .select('id, file_path')
+        .select('id, file_path, created_at')
         .eq('project_id', projectId)
         .eq('user_id', state.user.id)
         .eq('vinculo_lote_ativo', true)
@@ -9995,7 +10115,7 @@ async function fetchExtratoLoteVinculado(projectId) {
 
     state.loteExtratoVinculado = {
         id: data.id,
-        nome: (data.file_path || '').split('/').pop() || 'extrato',
+        nome: window.VinculoExtrato.nomeExibicaoExtrato(data),
         projectId
     };
 }
@@ -10079,7 +10199,18 @@ window.handleUploadExtratoParaLote = async function (file) {
     }
 };
 
-window.handleRemoverExtratoLote = async function () {
+window.handleRemoverExtratoLote = function () {
+    // #163: "Trocar" desfaz o vínculo do extrato com o lote; pede confirmação.
+    if (!state.loteExtratoVinculado) return;
+    window.showConfirmModal({
+        title: 'Trocar o extrato do lote',
+        message: 'O extrato deixa de estar vinculado ao lote. O arquivo não é apagado. Depois, envie o extrato correto para continuar.',
+        confirmLabel: 'Trocar extrato',
+        onConfirm: () => executarRemoverExtratoLote()
+    });
+};
+
+async function executarRemoverExtratoLote() {
     // Desfaz também no banco — sem isso, um F5 logo depois de "Trocar" faria
     // fetchExtratoLoteVinculado() reencontrar o vínculo removido e restaurá-lo.
     // NÃO apaga o extrato já criado (pode ser reaproveitado); só desmarca a flag.
@@ -10095,7 +10226,7 @@ window.handleRemoverExtratoLote = async function () {
             .eq('id', vinc.id);
         if (error) console.error('[handleRemoverExtratoLote]', error);
     }
-};
+}
 
 // Só carimba o extrato em documentos do MESMO projeto do extrato: a fila de
 // lote é filtrada por usuário e status, não por projeto (fetchUploadLoteQueue),
@@ -11598,8 +11729,7 @@ window.handleUploadExtrato = async function (file, projectId, documentId, compro
     let falhaDeRede = false;
 
     try {
-        const fileName = `extrato_${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-        const filePath = `${state.user.id}/${fileName}`;
+        const filePath = caminhoStorageExtrato(projectId, file.name);
 
         // 1. Upload para o Storage (bucket 'documentos')
         const { error: uploadError } = await supabaseClient.storage
@@ -11776,8 +11906,7 @@ window.handleUploadExtratoLote = async function (file, projectId) {
     render();
 
     try {
-        const fileName = `extrato_lote_${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-        const filePath = `${state.user.id}/${fileName}`;
+        const filePath = caminhoStorageExtrato(projectId, file.name);
 
         // 1. Upload para o Storage (mesmo bucket do fluxo 1-para-1)
         const { error: uploadError } = await supabaseClient.storage
