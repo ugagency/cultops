@@ -174,7 +174,15 @@ teste('nada de gestor, admin ou analista muda: STATUS_MAP e telas de gestor igua
             const depois = "|| doc.status === 'revisao_manual' || (doc.status === 'aguardando_conformidade' && doc.just_erro) ?\n            `<strong style=\"color: var(--error);\">Atenção:";
             if (esperado.includes(antes)) esperado = esperado.replace(antes, depois);
         }
-        assert.strictEqual(bloco(SRC, inicio, fim), esperado, inicio);
+        let atual = bloco(SRC, inicio, fim);
+        // segunda mudanca de proposito na DetailsView (#164): card "Ler o documento de novo" para nota em
+        // revisao manual com OCR que nao concluiu; coberto em teste-confirmacoes-front.js
+        if (inicio.startsWith('const DetailsView')) {
+            const card = /\n        \$\{podeLerDocumentoDeNovo\(doc\)[\s\S]*?\n        ` : ''\}\n/;
+            assert.ok(card.test(atual), 'card do #164 nao encontrado na DetailsView');
+            atual = atual.replace(card, '');
+        }
+        assert.strictEqual(atual, esperado, inicio);
     }
     // o rotulo de status do gestor continua sendo o do STATUS_MAP puro
     assert.ok(!/rotuloStatusFornecedor/.test(bloco(SRC, 'const DashboardView = () => {', '\n};\n')));
