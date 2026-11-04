@@ -5832,7 +5832,7 @@ app.get('/api/conciliacao/extratos-pausados', requireAuth, async (req, res) => {
 
         const { data: notas, error: notasErr } = await supabase
             .from('documents')
-            .select('id, name, numero_nf, nome_emissor, valor, data_emissao, status, just_erro, user_id, tipo_documento, extrato_origem_id')
+            .select('id, name, numero_nf, nome_emissor, valor, data_emissao, status, just_erro, user_id, tipo_documento, nf_vinculada_id, extrato_origem_id')
             .eq('project_id', pedido.projectId)
             .in('extrato_origem_id', [...pausados])
             .is('excluido_em', null);
@@ -5840,7 +5840,7 @@ app.get('/api/conciliacao/extratos-pausados', requireAuth, async (req, res) => {
 
         // Só conta como parada a nota que ainda espera por causa do extrato pausado (na fila ou em
         // divergência) e que o usuário pode ver: o analista enxerga só as dele.
-        const presas = (notas || []).filter(n => VinculoExtrato.TIPOS_VINCULAVEIS.includes(n.tipo_documento)
+        const presas = (notas || []).filter(n => VinculoExtrato.notaVinculavel(n)
             && VinculoExtrato.presaAExtratoPausado(n, pausados)
             && (req.userRole !== 'analista' || n.user_id === req.user.id));
 
@@ -5904,7 +5904,7 @@ app.post('/api/conciliacao/vincular-extrato', requireAuth, async (req, res) => {
 
         const { data: notas, error: notasErr } = await supabase
             .from('documents')
-            .select('id, name, project_id, user_id, tipo_documento, status, extrato_origem_id, just_erro')
+            .select('id, name, project_id, user_id, tipo_documento, nf_vinculada_id, status, extrato_origem_id, just_erro')
             .in('id', pedido.ids)
             .is('excluido_em', null); // excluída entre a seleção e o pedido: sai como "Nota não encontrada."
         if (notasErr) throw notasErr;

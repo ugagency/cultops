@@ -48,7 +48,7 @@ function zerarBanco() {
             nota(3, { user_id: ANALISTA }), // presa, do analista
             nota(4, { user_id: OUTRO, status: 'aguardando_comprovante' }), // presa, de outro usuario
             nota(5, { status: 'liberado_rpa_airtop' }), // ja passou da conciliacao
-            nota(6, { tipo_documento: 'comprovante' }), // comprovante nao entra
+            nota(6, { tipo_documento: 'comprovante', nf_vinculada_id: U(101) }), // comprovante anexado a OUTRA nota nao entra (comprovante que e nota mista entra, ver teste-vinculo-extrato.js)
             nota(7, { extrato_origem_id: EXT_NAO_PAUSADO }), // extrato nao pausado
             nota(8, { extrato_origem_id: null }), // sem extrato
             nota(9, { extrato_origem_id: EXT_PAUSADO_SEM_NOTA, status: 'concluido' }), // pausado, mas a nota ja passou
@@ -144,7 +144,7 @@ const ids = (...ns) => ns.map(n => U(100 + n));
             assert.strictEqual(e.enviado_em, '2026-09-05T15:00:00Z');
             assert.strictEqual(e.pausado_em, '2026-09-12T10:00:00Z');
             assert.strictEqual(e.motivo, MENSAGEM, 'sem o prefixo "nota <id>:"');
-            assert.deepStrictEqual(e.notas.map(n => n.id).sort(), ids(1, 2, 3, 4).sort(), 'divergencia, fila e comprovante; sem concluida, comprovante-documento, outro extrato ou sem extrato');
+            assert.deepStrictEqual(e.notas.map(n => n.id).sort(), ids(1, 2, 3, 4).sort(), 'divergencia, fila e comprovante; sem concluida, comprovante anexado a outra nota, outro extrato ou sem extrato');
             const n1 = e.notas.find(n => n.id === U(101));
             assert.deepStrictEqual(n1, { id: U(101), nome: 'nota1.pdf', numero_nf: '4001', nome_emissor: 'Fornecedor 1', valor: 100, data_emissao: '2026-09-02', status: 'divergencia_beneficiario' });
             assert.ok(!JSON.stringify(r.corpo).includes('just_erro'), 'o texto do erro da nota nao e devolvido por nota');

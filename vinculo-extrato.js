@@ -13,10 +13,20 @@
 })(typeof self !== 'undefined' ? self : this, function () {
 const PERFIS_VINCULO = ['admin', 'gestor', 'analista'];
 
-// Notas que entram na conciliação: tipo 'nf' (inclui os subtipos nf, guia, recibo e rpa) ou sem
-// tipo (legado, tratado como nf como no resto do sistema). Ficam de fora 'comprovante' (é o
-// comprovante de pagamento anexado a uma nota) e 'planilha_orcamentaria'.
-const TIPOS_VINCULAVEIS = ['nf', null, undefined];
+// Notas que entram na conciliação: tipo 'nf' (inclui os subtipos nf, guia, recibo e rpa), sem tipo
+// (legado, tratado como nf como no resto do sistema) e 'comprovante'. No banco, 'comprovante' é a
+// nota mista (nota e comprovante no mesmo documento, nf_vinculada_id apontando para ela mesma), e
+// ela concilia com o extrato como qualquer nota. Fica de fora 'planilha_orcamentaria' e o
+// comprovante que está anexado a OUTRA nota (nf_vinculada_id diferente do id): esse é só a prova
+// de pagamento da outra nota, que é quem concilia.
+const TIPOS_VINCULAVEIS = ['nf', 'comprovante', null, undefined];
+
+function notaVinculavel(nota) {
+    if (!nota || !TIPOS_VINCULAVEIS.includes(nota.tipo_documento)) return false;
+    const anexadoAOutraNota = nota.tipo_documento === 'comprovante'
+        && !!nota.nf_vinculada_id && nota.nf_vinculada_id !== nota.id;
+    return !anexadoAOutraNota;
+}
 
 // Status anteriores à conciliação, ou nela. A nota segue o fluxo normal até a conciliação, e a
 // fila pega o extrato quando ela chega a aguardando_conciliacao_bancaria.
@@ -123,7 +133,7 @@ function avaliarNota({ nota, orgDaNota, usuario, extrato, incluirDivergencias, e
         return recusada('Analista só vincula notas que ele mesmo enviou.');
     }
     if (nota.project_id !== extrato.project_id) return recusada('Nota de outro projeto: o extrato pertence a outro projeto.');
-    if (!TIPOS_VINCULAVEIS.includes(nota.tipo_documento)) {
+    if (!notaVinculavel(nota)) {
         return recusada('Este tipo de documento não entra na conciliação com extrato.');
     }
     const trocaDePausado = !!nota.extrato_origem_id && nota.extrato_origem_id !== extrato.id && presaAExtratoPausado(nota, extratosPausados);
@@ -232,7 +242,7 @@ function situacaoExtrato(doc, extratosPausados = null) {
 }
 
 return {
-    PERFIS_VINCULO, TIPOS_VINCULAVEIS, STATUS_VINCULAVEIS, STATUS_DIVERGENCIA, STATUS_EXTRATO_RECUSADOS, MAX_NOTAS,
+    PERFIS_VINCULO, TIPOS_VINCULAVEIS, notaVinculavel, STATUS_VINCULAVEIS, STATUS_DIVERGENCIA, STATUS_EXTRATO_RECUSADOS, MAX_NOTAS,
     STATUS_NA_FILA, STATUS_ANTES_DA_CONCILIACAO, ROTULO_STATUS_EXTRATO, STATUS_PRESAS_AO_EXTRATO, STATUS_ENCERRADOS,
     validarPedido, validarExtrato, avaliarNota, situacaoExtrato, nomeDoArquivo, nomeExibicaoExtrato, filtrarExtratos,
     presaAExtratoPausado, justErroDeExtratoDeOutroProjeto, validarConsultaPausados
