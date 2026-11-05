@@ -61,6 +61,10 @@ const CODIGO = [
     bloco('function extratoEmLeituraDoDoc(', FIM_FUNCAO),
     bloco('function avisoLeituraExtratoHtml(', FIM_FUNCAO),
     bloco('function extratoLendoHtml(', FIM_FUNCAO),
+    bloco('function extratoPendenteRecente(', FIM_FUNCAO),
+    bloco('async function buscarExtratoEmLeitura(', FIM_FUNCAO),
+    bloco('async function bloquearSeExtratoEmLeitura(', FIM_FUNCAO),
+    bloco('async function retomarLeituraDeExtratoDoProjeto(', FIM_FUNCAO),
     bloco('function pararAcompanhamentoExtrato(', FIM_FUNCAO),
     bloco('function iniciarAcompanhamentoExtrato(', FIM_FUNCAO),
     bloco('function agendarConsultaExtratoEmLeitura(', FIM_FUNCAO),
@@ -117,12 +121,18 @@ function criarAmbiente(opcoes = {}) {
             eq(c, v) { op.filtros.push([c, v]); return api; },
             in(c, v) { op.filtros.push([c, v]); return api; },
             is(c, v) { op.filtros.push([c, v]); return api; },
+            gte(c, v) { op.filtros.push([c, v]); return api; },
+            order() { return api; },
+            limit() { return api; },
             single() { return api; },
             maybeSingle() { return api; },
             then(res, rej) {
                 log.push(op);
                 const falha = opcoes.falhaUpdate && op.acao === 'update' && op.dados && op.dados.status === 'aguardando_conciliacao_bancaria';
-                const data = nome === 'extratos' ? (op.acao === 'select' ? { status: extratoStatus.valor } : { id: 'ext-1' }) : null;
+                // #162: a busca "ha extrato pendente no projeto" filtra por created_at; a consulta do acompanhamento nao
+                const buscaPendente = nome === 'extratos' && op.acao === 'select' && op.filtros.some(f => f[0] === 'created_at');
+                const data = buscaPendente ? (opcoes.pendenteNoProjeto || null)
+                    : nome === 'extratos' ? (op.acao === 'select' ? { status: extratoStatus.valor } : { id: 'ext-1' }) : null;
                 return Promise.resolve({ data, error: falha ? { message: 'falha' } : null }).then(res, rej);
             }
         };
@@ -543,6 +553,39 @@ const nota = (extra = {}) => ({ id: 'n1', project_id: 'p1', status: 'divergencia
         assert.strictEqual(amb.state.avisoLeituraExtrato, null);
         deepEq(refreshForcado(amb), [{ id: 'n1', forcar: true }]);
         assert.strictEqual(timersAtivos(amb).length, 0);
+    });
+
+    await teste('#162: com extrato do projeto em leitura no servidor, o envio e barrado sem gravar nada', async () => {
+        const amb = preparar({ pendenteNoProjeto: { id: 'ext-9', created_at: new Date(1700000000000 - 30000).toISOString() } });
+        await subiu(amb);
+        assert.strictEqual(amb.log.filter(o => o.tabela === 'extratos' && o.acao === 'insert').length, 0, 'nao pode inserir outro extrato');
+        assert.strictEqual(amb.state.extratoEmLeitura, undefined);
+        assert.ok(amb.toasts.some(t => String(t.msg || t.message || t).includes('Não é preciso enviar de novo')), 'avisa que nao precisa enviar de novo');
+    });
+
+    await teste('#162: sem extrato em leitura no servidor, o envio segue normalmente', async () => {
+        const amb = preparar({ pendenteNoProjeto: null });
+        await subiu(amb);
+        assert.strictEqual(amb.log.filter(o => o.tabela === 'extratos' && o.acao === 'insert').length, 1);
+    });
+
+    await teste('#162: ao abrir a nota (reload ou outra aba) com extrato pendente no servidor, a tela retoma o acompanhamento', async () => {
+        const criado = new Date(1700000000000 - 40000).toISOString();
+        const amb = preparar({ pendenteNoProjeto: { id: 'ext-9', created_at: criado } });
+        await amb.ctx.retomarLeituraDeExtratoDoProjeto(amb.state.currentDocument);
+        deepEq({ doc: amb.state.extratoEmLeitura.docId, ext: amb.state.extratoEmLeitura.extratoId, desde: amb.state.extratoEmLeitura.desde },
+            { doc: 'n1', ext: 'ext-9', desde: Date.parse(criado) });
+        assert.strictEqual(timersAtivos(amb).length, 1);
+        // pendente ha 40 s: ao completar 3 minutos desde a criacao (e nao desde a retomada), libera
+        await passar(amb, 140000);
+        assert.strictEqual(amb.state.extratoEmLeitura, null);
+        deepEq(amb.state.avisoLeituraExtrato, { docId: 'n1', tipo: 'demora' });
+    });
+
+    await teste('#162: ao abrir a nota sem extrato pendente nada muda', async () => {
+        const amb = preparar({ pendenteNoProjeto: null });
+        await amb.ctx.retomarLeituraDeExtratoDoProjeto(amb.state.currentDocument);
+        assert.strictEqual(amb.state.extratoEmLeitura, undefined);
     });
 
     await teste('#162: extrato com status erro mostra a mensagem de erro e libera o envio', async () => {
