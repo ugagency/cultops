@@ -7792,6 +7792,7 @@ async function fetchDocumentDetails(id, silent = false, opcoes = {}) {
         state.guiaDuplicataM2 = guiaNova;
         // O indicador "Atualizando a nota..." termina junto com a atualização forçada.
         if (opcoes.forcar) state.atualizandoNota = false;
+        if (data && !silent) retomarLeituraDeExtratoDoProjeto(data); // sem await: nao atrasa a tela
         aplicado = true;
     } catch (err) {
         console.error("Erro ao buscar detalhes:", err);
@@ -8553,6 +8554,7 @@ window.vincularExtratoDivergencias = function (marcado) {
 window.vincularExtratoEnviarNovo = async function (file) {
     const v = state.vincularExtrato;
     if (!file || !v) return;
+    if (await bloquearSeExtratoEmLeitura(v.projectId)) return;
     const formato = file.name.split('.').pop().toLowerCase();
     if (!['ofx', 'csv', 'pdf'].includes(formato)) {
         showToast('Extrato deve ser OFX, CSV ou PDF.', 'error');
@@ -8710,6 +8712,8 @@ const VincularExtratoModal = () => {
         <div style="margin-top: 0.6rem;">
             ${v.enviando
                 ? '<p class="text-xs" style="color: var(--primary); font-weight: 600;">Enviando extrato...</p>'
+                : (v.extratos || []).some(extratoPendenteRecente)
+                ? `<p class="text-xs" role="status" style="color: var(--primary); font-weight: 600;">${MSG_EXTRATO_LENDO}</p>`
                 : `<button class="btn btn-secondary" style="font-size: 12px;" ${v.executando ? 'disabled' : ''} onclick="document.getElementById('vincular-extrato-novo-input').click()">${v.enviadoNome ? 'Enviar outro extrato' : 'Enviar um novo extrato (OFX, CSV ou PDF)'}</button>
                    <input type="file" id="vincular-extrato-novo-input" accept=".ofx,.csv,.pdf" style="display: none;" onchange="window.vincularExtratoEnviarNovo(this.files[0])">`}
         </div>
@@ -10204,6 +10208,7 @@ window.handleUploadExtratoParaLote = async function (file) {
     if (!file) return;
     const projectId = document.getElementById('lote-project-selector')?.value;
     if (!projectId) return window.showToast('Selecione um projeto primeiro.', 'error');
+    if (await bloquearSeExtratoEmLeitura(projectId)) return;
 
     const formato = file.name.split('.').pop().toLowerCase();
     if (!['ofx', 'csv', 'pdf'].includes(formato)) {
@@ -11703,6 +11708,55 @@ function extratoLendoHtml() {
                      </div>`;
 }
 
+// #162: a leitura em curso e um fato do servidor (extratos.status = 'pendente' ha menos do que o
+// limite), nao do navegador. Assim outra aba, um reload ou outra tela do mesmo projeto veem o mesmo
+// bloqueio. Se a consulta falhar, nao bloqueia (nao deixa o usuario preso por falha de rede).
+function extratoPendenteRecente(e) {
+    if (!e || e.status !== 'pendente' || !e.created_at) return false;
+    const t = Date.parse(e.created_at);
+    return !isNaN(t) && (Date.now() - t) < EXTRATO_LEITURA_LIMITE_MS;
+}
+
+async function buscarExtratoEmLeitura(projectId) {
+    if (!projectId) return null;
+    const desde = new Date(Date.now() - EXTRATO_LEITURA_LIMITE_MS).toISOString();
+    try {
+        const { data, error } = await supabaseClient.from('extratos')
+            .select('id, created_at')
+            .eq('project_id', projectId)
+            .eq('status', 'pendente')
+            .gte('created_at', desde)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        if (error) throw error;
+        return data || null;
+    } catch (err) {
+        console.warn('[extrato-em-leitura] consulta ao servidor falhou; nao bloqueia:', err);
+        return null;
+    }
+}
+
+// Trava de seguranca dos envios: devolve true (e avisa) se ja ha extrato sendo lido no projeto.
+async function bloquearSeExtratoEmLeitura(projectId) {
+    const pendente = await buscarExtratoEmLeitura(projectId);
+    if (!pendente) return false;
+    window.showToast(MSG_EXTRATO_LENDO, 'info');
+    return true;
+}
+
+// Ao abrir a nota: se o projeto ja tem extrato em leitura (enviado nesta ou em outra aba), a tela
+// passa a acompanha-lo e os botoes de envio ficam escondidos. Nao espera: corre depois do render.
+async function retomarLeituraDeExtratoDoProjeto(doc) {
+    if (!doc || !doc.project_id || state.extratoEmLeitura) return;
+    const pendente = await buscarExtratoEmLeitura(doc.project_id);
+    if (!pendente || state.extratoEmLeitura) return;
+    if (state.currentView !== 'details' || state.currentDocument?.id !== doc.id) return;
+    state.extratoEmLeitura = { docId: doc.id, extratoId: pendente.id, desde: Date.parse(pendente.created_at), original: null };
+    agendarConsultaExtratoEmLeitura();
+    render();
+}
+
 function pararAcompanhamentoExtrato() {
     if (temporizadorExtratoEmLeitura) clearTimeout(temporizadorExtratoEmLeitura);
     temporizadorExtratoEmLeitura = null;
@@ -11778,6 +11832,7 @@ async function consultarExtratoEmLeitura(acomp) {
 
 window.handleUploadExtrato = async function (file, projectId, documentId, comprovanteId, isReplace = false) {
     if (!file || !projectId || !documentId) return window.showToast("Houve um erro ao processar o upload do extrato.", 'error');
+    if (await bloquearSeExtratoEmLeitura(projectId)) return;
 
     const fileExt = file.name.split('.').pop().toLowerCase();
     if (!['ofx', 'csv', 'pdf'].includes(fileExt)) {
