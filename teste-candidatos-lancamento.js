@@ -290,5 +290,86 @@ teste('foraDoPeriodoDaNota (#163): sem pagamento usa a emissao (-3 a +60); sem n
     assert.strictEqual(C.foraDoPeriodoDaNota(null, { data_lancamento: '2026-08-10' }), false);
 });
 
+// ---- #157: caso real da NF 10 (Rafael P Braga, R$ 10.203,75, Arte Cidadania) ----
+// O Pix de 01/07 (fitid 70.102) tinha uma cópia 'conciliada' com a versão antiga da nota, já
+// excluída; o crédito do Pix devolvido e a aplicação automática de 02/07 apareciam no lugar dele.
+const PIX_0107_LIVRE = { id: 'pix-livre', project_id: 'P', fitid: '70.102', tipo: 'DEBIT', valor: '10203.75', data_lancamento: '2026-07-01', memo: 'Pix - Enviado 01/07 13:23 CRIAMOS AGENCIA DE CULTUR', status_conciliacao: 'pendente', document_id: null };
+const PIX_0107_PRESO = { ...PIX_0107_LIVRE, id: 'pix-preso', status_conciliacao: 'conciliado', document_id: 'NOTA-ANTIGA' };
+const DEVOLVIDO_0207 = { id: 'devolvido', project_id: 'P', fitid: '21.716.341.541.051', tipo: 'CREDIT', valor: '10203.75', data_lancamento: '2026-07-02', memo: 'Pix-Envio devolvido 02/07 17:16 RAFA BQUEER', status_conciliacao: 'pendente', document_id: null };
+const APLICACAO_0207 = { id: 'aplic', project_id: 'P', fitid: '1.972', tipo: 'DEBIT', valor: '10203.75', data_lancamento: '2026-07-02', memo: 'BB-APLIC C.PRZ-APL.AUT BB RF Curto Prazo Automático', status_conciliacao: 'pendente', document_id: null };
+
+teste('#157 liberarVinculosDeNotasExcluidas: solta só as linhas ligadas a nota excluída e não altera a entrada', () => {
+    const entrada = [PIX_0107_PRESO, PIX_0107_LIVRE, { ...PIX_0107_LIVRE, id: 'outra', document_id: 'NOTA-VIVA', status_conciliacao: 'conciliado' }];
+    const saida = C.liberarVinculosDeNotasExcluidas(entrada, new Set(['NOTA-ANTIGA']));
+    assert.strictEqual(saida[0].document_id, null);
+    assert.strictEqual(saida[0].status_conciliacao, 'pendente');
+    assert.strictEqual(saida[0].presa_a_nota_excluida, true);
+    assert.strictEqual(saida[1], entrada[1], 'linha livre volta como está');
+    assert.strictEqual(saida[2].document_id, 'NOTA-VIVA', 'nota viva continua bloqueando');
+    assert.strictEqual(entrada[0].document_id, 'NOTA-ANTIGA', 'entrada intacta');
+    assert.deepStrictEqual(C.liberarVinculosDeNotasExcluidas(null, null), []);
+    assert.strictEqual(C.liberarVinculosDeNotasExcluidas([PIX_0107_PRESO], ['NOTA-ANTIGA'])[0].document_id, null, 'aceita lista');
+});
+
+teste('#157 sem o ajuste, a cópia presa à nota excluída esconde o Pix de 01/07 (o defeito)', () => {
+    const r = C.selecionarCandidatos([PIX_0107_LIVRE, DEVOLVIDO_0207, APLICACAO_0207], [PIX_0107_PRESO], 'NOTA-NOVA');
+    assert.ok(!r.some(l => l.fitid === '70.102'), 'o lançamento certo sumiu');
+});
+
+teste('#157 com o ajuste, o Pix de 01/07 volta e crédito e aplicação automática saem', () => {
+    const excluidas = new Set(['NOTA-ANTIGA']);
+    const candidatas = C.liberarVinculosDeNotasExcluidas([PIX_0107_LIVRE, DEVOLVIDO_0207, APLICACAO_0207], excluidas);
+    const ligadas = C.liberarVinculosDeNotasExcluidas([PIX_0107_PRESO], excluidas);
+    const r = C.selecionarCandidatos(candidatas, ligadas, 'NOTA-NOVA');
+    assert.deepStrictEqual(r.map(l => l.id), ['pix-livre']);
+});
+
+teste('#157 lançamento ligado a nota viva continua indisponível para outra nota', () => {
+    const viva = { ...PIX_0107_PRESO, document_id: 'NOTA-VIVA' };
+    const r = C.selecionarCandidatos([PIX_0107_LIVRE], C.liberarVinculosDeNotasExcluidas([viva], new Set(['NOTA-ANTIGA'])), 'NOTA-NOVA');
+    assert.deepStrictEqual(r, []);
+});
+
+teste('#157 se só existir a cópia presa (extrato ampliado), ela volta como candidata', () => {
+    const r = C.selecionarCandidatos(
+        C.liberarVinculosDeNotasExcluidas([PIX_0107_PRESO], ['NOTA-ANTIGA']),
+        C.liberarVinculosDeNotasExcluidas([PIX_0107_PRESO], ['NOTA-ANTIGA']), 'NOTA-NOVA');
+    assert.deepStrictEqual(r.map(l => l.id), ['pix-preso']);
+});
+
+teste('#157 entre cópias, a deduplicação prefere a realmente livre à presa a nota excluída', () => {
+    const lista = C.liberarVinculosDeNotasExcluidas([PIX_0107_PRESO, PIX_0107_LIVRE], ['NOTA-ANTIGA']);
+    assert.deepStrictEqual(C.deduplicar(lista, 'NOTA-NOVA').map(l => l.id), ['pix-livre']);
+});
+
+teste('#157 sentidoDoLancamento: tipos do extrato, sinal e desconhecido', () => {
+    for (const t of ['DEBIT', 'DEBITO', 'D', 'debit']) assert.strictEqual(C.sentidoDoLancamento({ tipo: t, valor: '10' }), 'debito', t);
+    for (const t of ['CREDIT', 'CREDITO', 'C', 'credit']) assert.strictEqual(C.sentidoDoLancamento({ tipo: t, valor: '10' }), 'credito', t);
+    assert.strictEqual(C.sentidoDoLancamento({ tipo: null, valor: '-10' }), 'debito');
+    assert.strictEqual(C.sentidoDoLancamento({ tipo: null, valor: '10' }), 'desconhecido');
+    assert.strictEqual(C.sentidoDoLancamento(null), 'desconhecido');
+    assert.strictEqual(C.sentidoDoLancamento({ tipo: 'CREDIT', valor: '-10' }), 'credito', 'o tipo manda sobre o sinal');
+});
+
+teste('#157 aplicacaoAutomatica e podeSerPagamento', () => {
+    assert.strictEqual(C.aplicacaoAutomatica(APLICACAO_0207), true);
+    assert.strictEqual(C.aplicacaoAutomatica({ memo: 'Resgate Automático BB RF Curto Prazo Automático' }), true);
+    assert.strictEqual(C.aplicacaoAutomatica(PIX_0107_LIVRE), false);
+    assert.strictEqual(C.aplicacaoAutomatica({ memo: 'Pix - Enviado 03/09 APLICATIVOS LTDA' }), false);
+    assert.strictEqual(C.aplicacaoAutomatica({ memo: null }), false);
+    assert.strictEqual(C.podeSerPagamento(PIX_0107_LIVRE), true);
+    assert.strictEqual(C.podeSerPagamento(DEVOLVIDO_0207), false);
+    assert.strictEqual(C.podeSerPagamento(APLICACAO_0207), false);
+    assert.strictEqual(C.podeSerPagamento({ valor: '10', memo: 'Pix', tipo: null }), true, 'sem tipo e sem sinal: mostra');
+});
+
+teste('#157 decidirLancamento (conciliação de lote) também ignora crédito de mesmo valor', () => {
+    const nota = { id: 'NOTA-NOVA', valor: '10203.75', data_pagamento: null, autenticacao_bancaria: null };
+    const achados = [DEVOLVIDO_0207];
+    assert.deepStrictEqual(C.decidirLancamento({ nota, metodo: 'valor+data', achados, consumidas: [] }).lancamento, null);
+    const dois = C.decidirLancamento({ nota, metodo: 'valor+data', achados: [PIX_0107_LIVRE, DEVOLVIDO_0207], consumidas: [] });
+    assert.strictEqual(dois.lancamento && dois.lancamento.id, 'pix-livre', 'sem o crédito não há ambiguidade');
+});
+
 console.log(`${ok} testes ok, ${falhas} falhas`);
 process.exit(falhas ? 1 : 0);

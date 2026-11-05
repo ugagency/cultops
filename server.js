@@ -5499,7 +5499,7 @@ async function lancamentosConsumidos(projectId, linhas) {
         return Number.isFinite(v) ? [v, -v] : [];
     }))];
     if (!projectId || !valores.length) return [];
-    const colunas = 'id, extrato_id, project_id, fitid, valor, data_lancamento, memo, status_conciliacao, document_id';
+    const colunas = 'id, extrato_id, project_id, fitid, tipo, valor, data_lancamento, memo, status_conciliacao, document_id';
     const base = () => supabase.from('extratos_lancamentos').select(colunas).eq('project_id', projectId).in('valor', valores);
     const [ligadas, conciliadas] = await Promise.all([
         base().not('document_id', 'is', null),
@@ -5507,7 +5507,15 @@ async function lancamentosConsumidos(projectId, linhas) {
     ]);
     if (ligadas.error) throw ligadas.error;
     if (conciliadas.error) throw conciliadas.error;
-    return [...(ligadas.data || []), ...(conciliadas.data || [])];
+    const consumidas = [...(ligadas.data || []), ...(conciliadas.data || [])];
+    // #157: a exclusão de nota é lógica e não solta o lançamento; vínculo com nota excluída não
+    // conta como consumido.
+    const idsNotas = [...new Set(consumidas.map(l => l.document_id).filter(Boolean))];
+    if (!idsNotas.length) return consumidas;
+    const { data: excluidas, error: excErr } = await supabase
+        .from('documents').select('id').in('id', idsNotas).not('excluido_em', 'is', null);
+    if (excErr) throw excErr;
+    return Candidatos.liberarVinculosDeNotasExcluidas(consumidas, new Set((excluidas || []).map(d => d.id)));
 }
 
 async function conciliarNotaAutoLote(document_id, { callerOrg = null, actorId = null } = {}) {
@@ -5548,7 +5556,7 @@ async function conciliarNotaAutoLote(document_id, { callerOrg = null, actorId = 
 
     const { data: lancamentos, error: lancErr } = await supabase
         .from('extratos_lancamentos')
-        .select('id, extrato_id, project_id, fitid, valor, data_lancamento, memo, status_conciliacao, document_id')
+        .select('id, extrato_id, project_id, fitid, tipo, valor, data_lancamento, memo, status_conciliacao, document_id')
         .eq('extrato_id', nota.extrato_origem_id)
         .eq('status_conciliacao', 'pendente')
         .is('document_id', null)
