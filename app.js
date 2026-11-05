@@ -7478,6 +7478,20 @@ function filtroCandidatosDaNota(doc) {
 // pagamento (quando já existe) e as datas dos lançamentos ligados à nota. Não escreve no state:
 // fetchDocumentDetails troca tudo de uma vez, no fim. Devolve undefined se falhar, para a
 // atualização silenciosa manter o que a tela já mostra.
+// #157: ids, entre os documentos ligados às linhas, que foram excluídos (exclusão lógica). O
+// lançamento que uma nota excluída consumia volta a valer para as outras notas.
+async function idsDeNotasExcluidas(linhas) {
+    const ids = [...new Set((linhas || []).map(l => l.document_id).filter(Boolean))];
+    if (!ids.length) return new Set();
+    const { data, error } = await supabaseClient
+        .from('documents')
+        .select('id')
+        .in('id', ids)
+        .not('excluido_em', 'is', null);
+    if (error) throw error;
+    return new Set((data || []).map(d => d.id));
+}
+
 async function carregarPagamentoDaNota(doc) {
     const vazio = { candidatos: [], origem: null, datas: new Map() };
     if (!supabaseClient || !doc?.id || !doc?.project_id) return vazio;
@@ -7495,7 +7509,7 @@ async function carregarPagamentoDaNota(doc) {
             const filtro = filtroCandidatosDaNota(doc);
             let consulta = supabaseClient
                 .from('extratos_lancamentos')
-                .select('id, extrato_id, project_id, fitid, valor, data_lancamento, memo, status_conciliacao, document_id')
+                .select('id, extrato_id, project_id, fitid, tipo, valor, data_lancamento, memo, status_conciliacao, document_id')
                 .eq('project_id', doc.project_id)
                 .or(`${faixa(v)},${faixa(-v)}`);
             if (filtro.extrato_id) consulta = consulta.eq('extrato_id', filtro.extrato_id);
@@ -7509,7 +7523,7 @@ async function carregarPagamentoDaNota(doc) {
             // nota), de qualquer extrato e sem o filtro de janela: servem só para marcar o
             // lançamento como usado. Uma cópia consumida tira o lançamento da lista, mesmo que as
             // outras cópias estejam pendentes.
-            const colunasLanc = 'id, extrato_id, project_id, fitid, valor, data_lancamento, memo, status_conciliacao, document_id';
+            const colunasLanc = 'id, extrato_id, project_id, fitid, tipo, valor, data_lancamento, memo, status_conciliacao, document_id';
             const consumidasDoValor = () => supabaseClient
                 .from('extratos_lancamentos')
                 .select(colunasLanc)
@@ -7523,7 +7537,15 @@ async function carregarPagamentoDaNota(doc) {
             if (errConciliadas) throw errConciliadas;
             const ligadas = [...(comNota || []), ...(conciliadas || [])];
             // Um candidato por lançamento: fitid + data + valor (candidatos-lancamento.js).
-            const candidatos = window.CandidatosLancamento.selecionarCandidatos(proximas, ligadas.filter(doValor), doc.id);
+            // #157: vínculo com nota excluída não consome o lançamento; crédito (Pix devolvido) e
+            // aplicação automática não são pagamento (candidatos-lancamento.js).
+            const CL = window.CandidatosLancamento;
+            const ligadasDoValor = ligadas.filter(doValor);
+            const excluidas = await idsDeNotasExcluidas([...proximas, ...ligadasDoValor]);
+            const candidatos = CL.selecionarCandidatos(
+                CL.liberarVinculosDeNotasExcluidas(proximas, excluidas),
+                CL.liberarVinculosDeNotasExcluidas(ligadasDoValor, excluidas),
+                doc.id);
             return { candidatos, origem: null, datas };
         }
 

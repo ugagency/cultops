@@ -114,9 +114,47 @@
     const ligadaANota = (l) => !!(l && l.document_id);
     const ligadaAQualquerNota = (l) => ligadaANota(l) || (l && l.status_conciliacao === 'conciliado');
 
+    // #157: a exclusão de nota é lógica (documents.excluido_em) e não solta o lançamento que ela
+    // consumia: a linha continua com document_id e status 'conciliado' da nota que sumiu. Para
+    // quem escolhe o pagamento de outra nota, esse vínculo não vale. Devolve cópias das linhas
+    // ligadas a nota excluída como pendentes e sem nota (marcadas em presa_a_nota_excluida, para
+    // a deduplicação preferir uma cópia realmente livre). `excluidas`: Set ou lista de ids de
+    // documentos excluídos. Não altera as linhas recebidas nem o banco.
+    function liberarVinculosDeNotasExcluidas(linhas, excluidas) {
+        const set = excluidas instanceof Set ? excluidas : new Set(excluidas || []);
+        return (linhas || []).map(l => {
+            if (!l || !l.document_id || !set.has(l.document_id)) return l;
+            return { ...l, document_id: null, status_conciliacao: 'pendente', presa_a_nota_excluida: true };
+        });
+    }
+
+    // #157: sentido do lançamento. O extrato grava o tipo de formas diferentes ('DEBIT', 'DEBITO',
+    // 'D', 'CREDIT', 'C'); sem tipo, o sinal negativo é débito. Sem informação: 'desconhecido'.
+    function sentidoDoLancamento(l) {
+        const tipo = String((l && l.tipo) || '').trim().toUpperCase();
+        if (tipo.startsWith('D')) return 'debito';
+        if (tipo.startsWith('C')) return 'credito';
+        const v = Number(l && l.valor);
+        if (Number.isFinite(v) && v < 0) return 'debito';
+        return 'desconhecido';
+    }
+
+    // #157: aplicação automática em renda fixa do próprio banco (BB-APLIC ... RF Curto Prazo): é
+    // movimento da conta, nunca pagamento de nota.
+    function aplicacaoAutomatica(l) {
+        return /\bbb-?aplic\b|\brf curto prazo\b/.test(memoNormalizado(l && l.memo));
+    }
+
+    // #157: o lançamento pode ser o pagamento de uma nota? Não pode se for crédito (entrada, como
+    // um Pix devolvido) nem aplicação automática. Sentido desconhecido passa: na dúvida, mostra.
+    function podeSerPagamento(l) {
+        return sentidoDoLancamento(l) !== 'credito' && !aplicacaoAutomatica(l);
+    }
+
     // Uma entrada por lançamento (chave), na ordem em que cada chave aparece. A linha
     // representante é a ligada a esta nota; senão a ligada a qualquer nota (document_id
-    // preenchido ou status 'conciliado'); senão a primeira.
+    // preenchido ou status 'conciliado'); senão a primeira que não esteja presa a nota excluída
+    // (#157); senão a primeira.
     function deduplicar(lista, docId) {
         const grupos = new Map();
         for (const l of lista || []) {
@@ -127,6 +165,7 @@
         return [...grupos.values()].map(copias =>
             copias.find(l => docId != null && l.document_id === docId)
             || copias.find(ligadaAQualquerNota)
+            || copias.find(l => !l.presa_a_nota_excluida)
             || copias[0]);
     }
 
@@ -152,10 +191,11 @@
     // Candidatos de uma nota. `candidatas` são as linhas que passaram pelos filtros (extrato,
     // janela, valor); `ligadas` são as linhas do projeto ligadas a notas, de qualquer extrato
     // (só servem para marcar a chave como usada). Sai um candidato por lançamento, sem os já
-    // usados por outra nota.
+    // usados por outra nota e sem os que não podem ser pagamento (crédito, aplicação automática).
+    // Quem chama já passou as linhas por liberarVinculosDeNotasExcluidas (#157).
     function selecionarCandidatos(candidatas, ligadas, docId) {
         const usadas = chavesUsadas([...(candidatas || []), ...(ligadas || [])], docId);
-        return deduplicar((candidatas || []).filter(l => !usadas.has(chaveLancamento(l))), docId);
+        return deduplicar((candidatas || []).filter(l => !usadas.has(chaveLancamento(l)) && podeSerPagamento(l)), docId);
     }
 
     // ---- Conciliação automática de nota de lote (server.js, conciliarNotaAutoLote) ----
@@ -200,6 +240,7 @@
         JANELA_PAGAMENTO_DIAS, JANELA_EMISSAO_ANTES_DIAS, JANELA_EMISSAO_DEPOIS_DIAS,
         dataValida, somarDias, montarFiltroCandidatos, foraDoPeriodoDaNota,
         valorAbsoluto, chaveLancamento, deduplicar, bloqueia, chavesUsadas, selecionarCandidatos,
+        liberarVinculosDeNotasExcluidas, sentidoDoLancamento, aplicacaoAutomatica, podeSerPagamento,
         acharCompativeis, decidirLancamento
     };
 });
