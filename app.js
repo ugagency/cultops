@@ -2289,7 +2289,7 @@ function conteudoUploadArquivosHtml(p) {
     return `<p class="text-sm" style="font-weight: 600; color: var(--primary); margin-bottom: 0.5rem;">Enviando arquivos para a fila: ${feitos} de ${p.total}</p>`
         + segmentosLoteHtml(p.estados)
         + `<p class="text-xs" style="color: var(--text-muted); margin-top: 0.5rem;">Concluídos: ${p.concluidos}.${p.falhas > 0 ? ` Com falha: ${p.falhas}.` : ''}</p>`
-        + '<p class="text-xs" style="color: var(--text-muted); margin-top: 0.35rem;">Mantenha esta página aberta até terminar o envio dos arquivos. Se sair antes, os que ainda não chegaram precisam ser enviados de novo.</p>';
+        + '<p class="text-xs" style="color: var(--text-muted); margin-top: 0.35rem;">Você pode navegar pelo PrestAí e trocar de aba. Até terminar, não feche nem atualize a aba e não vá para Configurações, Equipe ou Trocar Módulo: os arquivos que ainda não chegaram precisariam ser enviados de novo.</p>';
 }
 
 function atualizarProgressoUploadLoteNoDom() {
@@ -2372,7 +2372,7 @@ const UploadLoteView = () => {
                 </p>
                 ${segmentosLoteHtml(estadosSegmentos)}
                 <p class="text-xs" style="color: var(--text-secondary); margin-top: 0.5rem;">Concluídos: ${enviadosEnvio.length}.${progresso.falhas > 0 ? ` Com falha: ${progresso.falhas}.` : ''}</p>
-                <p class="text-xs" style="color: var(--text-muted); margin-top: 0.35rem;">Mantenha esta página aberta até terminar o envio. Depois que o último documento for enviado você pode sair: o processamento continua no servidor e as notas aparecem como Processando. Se sair antes, os documentos que ainda não foram enviados continuam na fila e podem ser processados de novo.</p>
+                <p class="text-xs" style="color: var(--text-muted); margin-top: 0.35rem;">Você pode navegar pelo PrestAí e trocar de aba enquanto envia. Até o envio terminar, não feche nem atualize a aba e não vá para Configurações, Equipe ou Trocar Módulo: isso interrompe o envio, e os documentos que ainda não foram enviados continuam na fila para processar de novo. Depois do último enviado, o processamento segue no servidor e as notas ficam na fila como Processando até concluir.</p>
             </div>
     ` : '';
     const uploadArquivos = state.uploadArquivosProgresso;

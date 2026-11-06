@@ -385,8 +385,8 @@ async function teste(nome, fn) {
         await abrirEConfirmar(amb);
         assert.strictEqual(amb.state.uploadLoteFalhas.b, true);
         const durante = amb.renders.find(r => r.progresso.ativo).html;
-        assert.ok(durante.includes('Mantenha esta página aberta até terminar'));
-        assert.ok(durante.includes('continuam na fila e podem ser processados de novo'));
+        assert.ok(durante.includes('Você pode navegar pelo PrestAí e trocar de aba enquanto envia.'));
+        assert.ok(durante.includes('continuam na fila para processar de novo'));
         assert.ok(!durante.includes('continua mesmo se a tela parecer parada'), 'texto antigo, que induzia a erro, saiu');
         // segunda tentativa, agora sem falha: o selo some junto com a linha
         amb.ctx.document = { getElementById: (id) => { const m = /^lote-rubrica-(.+)$/.exec(id); return m && m[1] === 'b' ? { value: 'Transporte' } : null; } };
@@ -572,16 +572,16 @@ async function teste(nome, fn) {
         deepEq(amb.saida.map(x => x.acao + ':' + x.tipo), ['add:beforeunload', 'remove:beforeunload']);
         assert.strictEqual(amb.saida[0].fn, amb.saida[1].fn);
         const html = amb.ctx.conteudoUploadArquivosHtml({ total: 2, concluidos: 1, falhas: 1, estados: ['ok', 'falha'] });
-        assert.ok(html.includes('Mantenha esta página aberta até terminar o envio dos arquivos'));
+        assert.ok(html.includes('Você pode navegar pelo PrestAí e trocar de aba.') && html.includes('Configurações, Equipe ou Trocar Módulo'));
     });
 
-    await teste('mensagem do envio em lote: manter aberta ate terminar o envio, depois pode sair e o processamento continua', async () => {
+    await teste('mensagem do envio em lote: pode navegar no PrestAi; fechar, atualizar ou ir para paginas separadas interrompe', async () => {
         const amb = criarAmbiente();
         let durante = '';
         amb.ctx.dispararOcr = async (id) => { if (id === 'a') durante = amb.ctx.UploadLoteView(); };
         await abrirEConfirmar(amb);
-        assert.ok(durante.includes('Mantenha esta página aberta até terminar o envio.'));
-        assert.ok(durante.includes('você pode sair: o processamento continua no servidor'));
+        assert.ok(durante.includes('não feche nem atualize a aba e não vá para Configurações, Equipe ou Trocar Módulo'));
+        assert.ok(durante.includes('as notas ficam na fila como Processando até concluir'));
     });
 
     // ---- #153 (interatividade): barra segmentada, contador por documento, aviso de saida, upload por arquivo ----
@@ -590,7 +590,7 @@ async function teste(nome, fn) {
         await abrirEConfirmar(amb);
         const doLoop = amb.renders.filter(r => r.progresso.ativo);
         assert.ok(/id="lote-progresso-envio" role="status" aria-live="polite"/.test(doLoop[0].html));
-        const quadro = doLoop[0].html.slice(doLoop[0].html.indexOf('id="lote-progresso-envio"'), doLoop[0].html.indexOf('Mantenha esta'));
+        const quadro = doLoop[0].html.slice(doLoop[0].html.indexOf('id="lote-progresso-envio"'), doLoop[0].html.indexOf('Você pode navegar pelo PrestAí'));
         assert.ok(!quadro.includes('salic-progress-fill') && !/width:\s*\d+%/.test(quadro) && !/\d+\s*%/.test(quadro), 'sem percentual falso');
         deepEq(segmentos(doLoop[1].html), ['falha', 'atual', 'espera']);
         assert.ok(doLoop[1].html.includes('Enviando documento 2 de 3') && doLoop[1].html.includes('Concluídos: 0. Com falha: 1.'));
