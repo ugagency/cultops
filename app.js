@@ -2288,7 +2288,8 @@ function conteudoUploadArquivosHtml(p) {
     const feitos = p.concluidos + p.falhas;
     return `<p class="text-sm" style="font-weight: 600; color: var(--primary); margin-bottom: 0.5rem;">Enviando arquivos para a fila: ${feitos} de ${p.total}</p>`
         + segmentosLoteHtml(p.estados)
-        + `<p class="text-xs" style="color: var(--text-muted); margin-top: 0.5rem;">Concluídos: ${p.concluidos}.${p.falhas > 0 ? ` Com falha: ${p.falhas}.` : ''}</p>`;
+        + `<p class="text-xs" style="color: var(--text-muted); margin-top: 0.5rem;">Concluídos: ${p.concluidos}.${p.falhas > 0 ? ` Com falha: ${p.falhas}.` : ''}</p>`
+        + '<p class="text-xs" style="color: var(--text-muted); margin-top: 0.35rem;">Mantenha esta página aberta até terminar o envio dos arquivos. Se sair antes, os que ainda não chegaram precisam ser enviados de novo.</p>';
 }
 
 function atualizarProgressoUploadLoteNoDom() {
@@ -2316,7 +2317,21 @@ function atualizarLinhaLoteNoDom(id) {
     });
 }
 
-// Tempo real: um documento da fila saiu de aguardando_rubrica e este navegador nao esta enviando.
+// Status em que a nota ja saiu da fila do lote e a retaguarda ainda trabalha nela (#153). Vem do banco,
+// entao aparece certo ao reabrir a tela ou em outra aba.
+const STATUS_LOTE_PROCESSANDO = ['processing_ocr', 'validating', 'aguardando_conformidade'];
+
+// Nota que seguiu adiante no fluxo (ja nao esta aguardando rubrica nem em processamento): sai da fila.
+// Mexe so na linha e no contador, sem render(), que apagaria o que foi digitado nas outras linhas.
+function removerLinhaLoteNoDom(id) {
+    state.uploadLoteQueue = (state.uploadLoteQueue || []).filter(d => d.id !== id);
+    const linha = document.getElementById(`lote-linha-${id}`);
+    if (linha && linha.remove) linha.remove();
+    const titulo = document.getElementById('lote-fila-titulo');
+    if (titulo) titulo.textContent = `2. Fila de documentos (${state.uploadLoteQueue.length})`;
+}
+
+// Tempo real: um documento da fila mudou de status e este navegador nao esta enviando.
 // Nao le nem altera banco; so usa o que o canal ja entrega.
 function registrarMudancaDocumentoNoLote(novo) {
     if (state.currentView !== 'upload_lote' || !novo || novo.excluido_em) return;
@@ -2327,7 +2342,12 @@ function registrarMudancaDocumentoNoLote(novo) {
     const fora = state.uploadLoteProcessandoFora;
     const antes = !!fora[novo.id];
     if (novo.status === 'aguardando_rubrica') delete fora[novo.id];
-    else fora[novo.id] = true;
+    else if (STATUS_LOTE_PROCESSANDO.includes(novo.status)) fora[novo.id] = true;
+    else {
+        delete fora[novo.id];
+        removerLinhaLoteNoDom(novo.id);
+        return;
+    }
     if (antes !== !!fora[novo.id]) atualizarLinhaLoteNoDom(novo.id);
 }
 
@@ -2352,7 +2372,7 @@ const UploadLoteView = () => {
                 </p>
                 ${segmentosLoteHtml(estadosSegmentos)}
                 <p class="text-xs" style="color: var(--text-secondary); margin-top: 0.5rem;">Concluídos: ${enviadosEnvio.length}.${progresso.falhas > 0 ? ` Com falha: ${progresso.falhas}.` : ''}</p>
-                <p class="text-xs" style="color: var(--text-muted); margin-top: 0.35rem;">Mantenha esta página aberta até terminar. Se você sair ou atualizar, os documentos que ainda não foram enviados continuam na fila e podem ser processados de novo.</p>
+                <p class="text-xs" style="color: var(--text-muted); margin-top: 0.35rem;">Mantenha esta página aberta até terminar o envio. Depois que o último documento for enviado você pode sair: o processamento continua no servidor e as notas aparecem como Processando. Se sair antes, os documentos que ainda não foram enviados continuam na fila e podem ser processados de novo.</p>
             </div>
     ` : '';
     const uploadArquivos = state.uploadArquivosProgresso;
@@ -2427,7 +2447,7 @@ ${Sidebar()}
 
             <div class="card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                    <h3 class="h2" style="margin: 0;">2. Fila aguardando rubrica (${fila.length})</h3>
+                    <h3 class="h2" style="margin: 0;" id="lote-fila-titulo">2. Fila de documentos (${fila.length})</h3>
                     ${fila.length > 0 ? `
                         <button class="btn btn-primary" onclick="window.handleProcessarTodosLote()" ${state.loading || enviando ? 'disabled' : ''}>
                             <i data-lucide="play" style="width: 16px;"></i> Processar todos preenchidos
@@ -10103,14 +10123,23 @@ async function fetchUploadLoteQueue() {
         .from('documents')
         .select('*')
         .eq('user_id', state.user.id)
-        .eq('status', 'aguardando_rubrica')
+        .in('status', ['aguardando_rubrica', ...STATUS_LOTE_PROCESSANDO])
         .is('excluido_em', null)
         .order('name', { ascending: true });
     if (error) {
         console.error("Erro fetchUploadLoteQueue:", error);
         return;
     }
-    let fila = data || [];
+    // #153: alem de quem espera rubrica, a fila mostra as notas ja enviadas que a retaguarda ainda
+    // processa (status vindo do banco). Nota parada ha mais de MINUTOS_TRAVADO nao e "processando":
+    // fica fora para nao ficar presa na tela para sempre.
+    const processandoNoServidor = {};
+    let fila = (data || []).filter(d => {
+        if (d.status === 'aguardando_rubrica') return true;
+        if (estaTravado(d)) return false;
+        processandoNoServidor[d.id] = true;
+        return true;
+    });
     // Durante "Processar todos" o banco ainda nao tem a rubrica digitada das linhas pendentes, e uma
     // leitura iniciada antes de um documento ser gravado pode devolver esse documento ja enviado.
     // Entao: a rubrica digitada volta para quem segue na selecao e quem ja foi enviado nao reaparece (#153).
@@ -10120,12 +10149,12 @@ async function fetchUploadLoteQueue() {
         const ids = new Set(progresso.ids || []);
         const digitadas = progresso.rubricas || {};
         fila = fila
-            .filter(d => !enviados.has(d.id))
+            .filter(d => !(enviados.has(d.id) && d.status === 'aguardando_rubrica'))
             .map(d => (ids.has(d.id) && digitadas[d.id]) ? { ...d, ...digitadas[d.id] } : d);
     }
     state.uploadLoteQueue = fila;
-    // O banco so devolve aguardando_rubrica: quem estava marcado como processando fora ja nao esta aqui.
-    state.uploadLoteProcessandoFora = {};
+    // Quem esta em processamento no servidor aparece como Processando; o resto zera.
+    state.uploadLoteProcessandoFora = processandoNoServidor;
 }
 window.fetchUploadLoteQueue = fetchUploadLoteQueue;
 
@@ -10331,16 +10360,23 @@ window.handleLoteFilesSelected = async function (fileList) {
         atualizarProgressoUploadLoteNoDom();
     };
 
-    const resultados = await Promise.allSettled(
-        arquivos.map((file, i) => subirParaStorage(file, projectId, {
-            status: 'aguardando_rubrica',
-            rubrica: null,
-            tipo_documento: 'nf'
-        }).then(
-            r => { marcarArquivo(i, 'ok'); return r; },
-            e => { marcarArquivo(i, 'falha'); throw e; }
-        ))
-    );
+    // Os arquivos saem deste navegador: sair ou atualizar interrompe o envio. O aviso vale so ate o ultimo terminar.
+    window.addEventListener('beforeunload', avisarSaidaDuranteEnvioLote);
+    let resultados;
+    try {
+        resultados = await Promise.allSettled(
+            arquivos.map((file, i) => subirParaStorage(file, projectId, {
+                status: 'aguardando_rubrica',
+                rubrica: null,
+                tipo_documento: 'nf'
+            }).then(
+                r => { marcarArquivo(i, 'ok'); return r; },
+                e => { marcarArquivo(i, 'falha'); throw e; }
+            ))
+        );
+    } finally {
+        window.removeEventListener('beforeunload', avisarSaidaDuranteEnvioLote);
+    }
 
     const sucessos = resultados.filter(r => r.status === 'fulfilled').length;
     const falhas = resultados.length - sucessos;

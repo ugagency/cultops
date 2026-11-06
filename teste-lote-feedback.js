@@ -28,6 +28,12 @@ const CODIGO = [
     bloco('window.showConfirmModal = function', FIM_WINDOW),
     bloco('window.closeConfirmModal = function', FIM_WINDOW),
     bloco('window.__execConfirmModal = function', FIM_WINDOW),
+    bloco('const MINUTOS_TRAVADO =', ';\n'),
+    bloco('const STATUS_INTERMEDIARIOS_TRAVAVEIS =', ';\n'),
+    bloco('function estaTravado(', FIM_FUNCAO),
+    bloco('function minutosParadoDoc(', FIM_FUNCAO),
+    bloco('const STATUS_LOTE_PROCESSANDO =', ';\n'),
+    bloco('function removerLinhaLoteNoDom(', FIM_FUNCAO),
     bloco('function estadoLinhaLote(', FIM_FUNCAO),
     bloco('const SELOS_LOTE = {', '\n};\n'),
     bloco('function seloLoteHtml(', FIM_FUNCAO),
@@ -62,7 +68,7 @@ const DIGITADO = { a: 'Hospedagem', b: 'Transporte', c: 'Hospedagem', d: '' };
 
 // opcoes: falhaEm (ids cujo update falha), ocrLanca (ids cujo dispararOcr lanca), fetchLanca, semDigitar (ids sem texto)
 function criarAmbiente(opcoes = {}) {
-    const fila = ['a', 'b', 'c', 'd'].map(id => ({ id, name: `nota-${id}.pdf`, file_path: `p1/${id}.pdf`, project_id: 'p1', size: '10 KB', valor: 100, rubrica: null, rubrica_id_fk: null }));
+    const fila = ['a', 'b', 'c', 'd'].map(id => ({ id, name: `nota-${id}.pdf`, file_path: `p1/${id}.pdf`, project_id: 'p1', size: '10 KB', valor: 100, rubrica: null, rubrica_id_fk: null, status: 'aguardando_rubrica' }));
     const updates = [];
     const toasts = [];
     const renders = [];
@@ -93,17 +99,20 @@ function criarAmbiente(opcoes = {}) {
         showToast: (m, t) => toasts.push({ m, t }),
         supabaseClient: {
             from: () => {
-                const op = { dados: null, id: null, leitura: false };
+                const op = { dados: null, id: null, leitura: false, statusIn: null };
                 const api = {
                     update(d) { op.dados = d; return api; },
                     select() { op.leitura = true; return api; },
                     is() { return api; },
+                    in(c, v) { if (c === 'status') op.statusIn = v; return api; },
                     order() { return api; },
                     eq(c, v) { op.id = v; return api; },
                     then(res, rej) {
                         // leitura da fila (fetchUploadLoteQueueReal): o banco nao tem a rubrica digitada
                         if (op.leitura) {
-                            const linhas = fila.filter(d => idsNoBanco.has(d.id)).map(d => ({ ...d, rubrica: null, rubrica_id_fk: null }));
+                            let linhas = fila.filter(d => idsNoBanco.has(d.id)).map(d => ({ ...d, rubrica: null, rubrica_id_fk: null }));
+                            linhas = linhas.concat(opcoes.extrasNoBanco || []);
+                            if (op.statusIn) linhas = linhas.filter(d => op.statusIn.includes(d.status));
                             return Promise.resolve({ data: linhas, error: null }).then(res, rej);
                         }
                         updates.push({ id: op.id, dados: op.dados });
@@ -493,6 +502,86 @@ async function teste(nome, fn) {
         await modal.onConfirm();
         deepEq(amb.updates.map(u => u.id), ['b', 'c']);
         deepEq(amb.ocr.chamadas, ['b', 'c']);
+    });
+
+    // ---- #153: status vindo do servidor ao reabrir a tela, e saida da tela durante o envio dos arquivos ----
+    const minutosAtras = (m) => new Date(Date.now() - m * 60000).toISOString();
+    const seloDe = (html, id) => (new RegExp(`<td id="lote-selo-${id}">(?:<span class="badge [a-z-]+">)?([^<]*)`).exec(html) || [])[1];
+
+    await teste('reabrir a tela: nota ja enviada e em processamento no servidor aparece como Processando e travada; parada ha mais de 30 min e as que seguiram adiante ficam fora', async () => {
+        const amb = criarAmbiente({
+            extrasNoBanco: [
+                { id: 'x1', name: 'enviada-1.pdf', file_path: 'p1/x1.pdf', project_id: 'p1', status: 'processing_ocr', updated_at: minutosAtras(2) },
+                { id: 'x2', name: 'enviada-2.pdf', file_path: 'p1/x2.pdf', project_id: 'p1', status: 'aguardando_conformidade', updated_at: minutosAtras(5) },
+                { id: 'x3', name: 'travada.pdf', file_path: 'p1/x3.pdf', project_id: 'p1', status: 'processing_ocr', updated_at: minutosAtras(90) },
+                { id: 'x4', name: 'adiante.pdf', file_path: 'p1/x4.pdf', project_id: 'p1', status: 'aguardando_d3', updated_at: minutosAtras(1) }
+            ]
+        });
+        await amb.ctx.fetchUploadLoteQueueReal();
+        deepEq(amb.state.uploadLoteQueue.map(d => d.id), ['a', 'b', 'c', 'd', 'x1', 'x2']);
+        deepEq(amb.state.uploadLoteProcessandoFora, { x1: true, x2: true });
+        const html = amb.ctx.UploadLoteView();
+        assert.strictEqual(seloDe(html, 'x1'), 'Processando');
+        assert.strictEqual(seloDe(html, 'x2'), 'Processando');
+        assert.strictEqual(seloDe(html, 'a'), '');
+        assert.ok(/handleProcessarLoteItem\('x1'\)" disabled/.test(html) && !/handleProcessarLoteItem\('a'\)" disabled/.test(html), 'botao Processar da linha travado so nas processando');
+        assert.ok(html.includes('2. Fila de documentos (6)'));
+    });
+
+    await teste('fim do "Processar todos": as notas recem-enviadas ja aparecem como Processando, sem esperar outra leitura', async () => {
+        const amb = criarAmbiente({
+            extrasNoBanco: [
+                { id: 'a', name: 'nota-a.pdf', file_path: 'p1/a.pdf', project_id: 'p1', status: 'processing_ocr', updated_at: minutosAtras(0) }
+            ]
+        });
+        amb.state.uploadLoteProgresso = {
+            ativo: true, total: 1, feitos: 1, falhas: 0, atual: null, ids: ['a'], enviados: ['a'],
+            rubricas: { a: { rubrica: 'Hospedagem', rubrica_id_fk: 'rub-1' } }
+        };
+        amb.idsNoBanco.delete('a'); // 'a' ja saiu de aguardando_rubrica
+        await amb.ctx.fetchUploadLoteQueueReal();
+        assert.ok(amb.state.uploadLoteQueue.some(d => d.id === 'a'), 'a enviada continua visivel');
+        assert.strictEqual(amb.state.uploadLoteProcessandoFora.a, true);
+    });
+
+    await teste('tempo real: nota que seguiu adiante no fluxo sai da fila (linha e contador), sem render', async () => {
+        const amb = criarAmbiente();
+        let removida = false; const titulo = { textContent: '' };
+        amb.ctx.document = { getElementById: (id) => id === 'lote-linha-b' ? { remove() { removida = true; }, querySelectorAll: () => [] } : (id === 'lote-fila-titulo' ? titulo : null) };
+        const renders = amb.renders.length;
+        amb.state.uploadLoteProcessandoFora = { b: true };
+        amb.ctx.registrarMudancaDocumentoNoLote({ id: 'b', status: 'aguardando_d3' });
+        assert.strictEqual(removida, true);
+        deepEq(amb.state.uploadLoteQueue.map(d => d.id), ['a', 'c', 'd']);
+        deepEq(amb.state.uploadLoteProcessandoFora, {});
+        assert.strictEqual(titulo.textContent, '2. Fila de documentos (3)');
+        assert.strictEqual(amb.renders.length, renders, 'nenhum render()');
+        // validating continua sendo processamento: nao sai da fila
+        amb.ctx.registrarMudancaDocumentoNoLote({ id: 'a', status: 'validating' });
+        assert.ok(amb.state.uploadLoteQueue.some(d => d.id === 'a'));
+        assert.strictEqual(amb.state.uploadLoteProcessandoFora.a, true);
+    });
+
+    await teste('envio dos arquivos: confirmacao de saida enquanto sobem e removida ao fim, inclusive com falha; mensagem nova na tela', async () => {
+        const amb = criarAmbiente();
+        amb.ctx.document = { getElementById: (id) => id === 'lote-project-selector' ? { value: 'p1' } : null };
+        let noMeio = null;
+        amb.ctx.subirParaStorage = async (file) => { noMeio = noMeio || amb.saida.map(x => x.acao); if (file.name === '2.pdf') throw new Error('rede'); return { id: file.name }; };
+        await amb.window.handleLoteFilesSelected([{ name: '1.pdf' }, { name: '2.pdf' }]);
+        deepEq(noMeio, ['add'], 'registrado antes de enviar');
+        deepEq(amb.saida.map(x => x.acao + ':' + x.tipo), ['add:beforeunload', 'remove:beforeunload']);
+        assert.strictEqual(amb.saida[0].fn, amb.saida[1].fn);
+        const html = amb.ctx.conteudoUploadArquivosHtml({ total: 2, concluidos: 1, falhas: 1, estados: ['ok', 'falha'] });
+        assert.ok(html.includes('Mantenha esta página aberta até terminar o envio dos arquivos'));
+    });
+
+    await teste('mensagem do envio em lote: manter aberta ate terminar o envio, depois pode sair e o processamento continua', async () => {
+        const amb = criarAmbiente();
+        let durante = '';
+        amb.ctx.dispararOcr = async (id) => { if (id === 'a') durante = amb.ctx.UploadLoteView(); };
+        await abrirEConfirmar(amb);
+        assert.ok(durante.includes('Mantenha esta página aberta até terminar o envio.'));
+        assert.ok(durante.includes('você pode sair: o processamento continua no servidor'));
     });
 
     // ---- #153 (interatividade): barra segmentada, contador por documento, aviso de saida, upload por arquivo ----
