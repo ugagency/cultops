@@ -1682,3 +1682,75 @@ optgroup option { font-weight: 400; color: var(--text-primary); }
 @supports (overflow: clip) {
     html, body { overflow-x: clip; }
 }
+
+/* ── Tela de detalhes da nota (#130): etapas clicáveis, painel da etapa e coluna lateral ── */
+.detalhe-cabecalho { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+.detalhe-etapas-card { padding: 1.25rem 1.5rem; }
+.detalhe-etapas-rolagem { overflow-x: auto; }
+.detalhe-etapas { display: flex; align-items: flex-start; min-width: 560px; }
+.detalhe-etapa {
+    flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 0.375rem;
+    background: transparent; border: 0; padding: 0.25rem 0.125rem; font: inherit; cursor: pointer; color: var(--text-secondary);
+    min-height: 44px; border-radius: var(--radius-sm);
+}
+.detalhe-etapa:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.detalhe-etapa-trilho { display: flex; align-items: center; width: 100%; }
+.detalhe-etapa-linha { flex: 1; height: 2px; background: var(--border-light); }
+.detalhe-etapa:first-child .detalhe-etapa-linha.antes,
+.detalhe-etapa:last-child .detalhe-etapa-linha.depois { background: transparent; }
+.detalhe-etapa.feita .detalhe-etapa-linha,
+.detalhe-etapa.atual .detalhe-etapa-linha.antes,
+.detalhe-etapa.erro .detalhe-etapa-linha.antes { background: var(--success); }
+.detalhe-etapa-circulo {
+    width: 32px; height: 32px; border-radius: 50%; box-sizing: border-box; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: #FFF; border: 2px solid var(--border-light); color: var(--text-muted);
+}
+.detalhe-etapa.feita .detalhe-etapa-circulo { background: var(--success); border-color: var(--success); color: #FFF; }
+.detalhe-etapa.atual .detalhe-etapa-circulo { background: var(--primary); border-color: var(--primary); color: #FFF; }
+.detalhe-etapa.erro .detalhe-etapa-circulo { background: var(--error); border-color: var(--error); color: #FFF; }
+.detalhe-etapa.vendo .detalhe-etapa-circulo { box-shadow: 0 0 0 3px #FFF, 0 0 0 5px var(--primary); }
+.detalhe-etapa-nome { font-size: 11px; font-weight: 600; text-align: center; }
+.detalhe-etapa.atual .detalhe-etapa-nome, .detalhe-etapa.vendo .detalhe-etapa-nome { color: var(--text-primary); font-weight: 700; }
+.detalhe-etapa.erro .detalhe-etapa-nome { color: var(--error); }
+.detalhe-etapa-tag { font-size: 10px; font-weight: 600; min-height: 13px; color: var(--primary); }
+.detalhe-etapa.erro .detalhe-etapa-tag { color: var(--error); }
+
+.detalhe-colunas { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-start; }
+.detalhe-coluna-principal { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 1.5rem; }
+.detalhe-coluna-lateral { flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 1.5rem; }
+
+.detalhe-painel { display: flex; flex-direction: column; gap: 1.25rem; }
+.detalhe-painel.atual { border: 2px solid var(--primary); }
+.detalhe-painel.atual.erro { border-color: var(--error); }
+.detalhe-painel-topo { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
+.detalhe-painel-tag { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.detalhe-painel-tag.atual { color: var(--primary); }
+.detalhe-painel-tag.erro { color: var(--error); }
+.detalhe-painel-tag.ok { color: var(--success); }
+.detalhe-situacao { color: var(--text-secondary); line-height: 1.5; margin: 0; }
+.detalhe-futura { background: var(--bg-sidebar); border-radius: var(--radius-sm); padding: 0.875rem 1rem; display: flex; flex-direction: column; gap: 0.25rem; }
+.detalhe-bloco { display: flex; flex-direction: column; gap: 0.5rem; }
+.detalhe-bloco-titulo { margin: 0; font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+/* Cartões que já existiam e agora ficam dentro do painel: sem sombra de cartão sobre cartão. */
+.detalhe-painel .card { box-shadow: none; margin-top: 0 !important; margin-bottom: 0 !important; }
+
+.detalhe-historico { border-top: 1px solid var(--border-subtle); padding-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.detalhe-historico-linha { display: flex; gap: 0.75rem; font-size: 12px; line-height: 1.5; }
+.detalhe-historico-quando { color: var(--text-secondary); width: 118px; flex-shrink: 0; }
+
+.detalhe-concluida { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.75rem 0; border-top: 1px solid var(--border-subtle); }
+
+.detalhe-previa-arquivo { height: 160px; background: var(--bg-sidebar); border: 1px solid var(--border-light); border-radius: var(--radius-sm); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.5rem; padding: 0 1rem; }
+.detalhe-metadados summary { cursor: pointer; color: var(--primary); font-weight: 600; min-height: 32px; display: flex; align-items: center; }
+
+@media (max-width: 768px) {
+    /* Celular: as 6 etapas cabem na largura, sem rolagem que esconda a etapa atual. */
+    .detalhe-etapas-card { padding: 1rem 0.75rem; }
+    .detalhe-etapas { min-width: 0; }
+    .detalhe-etapa-circulo { width: 26px; height: 26px; }
+    .detalhe-etapa-nome { font-size: 9px; line-height: 1.2; overflow-wrap: anywhere; }
+    .detalhe-etapa-tag { font-size: 9px; }
+    .detalhe-historico-linha { flex-direction: column; gap: 0.125rem; }
+    .detalhe-historico-quando { width: auto; }
+}

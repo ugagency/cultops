@@ -3668,46 +3668,30 @@ ${Sidebar()}
     const flashClass = state.flashDocumentSwitch ? ' details-flash' : '';
     state.flashDocumentSwitch = false;
 
-    return `
-${Sidebar()}
-    <main class="main-content view-content${flashClass}">
-        <header class="content-header" style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 1rem;">
-            <div style="display: flex; align-items: center; gap: 1rem; min-width: 0;">
-                <button class="btn btn-secondary" onclick="window.navigate('dashboard')" style="padding: 0.5rem; flex-shrink: 0;">
-                    <i data-lucide="arrow-left" style="width: 18px;"></i>
-                </button>
-                <div style="min-width: 0;">
-                    <h1>Detalhes da Nota</h1>
-                    <p class="page-subtitle" style="overflow-wrap: anywhere;">${doc.name}</p>
-                </div>
-            </div>
-            <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; flex-shrink: 0;">
-                <div class="badge ${(STATUS_MAP[doc.status] || {}).class || 'status-pending'}">
-                    <span class="badge-dot"></span>
-                    ${(STATUS_MAP[doc.status] || {}).label || doc.status}
-                </div>
-                ${userPodeBaixarLaudo() ? `
-                <button class="btn btn-secondary" title="Baixar Laudo Excel desta NF" onclick="window.generateLaudoExcelDoc('${doc.id}')">
-                    <i data-lucide="file-spreadsheet" style="width: 16px;"></i>
-                    Baixar Laudo
-                </button>
-                ` : ''}
-            </div>
-        </header>
+    // ── Tela nova (#130): etapas clicáveis, painel da etapa e coluna lateral ──
+    // Só muda ONDE cada bloco aparece. Condições, permissões, travas e handlers são os de antes.
+    // Regra de posição: todo bloco com ação aparece no painel da etapa ATUAL da nota (é o que
+    // abre por padrão); nos painéis de etapas concluídas os mesmos blocos ficam só de leitura,
+    // porque as condições deles dependem do status.
+    const EtapasMod = window.DetalheEtapas;
+    const etapaInfo = EtapasMod
+        ? EtapasMod.etapaDoStatus(doc.status)
+        : { atual: activeIndex, erro: errorAtStep !== -1, concluida: ['enviado_salic', 'concluido'].includes(doc.status) };
+    state.detalheEtapa = EtapasMod ? EtapasMod.resolverVista(state.detalheEtapa, doc) : { docId: doc.id, status: doc.status, vista: null };
+    const etapaAtual = etapaInfo.atual;
+    const etapaVista = EtapasMod ? EtapasMod.indiceVisto(state.detalheEtapa, doc) : etapaAtual;
+    const vendoAtual = etapaVista === etapaAtual;
+    const etapaFutura = etapaVista > etapaAtual;
+    const infoStatus = STATUS_MAP[doc.status] || {};
 
-        <!-- NOVO: Descritivo de Esteira -->
-        <div class="card mb-4" style="background: rgba(37, 99, 235, 0.03); border-left: 4px solid var(--primary); padding: 1.25rem;">
-            <div style="display: flex; gap: 1rem; align-items: flex-start;">
-                <div style="background: var(--primary); color: white; padding: 0.5rem; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
-                    <i data-lucide="info" style="width: 18px;"></i>
-                </div>
-                <div>
-                    <h4 style="font-size: 14px; margin-bottom: 0.25rem; font-weight: 700; color: var(--text-primary);">Ponto da Esteira: ${(STATUS_MAP[doc.status] || {}).label}</h4>
-                    <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.5;">${(STATUS_MAP[doc.status] || {}).description || 'O documento está seguindo o fluxo normal de processamento.'}</p>
-                </div>
-            </div>
-        </div>
+    // Onde fica cada bloco que pode trazer ação.
+    const painelConciliacao = doc.status === 'aguardando_comprovante' ? 3 : 4;
+    const painelParecer = etapaInfo.erro ? etapaAtual : 2;
+    const painelRubrica = (doc.status === 'erro_rpa' && window.ErrosRpa.permiteCorrigirRubrica(doc.just_erro)) ? 5 : 2;
+    const blocoPagamento = PagamentoNotaSection(doc);
+    const painelPagamento = doc.status === 'erro_rpa' ? 5 : (etapaAtual < painelConciliacao ? etapaAtual : painelConciliacao);
 
+    const blocoAlertas = `
         ${estaTravado(doc) ? `
         <div class="card mb-4" style="background: #FEF2F2; border-left: 4px solid #DC2626; padding: 1.25rem;">
             <div style="display: flex; gap: 1rem; align-items: center; justify-content: space-between; flex-wrap: wrap;">
@@ -3742,64 +3726,6 @@ ${Sidebar()}
             </div>
         </div>
         ` : ''}
-
-        <div class="card mb-4" style="padding: 2rem;">
-            <div style="display: flex; justify-content: space-between; position: relative;">
-                ${(() => {
-        const progressPercent = steps.length > 1 ? (activeIndex / (steps.length - 1)) * 100 : 0;
-        return `<div style="position: absolute; top: 15px; left: 40px; right: 40px; height: 2px; background: linear-gradient(to right, var(--success) ${progressPercent}%, var(--border-subtle) ${progressPercent}%); z-index: 1;"></div>`;
-    })()}
-                ${steps.map((step, index) => {
-        let statusClass = '';
-        if (errorAtStep !== -1) {
-            if (index < errorAtStep) statusClass = 'completed';
-            else if (index === errorAtStep) statusClass = 'error';
-            else statusClass = '';
-        } else if (activeIndex === -1) {
-            statusClass = index === 0 ? 'completed' : 'error';
-        } else {
-            statusClass = index === activeIndex ? 'active' : (index < activeIndex ? 'completed' : '');
-        }
-
-        const isActive = statusClass === 'active';
-        const isCompleted = statusClass === 'completed';
-        const isError = statusClass === 'error';
-
-        let color = 'var(--text-muted)';
-        let bg = '#FFF';
-        let border = 'var(--border-light)';
-        let icon = step.icon;
-
-        if (isCompleted) {
-            color = '#FFF';
-            bg = 'var(--success)';
-            border = 'var(--success)';
-            icon = 'check';
-        } else if (isActive) {
-            color = '#FFF';
-            bg = 'var(--primary)';
-            border = 'var(--primary)';
-        } else if (isError) {
-            color = '#FFF';
-            bg = 'var(--error)';
-            border = 'var(--error)';
-            icon = 'x';
-        }
-
-        return `
-                <div style="position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; flex: 1;">
-                    <div style="width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: ${bg}; border: 2px solid ${border}; color: ${color}; transition: var(--transition);">
-                        <i data-lucide="${icon}" style="width: 14px;"></i>
-                    </div>
-                    <span style="font-size: 11px; font-weight: 600; color: ${isError ? 'var(--error)' : (isActive ? 'var(--primary)' : 'var(--text-secondary)')}">${step.label}</span>
-                </div>
-                `;
-    }).join('')}
-            </div>
-        </div>
-
-        ${AprovacaoFornecedorSection(doc)}
-
         ${(() => {
         const dup = duplicidadeInfo(doc);
         if (!dup) return '';
@@ -3867,9 +3793,27 @@ ${Sidebar()}
             </div>
         </div>`;
     })()}
+                    ${state.guiaDuplicataM2 ? `
+                    <div style="margin-bottom: 1.5rem; padding: 1rem; background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: var(--radius-sm);">
+                        <p style="font-size: 12px; font-weight: 700; color: #1D4ED8; margin-bottom: 0.5rem;">
+                            <i data-lucide="link-2" style="width: 14px; vertical-align: -2px;"></i>
+                            Esta guia já está cadastrada no Módulo II como não paga
+                        </p>
+                        <p class="text-xs" style="color: var(--text-secondary); margin-bottom: 0.875rem; line-height: 1.5;">
+                            Competência ${escAttr(state.guiaDuplicataM2.competencia)}, vencimento ${state.guiaDuplicataM2.data_vencimento ? _laudoFmtDate(state.guiaDuplicataM2.data_vencimento) : '—'}.
+                            Deseja marcar essa guia do Módulo II como paga (e apagar o registro duplicado criado agora), ou são guias diferentes mesmo?
+                        </p>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 12px;" onclick="window.handleConsolidarGuiaM2('${state.guiaDuplicataM2.id}')" ${state.loading ? 'disabled' : ''}>
+                                Sim, consolidar
+                            </button>
+                            <button class="btn btn-secondary" style="padding: 0.5rem 1rem; font-size: 12px;" onclick="window.handleIgnorarGuiaDuplicadaM2('${state.guiaDuplicataM2.id}')">
+                                Não, são guias diferentes
+                            </button>
+                        </div>
+                    </div>` : ''}`;
 
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 1.5rem;">
-            <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+    const cardDadosExtraidos = `
                 <div class="card">
                     ${(() => {
         // Edição manual: liberada enquanto o documento ainda não foi declarado
@@ -3957,7 +3901,9 @@ ${Sidebar()}
                     </div>
                     `}`;
     })()}
+                </div>`;
 
+    const blocoCamposPendentes = `
                     ${camposPendentes.algum ? `
                     <div style="margin-top: 1.5rem; padding: 1rem; background: #FFFBEB; border: 1px solid #FDE68A; border-radius: var(--radius-sm);">
                         <p style="font-size: 12px; font-weight: 700; color: #92400E; margin-bottom: 0.875rem;">⚠️ Campos pendentes — preencher manualmente</p>
@@ -3991,30 +3937,11 @@ ${Sidebar()}
                                 Salvar campos
                             </button>
                         </div>
-                    </div>` : ''}
+                    </div>` : ''}`;
 
-                    ${state.guiaDuplicataM2 ? `
-                    <div style="margin-top: 1.5rem; padding: 1rem; background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: var(--radius-sm);">
-                        <p style="font-size: 12px; font-weight: 700; color: #1D4ED8; margin-bottom: 0.5rem;">
-                            <i data-lucide="link-2" style="width: 14px; vertical-align: -2px;"></i>
-                            Esta guia já está cadastrada no Módulo II como não paga
-                        </p>
-                        <p class="text-xs" style="color: var(--text-secondary); margin-bottom: 0.875rem; line-height: 1.5;">
-                            Competência ${esc(state.guiaDuplicataM2.competencia)}, vencimento ${state.guiaDuplicataM2.data_vencimento ? _laudoFmtDate(state.guiaDuplicataM2.data_vencimento) : '—'}.
-                            Deseja marcar essa guia do Módulo II como paga (e apagar o registro duplicado criado agora), ou são guias diferentes mesmo?
-                        </p>
-                        <div style="display: flex; gap: 0.5rem;">
-                            <button class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 12px;" onclick="window.handleConsolidarGuiaM2('${state.guiaDuplicataM2.id}')" ${state.loading ? 'disabled' : ''}>
-                                Sim, consolidar
-                            </button>
-                            <button class="btn btn-secondary" style="padding: 0.5rem 1rem; font-size: 12px;" onclick="window.handleIgnorarGuiaDuplicadaM2('${state.guiaDuplicataM2.id}')">
-                                Não, são guias diferentes
-                            </button>
-                        </div>
-                    </div>` : ''}
-
-                    <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-subtle);">
-                        <label>Rubrica Orçamentária</label>
+    const blocoRubrica = `
+                    <div class="detalhe-bloco">
+                        <h4 class="detalhe-bloco-titulo">Rubrica Orçamentária</h4>
                         <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem; padding: 1rem; background: var(--bg-sidebar); border-radius: var(--radius-sm); border: 1px solid var(--border-light);">
                             <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
                                 <i data-lucide="tag" style="width: 16px; color: var(--primary);"></i>
@@ -4038,11 +3965,11 @@ ${Sidebar()}
                                 <p class="text-xs" style="color: var(--text-muted); margin-top: 0.25rem;">Vínculo de rubrica validado automaticamente para conformidade fiscal.</p>
                             `}
                         </div>
-                    </div>
-                </div>
+                    </div>`;
 
-                <div class="card">
-                    <h3 class="h2 mb-4">Parecer da Análise</h3>
+    const blocoParecer = `
+                <div class="detalhe-bloco">
+                    <h4 class="detalhe-bloco-titulo">Parecer da Análise</h4>
                     <div style="padding: 1rem; background: ${doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') ? 'rgba(239, 68, 68, 0.05)' : 'var(--bg-sidebar)'}; border-radius: var(--radius-sm); border-left: 3px solid ${doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') ? 'var(--error)' : (doc.justification ? 'var(--success)' : 'var(--primary)')};">
                         <p class="text-sm" style="line-height: 1.6; color: var(--text-primary);">
                             ${doc.status.includes('bloqueado') || doc.status.includes('divergencia') || doc.status === 'revisao_manual' || (doc.status === 'aguardando_conformidade' && doc.just_erro) ?
@@ -4067,19 +3994,13 @@ ${Sidebar()}
                         </button>
                     </div>
                     ` : ''}
-                </div>
-            </div>
+                </div>`;
 
-            <div style="display: flex; flex-direction: column; gap: 1.5rem;">
-                <div class="card">
-                    <h3 class="h2 mb-4">Fluxo de Conciliação</h3>
-                    <div style="display: flex; flex-direction: column; gap: 1rem;">
-                        
-                        
+    const boxExtrato = (incluirPagamento) => `
                         <!-- Box do Extrato -->
                         <div style="padding: 1rem; border: 1px dashed ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'var(--error)' : 'var(--border-light)'}; border-radius: var(--radius-sm); background: ${jaPassouDaConciliacao ? bgPosConciliacao : (doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'rgba(239, 68, 68, 0.05)' : (doc.extrato_origem_id && ['aguardando_comprovante', 'aguardando_conciliacao_bancaria'].includes(doc.status)) ? 'rgba(16, 185, 129, 0.05)' : 'transparent'};">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                                <span class="text-xs" style="font-weight: 600; text-transform: uppercase; color: ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'var(--error)' : 'inherit'};">1. Extrato Bancário</span>
+                                <span class="text-xs" style="font-weight: 600; text-transform: uppercase; color: ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'var(--error)' : 'inherit'};">Extrato Bancário</span>
                                 ${seloExtratoHtml(doc)}
                                 ${jaPassouDaConciliacao ? `<i data-lucide="check-circle-2" style="width: 16px; color: ${corPosConciliacao};"></i>` : (doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? '<i data-lucide="x-circle" style="width: 16px; color: var(--error);"></i>' : (doc.extrato_origem_id && ['aguardando_comprovante', 'aguardando_conciliacao_bancaria'].includes(doc.status)) ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>'}
                             </div>
@@ -4119,13 +4040,14 @@ ${Sidebar()}
                     `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando liberação...</p>`))
         }
                             ${btnVerExtrato}
-                            ${PagamentoNotaSection(doc)}
-                        </div>
+                            ${incluirPagamento ? blocoPagamento : ''}
+                        </div>`;
 
+    const boxComprovante = `
                         <!-- Box do Comprovante -->
                         <div style="padding: 1rem; border: 1px dashed var(--border-light); border-radius: var(--radius-sm); background: ${doc.data_pagamento || jaPassouDaConciliacao || state.currentComprovante ? 'rgba(16, 185, 129, 0.05)' : 'transparent'};">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                                <span class="text-xs" style="font-weight: 600; text-transform: uppercase;">2. Comprovante (Opcional)</span>
+                                <span class="text-xs" style="font-weight: 600; text-transform: uppercase;">Comprovante (Opcional)</span>
                                 ${doc.data_pagamento || jaPassouDaConciliacao || state.currentComprovante ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : (state.isUploadingComprovante ? '<i data-lucide="loader" class="spin" style="width: 16px; color: var(--primary);"></i>' : '<i data-lucide="clock" style="width: 16px; color: ' + (doc.status === 'aguardando_conciliacao_bancaria' ? 'var(--text-muted)' : 'var(--warning)') + ';"></i>')}
                             </div>
                             ${(doc.data_pagamento || jaPassouDaConciliacao || state.currentComprovante) ?
@@ -4151,12 +4073,13 @@ ${Sidebar()}
                         `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Etapa opcional. Nenhum comprovante enviado.</p>` :
                         `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando etapa anterior para liberar upload...</p>`)))
         }
-                        </div>
+                        </div>`;
 
+    const boxSalic = `
                         <!-- Box do SALIC -->
                         <div style="padding: 1rem; border: 1px dashed var(--border-light); border-radius: var(--radius-sm); background: ${['enviado_salic', 'concluido'].includes(doc.status) ? 'rgba(5, 150, 105, 0.05)' : 'transparent'};">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                                <span class="text-xs" style="font-weight: 600; text-transform: uppercase;">3. Portal SALIC</span>
+                                <span class="text-xs" style="font-weight: 600; text-transform: uppercase;">Portal SALIC</span>
                                 ${['enviado_salic', 'concluido'].includes(doc.status) ? '<i data-lucide="check-circle-2" style="width: 16px; color: var(--success);"></i>' : (doc.status === 'erro_rpa' ? '<i data-lucide="alert-circle" style="width: 16px; color: var(--error);"></i>' : '<i data-lucide="clock" style="width: 16px; color: var(--warning);"></i>')}
                             </div>
                             ${fornecedorPodeNaoEstarNoSalic ? `
@@ -4201,35 +4124,229 @@ ${Sidebar()}
                     `<p class="text-xs" style="color: var(--text-muted); font-style: italic;">Aguardando liberação financeira (D+3)...</p>`))
         }
                             ${renderSaldoBadgeDestaque(doc.rubrica_id_fk)}
-                        </div>
+                        </div>`;
 
+    // Resumo de cada etapa já concluída, só com o que a tela já carregou.
+    const qtdCamposLidos = ['cnpj', 'nome', 'valor', 'data', 'numero'].filter(k => !camposPendentes[k]).length;
+    const nomeRubricaTexto = doc.rubrica || (rubricaVinculada && rubricaVinculada.nome) || '';
+    const lancDaNota = state.currentExtrato?.lancamentoDaNota || null;
+    const resumoEtapa = (i) => {
+        if (i === 0) return `Arquivo ${escAttr(doc.name)} recebido em ${fmtDataHoraExclusao(doc.created_at)}.`;
+        if (i === 1) return `Leitura concluída: ${qtdCamposLidos} de 5 campos encontrados.`;
+        if (i === 2) return `${doc.justification ? 'Aprovada na auditoria.' : 'Auditoria concluída.'}${nomeRubricaTexto ? ' Rubrica: ' + escAttr(nomeRubricaTexto) + '.' : ''}`;
+        if (i === 3) return state.currentComprovante ? `Comprovante ${escAttr(state.currentComprovante.name)} anexado.` : 'Sem comprovante (etapa opcional).';
+        if (i === 4) return lancDaNota
+            ? `Pagamento conciliado: lançamento de ${fmtDataExtrato(lancDaNota.data_lancamento)}, ${fmtValorExtrato(Math.abs(Number(lancDaNota.valor) || 0))}.`
+            : 'Pagamento conciliado.';
+        return '';
+    };
+
+    // Histórico (só leitura) das mudanças de status, vindo do audit_log na carga da nota.
+    const historicoEtapa = (EtapasMod && state.historicoDoc && state.historicoDoc.docId === doc.id && Array.isArray(state.historicoDoc.linhas))
+        ? EtapasMod.historicoPorEtapa(state.historicoDoc.linhas, (s) => (STATUS_MAP[s] || {}).label || s)[etapaVista] || []
+        : [];
+
+    const etapasHtml = steps.map((step, i) => {
+        const feita = i < etapaAtual || (i === etapaAtual && etapaInfo.concluida);
+        const atual = i === etapaAtual && !etapaInfo.concluida;
+        const erro = i === etapaAtual && etapaInfo.erro;
+        const vendo = i === etapaVista;
+        const classes = ['detalhe-etapa', feita ? 'feita' : '', atual ? 'atual' : '', erro ? 'erro' : '', vendo ? 'vendo' : ''].filter(Boolean).join(' ');
+        const estado = feita ? 'concluída' : (atual ? (erro ? 'etapa atual, requer atenção' : 'etapa atual') : 'ainda não começou');
+        const icone = erro ? 'x' : (feita ? 'check' : step.icon);
+        const tag = i === etapaAtual ? (etapaInfo.concluida ? 'Concluída' : 'Etapa atual') : (vendo ? 'Vendo agora' : '');
+        return `
+                <button type="button" class="${classes}" onclick="window.verEtapaDetalhe(${i})" aria-label="Etapa ${i + 1}, ${step.label}, ${estado}"${i === etapaAtual ? ' aria-current="step"' : ''}>
+                    <span class="detalhe-etapa-trilho"><span class="detalhe-etapa-linha antes"></span><span class="detalhe-etapa-circulo"><i data-lucide="${icone}" style="width: 14px;"></i></span><span class="detalhe-etapa-linha depois"></span></span>
+                    <span class="detalhe-etapa-nome">${step.label}</span>
+                    <span class="detalhe-etapa-tag">${tag}</span>
+                </button>`;
+    }).join('');
+
+    const tagPainel = etapaVista === etapaAtual
+        ? (etapaInfo.concluida ? 'Concluída' : (etapaInfo.erro ? 'Etapa atual · requer atenção' : 'Etapa atual'))
+        : (etapaVista < etapaAtual ? 'Concluída' : 'Ainda não começou');
+    const classeTagPainel = etapaVista === etapaAtual ? (etapaInfo.erro ? 'erro' : (etapaInfo.concluida ? 'ok' : 'atual')) : '';
+
+    const conteudoPainel = (i) => {
+        if (i === 0) return `
+                        <div class="detalhe-bloco">
+                            <h4 class="detalhe-bloco-titulo">Arquivo recebido</h4>
+                            <p class="text-sm" style="overflow-wrap: anywhere;">${escAttr(doc.name)} · enviado em ${fmtDataHoraExclusao(doc.created_at)}</p>
+                            <p class="text-xs" style="color: var(--text-secondary);">O arquivo original fica sempre disponível na coluna ao lado.</p>
+                        </div>
+                        ${painelPagamento === 0 && blocoPagamento ? `<div class="detalhe-bloco">${blocoPagamento}</div>` : ''}`;
+        if (i === 1) return `
+                        <div class="detalhe-bloco">
+                            <h4 class="detalhe-bloco-titulo">Leitura automática</h4>
+                            <p class="text-sm">${['processing_ocr', 'validating'].includes(doc.status) ? 'A leitura do documento está em andamento.' : `Campos encontrados: ${qtdCamposLidos} de 5.`}</p>
+                            <p class="text-xs" style="color: var(--text-secondary);">Os dados lidos aparecem ao lado. Se algo estiver errado, use Editar dados.</p>
+                        </div>
+                        ${blocoCamposPendentes}
+                        ${painelParecer === 1 ? blocoParecer : ''}
+                        ${painelPagamento === 1 && blocoPagamento ? `<div class="detalhe-bloco">${blocoPagamento}</div>` : ''}`;
+        if (i === 2) return `
+                        ${AprovacaoFornecedorSection(doc)}
+                        ${painelRubrica === 2 ? blocoRubrica : ''}
+                        ${painelParecer === 2 ? blocoParecer : ''}
+                        ${painelPagamento === 2 && blocoPagamento ? `<div class="detalhe-bloco">${blocoPagamento}</div>` : ''}`;
+        if (i === 3) return `
+                        <div class="detalhe-bloco">
+                            <h4 class="detalhe-bloco-titulo">Rubrica e saldo</h4>
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <i data-lucide="tag" style="width: 16px; color: var(--primary);"></i>
+                                ${blocoNomeRubricaDoc}
+                            </div>
+                            ${renderSaldoBadgeDestaque(doc.rubrica_id_fk)}
+                        </div>
+                        ${boxComprovante}
+                        ${painelConciliacao === 3 ? boxExtrato(painelPagamento === 3) : ''}
+                        ${painelConciliacao === 3 ? ExtratoBancarioSection(doc) : ''}`;
+        if (i === 4) return `
+                        ${painelConciliacao === 4 ? boxExtrato(painelPagamento === 4) : ''}
+                        ${painelParecer === 4 ? blocoParecer : ''}
+                        ${painelConciliacao === 4 ? ExtratoBancarioSection(doc) : ''}`;
+        return `
+                        ${painelRubrica === 5 ? blocoRubrica : ''}
+                        ${painelParecer === 5 ? blocoParecer : ''}
+                        ${painelPagamento === 5 && blocoPagamento ? `<div class="detalhe-bloco">${blocoPagamento}</div>` : ''}
+                        ${boxSalic}`;
+    };
+
+    const painelHtml = `
+                <section class="card detalhe-painel${vendoAtual ? ' atual' : ''}${vendoAtual && etapaInfo.erro ? ' erro' : ''}">
+                    <div class="detalhe-painel-topo">
+                        <h2 class="h2" style="margin: 0;">${etapaVista + 1}. ${steps[etapaVista].label}</h2>
+                        <span class="detalhe-painel-tag ${classeTagPainel}">${tagPainel}</span>
                     </div>
+                    ${vendoAtual ? `<p class="text-sm detalhe-situacao">${infoStatus.description || 'O documento está seguindo o fluxo normal de processamento.'}</p>` : `
+                    <div><button type="button" class="btn btn-secondary" style="font-size: 12px;" onclick="window.verEtapaDetalhe(null)"><i data-lucide="corner-up-left" style="width: 14px;"></i> Voltar para a etapa atual</button></div>`}
+                    ${etapaFutura ? `
+                    <div class="detalhe-futura">
+                        <p class="text-sm" style="font-weight: 600;">Esta etapa ainda não começou</p>
+                        <p class="text-xs" style="color: var(--text-secondary);">Ela começa quando a etapa ${etapaVista} (${steps[etapaVista - 1].label}) terminar.</p>
+                    </div>` : conteudoPainel(etapaVista)}
+                    ${!etapaFutura && historicoEtapa.length ? `
+                    <div class="detalhe-historico">
+                        <h4 class="detalhe-bloco-titulo">Histórico desta etapa</h4>
+                        ${historicoEtapa.map(h => `
+                        <div class="detalhe-historico-linha">
+                            <span class="detalhe-historico-quando">${fmtDataHoraExclusao(h.quando)}</span>
+                            <span>${escAttr(h.texto)}${h.origem ? ` <span style="color: var(--text-muted);">(${escAttr(h.origem)})</span>` : ''}${h.motivo ? `<br><span style="color: var(--text-secondary);">Motivo: ${escAttr(h.motivo)}</span>` : ''}</span>
+                        </div>`).join('')}
+                    </div>` : ''}
+                </section>`;
+
+    const etapasConcluidas = steps.map((s, i) => i).filter(i => i < etapaAtual);
+    const concluidasHtml = etapasConcluidas.length ? `
+                <section class="card">
+                    <h3 class="h2 mb-2">Etapas concluídas</h3>
+                    ${etapasConcluidas.map(i => `
+                    <div class="detalhe-concluida">
+                        <div style="min-width: 0; flex: 1 1 240px;">
+                            <p class="text-sm" style="font-weight: 600;">${i + 1}. ${steps[i].label}</p>
+                            <p class="text-xs" style="color: var(--text-secondary); line-height: 1.5;">${resumoEtapa(i)}</p>
+                        </div>
+                        <button type="button" class="btn btn-secondary" style="font-size: 12px;" onclick="window.verEtapaDetalhe(${i})">Ver detalhes</button>
+                    </div>`).join('')}
+                </section>` : '';
+
+    const tituloNota = (doc.numero_nf || doc.nome_emissor)
+        ? `${doc.numero_nf ? 'Nº ' + escAttr(doc.numero_nf) : 'Documento'}${doc.nome_emissor ? ' · ' + escAttr(doc.nome_emissor) : ''}`
+        : 'Detalhes da Nota';
+    const linhaProjeto = [
+        doc.projects?.nome ? escAttr(doc.projects.nome) : '',
+        doc.projects?.pronac ? 'PRONAC ' + escAttr(doc.projects.pronac) : '',
+        nomeRubricaTexto ? 'Rubrica ' + escAttr(nomeRubricaTexto) : ''
+    ].filter(Boolean).join(' · ');
+
+    return `
+${Sidebar()}
+    <main class="main-content view-content${flashClass}">
+        <header class="content-header detalhe-cabecalho">
+            <div style="display: flex; align-items: flex-start; gap: 1rem; min-width: 0;">
+                <button class="btn btn-secondary" onclick="window.navigate('dashboard')" style="padding: 0.5rem; flex-shrink: 0;" aria-label="Voltar para Documentos" title="Voltar para Documentos">
+                    <i data-lucide="arrow-left" style="width: 18px;"></i>
+                </button>
+                <div style="min-width: 0;">
+                    <p class="text-xs" style="color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600;">Detalhes da Nota</p>
+                    <h1 style="overflow-wrap: anywhere;">${tituloNota}</h1>
+                    ${linhaProjeto ? `<p class="page-subtitle" style="overflow-wrap: anywhere;">${linhaProjeto}</p>` : ''}
                 </div>
+            </div>
+            <div class="badge ${infoStatus.class || 'status-pending'}" style="flex-shrink: 0;">
+                <span class="badge-dot"></span>
+                ${infoStatus.label || doc.status}
+            </div>
+        </header>
+
+        <div class="card mb-4 detalhe-etapas-card">
+            <div class="detalhe-etapas-rolagem"><div class="detalhe-etapas">${etapasHtml}
+            </div></div>
+            <p class="text-xs" style="color: var(--text-secondary); margin-top: 0.75rem;">Clique em uma etapa para ver o que aconteceu nela. A etapa atual fica sempre destacada.</p>
+        </div>
+
+        ${blocoAlertas}
+
+        <div class="detalhe-colunas">
+            <div class="detalhe-coluna-principal">
+                ${painelHtml}
+                ${concluidasHtml}
+            </div>
+
+            <div class="detalhe-coluna-lateral">
+                ${cardDadosExtraidos}
 
                 <div class="card">
                     <h3 class="h2 mb-4">Arquivo Original</h3>
-                    <div style="aspect-ratio: 3/4; background: var(--bg-sidebar); border-radius: var(--radius-sm); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; border: 1px solid var(--border-light);">
-                        <i data-lucide="file-text" style="width: 48px; color: var(--text-muted);"></i>
-                        <p class="text-xs" style="color: var(--text-muted);">${escAttr(doc.name)}</p>
+                    <div class="detalhe-previa-arquivo">
+                        <i data-lucide="file-text" style="width: 40px; color: var(--text-muted);"></i>
+                        <p class="text-xs" style="color: var(--text-muted); overflow-wrap: anywhere; text-align: center;">${escAttr(doc.name)}</p>
+                    </div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem;">
                         <button class="btn btn-secondary" data-bucket="documentos" data-path="${escAttr(caminhoStorage(doc.file_path))}" onclick="window.abrirArquivoDoStorage(this)">
                             Visualizar PDF
                         </button>
+                        ${extratoArquivo ? `
+                        <button class="btn btn-secondary" data-bucket="documentos" data-path="${escAttr(caminhoStorage(extratoArquivo))}" onclick="window.abrirArquivoDoStorage(this)">
+                            Visualizar extrato
+                        </button>` : ''}
                     </div>
                 </div>
 
                 <div class="card">
                     <h3 class="h2 mb-2">Metadados</h3>
                     <p class="text-xs mb-4">Dados em formato JSON gerados pelo OCR.</p>
-                    <div style="max-height: 200px; overflow: auto; background: #1e293b; color: #cbd5e1; padding: 1rem; border-radius: var(--radius-sm); font-family: monospace; font-size: 10px;">
-                        <pre style="margin: 0;">${JSON.stringify(doc.json_extraido || {}, null, 2)}</pre>
-                    </div>
+                    <details class="detalhe-metadados">
+                        <summary class="text-sm">Ver metadados</summary>
+                        <div style="max-height: 240px; overflow: auto; background: #1e293b; color: #cbd5e1; padding: 1rem; border-radius: var(--radius-sm); font-family: monospace; font-size: 10px; margin-top: 0.75rem;">
+                            <pre style="margin: 0;">${escAttr(JSON.stringify(doc.json_extraido || {}, null, 2))}</pre>
+                        </div>
+                    </details>
                 </div>
+
+                ${userPodeBaixarLaudo() ? `
+                <div class="card">
+                    <h3 class="h2 mb-2">Outras ações</h3>
+                    <button class="btn btn-secondary" style="width: 100%; justify-content: center;" title="Baixar Laudo Excel desta NF" onclick="window.generateLaudoExcelDoc('${doc.id}')">
+                        <i data-lucide="file-spreadsheet" style="width: 16px;"></i>
+                        Baixar Laudo (Excel)
+                    </button>
+                </div>` : ''}
             </div>
         </div>
-
-        ${ExtratoBancarioSection(doc)}
     </main>
     `;
+};
+
+// Tela de detalhes (#130): troca a etapa mostrada no painel. null volta para a etapa atual.
+// Só muda o que a tela mostra; nada é gravado.
+window.verEtapaDetalhe = function (indice) {
+    const doc = state.currentDocument;
+    if (!doc) return;
+    const vista = Number.isInteger(indice) ? indice : null;
+    state.detalheEtapa = { docId: doc.id, status: doc.status, vista };
+    render();
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -7609,9 +7726,29 @@ function assinaturaDaTelaDetalhes() {
         qtdRubricasDisponiveis: (state.rubricas_disponiveis || []).length,
         flags: [
             !!state.uploadConcluidoExtrato, !!state.isUploadingExtrato, !!state.isConciliandoExtrato, !!state.extratoEmLeitura, state.avisoLeituraExtrato ? state.avisoLeituraExtrato.tipo : '', !!state.uploadConcluidoComprovante,
-            !!state.isUploadingComprovante, !!state.isSalicRunning, !!state.atualizandoNota, !!state.loading
+            !!state.isUploadingComprovante, !!state.isSalicRunning, !!state.atualizandoNota, !!state.loading,
+            (state.historicoDoc?.linhas || []).length
         ]
     });
+}
+
+// #130: mudanças de status da nota no audit_log, em ordem cronológica. Erro devolve null.
+async function carregarHistoricoDaNota(docId) {
+    try {
+        const { data, error } = await supabaseClient
+            .from('audit_log')
+            .select('valor_anterior, valor_novo, origem, motivo, created_at')
+            .eq('tabela', 'documents')
+            .eq('registro_id', docId)
+            .eq('campo', 'status')
+            .order('created_at', { ascending: true })
+            .limit(200);
+        if (error) throw error;
+        return data || [];
+    } catch (err) {
+        console.error('[carregarHistoricoDaNota]', err);
+        return null;
+    }
 }
 
 // Numeração das cargas de detalhes: a que começou depois vale; uma silenciosa que terminou
@@ -7770,6 +7907,10 @@ async function fetchDocumentDetails(id, silent = false, opcoes = {}) {
             guiaNova = await buscarGuiaDuplicadaM2(data);
         }
 
+        // #130: mudanças de status da nota, para o "Histórico desta etapa" (só leitura).
+        // Falhou: null, e a tela simplesmente não mostra o bloco.
+        const historicoNovo = data ? await carregarHistoricoDaNota(data.id) : null;
+
         // Outra carga começou depois desta (ou o usuário saiu da nota numa atualização
         // silenciosa): descarta, a mais nova já cuida da tela.
         if (meuSeq !== _detalhesSeq) return;
@@ -7810,6 +7951,7 @@ async function fetchDocumentDetails(id, silent = false, opcoes = {}) {
         }
         state.currentDuplicata = duplicataNova;
         state.guiaDuplicataM2 = guiaNova;
+        state.historicoDoc = historicoNovo ? { docId: data.id, linhas: historicoNovo } : null;
         // O indicador "Atualizando a nota..." termina junto com a atualização forçada.
         if (opcoes.forcar) state.atualizandoNota = false;
         if (data && !silent) retomarLeituraDeExtratoDoProjeto(data); // sem await: nao atrasa a tela

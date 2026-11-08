@@ -992,7 +992,8 @@ const nota = (extra = {}) => ({ id: 'n1', project_id: 'p1', status: 'divergencia
     });
 
     await teste('#150: Parecer da Analise mostra a mensagem da validacao em aguardando_conformidade (so com just_erro)', async () => {
-        const ini = SRC.indexOf('<h3 class="h2 mb-4">Parecer da Análise</h3>');
+        // #130: o Parecer passou a ser um bloco dentro do painel da etapa (título h4)
+        const ini = SRC.indexOf('<h4 class="detalhe-bloco-titulo">Parecer da Análise</h4>');
         assert.ok(ini > 0);
         const marca = '<p class="text-sm" style="line-height: 1.6; color: var(--text-primary);">';
         const abre = SRC.indexOf(marca, ini);
