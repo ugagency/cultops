@@ -351,5 +351,30 @@ teste('reprocessar tudo: cada documento vai pelo caminho certo e o resto fica de
     for (const naoEntra of ['ocr-andando', 'conf-normal', 'rubrica', 'bloq', 'div', 'rpa', 'lib', 'env']) assert.ok(!todos.has(naoEntra), naoEntra);
 });
 
+// ── #159: aviso antigo (just_erro) na lista de Documentos do suporte ───────────────────
+// A regra mora no suporte.html (inline); o teste recorta o trecho e roda isolado.
+teste('#159: em Pronto para envio e Em carência o aviso antigo não pinta a linha nem aparece nela; nos demais continua', () => {
+    const html = require('fs').readFileSync(require('path').join(__dirname, 'suporte.html'), 'utf8').replace(/\r\n/g, '\n');
+    const i = html.indexOf('const STATUS_FINAIS_SUCESSO');
+    const j = html.indexOf('function renderDocumentos()', i);
+    assert.ok(i > 0 && j > i, 'regra não encontrada no suporte.html');
+    const erroAindaVale = new Function(html.slice(i, j) + '; return erroAindaVale;')();
+    const aviso = 'Há saída com o valor da nota, mas ela não pôde ser confirmada como o pagamento';
+    // caso real do documento 426: liberado, com o aviso da divergência de 29/10 ainda gravado
+    assert.strictEqual(erroAindaVale({ status: 'liberado_rpa_airtop', just_erro: aviso }), false);
+    assert.strictEqual(erroAindaVale({ status: 'aguardando_d3', just_erro: aviso }), false);
+    assert.strictEqual(erroAindaVale({ status: 'enviado_salic', just_erro: aviso }), false);
+    assert.strictEqual(erroAindaVale({ status: 'concluido', just_erro: aviso }), false);
+    // alerta de verdade continua valendo
+    for (const st of ['divergencia_beneficiario', 'divergencia_valor', 'bloqueado_conformidade', 'revisao_manual', 'erro_rpa', 'aguardando_conformidade', 'aguardando_conciliacao_bancaria']) {
+        assert.strictEqual(erroAindaVale({ status: st, just_erro: aviso }), true, st);
+    }
+    // sem texto não há aviso
+    assert.strictEqual(erroAindaVale({ status: 'divergencia_valor', just_erro: '' }), false);
+    assert.strictEqual(erroAindaVale({ status: 'liberado_rpa_airtop', just_erro: null }), false);
+    // na ficha o texto segue aparecendo, como histórico, nos status em que a lista o esconde
+    assert.ok(html.includes("Histórico de tentativa anterior:"), 'a ficha mostra o histórico');
+});
+
 console.log(`\n${ok} testes passaram, ${falhas} falharam.`);
 process.exit(falhas ? 1 : 0);
