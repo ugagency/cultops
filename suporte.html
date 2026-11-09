@@ -1652,13 +1652,17 @@
             ].join('');
         }
 
-        // documents.just_erro só é alerta ATUAL enquanto o documento não chegou a um estado
-        // final de sucesso. Em enviado_salic/concluido ele é registro histórico (erros de
-        // tentativas antigas, "[OVERRIDE] Gestor forçou avanço"): nunca é apagado, mas não
-        // deve marcar o documento como "precisa de atenção" nem aparecer em vermelho.
+        // documents.just_erro só é alerta ATUAL enquanto o documento não passou da conferência.
+        // Em enviado_salic/concluido ele é registro histórico (erros de tentativas antigas,
+        // "[OVERRIDE] Gestor forçou avanço"). Em aguardando_d3 e liberado_rpa_airtop também (#159):
+        // o documento já foi conciliado (inclusive com o pagamento informado à mão depois de uma
+        // divergência) e a mensagem da divergência anterior continua gravada. Nunca é apagado e
+        // segue na ficha como "Histórico de tentativa anterior", mas não marca o documento como
+        // "precisa de atenção" nem aparece em vermelho na lista. O status não muda.
         const STATUS_FINAIS_SUCESSO = ['enviado_salic', 'concluido'];
+        const STATUS_ERRO_E_HISTORICO = [...STATUS_FINAIS_SUCESSO, 'aguardando_d3', 'liberado_rpa_airtop'];
         function erroAindaVale(d) {
-            return !!d.just_erro && !STATUS_FINAIS_SUCESSO.includes(d.status);
+            return !!d.just_erro && !STATUS_ERRO_E_HISTORICO.includes(d.status);
         }
 
         function renderDocumentos() {
