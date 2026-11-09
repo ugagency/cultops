@@ -100,5 +100,16 @@ teste('origem desconhecida vira texto legível', () => {
     assert.strictEqual(E.rotuloOrigem(null), '');
 });
 
+teste('todo script local do index.html está publicado pelo vercel.json (senão dá 404 no ar e a tela quebra em silêncio)', () => {
+    const fs = require('fs');
+    const idx = fs.readFileSync(__dirname + '/index.html', 'utf8');
+    const vercel = JSON.parse(fs.readFileSync(__dirname + '/vercel.json', 'utf8'));
+    const publicados = vercel.builds.map(b => b.src);
+    const locais = [...idx.matchAll(/<script[^>]+src="([^":]+?\.js)(?:\?[^"]*)?"/g)].map(m => m[1]);
+    // config.js vem de uma rota do servidor (rewrite), não de arquivo estático
+    const faltando = locais.filter(f => f !== 'config.js' && !publicados.includes(f));
+    assert.deepStrictEqual(faltando, []);
+});
+
 console.log(`${ok} ok, ${falhas} falha(s)`);
 if (falhas) process.exit(1);
