@@ -4347,6 +4347,15 @@ window.verEtapaDetalhe = function (indice) {
     const vista = Number.isInteger(indice) ? indice : null;
     state.detalheEtapa = { docId: doc.id, status: doc.status, vista };
     render();
+    // O painel fica no alto da tela e os botões de "Ver detalhes" ficam abaixo dele. Sem isto,
+    // quem clica com a tela rolada (no celular, sempre) não vê o painel trocar. Só rola se o
+    // painel não estiver visível.
+    requestAnimationFrame(() => {
+        const painel = document.querySelector('.detalhe-painel');
+        if (!painel) return;
+        const topo = painel.getBoundingClientRect().top;
+        if (topo < 0 || topo > window.innerHeight * 0.5) painel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
