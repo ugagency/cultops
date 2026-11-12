@@ -113,6 +113,34 @@ teste('RUBRICA_NAO_ENCONTRADA_SALIC e RUBRICA_TELA_DIVERGENTE: só informar, sem
     }
 });
 
+teste('#184: reenvio so na tela para RUBRICA_NAO_ENCONTRADA_SALIC e RUBRICA_TELA_DIVERGENTE, fora do lote', () => {
+    const so = ['RUBRICA_NAO_ENCONTRADA_SALIC', 'RUBRICA_TELA_DIVERGENTE'];
+    for (const c of CODIGOS) {
+        const t = '[' + c + '] x';
+        assert.strictEqual(E.permiteReenviarSoNaTela(t), so.includes(c), c);
+        assert.strictEqual(E.MAPA[c].reenvioNaTela === true, so.includes(c), c);
+        if (so.includes(c)) {
+            assert.strictEqual(E.permiteReenviar(t), false, c + ': o catalogo de reenvio nao muda');
+            assert.strictEqual(E.permiteReenviarEmLote(t), false, c + ': o lote continua de fora');
+        }
+    }
+});
+
+teste('#184: sem prefixo, vazio, desconhecido ou [OVERRIDE] nao liberam reenvio so na tela', () => {
+    for (const t of ['Timeout navegando', '', null, undefined, '[CODIGO_NOVO] algo', '[OVERRIDE] Gestor forcou avanco manualmente']) {
+        assert.strictEqual(E.permiteReenviarSoNaTela(t), false, String(t));
+    }
+});
+
+teste('#184: a orientacao dos dois erros de rubrica no SALIC manda tentar de novo e depois acionar o suporte', () => {
+    for (const c of ['RUBRICA_NAO_ENCONTRADA_SALIC', 'RUBRICA_TELA_DIVERGENTE']) {
+        const o = E.MAPA[c].acao.orientacao;
+        assert.ok(/tent/i.test(o) && /novamente/i.test(o), c + ': ' + o);
+        assert.ok(/suporte/i.test(o) && /PRONAC/.test(o), c + ': ' + o);
+        assert.ok(!/reenviar n[aã]o resolve/i.test(o), c + ' ainda diz que reenviar nao resolve');
+    }
+});
+
 teste('TEMPO_ESGOTADO_SALVAMENTO manda conferir no SALIC antes de reenviar', () => {
     const i = E.MAPA.TEMPO_ESGOTADO_SALVAMENTO;
     assert.ok(/SALIC/.test(i.acao.orientacao) && /antes de reenviar/i.test(i.acao.orientacao));

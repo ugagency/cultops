@@ -3691,6 +3691,9 @@ ${Sidebar()}
     const blocoPagamento = PagamentoNotaSection(doc);
     const painelPagamento = doc.status === 'erro_rpa' ? 5 : (etapaAtual < painelConciliacao ? etapaAtual : painelConciliacao);
 
+    // Falha no envio ao SALIC (#184): aviso no alto da tela, antes do painel.
+    const blocoAlertaErroEnvio = alertaErroEnvioHtml(doc, { vendoAtual, faltaDadoObrigatorioSalic, estiloBotaoEnvioBloqueado, atributosBotaoEnvioJustificativa, robotRodando: !!state.isSalicRunning });
+
     const blocoAlertas = `
         ${estaTravado(doc) ? `
         <div class="card mb-4" style="background: #FEF2F2; border-left: 4px solid #DC2626; padding: 1.25rem;">
@@ -3974,7 +3977,9 @@ ${Sidebar()}
                         <p class="text-sm" style="line-height: 1.6; color: var(--text-primary);">
                             ${doc.status.includes('bloqueado') || doc.status.includes('divergencia') || doc.status === 'revisao_manual' || (doc.status === 'aguardando_conformidade' && doc.just_erro) ?
             `<strong style="color: var(--error);">Atenção:</strong><br>${doc.justification || window.prestaiSuavizar?.(doc.just_erro, 'error') || 'Documento requer análise manual devido a divergências ou baixa confiança no OCR.'}` :
-            (doc.justification ? `<strong style="color: var(--success);">✓ Aprovado</strong><br>${doc.justification}` : 'Aguardando processamento da IA para gerar o parecer...')
+            (doc.status === 'erro_rpa'
+                ? parecerErroRpaHtml(doc)
+                : (doc.justification ? `<strong style="color: var(--success);">✓ Aprovado</strong><br>${doc.justification}` : 'Aguardando processamento da IA para gerar o parecer...'))
         }
                         </p>
                     </div>
@@ -4286,6 +4291,7 @@ ${Sidebar()}
             <p class="text-xs" style="color: var(--text-secondary); margin-top: 0.75rem;">Clique em uma etapa para ver o que aconteceu nela. A etapa atual fica sempre destacada.</p>
         </div>
 
+        ${blocoAlertaErroEnvio}
         ${blocoAlertas}
 
         <div class="detalhe-colunas">
@@ -4557,6 +4563,39 @@ function extrairLancamentosDoTexto(textoOriginal) {
     return itens;
 }
 
+// Parecer da Análise de uma nota em erro_rpa (#184). A nota só chega a erro_rpa depois de passar pela
+// conformidade e pela conciliação; o texto guardado em justification é dessa aprovação. Mostrar só
+// "Aprovado" levava a ler a nota como liberada, então o título diz que o envio falhou.
+function parecerErroRpaHtml(doc) {
+    return `<strong style="color: #d97706;">Conformidade aprovada, mas o envio ao SALIC falhou</strong>${doc.justification ? '<br>' + doc.justification : ''}`;
+}
+
+// Aviso no alto da tela da nota em erro_rpa (#184), antes do painel da etapa. O quadro "Portal SALIC"
+// continua com a explicação e as ações; aqui entram só o aviso e o botão de tentar de novo.
+// ctx: { vendoAtual, faltaDadoObrigatorioSalic, estiloBotaoEnvioBloqueado, atributosBotaoEnvioJustificativa, robotRodando }.
+// Nada aparece fora de erro_rpa ou enquanto o robô está rodando (o painel já mostra o andamento).
+function alertaErroEnvioHtml(doc, ctx) {
+    if (doc.status !== 'erro_rpa' || ctx.robotRodando) return '';
+    const e = window.ErrosRpa.interpretar(doc.just_erro);
+    const podeTentar = e.conhecido && (e.info.permiteReenviar || e.info.reenvioNaTela) && !ctx.faltaDadoObrigatorioSalic;
+    const onde = ctx.vendoAtual
+        ? 'O motivo e o que fazer estão no quadro Portal SALIC, logo abaixo.'
+        : 'Volte para a etapa atual para ver o motivo e o que fazer.';
+    return `
+        <div id="alerta-erro-envio" class="card mb-4" style="background: #FEF2F2; border-left: 4px solid #DC2626; padding: 1.25rem;">
+            <div style="display: flex; gap: 1rem; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+                <div style="min-width: 0; flex: 1 1 280px;">
+                    <h4 style="font-size: 14px; margin-bottom: 0.25rem; font-weight: 700; color: #991B1B;">O envio ao SALIC falhou</h4>
+                    <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.5;">${e.conhecido ? escHtml(e.info.titulo) + '. ' : ''}A nota já tinha passado pelas etapas anteriores, mas não foi enviada ao SALIC. ${onde}</p>
+                </div>
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                    ${podeTentar ? `<button class="btn btn-primary" style="white-space: nowrap;${ctx.estiloBotaoEnvioBloqueado}" onclick="window.handleTentarNovamenteErroRpa('${doc.id}')"${ctx.atributosBotaoEnvioJustificativa}>Tentar Novamente</button>` : ''}
+                    ${ctx.vendoAtual ? '' : `<button class="btn btn-secondary" style="white-space: nowrap;" onclick="window.verEtapaDetalhe(null)">Ver detalhes da falha</button>`}
+                </div>
+            </div>
+        </div>`;
+}
+
 // Quadro "Falha no envio automático" da nota em erro_rpa. Código conhecido (prefixo [CODIGO] do
 // just_erro, ver erros-rpa.js): título, explicação, orientação, botão da tela certa e o texto
 // bruto em "Ver detalhes". Sem prefixo ou com código desconhecido: só o texto bruto e nenhum
@@ -4584,7 +4623,8 @@ function blocoErroRpaHtml(doc, ctx) {
            <ul class="text-xs" style="color: var(--text-secondary); margin: 0.25rem 0 0 1rem; padding: 0;">${candidatas.itens.map(i => `<li>${escHtml(i)}</li>`).join('')}</ul>
            ${candidatas.restantes > 0 ? `<p class="text-xs" style="color: var(--text-muted);">e mais ${candidatas.restantes}.</p>` : ''}`
         : '';
-    const reenvio = !info.permiteReenviar ? '' : ctx.faltaDadoObrigatorioSalic
+    // reenvioNaTela (#184): erro em que o robô parou antes de lançar; o botão aparece só aqui.
+    const reenvio = !(info.permiteReenviar || info.reenvioNaTela) ? '' : ctx.faltaDadoObrigatorioSalic
         ? `<button class="btn btn-secondary" style="width: 100%; font-size: 10px; padding: 0.3rem; opacity: 0.5; cursor: not-allowed;" disabled>Tentar Novamente</button>
            <p class="text-xs" style="color: var(--text-secondary); font-style: italic;">Preencha os dados obrigatórios (destacados acima) antes de tentar novamente.</p>`
         : `<button class="btn btn-secondary" style="width: 100%; font-size: 10px; padding: 0.3rem;${ctx.estiloBotaoEnvioBloqueado}" onclick="window.handleTentarNovamenteErroRpa('${doc.id}')"${ctx.atributosBotaoEnvioJustificativa}>Tentar Novamente</button>`;
@@ -10847,7 +10887,8 @@ window.handleEnviarSalic = async function (documentId, opcoes) {
     // Erro do robô em que reenviar não adianta (ou sem código conhecido): o botão já some, isto
     // cobre disparo direto e tela desatualizada.
     if (docParaValidar && docParaValidar.id === documentId && docParaValidar.status === 'erro_rpa'
-        && !window.ErrosRpa.permiteReenviar(docParaValidar.just_erro)) {
+        && !window.ErrosRpa.permiteReenviar(docParaValidar.just_erro)
+        && !window.ErrosRpa.permiteReenviarSoNaTela(docParaValidar.just_erro)) {
         showToast('Este erro não se resolve reenviando. Siga a orientação mostrada na nota.', 'warning');
         return;
     }

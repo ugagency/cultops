@@ -498,6 +498,31 @@ const nota = (extra = {}) => ({ id: 'n1', project_id: 'p1', status: 'divergencia
         assert.ok(amb3.state.confirmModal && amb3.state.confirmModal.title === 'Enviar ao SALIC');
     });
 
+    await teste('7c. #184: erro de rubrica no SALIC pode ser reenviado pela tela (modal normal e envio ao robo)', async () => {
+        for (const cod of ['RUBRICA_NAO_ENCONTRADA_SALIC', 'RUBRICA_TELA_DIVERGENTE']) {
+            const amb = criarAmbiente();
+            amb.state.currentDocument = nota({ status: 'erro_rpa', just_erro: '[' + cod + '] Rubrica nao encontrada ou sem link de comprovacao ("sinal de dinheiro"): nenhuma linha com o nome exato' });
+            amb.window.handleTentarNovamenteErroRpa('n1');
+            await tick();
+            assert.ok(amb.state.confirmModal && amb.state.confirmModal.title === 'Enviar ao SALIC', cod);
+            assert.ok(!amb.toasts.some(t => /n[aã]o se resolve/i.test(String(t.msg))), cod + ': nao pode cair na trava');
+            assert.strictEqual(enviosAoRobo(amb).length, 0, cod + ': nada vai ao robo antes de confirmar');
+            await confirmar(amb);
+            assert.strictEqual(enviosAoRobo(amb).length, 1, cod);
+        }
+    });
+
+    await teste('7d. #184: erros em que reenviar nao adianta continuam travados (login recusado, arquivo, sem codigo)', async () => {
+        for (const t of ['[LOGIN_SALIC_RECUSADO] x', '[ARQUIVO_NF_INDISPONIVEL] x', '[RUBRICA_NAO_VINCULADA] x', 'Timeout navegando']) {
+            const amb = criarAmbiente();
+            amb.state.currentDocument = nota({ status: 'erro_rpa', just_erro: t });
+            await amb.window.handleEnviarSalic('n1');
+            assert.strictEqual(amb.state.confirmModal, null, t);
+            assert.strictEqual(enviosAoRobo(amb).length, 0, t);
+            assert.ok(amb.toasts.some(x => x.tipo === 'warning' && /n[aã]o se resolve/i.test(String(x.msg))), t);
+        }
+    });
+
     await teste('as 4 acoes que ja tinham confirmacao continuam como estavam', () => {
         for (const f of ['handleForcarAvanco', 'handleConfirmarLancamentoNota', 'handleReprocessarDocumentoTravado', 'handleAprovarNotaFornecedor']) {
             const corpo = bloco('window.' + f + ' = ', FIM_WINDOW);
