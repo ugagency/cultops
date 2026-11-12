@@ -14,6 +14,10 @@
     // acao.tipo: vincular_rubrica | informar_pagamento | configuracoes | null.
     // Sem rotulo, a acao é só orientação em texto (não há tela para onde levar o usuário).
     // confirmarAntesDeReenviar: texto de um aviso mostrado antes do reenvio.
+    // reenvioNaTela (#184): o erro não é de dado da nota, e o robô parou antes de lançar qualquer
+    // coisa no SALIC, então tentar de novo é seguro (ex.: instabilidade ao ler a tela do SALIC).
+    // Libera o botão "Tentar envio novamente" só na tela da nota; o envio em lote continua de fora,
+    // porque lá o erro se repetiria para todas as notas.
     const MAPA = {
         RUBRICA_NAO_VINCULADA: {
             titulo: 'Rubrica não vinculada',
@@ -30,14 +34,16 @@
         RUBRICA_NAO_ENCONTRADA_SALIC: {
             titulo: 'Rubrica não localizada na tela do SALIC',
             explicacao: 'O robô não conseguiu identificar com segurança, na tela do SALIC, a linha da rubrica desta nota. O vínculo no Prestaí pode estar certo: o problema costuma estar no cadastro da rubrica no SALIC (nomes repetidos ou valor aprovado diferente do esperado).',
-            acao: { tipo: null, rotulo: null, orientacao: 'Corrigir o vínculo e reenviar não resolve este caso. Acione o suporte, informando o PRONAC e esta nota.' },
-            permiteReenviar: false
+            acao: { tipo: null, rotulo: null, orientacao: 'Corrigir o vínculo não resolve este caso. Se foi uma falha momentânea na leitura da tela do SALIC, tente o envio novamente. Se o erro se repetir, acione o suporte, informando o PRONAC e esta nota.' },
+            permiteReenviar: false,
+            reenvioNaTela: true
         },
         RUBRICA_TELA_DIVERGENTE: {
             titulo: 'A tela do SALIC não bate com a rubrica escolhida',
             explicacao: 'O robô abriu uma rubrica diferente da que a nota pede e parou antes de lançar, para não gravar a despesa na rubrica errada. O vínculo no Prestaí pode estar certo.',
-            acao: { tipo: null, rotulo: null, orientacao: 'Corrigir o vínculo e reenviar não resolve este caso. Acione o suporte, informando o PRONAC e esta nota.' },
-            permiteReenviar: false
+            acao: { tipo: null, rotulo: null, orientacao: 'Corrigir o vínculo não resolve este caso. Você pode tentar o envio novamente. Se o erro se repetir, acione o suporte, informando o PRONAC e esta nota.' },
+            permiteReenviar: false,
+            reenvioNaTela: true
         },
         VALOR_PAGO_INDETERMINADO: {
             titulo: 'Valor pago não identificado',
@@ -171,6 +177,9 @@
     // Envio em lote não passa pelo aviso de "conferir no SALIC antes de reenviar": esses erros
     // só se reenviam um a um, na tela da nota.
     const permiteReenviarEmLote = (justErro) => { const e = interpretar(justErro); return e.conhecido && e.info.permiteReenviar === true && !e.info.confirmarAntesDeReenviar; };
+    // Tentar de novo só pela tela da nota (#184): vale para os códigos com reenvioNaTela, que não
+    // entram no envio em lote. permiteReenviar e permiteReenviarEmLote não mudam.
+    const permiteReenviarSoNaTela = (justErro) => { const e = interpretar(justErro); return e.conhecido && e.info.reenvioNaTela === true; };
     const pedeInformarPagamento = (justErro) => CODIGOS_INFORMAR_PAGAMENTO.includes(interpretar(justErro).codigo);
     const permiteCorrigirRubrica = (justErro) => CODIGOS_CORRIGIR_RUBRICA.includes(interpretar(justErro).codigo);
 
@@ -189,5 +198,5 @@
         return null;
     }
 
-    return { MAPA, CODIGOS_INFORMAR_PAGAMENTO, CODIGOS_CORRIGIR_RUBRICA, interpretar, permiteReenviar, permiteReenviarEmLote, pedeInformarPagamento, permiteCorrigirRubrica, avisoEnvio };
+    return { MAPA, CODIGOS_INFORMAR_PAGAMENTO, CODIGOS_CORRIGIR_RUBRICA, interpretar, permiteReenviar, permiteReenviarEmLote, permiteReenviarSoNaTela, pedeInformarPagamento, permiteCorrigirRubrica, avisoEnvio };
 });
