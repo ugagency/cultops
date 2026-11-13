@@ -566,6 +566,102 @@ let falhas = 0;
         assert.equal('codigo' in r400.corpo, false);
     });
 
+    // ── credencial herdada do responsável SALIC (analista) ──
+    // aAna: analista da orgA sem credencial própria, responsável u1 (admin da orgA, que tem credencial).
+    const comAnalista = ({ owner = 'u1', role = 'analista', ownerRoleA } = {}) => {
+        dados.organization_users.push({ user_id: 'aAna', organization_id: 'orgA', role, salic_credential_owner_id: owner });
+        if (ownerRoleA) dados.organization_users.find(l => l.user_id === owner && l.organization_id === 'orgA').role = ownerRoleA;
+    };
+
+    await caso('heranca: analista sem credencial propria envia com a credencial do responsavel e grava o dono', async () => {
+        cenario();
+        comAnalista();
+        resultadoWorker = { sucesso: true, protocolo: 'P1' };
+        const r = await enviarComo('aAna');
+        assert.equal(r.codigo, 200);
+        assert.equal(configRecebido.usuario, '12345678909');
+        assert.equal(configRecebido.senha, 'senha');
+        const upd = escritasEm('documents')[0].payload;
+        assert.equal(upd.status, 'enviado_salic');
+        assert.equal(upd.salic_credential_owner_id, 'u1');
+    });
+
+    await caso('heranca: credencial propria tem prioridade sobre a do responsavel', async () => {
+        cenario();
+        comAnalista();
+        dados.decrypted_external_credentials.push({ user_id: 'aAna', service_name: 'salic', identifier: '55566677788', secret_plain: 'senhaAna' });
+        resultadoWorker = { sucesso: true, protocolo: 'P1' };
+        assert.equal((await enviarComo('aAna')).codigo, 200);
+        assert.equal(configRecebido.usuario, '55566677788');
+        assert.equal(escritasEm('documents')[0].payload.salic_credential_owner_id, 'aAna');
+    });
+
+    await caso('heranca: envio com credencial propria grava o proprio usuario como dono', async () => {
+        cenario();
+        resultadoWorker = { sucesso: true, protocolo: 'P1' };
+        assert.equal((await enviarComo('u1')).codigo, 200);
+        assert.equal(escritasEm('documents')[0].payload.salic_credential_owner_id, 'u1');
+    });
+
+    await caso('heranca: dry-run do analista usa a credencial do responsavel e nao grava nada', async () => {
+        cenario();
+        comAnalista();
+        resultadoWorker = { sucesso: true, dryRun: true, screenshot: 'x.png', auditoria: {} };
+        const r = await enviarComo('aAna', { dryRun: true });
+        assert.equal(r.codigo, 200);
+        assert.equal(configRecebido.usuario, '12345678909');
+        assert.deepEqual(escritas, []);
+    });
+
+    for (const [nome, ajuste] of [
+        ['analista sem responsavel definido', () => comAnalista({ owner: null })],
+        ['responsavel rebaixado para analista depois do vinculo', () => comAnalista({ ownerRoleA: 'analista' })],
+        ['responsavel que nao e da organizacao do documento', () => comAnalista({ owner: 'uB' })],
+        ['responsavel sem credencial cadastrada', () => { comAnalista(); dados.decrypted_external_credentials = []; }],
+    ]) {
+        await caso(`heranca: ${nome} -> CREDENCIAL_SALIC_AUSENTE, robo nao roda`, async () => {
+            cenario();
+            ajuste();
+            resultadoWorker = { sucesso: true };
+            const r = await enviarComo('aAna');
+            assert.equal(r.codigo, 500);
+            assert.equal(r.corpo.codigo, 'CREDENCIAL_SALIC_AUSENTE');
+            assert.equal(configRecebido, null);
+            assert.equal(escritasEm('documents')[0].payload.status, 'erro_rpa');
+        });
+    }
+
+    await caso('heranca: gestor tambem pode ser responsavel', async () => {
+        cenario();
+        comAnalista({ ownerRoleA: 'gestor' });
+        resultadoWorker = { sucesso: true, protocolo: 'P1' };
+        assert.equal((await enviarComo('aAna')).codigo, 200);
+        assert.equal(configRecebido.usuario, '12345678909');
+    });
+
+    await caso('heranca: analista em duas organizacoes usa o responsavel da organizacao do documento', async () => {
+        cenario({ doc: { organization_id: 'orgB' } });
+        dados.decrypted_external_credentials.push({ user_id: 'uB', service_name: 'salic', identifier: '99988877766', secret_plain: 'senhaB' });
+        dados.organization_users.push(
+            { user_id: 'aAna', organization_id: 'orgA', role: 'analista', salic_credential_owner_id: 'u1' },
+            { user_id: 'aAna', organization_id: 'orgB', role: 'analista', salic_credential_owner_id: 'uB' },
+        );
+        resultadoWorker = { sucesso: true, protocolo: 'P1' };
+        assert.equal((await enviarComo('aAna')).codigo, 200);
+        assert.equal(configRecebido.usuario, '99988877766');
+        assert.equal(escritasEm('documents')[0].payload.salic_credential_owner_id, 'uB');
+    });
+
+    await caso('heranca: falha ao consultar a credencial nao vira CREDENCIAL_SALIC_AUSENTE', async () => {
+        cenario();
+        errosPorTabela = { decrypted_external_credentials: true };
+        resultadoWorker = { sucesso: true };
+        const r = await enviarComo('u1');
+        assert.equal(r.codigo, 500);
+        assert.notEqual(r.corpo.codigo, 'CREDENCIAL_SALIC_AUSENTE');
+        assert.equal(configRecebido, null);
+    });
+
     okLog(falhas === 0 ? '\ntodos os casos passaram' : `\n${falhas} caso(s) falharam`);
     process.exitCode = falhas === 0 ? 0 : 1;
 })();
