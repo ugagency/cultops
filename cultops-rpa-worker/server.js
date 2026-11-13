@@ -193,6 +193,55 @@ async function usuarioEhDaOrganizacao(userId, organizationId) {
     return Array.isArray(data) && data.length > 0;
 }
 
+// Credencial SALIC que o robô usa para este usuário NESTA organização.
+// 1) A credencial própria do usuário, se ele tiver uma.
+// 2) Senão, a do responsável SALIC do vínculo dele nesta organização
+//    (organization_users.salic_credential_owner_id), desde que o responsável continue
+//    admin ou gestor da MESMA organização no momento do envio. O trigger do banco valida
+//    isso só na gravação do vínculo; o papel pode ter mudado depois.
+// O vínculo é buscado por user_id + organization_id: um analista pode estar em mais de uma
+// organização, com um responsável diferente em cada uma.
+// Devolve { creds, ownerId } ou null (sem credencial). Erro de consulta propaga.
+const PAPEIS_RESPONSAVEL_SALIC = ['admin', 'gestor'];
+async function resolverCredencialSalic(userId, organizationId) {
+    const buscar = async (uid) => {
+        const { data, error } = await supabase
+            .from('decrypted_external_credentials')
+            .select('*')
+            .eq('user_id', uid)
+            .eq('service_name', 'salic')
+            .limit(1);
+        if (error) throw new Error('Não foi possível consultar a credencial do SALIC.');
+        return Array.isArray(data) && data.length > 0 ? data[0] : null;
+    };
+
+    const propria = await buscar(userId);
+    if (propria) return { creds: propria, ownerId: userId };
+    if (!organizationId) return null;
+
+    const { data: vinculos, error: vinculoErro } = await supabase
+        .from('organization_users')
+        .select('salic_credential_owner_id')
+        .eq('user_id', userId)
+        .eq('organization_id', organizationId)
+        .limit(1);
+    if (vinculoErro) throw new Error('Não foi possível consultar o responsável SALIC.');
+    const ownerId = vinculos?.[0]?.salic_credential_owner_id;
+    if (!ownerId || ownerId === userId) return null;
+
+    const { data: donos, error: donoErro } = await supabase
+        .from('organization_users')
+        .select('role')
+        .eq('user_id', ownerId)
+        .eq('organization_id', organizationId)
+        .limit(1);
+    if (donoErro) throw new Error('Não foi possível consultar o responsável SALIC.');
+    if (!PAPEIS_RESPONSAVEL_SALIC.includes(donos?.[0]?.role)) return null;
+
+    const herdada = await buscar(ownerId);
+    return herdada ? { creds: herdada, ownerId } : null;
+}
+
 // Dry-run (ocorrência #119): o worker preenche e audita o formulário sem clicar em Salvar, e
 // aqui nada é gravado em documents nem em despesas (status, data_salic, protocolo_salic,
 // just_erro), nem em sucesso nem em erro.
@@ -228,15 +277,14 @@ async function executarEnvioSalic(req, res, { dryRun = false } = {}) {
         }
         documentoAutorizado = true;
 
-        const { data: creds, error: credError } = await supabase
-            .from('decrypted_external_credentials')
-            .select('*')
-            .eq('user_id', userId)
-            .eq('service_name', 'salic')
-            .single();
-
-        if (credError || !creds) {
+        // Própria ou herdada do responsável SALIC (analista). Ver resolverCredencialSalic.
+        const credencial = await resolverCredencialSalic(userId, doc.organization_id);
+        if (!credencial) {
             throw erroComCodigo('CREDENCIAL_SALIC_AUSENTE', 'Credenciais SALIC não encontradas para este usuário no Supabase.');
+        }
+        const { creds, ownerId: credentialOwnerId } = credencial;
+        if (credentialOwnerId !== userId) {
+            console.log(`[API] Usando a credencial SALIC do responsável ${credentialOwnerId} (herdada pelo usuário ${userId}).`);
         }
 
         console.log(`[API] Documento: ${doc.name} | Rubrica: ${doc.rubrica}`);
@@ -382,9 +430,12 @@ async function executarEnvioSalic(req, res, { dryRun = false } = {}) {
         }
 
         if (resultado.sucesso) {
+            // salic_credential_owner_id: com o CPF de quem a nota foi lançada no SALIC
+            // (o próprio usuário ou o responsável cuja credencial ele herdou).
             await supabase.from('documents').update({
                 status: 'enviado_salic',
-                protocolo_salic: resultado.protocolo
+                protocolo_salic: resultado.protocolo,
+                salic_credential_owner_id: credentialOwnerId
             }).eq('id', documentId);
 
             // CR-2026-001 Fase 0: marca a despesa como confirmada no SALIC.
@@ -444,13 +495,9 @@ app.post('/capturar-execucao', exigirUsuarioAutenticado, async (req, res) => {
             .single();
         if (projectErr || !project) throw new Error('Projeto não encontrado.');
 
-        const { data: creds, error: credError } = await supabase
-            .from('decrypted_external_credentials')
-            .select('*')
-            .eq('user_id', userId)
-            .eq('service_name', 'salic')
-            .single();
-        if (credError || !creds) throw new Error('Credenciais SALIC não encontradas para este usuário.');
+        const credencial = await resolverCredencialSalic(userId, project.organization_id);
+        if (!credencial) throw new Error('Credenciais SALIC não encontradas para este usuário.');
+        const { creds } = credencial;
 
         console.log(`[SALDO-SALIC] Iniciando captura manual | projeto: ${projectId} | PRONAC: ${project.pronac}`);
 
@@ -513,13 +560,11 @@ app.post('/cron/captura-condicional', async (req, res) => {
                 continue;
             }
 
-            const { data: creds, error: credError } = await supabase
-                .from('decrypted_external_credentials')
-                .select('*')
-                .eq('user_id', projeto.sugestao_user_id)
-                .eq('service_name', 'salic')
-                .maybeSingle();
-            if (credError || !creds) {
+            // sugestao_user_id é quem disparou a última captura, e pode ser um analista:
+            // resolve a credencial própria ou a herdada dele, como no disparo manual.
+            const credencial = await resolverCredencialSalic(projeto.sugestao_user_id, projeto.organization_id);
+            const creds = credencial?.creds;
+            if (!creds) {
                 console.warn(`[SALDO-SALIC][cron] Sem credencial SALIC para o usuário sugerido do projeto ${projeto.project_id} — pulando.`);
                 resultados.push({ projectId: projeto.project_id, pulado: 'sem_credencial' });
                 continue;
@@ -566,4 +611,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { executarEnvioSalic, criarHandlerDryRun, calcularValorEnvio, resolverDataPagamento };
+module.exports = { executarEnvioSalic, criarHandlerDryRun, calcularValorEnvio, resolverDataPagamento, resolverCredencialSalic };
