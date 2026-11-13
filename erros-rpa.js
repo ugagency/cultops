@@ -77,8 +77,8 @@
         },
         CREDENCIAL_SALIC_AUSENTE: {
             titulo: 'Credencial do SALIC não cadastrada',
-            explicacao: 'O robô não encontrou o CPF e a senha do SALIC para entrar no sistema.',
-            acao: { tipo: 'configuracoes', rotulo: 'Abrir Configurações', orientacao: 'Cadastre o CPF e a senha do SALIC em Configurações e depois use "Tentar Novamente".' },
+            explicacao: 'O robô não encontrou o CPF e a senha do SALIC para entrar no sistema: nem a sua credencial, nem a de um responsável SALIC definido para você.',
+            acao: { tipo: 'configuracoes', rotulo: 'Abrir Configurações', orientacao: 'Cadastre o CPF e a senha do SALIC em Configurações. Se você é analista, peça ao administrador da organização para definir o seu responsável SALIC na tela Equipe (ele precisa ter a credencial cadastrada). Depois use "Tentar Novamente".' },
             permiteReenviar: true
         },
         ARQUIVO_NF_INDISPONIVEL: {
