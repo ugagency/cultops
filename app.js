@@ -8368,14 +8368,39 @@ window.handleDeleteDocument = async function (id, filePath) {
     });
 };
 
+// #197: chamada às rotas /api com o token da sessão. getSession() pode devolver um token já
+// vencido (aba aberta há muito tempo, ou a tela aberta antes da renovação automática terminar), e o
+// servidor responde 401 "Token inválido". Nesse caso renova a sessão e tenta uma vez de novo. Se
+// continuar 401, a mensagem é de sessão expirada, nunca o texto técnico do servidor.
+const MSG_SESSAO_EXPIRADA = 'Sua sessão expirou. Entre de novo para continuar.';
+async function fetchApiAutenticado(url, opcoes = {}) {
+    const comToken = (token) => fetch(url, {
+        ...opcoes,
+        headers: { ...(opcoes.headers || {}), 'Authorization': 'Bearer ' + token }
+    });
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (!session) throw new Error(MSG_SESSAO_EXPIRADA);
+    let resposta = await comToken(session.access_token);
+    if (resposta.status !== 401) return resposta;
+    let renovada = null;
+    try {
+        const { data } = await supabaseClient.auth.refreshSession();
+        renovada = data && data.session;
+    } catch (err) {
+        console.error('[fetchApiAutenticado] refreshSession:', err);
+    }
+    if (!renovada) throw new Error(MSG_SESSAO_EXPIRADA);
+    resposta = await comToken(renovada.access_token);
+    if (resposta.status === 401) throw new Error(MSG_SESSAO_EXPIRADA);
+    return resposta;
+}
+
 // Ocultar ou restaurar documentos pelo servidor, que grava excluido_em/excluido_por e o audit_log
 // (o navegador não grava no audit_log). Devolve { ok, alterados, itens }.
 async function alterarExclusaoDocumentos(acao, ids) {
-    const { data: { session } } = await supabaseClient.auth.getSession();
-    if (!session) throw new Error('Sessão expirada. Faça login novamente.');
-    const resposta = await fetch('/api/documentos/' + (acao === 'restaurar' ? 'restaurar' : 'ocultar'), {
+    const resposta = await fetchApiAutenticado('/api/documentos/' + (acao === 'restaurar' ? 'restaurar' : 'ocultar'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ document_ids: ids })
     });
     const corpo = await resposta.json().catch(() => ({}));
@@ -8388,10 +8413,8 @@ async function alterarExclusaoDocumentos(acao, ids) {
 async function fetchDocumentosExcluidos() {
     state.documentosExcluidos = { carregando: true, lista: state.documentosExcluidos?.lista || [], erro: null };
     try {
-        const { data: { session } } = await supabaseClient.auth.getSession();
-        if (!session) throw new Error('Sessão expirada. Faça login novamente.');
         const projeto = state.filters.project ? '?project_id=' + encodeURIComponent(state.filters.project) : '';
-        const resposta = await fetch('/api/documentos/excluidos' + projeto, { headers: { 'Authorization': 'Bearer ' + session.access_token } });
+        const resposta = await fetchApiAutenticado('/api/documentos/excluidos' + projeto);
         const corpo = await resposta.json().catch(() => ({}));
         if (!resposta.ok) throw new Error(corpo.error || 'Não foi possível carregar os documentos excluídos.');
         state.documentosExcluidos = { carregando: false, lista: corpo.documentos || [], erro: null };
@@ -8431,9 +8454,7 @@ window.handleRestaurarDocumento = async function (id) {
 // Quem excluiu a nota oculta aberta no detalhe (o e-mail vem do servidor).
 async function carregarInfoExclusao(docId) {
     try {
-        const { data: { session } } = await supabaseClient.auth.getSession();
-        if (!session) return;
-        const resposta = await fetch('/api/documentos/' + encodeURIComponent(docId) + '/exclusao', { headers: { 'Authorization': 'Bearer ' + session.access_token } });
+        const resposta = await fetchApiAutenticado('/api/documentos/' + encodeURIComponent(docId) + '/exclusao');
         if (!resposta.ok) return;
         const corpo = await resposta.json();
         state.exclusaoDocumento = { docId, email: corpo.excluido_por ? corpo.excluido_por.email : null };
@@ -8491,7 +8512,7 @@ const DocumentosExcluidosView = () => {
     const corpo = x.carregando
         ? '<p class="text-sm" style="padding: 1.5rem; color: var(--text-muted);">Carregando documentos excluídos...</p>'
         : x.erro
-            ? `<p class="text-sm" role="alert" style="padding: 1.5rem; color: var(--error);">${escHtml(x.erro)}</p>`
+            ? `<p class="text-sm" role="alert" style="padding: 1.5rem; color: var(--error);">${escHtml(x.erro)}${x.erro === MSG_SESSAO_EXPIRADA ? ' <button type="button" class="btn btn-secondary" style="margin-left: 0.5rem; padding: 0.3rem 0.75rem; font-size: 12px;" onclick="window.handleLogout()">Entrar de novo</button>' : ''}</p>`
             : x.lista.length === 0
                 ? '<p class="text-sm" style="padding: 1.5rem; color: var(--text-muted);">Nenhum documento excluído.</p>'
                 : `<table class="data-table" id="tabela-documentos-excluidos">

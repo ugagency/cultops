@@ -119,6 +119,8 @@ const CODIGO_FRONT = [
     bloco('function getUserRole(', FIM_F),
     bloco('function userCanDelete(', FIM_F),
     bloco('window.handleDeleteDocument = async function', FIM_W),
+    bloco('const MSG_SESSAO_EXPIRADA', ';\n'),
+    bloco('async function fetchApiAutenticado(', FIM_F),
     bloco('async function alterarExclusaoDocumentos(', FIM_F),
     bloco('async function fetchDocumentosExcluidos(', FIM_F),
     bloco('window.handleRestaurarDocumento = async function', FIM_W),
