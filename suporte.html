@@ -1826,6 +1826,7 @@
                     </div>
                     <p class="text-sm" style="margin-top: 0.75rem;">${esc(s.explicacao || 'Status fora do catálogo.')}</p>
                     <p class="text-sm" style="margin-top: 0.25rem;"><strong>Próximo passo:</strong> ${esc(s.proximo_passo || '—')}</p>
+                    ${d.envio_salic_manual ? `<p class="text-sm" style="margin-top: 0.5rem;"><strong>Envio manual:</strong> lançada manualmente no SALIC pelo cliente${d.envio_salic_manual_em ? ' em ' + esc(fmtDateTime(d.envio_salic_manual_em)) : ''}, depois de falha do robô (#184).</p>` : ''}
                     ${erroAindaVale(d)
                         ? `<p class="text-sm" style="margin-top: 0.5rem; color: var(--error);"><strong>Motivo registrado:</strong> ${esc(d.just_erro)}</p>`
                         : (d.just_erro ? `<p class="text-sm" style="margin-top: 0.5rem; color: var(--text-muted);"><strong>Histórico de tentativa anterior:</strong> ${esc(d.just_erro)}</p>` : '')}
