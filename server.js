@@ -5730,6 +5730,85 @@ async function alterarExclusaoDocumentos(req, res, acao) {
     }
 }
 
+// #199: arquivo que está só na fila do lote (subiu, mas ninguém escolheu rubrica nem processou)
+// é descartado de verdade ao ser removido da fila: apaga a linha e o PDF. Antes ia para Documentos
+// Excluídos, misturado com documentos que tiveram andamento. Só vale para quem nunca saiu da fila:
+// status aguardando_rubrica, não excluído, sem leitura (json_extraido), sem extrato, sem despesa e
+// sem comprovante filho. Qualquer outro caso é recusado e segue pela exclusão lógica (/ocultar).
+// Pode descartar quem subiu o arquivo (a fila do lote é por usuário) ou um admin da organização.
+app.post('/api/documentos/descartar-fila', requireAuth, async (req, res) => {
+    try {
+        const orgId = req.user?.app_metadata?.org_id || null;
+        if (!orgId) return res.status(403).json({ error: 'Organização do usuário não identificada.' });
+        const ids = idsDocumentosDoPedido(req.body?.document_ids);
+        if (!ids) return res.status(400).json({ error: 'Selecione ao menos um documento.' });
+
+        const { data: docs, error: docsErr } = await supabase
+            .from('documents')
+            .select('id, name, project_id, organization_id, user_id, status, excluido_em, json_extraido, extrato_origem_id, file_path')
+            .in('id', ids);
+        if (docsErr) throw docsErr;
+        const orgDe = await organizacaoDosDocumentos(docs);
+        const porId = new Map((docs || []).map(d => [d.id, d]));
+
+        const [{ data: despesas, error: despErr }, { data: filhos, error: filhosErr }] = await Promise.all([
+            supabase.from('despesas').select('document_id').in('document_id', ids),
+            supabase.from('documents').select('id, nf_vinculada_id').in('nf_vinculada_id', ids)
+        ]);
+        if (despErr) throw despErr;
+        if (filhosErr) throw filhosErr;
+        const comDespesa = new Set((despesas || []).map(d => d.document_id));
+        const comFilho = new Set((filhos || []).map(f => f.nf_vinculada_id));
+
+        const NAO_E_DA_FILA = 'Este documento já teve andamento e não pode ser descartado. Use Excluir.';
+        const itens = [];
+        for (const id of ids) {
+            const d = porId.get(id);
+            if (!d || orgDe(d) !== orgId) { itens.push({ id, resultado: 'recusado', motivo: 'Documento não encontrado.' }); continue; }
+            if (d.user_id !== req.user.id && req.userRole !== 'admin') {
+                itens.push({ id, resultado: 'recusado', motivo: 'Só quem enviou o arquivo ou um administrador pode removê-lo da fila.' });
+                continue;
+            }
+            if (d.status !== 'aguardando_rubrica' || d.excluido_em || d.json_extraido || d.extrato_origem_id || comDespesa.has(id) || comFilho.has(id)) {
+                itens.push({ id, resultado: 'recusado', motivo: NAO_E_DA_FILA });
+                continue;
+            }
+            // Só apaga se continuar na fila: se outra aba processou nesse meio-tempo, não apaga nada.
+            const { data: apagados, error: delErr } = await supabase
+                .from('documents')
+                .delete()
+                .eq('id', id)
+                .eq('status', 'aguardando_rubrica')
+                .is('excluido_em', null)
+                .select('id');
+            if (delErr) {
+                console.error('[DESCARTAR-FILA] delete', id, delErr.message);
+                itens.push({ id, resultado: 'recusado', motivo: 'Não foi possível descartar o arquivo agora. Tente de novo ou use Excluir.' });
+                continue;
+            }
+            if (!apagados || !apagados.length) { itens.push({ id, resultado: 'recusado', motivo: NAO_E_DA_FILA }); continue; }
+
+            const caminho = String(d.file_path || '').trim();
+            if (caminho) {
+                const { error: stErr } = await supabase.storage.from('documentos').remove([caminho]);
+                // Arquivo que sobra no Storage não aparece em lugar nenhum; só registra.
+                if (stErr) console.error('[DESCARTAR-FILA] storage', id, stErr.message);
+            }
+            const { error: auditErr } = await supabase.from('audit_log').insert({
+                tabela: 'documents', registro_id: id, campo: 'descartado_da_fila',
+                valor_anterior: d.name || caminho || null, valor_novo: null,
+                alterado_por: req.user.id, origem: 'descartar_fila_lote'
+            });
+            if (auditErr) console.error('[DESCARTAR-FILA] audit_log:', auditErr.message);
+            itens.push({ id, resultado: 'descartado', motivo: 'Arquivo removido da fila.' });
+        }
+        res.json({ ok: true, descartados: itens.filter(i => i.resultado === 'descartado').length, itens });
+    } catch (err) {
+        console.error('[DESCARTAR-FILA]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.post('/api/documentos/ocultar', requireAuth, (req, res) => alterarExclusaoDocumentos(req, res, 'ocultar'));
 app.post('/api/documentos/restaurar', requireAuth, (req, res) => alterarExclusaoDocumentos(req, res, 'restaurar'));
 

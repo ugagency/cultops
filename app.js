@@ -421,6 +421,18 @@ function rotuloRubricaSemValor(r) {
     return `${produto ? `${produto} · ` : ''}${numero ? `${numero} - ` : ''}${nome}`;
 }
 
+// #201: texto do campo depois de escolher. Começa pela rubrica numerada (o que importa ao
+// conferir) e termina com produto e valor aprovado; com o campo estreito, o início visível é
+// a rubrica e não o produto. resolverRubricaPorRotulo desfaz este texto também.
+function rotuloRubricaCampo(r) {
+    if (!r) return '';
+    const { produto, numero, nome } = partesRotuloRubrica(r);
+    const val = r.valor_aprovado != null && String(r.valor_aprovado).trim() !== ''
+        ? ` (${parseValorBR(r.valor_aprovado).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})`
+        : '';
+    return `${numero ? `${numero} - ` : ''}${nome}${produto ? ` · ${produto}` : ''}${val}`;
+}
+
 function rotuloRubrica(r) {
     if (!r) return '';
     const val = r.valor_aprovado != null && String(r.valor_aprovado).trim() !== ''
@@ -525,6 +537,10 @@ function resolverRubricaPorRotulo(texto, lista) {
 
     const porRotulo = rubricas.find(r => rotuloRubrica(r) === alvo);
     if (porRotulo) return porRotulo;
+
+    // #201: texto que o combobox grava no campo (rubrica primeiro).
+    const porRotuloCampo = rubricas.find(r => rotuloRubricaCampo(r) === alvo);
+    if (porRotuloCampo) return porRotuloCampo;
 
     // Rótulo legado, ainda presente em inputs pré-preenchidos e na fila do lote.
     const porRotuloLegado = rubricas.find(r => (r.rubrica_id ? `${r.rubrica_id} - ${r.nome}` : r.nome) === alvo);
@@ -721,7 +737,8 @@ function _comboAberto() {
 function _comboSelecionar(idx) {
     const r = _comboLista[idx];
     if (!r || !_comboInput) return;
-    _comboInput.value = rotuloRubrica(r);
+    _comboInput.value = rotuloRubricaCampo(r);
+    _comboInput.title = rotuloRubricaCampo(r);
     // Guarda o id resolvido: útil para depurar um vínculo suspeito sem refazer o
     // caminho do texto. A gravação continua saindo de resolverRubricaPorRotulo.
     _comboInput.dataset.rubricaId = r.id;
@@ -757,6 +774,7 @@ function inicializarComboRubricas() {
         const input = e.target.closest && e.target.closest('[data-rubrica-combo]');
         if (!input) return;
         delete input.dataset.rubricaId;
+        lembrarRubricaDigitadaLote(input);
         if (_comboAberto() && _comboInput === input) {
             _comboRenderizar();
             _comboPosicionar();
@@ -814,9 +832,23 @@ function inicializarComboRubricas() {
     // (_comboSelecionar dispara 'change' no input). Delegado porque os inputs
     // são recriados a cada render().
     document.addEventListener('change', e => {
+        const lote = e.target.closest && e.target.closest('[data-rubrica-combo]');
+        if (lote) lembrarRubricaDigitadaLote(lote);
         const input = e.target.closest && e.target.closest('[data-rubrica-combo][data-saldo-target]');
         if (input) atualizarSaldoInput(input);
     });
+}
+
+// #200: a rubrica escolhida na fila do lote só vai para o banco no "Processar". Qualquer
+// render() (excluir um item, processar outro, subir mais arquivos) remonta os campos a partir
+// do banco e apagava o que já tinha sido escolhido nas outras linhas. O texto de cada campo fica
+// guardado aqui por documento, e UploadLoteView usa esse texto antes do que vem do banco.
+// A entrada sai quando o documento deixa a fila (ver fetchUploadLoteQueue).
+function lembrarRubricaDigitadaLote(input) {
+    const m = /^lote-rubrica-(.+)$/.exec(input && input.id || '');
+    if (!m) return;
+    if (!state.loteRubricasDigitadas) state.loteRubricasDigitadas = {};
+    state.loteRubricasDigitadas[m[1]] = input.value;
 }
 
 const isSolicitanteMode = window.location.pathname.includes('solicitante') || window.location.hash.includes('solicitante') || window.location.search.includes('solicitante');
@@ -2289,6 +2321,7 @@ function conteudoUploadArquivosHtml(p) {
     return `<p class="text-sm" style="font-weight: 600; color: var(--primary); margin-bottom: 0.5rem;">Enviando arquivos para a fila: ${feitos} de ${p.total}</p>`
         + segmentosLoteHtml(p.estados)
         + `<p class="text-xs" style="color: var(--text-muted); margin-top: 0.5rem;">Concluídos: ${p.concluidos}.${p.falhas > 0 ? ` Com falha: ${p.falhas}.` : ''}</p>`
+        + '<p class="text-sm lote-aviso-nao-saia" style="margin-top: 0.5rem; font-weight: 700; color: #b45309;">Não feche nem atualize esta aba até os arquivos terminarem de subir.</p>'
         + '<p class="text-xs" style="color: var(--text-muted); margin-top: 0.35rem;">Você pode navegar pelo PrestAí e trocar de aba. Até terminar, não feche nem atualize a aba e não vá para Configurações, Equipe ou Trocar Módulo: os arquivos que ainda não chegaram precisariam ser enviados de novo.</p>';
 }
 
@@ -2372,9 +2405,16 @@ const UploadLoteView = () => {
                 </p>
                 ${segmentosLoteHtml(estadosSegmentos)}
                 <p class="text-xs" style="color: var(--text-secondary); margin-top: 0.5rem;">Concluídos: ${enviadosEnvio.length}.${progresso.falhas > 0 ? ` Com falha: ${progresso.falhas}.` : ''}</p>
+                <p class="text-sm lote-aviso-nao-saia" style="margin-top: 0.5rem; font-weight: 700; color: #b45309;">Não feche esta aba até o último documento ser enviado. Depois disso o processamento continua no servidor e você pode sair.</p>
                 <p class="text-xs" style="color: var(--text-muted); margin-top: 0.35rem;">Você pode navegar pelo PrestAí e trocar de aba enquanto envia. Até o envio terminar, não feche nem atualize a aba e não vá para Configurações, Equipe ou Trocar Módulo: isso interrompe o envio, e os documentos que ainda não foram enviados continuam na fila para processar de novo. Depois do último enviado, o processamento segue no servidor e as notas ficam na fila como Processando até concluir.</p>
             </div>
     ` : '';
+    // #194: depois de um "Processar" concluído, fica dito na tela que já pode sair.
+    const avisoConcluido = !enviando && state.loteEnvioConcluido ? `
+            <div class="card mb-4" role="status" style="border-left: 4px solid var(--success); padding: 1rem 1.25rem;">
+                <p class="text-sm" style="font-weight: 600;">${state.loteEnvioConcluido.qtd} documento(s) enviados para processamento. Você já pode sair desta tela.</p>
+                <p class="text-xs" style="color: var(--text-secondary); margin-top: 0.25rem;">A leitura continua no servidor. Acompanhe o andamento em Documentos.</p>
+            </div>` : '';
     const uploadArquivos = state.uploadArquivosProgresso;
 
     return `
@@ -2387,7 +2427,16 @@ ${Sidebar()}
 
         <div style="max-width: 900px; margin: 0 auto;">
             ${avisoExtratosPausadosHtml(projetoSelecionado)}
+            <div class="card mb-4" id="lote-quando-sair" style="padding: 1rem 1.25rem; background: var(--bg-sidebar);">
+                <p class="text-sm" style="font-weight: 600; margin-bottom: 0.4rem;">Quando posso sair desta tela?</p>
+                <ul class="text-xs" style="color: var(--text-secondary); line-height: 1.6; padding-left: 1.1rem; margin: 0;">
+                    <li>Enquanto os arquivos sobem (passo 1) e enquanto os documentos são enviados para processamento (passo 2), mantenha esta aba aberta. Você pode trocar de tela dentro do PrestAí, mas não feche nem atualize a aba.</li>
+                    <li>Os arquivos que já estão na fila ficam guardados: você pode sair e voltar depois para escolher a rubrica e processar. A rubrica escolhida só é gravada quando você clica em Processar.</li>
+                    <li>Depois que o último documento for enviado para processamento, pode sair. A leitura continua no servidor e as notas aparecem em Documentos.</li>
+                </ul>
+            </div>
             ${quadroEnvioHtml}
+            ${avisoConcluido}
             <div class="card mb-4">
                 <h3 class="h2 mb-4">1. Selecionar arquivos</h3>
 
@@ -2465,10 +2514,10 @@ ${Sidebar()}
                         <thead>
                             <tr>
                                 <th>Arquivo</th>
-                                <th>Tamanho</th>
-                                <th>Rubrica</th>
-                                <th style="width: 160px;">Situação</th>
-                                <th style="width: 220px;">Ações</th>
+                                <th style="width: 80px;">Tamanho</th>
+                                <th style="min-width: 340px;">Rubrica</th>
+                                <th style="width: 150px;">Situação</th>
+                                <th style="width: 170px;">Ações</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -2476,15 +2525,16 @@ ${Sidebar()}
         // Pré-preenche com o rótulo completo quando a nota já tem rubrica vinculada,
         // para que a resolução no "Processar" case exatamente com a opção da lista.
         const rubricaPre = rubricas.find(r => r.id === doc.rubrica_id_fk);
-        const valorInput = rubricaPre ? rotuloRubrica(rubricaPre) : (doc.rubrica || '');
+        const digitada = (state.loteRubricasDigitadas || {})[doc.id];
+        const valorInput = typeof digitada === 'string' ? digitada : (rubricaPre ? rotuloRubricaCampo(rubricaPre) : (doc.rubrica || ''));
         const estadoLinha = estadoLinhaLote(doc.id);
         const travada = linhaLoteTravada(doc.id);
         return `
                                 <tr id="lote-linha-${doc.id}" data-lote-estado="${estadoLinha || ''}">
-                                    <td style="max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${doc.name}">${doc.name}</td>
+                                    <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${doc.name}">${doc.name}</td>
                                     <td>${doc.size || '-'}</td>
                                     <td>
-                                        <input type="text" id="lote-rubrica-${doc.id}" data-rubrica-combo data-saldo-target="lote-rubrica-saldo-${doc.id}" placeholder="${rubricas.length === 0 ? 'Selecione um projeto com rubricas...' : 'Digite para buscar rubrica...'}" autocomplete="off" style="width: 100%; padding: 0.5rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: 4px; background: white;" value="${escAttr(valorInput)}" ${rubricas.length === 0 || travada ? 'disabled' : ''}>
+                                        <input type="text" id="lote-rubrica-${doc.id}" data-rubrica-combo data-saldo-target="lote-rubrica-saldo-${doc.id}" placeholder="${rubricas.length === 0 ? 'Selecione um projeto com rubricas...' : 'Digite para buscar rubrica...'}" autocomplete="off" style="width: 100%; padding: 0.5rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: 4px; background: white;" value="${escAttr(valorInput)}" title="${escAttr(valorInput)}" ${rubricas.length === 0 || travada ? 'disabled' : ''}>
                                         <div id="lote-rubrica-saldo-${doc.id}">${renderSaldoBadgeHtml(rubricaPre ? rubricaPre.id : null)}</div>
                                     </td>
                                     <td id="lote-selo-${doc.id}">${seloLoteHtml(estadoLinha, doc.id, segundosLoteAtual())}</td>
@@ -2492,7 +2542,7 @@ ${Sidebar()}
                                         <button class="btn btn-primary" style="padding: 0.4rem 0.75rem;" onclick="window.handleProcessarLoteItem('${doc.id}')" ${travada ? 'disabled' : ''}>
                                             <i data-lucide="play" style="width: 14px;"></i> Processar
                                         </button>
-                                        <button class="btn btn-ghost" style="padding: 0.4rem 0.5rem; color: var(--error);" onclick="window.handleExcluirLoteItem('${doc.id}', '${doc.file_path}')" title="Excluir" ${travada ? 'disabled' : ''}>
+                                        <button class="btn btn-ghost" style="padding: 0.4rem 0.5rem; color: var(--error);" onclick="window.handleExcluirLoteItem('${doc.id}', '${doc.file_path}')" title="Remover da fila" ${travada ? 'disabled' : ''}>
                                             <i data-lucide="trash-2" style="width: 14px;"></i>
                                         </button>
                                     </td>
@@ -6733,6 +6783,8 @@ window.navigate = async function (view, id = null) {
     // Vindo de outra tela, abrir o documento é abrir "de novo": os flags do
     // upload de extrato da visita anterior não devem reaparecer.
     if (view === 'details' && state.currentView !== 'details') state.extratoUiDocId = null;
+    // #194: o aviso "já pode sair" vale para a visita em que o lote foi enviado.
+    if (view === 'upload_lote' && state.currentView !== 'upload_lote') state.loteEnvioConcluido = null;
     state.currentView = view;
     state.error = null; // Limpa erros ao navegar
 
@@ -10365,6 +10417,11 @@ async function fetchUploadLoteQueue() {
             .map(d => (ids.has(d.id) && digitadas[d.id]) ? { ...d, ...digitadas[d.id] } : d);
     }
     state.uploadLoteQueue = fila;
+    // #200: rubrica guardada de documento que saiu da fila (processado, excluído) é descartada.
+    if (state.loteRubricasDigitadas) {
+        const naFila = new Set(fila.map(d => d.id));
+        Object.keys(state.loteRubricasDigitadas).forEach(id => { if (!naFila.has(id)) delete state.loteRubricasDigitadas[id]; });
+    }
     // Quem esta em processamento no servidor aparece como Processando; o resto zera.
     state.uploadLoteProcessandoFora = processandoNoServidor;
 }
@@ -10561,6 +10618,7 @@ window.handleLoteFilesSelected = async function (fileList) {
     const arquivos = Array.from(fileList);
     // Progresso por arquivo (#153): 'atual' = ainda subindo (em movimento), depois 'ok' ou 'falha'.
     // Cada termino atualiza so o quadro (getElementById), sem render() que apagaria rubricas digitadas.
+    state.loteEnvioConcluido = null;
     state.uploadArquivosProgresso = { ativo: true, total: arquivos.length, concluidos: 0, falhas: 0, estados: arquivos.map(() => 'atual') };
     state.loading = true;
     render();
@@ -10743,6 +10801,7 @@ window.handleProcessarTodosLote = async function () {
                 rubricas: rubricaDigitada
             };
             definirAtualLote(itensComRubrica[0].doc.id);
+            state.loteEnvioConcluido = null;
             state.loading = true;
 
             // Sequencial, não Promise.allSettled: documentos do mesmo lote (mesmo extrato)
@@ -10786,7 +10845,8 @@ window.handleProcessarTodosLote = async function () {
                     render();
                 }
 
-                if (sucessos > 0) showToast(`${sucessos} documento(s) enviados para processamento.`, 'success');
+                if (sucessos > 0) showToast(`${sucessos} documento(s) enviados para processamento. Você já pode sair desta tela.`, 'success');
+                state.loteEnvioConcluido = sucessos > 0 ? { qtd: sucessos } : null;
                 if (falhas > 0) showToast(`${falhas} falharam.`, 'error');
 
                 await fetchUploadLoteQueue();
@@ -10808,25 +10868,32 @@ window.handleProcessarTodosLote = async function () {
 };
 
 window.handleExcluirLoteItem = async function (documentId, filePath) {
+    // #199: o arquivo da fila ainda não foi processado; removê-lo descarta o arquivo (não vai para
+    // Documentos Excluídos). O servidor recusa se o documento já tiver tido qualquer andamento.
     window.showConfirmModal({
-        title: 'Excluir arquivo da fila',
-        message: 'Excluir este arquivo da fila? Ele deixa de aparecer na fila e pode ser restaurado depois por um administrador.',
-        confirmLabel: 'Excluir',
+        title: 'Remover arquivo da fila',
+        message: 'Remover este arquivo da fila? Ele ainda não foi processado e será descartado. Para usá-lo depois, envie o PDF de novo.',
+        confirmLabel: 'Remover',
         variant: 'danger',
         onConfirm: async () => {
             state.loading = true;
             render();
 
             try {
-                // Exclusão lógica: só oculta. O PDF continua no Storage e a linha no banco.
-                const corpo = await alterarExclusaoDocumentos('ocultar', [documentId]);
+                const resposta = await fetchApiAutenticado('/api/documentos/descartar-fila', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ document_ids: [documentId] })
+                });
+                const corpo = await resposta.json().catch(() => ({}));
+                if (!resposta.ok) throw new Error(corpo.error || 'Não foi possível remover o arquivo agora.');
                 const item = (corpo.itens || [])[0] || {};
-                if (item.resultado !== 'ocultado') throw new Error(item.motivo || 'Não foi possível excluir o arquivo.');
+                if (item.resultado !== 'descartado') throw new Error(item.motivo || 'Não foi possível remover o arquivo.');
 
                 showToast("Arquivo removido da fila.", 'success');
                 await fetchUploadLoteQueue();
             } catch (err) {
-                showToast("Erro ao excluir: " + err.message, 'error');
+                showToast("Erro ao remover: " + err.message, 'error');
             } finally {
                 state.loading = false;
                 render();
