@@ -131,6 +131,11 @@ const CODIGO_FRONT = [
     bloco('const DocumentosExcluidosView = () => {', FIM_W),
     bloco('window.handleDeleteSelectedDocuments = async function', FIM_W),
     bloco('window.handleExcluirLoteItem = async function', FIM_W),
+    bloco('const STATUS_LOTE_PROCESSANDO', ';\n'),
+    bloco('const MINUTOS_TRAVADO', ';\n'),
+    bloco('const STATUS_INTERMEDIARIOS_TRAVAVEIS', ';\n'),
+    bloco('function estaTravado(', FIM_F),
+    bloco('function minutosParadoDoc(', FIM_F),
     bloco('async function fetchUploadLoteQueue(', FIM_F),
     bloco('const DetailsView = () => {', '\n    const steps = [').slice(0, -'\n    const steps = ['.length)
         + '\n    return "TELA NORMAL";\n};\n'
@@ -150,6 +155,7 @@ function criarFront({ role = 'admin', userId = ADMIN, respostaServidor = null, d
             const op = { acao: 'select' };
             const api = {
                 select() { return api; }, order() { return api; },
+                in(c, v) { filtros.push(r => v.includes(r[c])); return api; },
                 eq(c, v) { filtros.push(r => r[c] === v); return api; },
                 is(c, v) { filtros.push(r => (v === null ? r[c] == null : r[c] === v)); return api; },
                 delete() { op.acao = 'delete'; log.deletes.push(nome); return api; },
@@ -178,7 +184,7 @@ function criarFront({ role = 'admin', userId = ADMIN, respostaServidor = null, d
             if ((init.method || 'GET') === 'POST') {
                 const corpo = JSON.parse(init.body);
                 log.posts.push({ url, corpo });
-                const r = respostaServidor ? respostaServidor(url, corpo) : { ok: true, alterados: corpo.document_ids.length, itens: corpo.document_ids.map(id => ({ id, resultado: url.endsWith('restaurar') ? 'restaurado' : 'ocultado' })) };
+                const r = respostaServidor ? respostaServidor(url, corpo) : { ok: true, alterados: corpo.document_ids.length, itens: corpo.document_ids.map(id => ({ id, resultado: url.endsWith('restaurar') ? 'restaurado' : url.endsWith('descartar-fila') ? 'descartado' : 'ocultado' })) };
                 return { ok: true, status: 200, json: async () => r };
             }
             log.gets.push(url);
@@ -335,7 +341,7 @@ function criarFront({ role = 'admin', userId = ADMIN, respostaServidor = null, d
         assert.ok(log.toasts.some(t => t.t === 'success'));
     });
 
-    await teste('front: excluir em lote (tela normal) e na fila de upload em lote tambem so ocultam', async () => {
+    await teste('front: excluir em lote (tela normal) so oculta; na fila do lote (#199) o servidor descarta, o navegador nao apaga nada', async () => {
         let { ctx, state, log } = criarFront({ checkboxes: [U(101), U(102), U(101)] });
         await ctx.window.handleDeleteSelectedDocuments();
         assert.ok(!/não pode ser desfeita/.test(state.confirmModal.message));
@@ -353,7 +359,8 @@ function criarFront({ role = 'admin', userId = ADMIN, respostaServidor = null, d
         await tick();
         assert.deepStrictEqual(log.storageRemove, []);
         assert.deepStrictEqual(log.deletes, []);
-        assert.deepStrictEqual(log.posts.map(p => [p.url, p.corpo]), [['/api/documentos/ocultar', { document_ids: [U(103)] }]]);
+        assert.deepStrictEqual(log.posts.map(p => [p.url, p.corpo]), [['/api/documentos/descartar-fila', { document_ids: [U(103)] }]]);
+        assert.ok(state.confirmModal === null || !/Excluídos/.test(String(state.confirmModal && state.confirmModal.message)));
     });
 
     await teste('front: cancelar nao oculta; servidor recusando mostra o motivo', async () => {

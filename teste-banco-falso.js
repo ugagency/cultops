@@ -1,9 +1,10 @@
 // Supabase falso em memória para os testes das rotas do server.js (REST do PostgREST e auth), sem
 // rede. Só entende o que as rotas testadas usam: filtros eq., in.(...), is.null, not.is.null, lt. e
-// gt.; select, insert (POST) e update (PATCH). Emula o trigger de documents que renova updated_at
+// gt.; select, insert (POST), update (PATCH) e delete (DELETE). Emula o trigger de documents que renova updated_at
 // e o default de criado_em em processamento_eventos.
 // Uso: const { criarFetchFalso } = require('./teste-banco-falso.js');
-function criarFetchFalso({ obterDb, usuarios, webhook = null, antesDoPatch = null }) {
+// storage (opcional): função (metodo, caminho, corpo) => { status, corpo } para as chamadas ao Storage.
+function criarFetchFalso({ obterDb, usuarios, webhook = null, antesDoPatch = null, storage = null }) {
     const json = (status, corpo) => new Response(JSON.stringify(corpo), { status, headers: { 'Content-Type': 'application/json' } });
 
     const comparar = (valor, expr) => {
@@ -36,7 +37,11 @@ function criarFetchFalso({ obterDb, usuarios, webhook = null, antesDoPatch = nul
         if (webhook && u.hostname !== 'fake.local') {
             return webhook(String(url), init.body ? JSON.parse(init.body) : null);
         }
-        if (u.pathname.startsWith('/storage/')) return json(404, { message: 'storage indisponível no banco falso' });
+        if (u.pathname.startsWith('/storage/')) {
+            if (!storage) return json(404, { message: 'storage indisponível no banco falso' });
+            const r = storage(metodo, u.pathname, init.body ? JSON.parse(init.body) : null);
+            return json(r.status, r.corpo);
+        }
 
         const db = obterDb();
         const m = /^\/rest\/v1\/([a-z_]+)$/.exec(u.pathname);
@@ -73,6 +78,11 @@ function criarFetchFalso({ obterDb, usuarios, webhook = null, antesDoPatch = nul
             }));
             novas.forEach(n => tabela.push(n));
             return devolve ? json(201, novas) : new Response(null, { status: 201 });
+        }
+        if (metodo === 'DELETE') {
+            const apagadas = tabela.filter(l => casa(l, filtros));
+            db[nomeTabela] = tabela.filter(l => !apagadas.includes(l));
+            return devolve ? json(200, apagadas) : new Response(null, { status: 204 });
         }
         return json(405, { message: 'método não suportado' });
     };

@@ -142,7 +142,7 @@ function criarAmbiente(opcoes = {}) {
         },
         // stubs da tela
         Sidebar: () => '', planilhaOrcamentariaBtn: () => '', renderSaldoBadgeHtml: () => '', avisoExtratosPausadosHtml: () => '',
-        rotuloRubrica: (r) => r.nome, escAttr: (x) => String(x == null ? '' : x)
+        rotuloRubrica: (r) => r.nome, rotuloRubricaCampo: (r) => r.nome, escAttr: (x) => String(x == null ? '' : x)
     };
     ctx.render = () => {
         renders.push({
