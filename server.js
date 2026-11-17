@@ -5880,6 +5880,50 @@ app.get('/api/documentos/:id/exclusao', requireAuth, async (req, res) => {
     }
 });
 
+// #209: histórico completo de um documento (todas as mudanças registradas no audit_log, não só o
+// status), com o e-mail de quem fez cada ação. O e-mail só o servidor resolve (auth.admin), por isso
+// a rota. Mesmas regras de acesso do aviso de exclusão: perfil interno, mesma organização e analista
+// só nos documentos que ele enviou.
+const MAX_LINHAS_HISTORICO_DOCUMENTO = 500;
+app.get('/api/documentos/:id/historico', requireAuth, async (req, res) => {
+    try {
+        const orgId = req.user?.app_metadata?.org_id || null;
+        if (!PERFIS_VER_EXCLUSAO_DOCUMENTO.includes(req.userRole)) return res.status(403).json({ error: 'Acesso negado.' });
+        if (!orgId) return res.status(403).json({ error: 'Organização do usuário não identificada.' });
+        const id = String(req.params.id || '').trim();
+        if (!UUID_DOCUMENTO.test(id)) return res.status(400).json({ error: 'Documento inválido.' });
+        const { data: doc, error } = await supabase
+            .from('documents').select('id, project_id, organization_id, user_id').eq('id', id).maybeSingle();
+        if (error) throw error;
+        const orgDe = doc ? await organizacaoDosDocumentos([doc]) : null;
+        if (!doc || orgDe(doc) !== orgId || (req.userRole === 'analista' && doc.user_id !== req.user.id)) {
+            return res.status(404).json({ error: 'Documento não encontrado.' });
+        }
+        const { data: linhas, error: audErr } = await supabase
+            .from('audit_log')
+            .select('campo, valor_anterior, valor_novo, origem, motivo, alterado_por, created_at')
+            .eq('tabela', 'documents')
+            .eq('registro_id', id)
+            .order('created_at', { ascending: true })
+            .limit(MAX_LINHAS_HISTORICO_DOCUMENTO);
+        if (audErr) throw audErr;
+        const cache = new Map();
+        const historico = [];
+        const ordenadas = (linhas || []).slice().sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+        for (const l of ordenadas) {
+            historico.push({
+                quando: l.created_at, campo: l.campo, de: l.valor_anterior, para: l.valor_novo,
+                origem: l.origem || null, motivo: l.motivo || null,
+                por: l.alterado_por ? { id: l.alterado_por, email: await emailDoUsuario(l.alterado_por, cache) } : null
+            });
+        }
+        res.json({ ok: true, historico, limite_atingido: (linhas || []).length >= MAX_LINHAS_HISTORICO_DOCUMENTO });
+    } catch (err) {
+        console.error('[DOCUMENTO-HISTORICO]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/conciliacao/extratos-pausados?project_id=<id>  (#127)
 // Extratos do projeto que a fila de conciliação pausou (a primeira nota voltou do n8n com "Extrato de
