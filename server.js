@@ -3581,7 +3581,7 @@ app.get('/api/suporte/projetos/:id/documentos', requireAuth, requireSuporte, asy
         for (let de = 0; ; de += PAGINA) {
             const { data, error } = await supabase
                 .from('documents')
-                .select('id, project_id, name, status, valor, tipo_documento, cnpj_emissor, nome_emissor, created_at, updated_at, just_erro')
+                .select('id, project_id, name, status, valor, tipo_documento, cnpj_emissor, nome_emissor, created_at, updated_at, just_erro, excluido_em, excluido_por, nf_vinculada_id')
                 .eq('project_id', req.params.id)
                 .order('created_at', { ascending: false })
                 .range(de, de + PAGINA - 1);

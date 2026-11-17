@@ -1608,6 +1608,25 @@
         const rotuloStatusDoc = (s) => (StatusCatalogo.obter('documents', s) || {}).rotulo || s || '—';
 
         let documentosFiltroStatus = '';
+        // #198: excluídos (documents.excluido_em) ficam fora da lista e das contagens por padrão.
+        // O chip "Excluídos" mostra só eles. Excluído não é processado: o status ao lado é o de antes da exclusão.
+        let documentosVerExcluidos = false;
+        const docExcluido = (d) => !!d.excluido_em;
+        function documentosVisiveis() {
+            return documentosData.filter(d => docExcluido(d) === documentosVerExcluidos);
+        }
+
+        // #195: comprovante de pagamento anexado a uma nota vira um documento separado
+        // (tipo_documento = 'comprovante', nf_vinculada_id = nota mãe) e o OCR preenche nele o
+        // mesmo emissor e valor da nota. Sem dizer de qual nota ele é, a linha parece uma nota
+        // fiscal com o tipo errado.
+        function htmlTipoDocumento(d) {
+            if (d.tipo_documento !== 'comprovante') return esc(tipoDocLabel(d.tipo_documento));
+            if (!d.nf_vinculada_id) return 'Comprovante <div class="text-xs" style="color: var(--error);">sem nota fiscal vinculada</div>';
+            const mae = documentosData.find(x => x.id === d.nf_vinculada_id);
+            const nome = mae ? (mae.name || 'nota fiscal') : 'nota fiscal';
+            return `Comprovante de pagamento <div class="text-xs" style="color: var(--text-muted);">da NF <a href="#" onclick="event.stopPropagation(); abrirFicha('${esc(d.nf_vinculada_id)}'); return false;">${esc(nome)}</a></div>`;
+        }
 
         async function fetchDocumentos(projetoId) {
             const wrap = document.getElementById('documentos-tabela-wrap');
@@ -1616,6 +1635,7 @@
                 documentosData = json.documentos || [];
                 documentosPagina = 1;
                 documentosFiltroStatus = '';
+                documentosVerExcluidos = false;
                 renderDocumentos();
             } catch (err) {
                 console.error('fetchDocumentos:', err);
@@ -1635,21 +1655,33 @@
             renderDocumentos();
         }
 
+        function alternarDocumentosExcluidos() {
+            documentosVerExcluidos = !documentosVerExcluidos;
+            documentosFiltroStatus = '';
+            documentosPagina = 1;
+            renderDocumentos();
+        }
+
         function renderResumoStatusDocumentos() {
             const el = document.getElementById('documentos-resumo-status');
             if (!documentosData.length) { el.innerHTML = ''; return; }
+            const visiveis = documentosVisiveis();
+            const qtdExcluidos = documentosData.filter(docExcluido).length;
             const contagem = {};
-            documentosData.forEach(d => { contagem[d.status || '—'] = (contagem[d.status || '—'] || 0) + 1; });
+            visiveis.forEach(d => { contagem[d.status || '—'] = (contagem[d.status || '—'] || 0) + 1; });
             const chip = (status, rotulo, qtd) => {
                 const ativo = documentosFiltroStatus === status;
                 return `<button class="btn ${ativo ? 'btn-primary' : 'btn-secondary'}" style="padding: 0.3rem 0.65rem; font-size: 0.75rem;" onclick="filtrarDocumentosPorStatus('${esc(status)}')">${esc(rotulo)} (${qtd})</button>`;
             };
+            const chipExcluidos = qtdExcluidos
+                ? `<button class="btn ${documentosVerExcluidos ? 'btn-primary' : 'btn-secondary'}" style="padding: 0.3rem 0.65rem; font-size: 0.75rem; margin-left: 0.5rem;" onclick="alternarDocumentosExcluidos()">${documentosVerExcluidos ? 'Voltar aos ativos' : `Excluídos (${qtdExcluidos})`}</button>`
+                : '';
             el.innerHTML = [
-                chip('', 'Todos', documentosData.length),
+                chip('', documentosVerExcluidos ? 'Todos os excluídos' : 'Todos', visiveis.length),
                 ...Object.entries(contagem)
                     .sort((a, b) => b[1] - a[1])
                     .map(([s, n]) => chip(s, rotuloStatusDoc(s), n))
-            ].join('');
+            ].join('') + chipExcluidos;
         }
 
         // documents.just_erro só é alerta ATUAL enquanto o documento não passou da conferência.
@@ -1675,9 +1707,15 @@
                 return;
             }
 
+            const visiveis = documentosVisiveis();
+            if (!visiveis.length) {
+                wrap.innerHTML = `<p class="empty-state-inline">${documentosVerExcluidos ? 'Nenhum documento excluído neste projeto.' : 'Nenhum documento ativo neste projeto.'}</p>`;
+                document.getElementById('documentos-paginacao').innerHTML = '';
+                return;
+            }
             const filtrados = documentosFiltroStatus
-                ? documentosData.filter(d => (d.status || '—') === documentosFiltroStatus)
-                : documentosData;
+                ? visiveis.filter(d => (d.status || '—') === documentosFiltroStatus)
+                : visiveis;
             const documentos = paginar(filtrados, documentosPagina);
             wrap.innerHTML = `
                 <table class="data-table" style="width: 100%;">
@@ -1687,6 +1725,7 @@
                             <th>Tipo</th>
                             <th>Emissor</th>
                             <th>Valor</th>
+                            <th>Ativo</th>
                             <th>Status</th>
                             <th>Criado em</th>
                             <th style="text-align: right;">Ficha</th>
@@ -1694,19 +1733,23 @@
                     </thead>
                     <tbody>
                         ${documentos.map(d => {
-                            const precisaAtencao = d.status === 'bloqueado_conformidade' || erroAindaVale(d);
+                            const excluido = docExcluido(d);
+                            const precisaAtencao = !excluido && (d.status === 'bloqueado_conformidade' || erroAindaVale(d));
                             return `
-                            <tr class="clickable-row ${precisaAtencao ? 'doc-row-atencao' : ''}" onclick="abrirFicha('${d.id}')">
+                            <tr class="clickable-row ${precisaAtencao ? 'doc-row-atencao' : ''}" onclick="abrirFicha('${d.id}')"${excluido ? ' style="opacity: 0.6;"' : ''}>
                                 <td style="font-weight: 600;">${esc(d.name || '—')}</td>
-                                <td class="text-sm">${esc(tipoDocLabel(d.tipo_documento))}</td>
+                                <td class="text-sm">${htmlTipoDocumento(d)}</td>
                                 <td class="text-sm">
                                     <div>${esc(d.nome_emissor || '—')}</div>
                                     <div class="text-xs" style="color: var(--text-muted);">${esc(d.cnpj_emissor || '')}</div>
                                 </td>
                                 <td class="text-sm">${fmtMoney(d.valor)}</td>
+                                <td class="text-sm">${excluido ? `Não<div class="text-xs" style="color: var(--text-muted);">excluído em ${fmtDate(d.excluido_em)}</div>` : 'Sim'}</td>
                                 <td class="text-sm">
-                                    ${htmlStatus('documents', d.status, d.updated_at)}
-                                    ${erroAindaVale(d) ? `<div class="text-xs" style="color: var(--error); margin-top: 0.25rem;">${esc(d.just_erro)}</div>` : ''}
+                                    ${excluido
+                                        ? `<strong>Excluído</strong><div class="text-xs" style="color: var(--text-muted); margin-top: 0.25rem;">Antes da exclusão: ${esc(rotuloStatusDoc(d.status))}. Não é processado.</div>`
+                                        : `${htmlStatus('documents', d.status, d.updated_at)}
+                                    ${erroAindaVale(d) ? `<div class="text-xs" style="color: var(--error); margin-top: 0.25rem;">${esc(d.just_erro)}</div>` : ''}`}
                                 </td>
                                 <td class="text-sm">${fmtDate(d.created_at)}</td>
                                 <td style="text-align: right; white-space: nowrap;">
@@ -1813,7 +1856,12 @@
 
             // ── 1. Situação: o que é, há quanto tempo, o que fazer ──
             const noStatus = s.minutos_no_status == null ? 'tempo desconhecido' : 'há ' + fmtDuracao(s.minutos_no_status);
-            const situacao = `
+            // #198: documento excluído não é processado; o status abaixo é o de antes da exclusão.
+            const avisoExcluido = d.excluido_em ? `
+                <div style="padding: 0.75rem 1rem; background: #F3F4F6; border-left: 4px solid #6B7280; border-radius: var(--radius-sm); margin-bottom: 1rem;">
+                    <p class="text-sm"><strong>Documento excluído em ${esc(fmtDate(d.excluido_em))}.</strong> Ele não aparece para o cliente e não é processado. O status abaixo é o de antes da exclusão.</p>
+                </div>` : '';
+            const situacao = avisoExcluido + `
                 <div style="padding: 1rem; background: var(--bg-sidebar); border-radius: var(--radius-md); margin-bottom: 1rem;">
                     <div style="display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; align-items: flex-start;">
                         <div>
