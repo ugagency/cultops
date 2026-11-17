@@ -111,5 +111,59 @@ teste('todo script local do index.html está publicado pelo vercel.json (senão 
     assert.deepStrictEqual(faltando, []);
 });
 
+// #207 e #191 ------------------------------------------------------------
+const L = (de, para, origem, t) => ({ campo: 'status', valor_anterior: de, valor_novo: para, origem, created_at: '2026-11-0' + t });
+
+teste('#207: divergência resolvida pela tela e sem nova conciliação = resolução manual', () => {
+    const r = E.resolucaoManualDivergencia([
+        L('aguardando_conformidade', 'aguardando_conciliacao_bancaria', 'sistema:nao_declarado', 1),
+        L('aguardando_conciliacao_bancaria', 'divergencia_beneficiario', 'sistema:nao_declarado', 2),
+        L('divergencia_beneficiario', 'aguardando_d3', 'avancar_nota_apos_pagamento', 3),
+        L('aguardando_d3', 'liberado_rpa_airtop', 'sistema:nao_declarado', 4)
+    ]);
+    assert.deepStrictEqual(r, { quando: '2026-11-03', origem: 'avancar_nota_apos_pagamento' });
+});
+
+teste('#207: depois da correção a conciliação rodou de novo = parecer atual é da IA', () => {
+    assert.strictEqual(E.resolucaoManualDivergencia([
+        L('aguardando_conciliacao_bancaria', 'divergencia_beneficiario', 'sistema:nao_declarado', 1),
+        L('divergencia_beneficiario', 'aguardando_conciliacao_bancaria', 'ui', 2),
+        L('aguardando_conciliacao_bancaria', 'aguardando_d3', 'sistema:nao_declarado', 3)
+    ]), null);
+});
+
+teste('#207: saída automática da divergência e nota sem divergência não contam', () => {
+    assert.strictEqual(E.resolucaoManualDivergencia([
+        L('aguardando_conciliacao_bancaria', 'divergencia_valor', 'sistema:nao_declarado', 1),
+        L('divergencia_valor', 'aguardando_d3', 'sistema:nao_declarado', 2)
+    ]), null);
+    assert.strictEqual(E.resolucaoManualDivergencia([L('aguardando_conciliacao_bancaria', 'aguardando_d3', 'sistema:nao_declarado', 1)]), null);
+    assert.strictEqual(E.resolucaoManualDivergencia(null), null);
+});
+
+teste('#207: voltou para divergência depois da correção = sem resolução manual', () => {
+    assert.strictEqual(E.resolucaoManualDivergencia([
+        L('aguardando_conciliacao_bancaria', 'divergencia_beneficiario', 'sistema:nao_declarado', 1),
+        L('divergencia_beneficiario', 'aguardando_d3', 'avancar_nota_apos_pagamento', 2),
+        L('aguardando_d3', 'divergencia_beneficiario', 'sistema:nao_declarado', 3)
+    ]), null);
+});
+
+teste('#191: liberação manual de bloqueio da auditoria', () => {
+    assert.deepStrictEqual(E.liberacaoManualAuditoria([
+        L('aguardando_conformidade', 'bloqueado_conformidade', 'sistema:nao_declarado', 1),
+        L('bloqueado_conformidade', 'aguardando_conciliacao_bancaria', 'ui', 2)
+    ]), { quando: '2026-11-02', origem: 'ui' });
+    assert.strictEqual(E.liberacaoManualAuditoria([L('aguardando_conformidade', 'aguardando_conciliacao_bancaria', 'sistema:nao_declarado', 1)]), null);
+});
+
+teste('#209: histórico por etapa ignora linhas que não são de status', () => {
+    const h = E.historicoPorEtapa([
+        { campo: 'valor', valor_anterior: '1', valor_novo: '2', created_at: '2026-01-01' },
+        { campo: 'status', valor_anterior: 'processing_ocr', valor_novo: 'aguardando_conformidade', created_at: '2026-01-02' }
+    ]);
+    assert.deepStrictEqual(h.map(l => l.length), [0, 0, 1, 0, 0, 0]);
+});
+
 console.log(`${ok} ok, ${falhas} falha(s)`);
 if (falhas) process.exit(1);

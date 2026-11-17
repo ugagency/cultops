@@ -83,8 +83,51 @@
         trigger: 'automático',
         'sistema:nao_declarado': 'automático',
         avancar_nota_apos_pagamento: 'avanço após o pagamento',
-        conciliacao_auto_lote: 'conciliação automática do lote'
+        conciliacao_auto_lote: 'conciliação automática do lote',
+        confirmar_lancamento_nota: 'lançamento escolhido na tela',
+        informar_pagamento_manual: 'pagamento informado manualmente',
+        ocultar_documento: 'exclusão',
+        restaurar_documento: 'restauração',
+        descartar_fila_lote: 'removido da fila do lote',
+        suporte_ui: 'suporte',
+        vincular_extrato: 'vínculo de extrato'
     };
+
+    const DIVERGENCIAS = ['divergencia_valor', 'divergencia_beneficiario'];
+    const origemAutomatica = (o) => !o || o === 'trigger' || String(o).startsWith('sistema:');
+
+    // #207: a nota saiu de uma divergência da conciliação por ação de alguém (lançamento escolhido,
+    // pagamento informado, conta e risco) e nenhuma conciliação automática rodou depois. Nesse caso o
+    // parecer gravado é o da IA ANTES da correção e não pode aparecer como parecer atual.
+    // `linhas`: mudanças de status do audit_log ({ valor_anterior, valor_novo, origem, created_at }).
+    // Devolve { quando, origem } da resolução manual, ou null.
+    function resolucaoManualDivergencia(linhas) {
+        const ordenadas = (linhas || []).filter(l => l && l.valor_novo && (!l.campo || l.campo === 'status'))
+            .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+        let manual = null;
+        for (const l of ordenadas) {
+            if (DIVERGENCIAS.includes(l.valor_novo)) { manual = null; continue; }
+            if (DIVERGENCIAS.includes(l.valor_anterior)) {
+                manual = origemAutomatica(l.origem) ? null : { quando: l.created_at, origem: l.origem };
+                continue;
+            }
+            // Conciliação automática rodou de novo: o parecer gravado é dela.
+            if (l.valor_anterior === 'aguardando_conciliacao_bancaria' && origemAutomatica(l.origem)) manual = null;
+        }
+        return manual;
+    }
+
+    // Saída manual de um bloqueio da auditoria (conta e risco ou correção pela tela). null se não houve.
+    function liberacaoManualAuditoria(linhas) {
+        const ordenadas = (linhas || []).filter(l => l && l.valor_novo && (!l.campo || l.campo === 'status'))
+            .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+        let manual = null;
+        for (const l of ordenadas) {
+            if (l.valor_novo === 'bloqueado_conformidade') { manual = null; continue; }
+            if (l.valor_anterior === 'bloqueado_conformidade' && !origemAutomatica(l.origem)) manual = { quando: l.created_at, origem: l.origem };
+        }
+        return manual;
+    }
 
     function rotuloOrigem(origem) {
         if (!origem) return '';
@@ -101,7 +144,8 @@
         const rot = typeof rotuloStatus === 'function' ? rotuloStatus : (s) => s;
         const ordenadas = (linhas || []).slice().sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
         for (const l of ordenadas) {
-            if (!l || !l.valor_novo) continue;
+            // #209: o histórico agora traz todos os campos; aqui só entram as mudanças de status.
+            if (!l || !l.valor_novo || (l.campo && l.campo !== 'status')) continue;
             const { atual } = etapaDoStatus(l.valor_novo);
             const de = l.valor_anterior ? rot(l.valor_anterior) : null;
             const texto = (de ? de + ' → ' : 'Entrou em ') + rot(l.valor_novo);
@@ -115,5 +159,5 @@
         return porEtapa;
     }
 
-    return { ETAPAS, ORDEM, DESVIOS, etapaDoStatus, resolverVista, indiceVisto, rotuloOrigem, historicoPorEtapa };
+    return { ETAPAS, ORDEM, DESVIOS, etapaDoStatus, resolverVista, indiceVisto, rotuloOrigem, historicoPorEtapa, resolucaoManualDivergencia, liberacaoManualAuditoria };
 });

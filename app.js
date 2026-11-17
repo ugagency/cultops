@@ -3686,7 +3686,13 @@ ${Sidebar()}
 
     // Onde fica cada bloco que pode trazer ação.
     const painelConciliacao = doc.status === 'aguardando_comprovante' ? 3 : 4;
-    const painelParecer = etapaInfo.erro ? etapaAtual : 2;
+    // #191: o Parecer da Análise (justification) é escrito pela análise do comprovante e pela
+    // conciliação; a auditoria de CNAE só escreve quando bloqueia (just_erro). Fora de erro, a etapa
+    // Auditoria mostra o resultado da auditoria e o texto do parecer vai para a etapa do pagamento.
+    const atencaoNaAuditoria = doc.status === 'aguardando_conformidade' && !!doc.just_erro;
+    const painelParecer = etapaInfo.erro ? etapaAtual : (atencaoNaAuditoria ? 2 : null);
+    const painelParecerPagamento = (doc.justification && etapaAtual >= 3 && painelParecer !== painelConciliacao && doc.status !== 'erro_rpa')
+        ? painelConciliacao : null;
     const painelRubrica = (doc.status === 'erro_rpa' && window.ErrosRpa.permiteCorrigirRubrica(doc.just_erro)) ? 5 : 2;
     const blocoPagamento = PagamentoNotaSection(doc);
     const painelPagamento = doc.status === 'erro_rpa' ? 5 : (etapaAtual < painelConciliacao ? etapaAtual : painelConciliacao);
@@ -4001,6 +4007,43 @@ ${Sidebar()}
                     ` : ''}
                 </div>`;
 
+    // #191 e #207: blocos de parecer por etapa. O histórico de status vem do audit_log (carregado com a nota).
+    const linhasStatusDoc = (state.historicoDoc && state.historicoDoc.docId === doc.id && Array.isArray(state.historicoDoc.linhas))
+        ? state.historicoDoc.linhas : [];
+    const liberacaoAuditoria = EtapasMod && EtapasMod.liberacaoManualAuditoria ? EtapasMod.liberacaoManualAuditoria(linhasStatusDoc) : null;
+    const resolucaoDivergencia = EtapasMod && EtapasMod.resolucaoManualDivergencia ? EtapasMod.resolucaoManualDivergencia(linhasStatusDoc) : null;
+    const rotuloOrigemDoc = (o) => (EtapasMod && EtapasMod.rotuloOrigem ? EtapasMod.rotuloOrigem(o) : (o || ''));
+
+    const blocoResultadoAuditoria = etapaAtual < 2 ? '' : `
+                <div class="detalhe-bloco">
+                    <h4 class="detalhe-bloco-titulo">Resultado da auditoria</h4>
+                    <div style="padding: 1rem; background: var(--bg-sidebar); border-radius: var(--radius-sm); border-left: 3px solid ${etapaAtual > 2 || etapaInfo.concluida ? (liberacaoAuditoria ? '#d97706' : 'var(--success)') : 'var(--primary)'};">
+                        <p class="text-sm" style="line-height: 1.6; color: var(--text-primary);">${etapaAtual > 2 || etapaInfo.concluida
+            ? (liberacaoAuditoria
+                ? `<strong style="color: #d97706;">Liberada manualmente</strong><br>A auditoria bloqueou esta nota e ela foi liberada em ${fmtDataHoraExclusao(liberacaoAuditoria.quando)}${liberacaoAuditoria.origem ? ' (' + escAttr(rotuloOrigemDoc(liberacaoAuditoria.origem)) + ')' : ''}.`
+                : '<strong style="color: var(--success);">Aprovada</strong><br>O CNAE do fornecedor foi conferido com a rubrica e não houve bloqueio.')
+            : 'A auditoria automática ainda não terminou.'}</p>
+                    </div>
+                </div>`;
+
+    const blocoParecerPagamento = !doc.justification ? '' : (resolucaoDivergencia ? `
+                <div class="detalhe-bloco">
+                    <h4 class="detalhe-bloco-titulo">Parecer da análise do pagamento</h4>
+                    <div style="padding: 1rem; background: var(--bg-sidebar); border-radius: var(--radius-sm); border-left: 3px solid #d97706;">
+                        <p class="text-sm" style="line-height: 1.6; color: var(--text-primary);"><strong style="color: #d97706;">Divergência resolvida manualmente</strong><br>A conciliação automática apontou divergência e o pagamento foi confirmado em ${fmtDataHoraExclusao(resolucaoDivergencia.quando)}${resolucaoDivergencia.origem ? ' (' + escAttr(rotuloOrigemDoc(resolucaoDivergencia.origem)) + ')' : ''}.</p>
+                        <details style="margin-top: 0.75rem;">
+                            <summary class="text-xs" style="cursor: pointer; font-weight: 600; color: var(--text-secondary);">Parecer da IA antes da correção</summary>
+                            <p class="text-xs" style="line-height: 1.6; color: var(--text-secondary); margin-top: 0.5rem;">${escAttr(doc.justification)}</p>
+                        </details>
+                    </div>
+                </div>` : `
+                <div class="detalhe-bloco">
+                    <h4 class="detalhe-bloco-titulo">Parecer da análise do pagamento</h4>
+                    <div style="padding: 1rem; background: var(--bg-sidebar); border-radius: var(--radius-sm); border-left: 3px solid var(--success);">
+                        <p class="text-sm" style="line-height: 1.6; color: var(--text-primary);">${escAttr(doc.justification)}</p>
+                    </div>
+                </div>`);
+
     const boxExtrato = (incluirPagamento) => `
                         <!-- Box do Extrato -->
                         <div style="padding: 1rem; border: 1px dashed ${(doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'var(--error)' : 'var(--border-light)'}; border-radius: var(--radius-sm); background: ${jaPassouDaConciliacao ? bgPosConciliacao : (doc.status === 'divergencia_valor' || doc.status === 'divergencia_beneficiario') ? 'rgba(239, 68, 68, 0.05)' : (doc.extrato_origem_id && ['aguardando_comprovante', 'aguardando_conciliacao_bancaria'].includes(doc.status)) ? 'rgba(16, 185, 129, 0.05)' : 'transparent'};">
@@ -4138,7 +4181,7 @@ ${Sidebar()}
     const resumoEtapa = (i) => {
         if (i === 0) return `Arquivo ${escAttr(doc.name)} recebido em ${fmtDataHoraExclusao(doc.created_at)}.`;
         if (i === 1) return `Leitura concluída: ${qtdCamposLidos} de 5 campos encontrados.`;
-        if (i === 2) return `${doc.justification ? 'Aprovada na auditoria.' : 'Auditoria concluída.'}${nomeRubricaTexto ? ' Rubrica: ' + escAttr(nomeRubricaTexto) + '.' : ''}`;
+        if (i === 2) return `${liberacaoAuditoria ? 'Liberada manualmente depois de bloqueio na auditoria.' : 'Aprovada na auditoria.'}${nomeRubricaTexto ? ' Rubrica: ' + escAttr(nomeRubricaTexto) + '.' : ''}`;
         if (i === 3) return state.currentComprovante ? `Comprovante ${escAttr(state.currentComprovante.name)} anexado.` : 'Sem comprovante (etapa opcional).';
         if (i === 4) return lancDaNota
             ? `Pagamento conciliado: lançamento de ${fmtDataExtrato(lancDaNota.data_lancamento)}, ${fmtValorExtrato(Math.abs(Number(lancDaNota.valor) || 0))}.`
@@ -4193,7 +4236,7 @@ ${Sidebar()}
         if (i === 2) return `
                         ${AprovacaoFornecedorSection(doc)}
                         ${painelRubrica === 2 ? blocoRubrica : ''}
-                        ${painelParecer === 2 ? blocoParecer : ''}
+                        ${painelParecer === 2 ? blocoParecer : blocoResultadoAuditoria}
                         ${painelPagamento === 2 && blocoPagamento ? `<div class="detalhe-bloco">${blocoPagamento}</div>` : ''}`;
         if (i === 3) return `
                         <div class="detalhe-bloco">
@@ -4206,10 +4249,12 @@ ${Sidebar()}
                         </div>
                         ${boxComprovante}
                         ${painelConciliacao === 3 ? boxExtrato(painelPagamento === 3) : ''}
+                        ${painelParecerPagamento === 3 ? blocoParecerPagamento : ''}
                         ${painelConciliacao === 3 ? ExtratoBancarioSection(doc) : ''}`;
         if (i === 4) return `
                         ${painelConciliacao === 4 ? boxExtrato(painelPagamento === 4) : ''}
                         ${painelParecer === 4 ? blocoParecer : ''}
+                        ${painelParecerPagamento === 4 ? blocoParecerPagamento : ''}
                         ${painelConciliacao === 4 ? ExtratoBancarioSection(doc) : ''}`;
         return `
                         ${painelRubrica === 5 ? blocoRubrica : ''}
@@ -4298,6 +4343,7 @@ ${Sidebar()}
             <div class="detalhe-coluna-principal">
                 ${painelHtml}
                 ${concluidasHtml}
+                ${historicoCompletoHtml(doc)}
             </div>
 
             <div class="detalhe-coluna-lateral">
@@ -7782,6 +7828,119 @@ function assinaturaDaTelaDetalhes() {
 }
 
 // #130: mudanças de status da nota no audit_log, em ordem cronológica. Erro devolve null.
+// #209: histórico completo do documento (todas as mudanças do audit_log, com quem fez), carregado
+// só quando o quadro é aberto. state.historicoCompleto = { docId, aberto, carregando, linhas, erro }.
+const CAMPOS_HISTORICO_DOC = {
+    __insert: 'Documento enviado',
+    status: 'Status',
+    valor: 'Valor da nota',
+    valor_pago: 'Valor pago',
+    cnpj_emissor: 'CNPJ/CPF do emissor',
+    nome_emissor: 'Nome do emissor',
+    numero_nf: 'Número da nota',
+    data_emissao: 'Data de emissão',
+    data_pagamento: 'Data do pagamento',
+    rubrica_id_fk: 'Rubrica',
+    fornecedor_id: 'Fornecedor vinculado',
+    protocolo_salic: 'Protocolo SALIC',
+    aprovado_por: 'Aprovação do fornecedor',
+    nivel_duplicidade: 'Sinal de duplicidade',
+    fitid: 'Lançamento do extrato',
+    extrato_origem_id: 'Extrato vinculado',
+    excluido_em: 'Exclusão',
+    justification: 'Parecer da análise',
+    just_erro: 'Motivo de erro ou bloqueio',
+    envio_salic_manual: 'Envio manual ao SALIC',
+    conformidade_revalidada_por_suporte: 'Conformidade revalidada pelo suporte',
+    ocr_reprocessado_por_suporte: 'OCR reprocessado pelo suporte'
+};
+
+function valorHistoricoDoc(campo, v) {
+    if (v === null || v === undefined || v === '') return '(vazio)';
+    if (campo === 'status') return (STATUS_MAP[v] || {}).label || v;
+    if (campo === 'valor' || campo === 'valor_pago') {
+        const n = Number(v);
+        return Number.isFinite(n) ? n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : v;
+    }
+    if (campo === 'data_pagamento' || campo === 'data_emissao') {
+        const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v));
+        return m ? `${m[3]}/${m[2]}/${m[1]}` : v;
+    }
+    if (campo === 'rubrica_id_fk') {
+        const r = (state.rubricasPorId || {})[v] || (state.rubricas_disponiveis || []).find(x => x.id === v);
+        return r ? rotuloRubricaSemValor(r) : 'outra rubrica';
+    }
+    if (campo === 'fornecedor_id' || campo === 'extrato_origem_id' || campo === 'aprovado_por') return 'vinculado';
+    if (campo === 'excluido_em') return 'excluído';
+    if (campo === 'envio_salic_manual') return String(v) === 'true' ? 'sim' : 'não';
+    return String(v);
+}
+
+function textoLinhaHistoricoDoc(l) {
+    const rotulo = CAMPOS_HISTORICO_DOC[l.campo] || String(l.campo || '').replace(/_/g, ' ');
+    if (l.campo === '__insert') return rotulo;
+    if (l.campo === 'excluido_em') return l.para ? 'Documento excluído' : 'Documento restaurado';
+    if (l.campo === 'descartado_da_fila') return 'Arquivo removido da fila do lote';
+    if (l.campo === 'conformidade_revalidada_por_suporte' || l.campo === 'ocr_reprocessado_por_suporte') return rotulo;
+    if (l.de === null || l.de === undefined || l.de === '') return `${rotulo}: ${valorHistoricoDoc(l.campo, l.para)}`;
+    if (l.para === null || l.para === undefined || l.para === '') return `${rotulo}: removido (era ${valorHistoricoDoc(l.campo, l.de)})`;
+    return `${rotulo}: ${valorHistoricoDoc(l.campo, l.de)} → ${valorHistoricoDoc(l.campo, l.para)}`;
+}
+
+function historicoCompletoHtml(doc) {
+    const h = state.historicoCompleto && state.historicoCompleto.docId === doc.id ? state.historicoCompleto : null;
+    const aberto = !!(h && h.aberto);
+    const rotOrigem = (o) => (window.DetalheEtapas && window.DetalheEtapas.rotuloOrigem ? window.DetalheEtapas.rotuloOrigem(o) : (o || ''));
+    let corpo = '';
+    if (aberto) {
+        if (h.carregando) corpo = '<p class="text-sm" style="color: var(--text-muted);">Carregando histórico...</p>';
+        else if (h.erro) corpo = `<p class="text-sm" role="alert" style="color: var(--error);">${escAttr(h.erro)}</p>`;
+        else if (!(h.linhas || []).length) corpo = '<p class="text-sm" style="color: var(--text-muted);">Nenhuma alteração registrada.</p>';
+        else corpo = h.linhas.map(l => {
+            const texto = textoLinhaHistoricoDoc(l);
+            const longo = texto.length > 220;
+            const quem = l.por && l.por.email ? l.por.email : (rotOrigem(l.origem) || 'sistema');
+            return `
+                        <div class="detalhe-historico-linha">
+                            <span class="detalhe-historico-quando">${fmtDataHoraExclusao(l.quando)}</span>
+                            <span>${longo ? `<details><summary style="cursor: pointer;">${escAttr(texto.slice(0, 200))}...</summary>${escAttr(texto)}</details>` : escAttr(texto)} <span style="color: var(--text-muted);">(${escAttr(quem)}${l.por && l.por.email && l.origem ? ', ' + escAttr(rotOrigem(l.origem)) : ''})</span>${l.motivo ? `<br><span style="color: var(--text-secondary);">Motivo: ${escAttr(l.motivo)}</span>` : ''}</span>
+                        </div>`;
+        }).join('') + (h.limiteAtingido ? '<p class="text-xs" style="color: var(--text-muted); margin-top: 0.5rem;">Mostrando as primeiras 500 alterações.</p>' : '');
+    }
+    return `
+                <section class="card" id="historico-completo-doc">
+                    <details ${aberto ? 'open' : ''} ontoggle="window.alternarHistoricoCompleto('${doc.id}', this.open)">
+                        <summary class="h2" style="cursor: pointer;">Histórico do documento</summary>
+                        <p class="text-xs" style="color: var(--text-secondary); margin: 0.5rem 0 0.75rem;">Todas as alterações registradas: status, dados da nota, rubrica, pagamento, exclusão e ações do suporte, com quem fez cada uma.</p>
+                        <div class="detalhe-historico">${corpo}</div>
+                    </details>
+                </section>`;
+}
+
+window.alternarHistoricoCompleto = async function (docId, aberto) {
+    const atual = state.historicoCompleto && state.historicoCompleto.docId === docId ? state.historicoCompleto : null;
+    if (!aberto) {
+        if (atual && atual.aberto) { atual.aberto = false; }
+        return;
+    }
+    if (atual && atual.aberto) return;
+    if (atual && atual.linhas && !atual.erro) { atual.aberto = true; render(); return; }
+    state.historicoCompleto = { docId, aberto: true, carregando: true, linhas: [], erro: null };
+    render();
+    try {
+        const resposta = await fetchApiAutenticado('/api/documentos/' + encodeURIComponent(docId) + '/historico');
+        const corpo = await resposta.json().catch(() => ({}));
+        if (!resposta.ok) throw new Error(corpo.error || 'Não foi possível carregar o histórico.');
+        if (!state.historicoCompleto || state.historicoCompleto.docId !== docId) return;
+        state.historicoCompleto = { docId, aberto: true, carregando: false, linhas: corpo.historico || [], erro: null, limiteAtingido: !!corpo.limite_atingido };
+    } catch (err) {
+        console.error('[historico-completo]', err);
+        if (!state.historicoCompleto || state.historicoCompleto.docId !== docId) return;
+        state.historicoCompleto = { docId, aberto: true, carregando: false, linhas: [], erro: err.message || 'Não foi possível carregar o histórico.' };
+    }
+    if (state.currentView === 'details' && state.currentDocument && state.currentDocument.id === docId) render();
+};
+
 async function carregarHistoricoDaNota(docId) {
     try {
         const { data, error } = await supabaseClient
@@ -8001,6 +8160,12 @@ async function fetchDocumentDetails(id, silent = false, opcoes = {}) {
         state.currentDuplicata = duplicataNova;
         state.guiaDuplicataM2 = guiaNova;
         state.historicoDoc = historicoNovo ? { docId: data.id, linhas: historicoNovo } : null;
+        // #209: nota recarregada com o histórico completo aberto: busca de novo para não mostrar uma lista velha.
+        const hc = state.historicoCompleto;
+        if (hc && hc.docId === data.id) {
+            if (hc.aberto && !hc.carregando) { hc.aberto = false; hc.linhas = null; window.alternarHistoricoCompleto(data.id, true); }
+            else if (!hc.aberto) state.historicoCompleto = null;
+        }
         // O indicador "Atualizando a nota..." termina junto com a atualização forçada.
         if (opcoes.forcar) state.atualizandoNota = false;
         if (data && !silent) retomarLeituraDeExtratoDoProjeto(data); // sem await: nao atrasa a tela
