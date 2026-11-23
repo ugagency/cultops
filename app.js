@@ -3462,6 +3462,78 @@ window.handleIgnorarGuiaDuplicadaM2 = async function (taxGuideId) {
     });
 };
 
+// #193: valor bruto e líquido lidos pelo OCR (json_extraido.nota_fiscal). O campo `valor` da nota
+// às vezes recebe o bruto e às vezes o líquido; mostrar os dois deixa o usuário conferir qual foi
+// usado. `usado` diz a qual dos dois o `valor` gravado corresponde ('bruto', 'liquido', 'ambos'
+// quando não há retenção, 'outro' quando não bate com nenhum). null quando o OCR não trouxe os dois.
+function valoresBrutoLiquido(doc) {
+    const nf = doc?.json_extraido?.nota_fiscal;
+    if (!nf || typeof nf !== 'object') return null;
+    const num = (v) => {
+        if (v === null || v === undefined || v === '') return null;
+        const n = parseValorBR(v);
+        return Number.isFinite(n) && n > 0 ? n : null;
+    };
+    const bruto = num(nf.valor_bruto);
+    const liquido = num(nf.valor_liquido);
+    if (bruto === null || liquido === null) return null;
+    let retencoes = num(nf.retencoes_total);
+    if (retencoes === null && bruto > liquido) retencoes = Math.round((bruto - liquido) * 100) / 100;
+    const valor = (doc.valor === null || doc.valor === undefined || doc.valor === '') ? null : parseValorBR(doc.valor);
+    const igual = (a, b) => a !== null && b !== null && Math.abs(a - b) < 0.005;
+    let usado = null;
+    if (valor !== null && valor > 0) {
+        if (igual(valor, bruto) && igual(valor, liquido)) usado = 'ambos';
+        else if (igual(valor, bruto)) usado = 'bruto';
+        else if (igual(valor, liquido)) usado = 'liquido';
+        else usado = 'outro';
+    }
+    return { bruto, liquido, retencoes, usado, temRetencao: !igual(bruto, liquido) };
+}
+
+function fmtReaisBL(v) {
+    return 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Bloco de leitura, abaixo do "Valor Total" no detalhe da nota.
+function blocoBrutoLiquidoHtml(doc) {
+    const v = valoresBrutoLiquido(doc);
+    if (!v) return '';
+    if (!v.temRetencao) {
+        return `<p class="text-xs" style="margin: 0.25rem 0 0; color: var(--text-muted);">Sem retenções na nota: valor bruto e líquido iguais (${fmtReaisBL(v.bruto)}).</p>`;
+    }
+    const aviso = {
+        bruto: 'O Valor Total acima é o <strong>valor bruto</strong> da nota.',
+        liquido: 'O Valor Total acima é o <strong>valor líquido</strong> da nota.',
+        outro: 'O Valor Total acima <strong>não bate</strong> com o bruto nem com o líquido lidos da nota. Confira.',
+    }[v.usado] || '';
+    const cor = v.usado === 'outro' ? '#B45309' : 'var(--text-secondary)';
+    return `
+        <div class="valores-bruto-liquido" style="margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: var(--bg-secondary, #F8FAFC); border: 1px solid var(--border-light); border-radius: var(--radius-sm);">
+            <div style="display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; font-size: 12px;">
+                <span>Bruto: <strong>${fmtReaisBL(v.bruto)}</strong></span>
+                ${v.retencoes !== null ? `<span>Retenções: <strong>${fmtReaisBL(v.retencoes)}</strong></span>` : ''}
+                <span>Líquido: <strong>${fmtReaisBL(v.liquido)}</strong></span>
+            </div>
+            ${aviso ? `<p class="text-xs" style="margin: 0.25rem 0 0; color: ${cor};">${aviso}</p>` : ''}
+        </div>`;
+}
+
+// Na edição: atalhos para preencher o Valor Total com o bruto ou o líquido lidos da nota.
+function atalhosBrutoLiquidoHtml(doc) {
+    const v = valoresBrutoLiquido(doc);
+    if (!v || !v.temRetencao) return '';
+    const botao = (rotulo, valor) => `<button type="button" class="btn btn-secondary" style="padding: 0.2rem 0.5rem; font-size: 11px;" onclick="window.usarValorNotaNaEdicao(${valor.toFixed(2)})">Usar ${rotulo} (${fmtReaisBL(valor)})</button>`;
+    return `<div style="display: flex; flex-wrap: wrap; gap: 0.375rem; margin-top: 0.375rem;">${botao('bruto', v.bruto)}${botao('líquido', v.liquido)}</div>`;
+}
+
+window.usarValorNotaNaEdicao = function (valor) {
+    const input = document.getElementById('edit-valor');
+    if (!input) return;
+    input.value = Number(valor).toFixed(2);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+};
+
 function renderDadosGuia(doc, esc) {
     const guia = doc?.json_extraido?.guia;
     if (!guia || typeof guia !== 'object') return '';
@@ -3916,6 +3988,7 @@ ${Sidebar()}
                         <div>
                             <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Valor total (R$)</label>
                             <input type="number" id="edit-valor" value="${doc.valor ?? ''}" step="0.01" min="0.01" placeholder="Ex: 1310.31" style="${inputStyle}">
+                            ${atalhosBrutoLiquidoHtml(doc)}
                         </div>
                         <div>
                             <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Data de emissão</label>
@@ -3947,6 +4020,7 @@ ${Sidebar()}
                         <div class="info-item">
                             <label>Valor Total</label>
                             <p class="text-sm" style="font-weight: 600; color: var(--primary);">${renderCampoOuFaltando('R$ ' + (doc.valor ? doc.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '0,00'), camposPendentes.valor)}</p>
+                            ${blocoBrutoLiquidoHtml(doc)}
                         </div>
                         <div class="info-item">
                             <label>Data de Emissão</label>
@@ -4531,6 +4605,7 @@ const AprovacaoFornecedorSection = (doc) => {
                     ${infoItem('Valor', doc.valor != null ? 'R$ ' + parseValorBR(doc.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '---')}
                     ${infoItem('Rubrica sugerida', escAttr(doc.rubrica || '---'))}
                 </div>
+                ${blocoBrutoLiquidoHtml(doc)}
                 <div style="margin-top: 1rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 1.25rem;">
                     ${infoItem('Fornecedor que enviou', escAttr(doc.nome_emissor || doc.fornecedor_nome || '---'))}
                     ${infoItem('Enviado em', doc.created_at ? new Date(doc.created_at).toLocaleString('pt-BR') : '---')}
