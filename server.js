@@ -5907,6 +5907,12 @@ async function alterarExclusaoDocumentos(req, res, acao) {
 // status aguardando_rubrica, não excluído, sem leitura (json_extraido), sem extrato, sem despesa e
 // sem comprovante filho. Qualquer outro caso é recusado e segue pela exclusão lógica (/ocultar).
 // Pode descartar quem subiu o arquivo (a fila do lote é por usuário) ou um admin da organização.
+// O upload grava json_extraido = {} (padrão da coluna): objeto vazio não é leitura do OCR.
+function temLeituraOcr(json) {
+    if (json === null || json === undefined) return false;
+    if (typeof json === 'object') return Object.keys(json).length > 0;
+    return String(json).trim() !== '' && String(json).trim() !== '{}';
+}
 app.post('/api/documentos/descartar-fila', requireAuth, async (req, res) => {
     try {
         const orgId = req.user?.app_metadata?.org_id || null;
@@ -5940,7 +5946,7 @@ app.post('/api/documentos/descartar-fila', requireAuth, async (req, res) => {
                 itens.push({ id, resultado: 'recusado', motivo: 'Só quem enviou o arquivo ou um administrador pode removê-lo da fila.' });
                 continue;
             }
-            if (d.status !== 'aguardando_rubrica' || d.excluido_em || d.json_extraido || d.extrato_origem_id || comDespesa.has(id) || comFilho.has(id)) {
+            if (d.status !== 'aguardando_rubrica' || d.excluido_em || temLeituraOcr(d.json_extraido) || d.extrato_origem_id || comDespesa.has(id) || comFilho.has(id)) {
                 itens.push({ id, resultado: 'recusado', motivo: NAO_E_DA_FILA });
                 continue;
             }
