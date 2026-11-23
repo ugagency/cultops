@@ -91,6 +91,13 @@ const resultado = (r, n) => (r.corpo.itens.find(i => i.id === U(100 + n)) || {})
         try { await fn(); ok++; } catch (e) { falhas++; console.log('FALHOU: ' + nome + '\n   ' + e.message); }
     };
 
+    await teste('arquivo recem-enviado (json_extraido = {}, padrao da coluna) tambem e descartado', async () => {
+        db.documents.find(x => x.id === U(101)).json_extraido = {};
+        const r = await chamar(porta, 'tok-dono', { document_ids: [U(101)] });
+        assert.strictEqual(resultado(r, 1), 'descartado');
+        assert.ok(!existe(1));
+    });
+
     await teste('arquivo so na fila: apaga a linha e o PDF e registra no audit_log', async () => {
         const r = await chamar(porta, 'tok-dono', { document_ids: [U(101)] });
         assert.strictEqual(r.status, 200);

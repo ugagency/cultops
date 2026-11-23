@@ -3523,10 +3523,10 @@ function blocoBrutoLiquidoHtml(doc) {
     const cor = v.usado === 'outro' ? '#B45309' : 'var(--text-secondary)';
     return `
         <div class="valores-bruto-liquido" style="margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: var(--bg-secondary, #F8FAFC); border: 1px solid var(--border-light); border-radius: var(--radius-sm);">
-            <div style="display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; font-size: 12px;">
-                <span>Bruto: <strong>${fmtReaisBL(v.bruto)}</strong></span>
-                ${v.retencoes !== null ? `<span>Retenções: <strong>${fmtReaisBL(v.retencoes)}</strong></span>` : ''}
-                <span>Líquido: <strong>${fmtReaisBL(v.liquido)}</strong></span>
+            <div style="display: grid; grid-template-columns: auto 1fr; gap: 0.125rem 0.75rem; font-size: 12px;">
+                <span>Bruto</span><strong style="text-align: right; white-space: nowrap;">${fmtReaisBL(v.bruto)}</strong>
+                ${v.retencoes !== null ? `<span>Retenções</span><strong style="text-align: right; white-space: nowrap;">${fmtReaisBL(v.retencoes)}</strong>` : ''}
+                <span>Líquido</span><strong style="text-align: right; white-space: nowrap;">${fmtReaisBL(v.liquido)}</strong>
             </div>
             ${aviso ? `<p class="text-xs" style="margin: 0.25rem 0 0; color: ${cor};">${aviso}</p>` : ''}
         </div>`;
@@ -4033,12 +4033,12 @@ ${Sidebar()}
                         <div class="info-item">
                             <label>Valor Total</label>
                             <p class="text-sm" style="font-weight: 600; color: var(--primary);">${renderCampoOuFaltando('R$ ' + (doc.valor ? doc.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '0,00'), camposPendentes.valor)}</p>
-                            ${blocoBrutoLiquidoHtml(doc)}
                         </div>
                         <div class="info-item">
                             <label>Data de Emissão</label>
                             <p class="text-sm">${renderCampoOuFaltando(doc.data_emissao ? _laudoFmtDate(doc.data_emissao) : '---', camposPendentes.data)}</p>
                         </div>
+                        ${blocoBrutoLiquidoHtml(doc) ? `<div style="grid-column: 1 / -1; margin-top: -0.75rem;">${blocoBrutoLiquidoHtml(doc)}</div>` : ''}
                         <div class="info-item">
                             <label>Número documento</label>
                             <p class="text-sm" style="font-weight: 600;">${renderCampoOuFaltando(doc.numero_nf, camposPendentes.numero)}</p>
