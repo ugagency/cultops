@@ -936,6 +936,8 @@ const state = {
     //    sem este navegador ter enviado, ou seja, outra aba ou dispositivo do mesmo login esta processando.
     uploadLoteFalhas: {},
     uploadLoteProcessandoFora: {},
+    // #202: ids que estão na fila de OCR do servidor (aguardando_rubrica com ocr_fila_em).
+    uploadLoteNaFila: {},
     // Extrato opcional vinculado ao lote atual: { id, nome, projectId }.
     // Guarda o projectId para não carimbar documentos de outro projeto —
     // a fila de lote é por usuário, não por projeto (ver fetchUploadLoteQueue).
@@ -2255,6 +2257,7 @@ function estadoLinhaLote(id) {
     const progresso = state.uploadLoteProgresso || {};
     const naSelecao = !!progresso.ativo && (progresso.ids || []).includes(id);
     if ((state.uploadLoteProcessandoFora || {})[id]) return 'processando';
+    if ((state.uploadLoteNaFila || {})[id]) return 'na_fila';
     if (naSelecao && progresso.atual === id) return 'subindo';
     if ((state.uploadLoteFalhas || {})[id]) return 'falhou';
     if (naSelecao) return 'aguardando';
@@ -2265,6 +2268,7 @@ const SELOS_LOTE = {
     aguardando: { texto: 'Aguardando envio', classe: 'status-pending' },
     subindo: { texto: 'Subindo...', classe: 'status-completed' },
     processando: { texto: 'Processando', classe: 'status-completed' },
+    na_fila: { texto: 'Na fila do servidor', classe: 'status-pending' },
     falhou: { texto: 'Falhou, tente de novo', classe: 'status-error' }
 };
 
@@ -2337,7 +2341,8 @@ function atualizarProgressoUploadLoteNoDom() {
 
 // Campos e botoes da linha ficam travados durante o envio do lote e enquanto outra aba processa a nota.
 function linhaLoteTravada(id) {
-    return !!(state.uploadLoteProgresso || {}).ativo || estadoLinhaLote(id) === 'processando';
+    const estado = estadoLinhaLote(id);
+    return !!(state.uploadLoteProgresso || {}).ativo || estado === 'processando' || estado === 'na_fila';
 }
 
 // Atualiza so a linha, sem render(): render() recria a tabela inteira e apagaria o que o usuario
@@ -2377,7 +2382,11 @@ function registrarMudancaDocumentoNoLote(novo) {
     if (progresso.ativo && (progresso.ids || []).includes(novo.id)) return;
     if (!state.uploadLoteProcessandoFora) state.uploadLoteProcessandoFora = {};
     const fora = state.uploadLoteProcessandoFora;
-    const antes = !!fora[novo.id];
+    if (!state.uploadLoteNaFila) state.uploadLoteNaFila = {};
+    const naFila = state.uploadLoteNaFila;
+    const antes = `${!!fora[novo.id]}|${!!naFila[novo.id]}`;
+    if (novo.status === 'aguardando_rubrica' && novo.ocr_fila_em) naFila[novo.id] = true;
+    else delete naFila[novo.id];
     if (novo.status === 'aguardando_rubrica') delete fora[novo.id];
     else if (STATUS_LOTE_PROCESSANDO.includes(novo.status)) fora[novo.id] = true;
     else {
@@ -2385,7 +2394,7 @@ function registrarMudancaDocumentoNoLote(novo) {
         removerLinhaLoteNoDom(novo.id);
         return;
     }
-    if (antes !== !!fora[novo.id]) atualizarLinhaLoteNoDom(novo.id);
+    if (antes !== `${!!fora[novo.id]}|${!!naFila[novo.id]}`) atualizarLinhaLoteNoDom(novo.id);
 }
 
 const UploadLoteView = () => {
@@ -2416,8 +2425,12 @@ const UploadLoteView = () => {
     // #194: depois de um "Processar" concluído, fica dito na tela que já pode sair.
     const avisoConcluido = !enviando && state.loteEnvioConcluido ? `
             <div class="card mb-4" role="status" style="border-left: 4px solid var(--success); padding: 1rem 1.25rem;">
-                <p class="text-sm" style="font-weight: 600;">${state.loteEnvioConcluido.qtd} documento(s) enviados para processamento. Você já pode sair desta tela.</p>
-                <p class="text-xs" style="color: var(--text-secondary); margin-top: 0.25rem;">A leitura continua no servidor. Acompanhe o andamento em Documentos.</p>
+                <p class="text-sm" style="font-weight: 600;">${state.loteEnvioConcluido.servidor
+        ? `${state.loteEnvioConcluido.qtd} documento(s) na fila do servidor. Você já pode sair desta tela.`
+        : `${state.loteEnvioConcluido.qtd} documento(s) enviados para processamento. Você já pode sair desta tela.`}</p>
+                <p class="text-xs" style="color: var(--text-secondary); margin-top: 0.25rem;">${state.loteEnvioConcluido.servidor
+        ? 'O servidor começa em até 1 minuto e lê alguns documentos por vez. Cada um aparece como Processando e depois sai da fila. Acompanhe em Documentos.'
+        : 'A leitura continua no servidor. Acompanhe o andamento em Documentos.'}</p>
             </div>` : '';
     const uploadArquivos = state.uploadArquivosProgresso;
 
@@ -2434,9 +2447,9 @@ ${Sidebar()}
             <div class="card mb-4" id="lote-quando-sair" style="padding: 1rem 1.25rem; background: var(--bg-sidebar);">
                 <p class="text-sm" style="font-weight: 600; margin-bottom: 0.4rem;">Quando posso sair desta tela?</p>
                 <ul class="text-xs" style="color: var(--text-secondary); line-height: 1.6; padding-left: 1.1rem; margin: 0;">
-                    <li>Enquanto os arquivos sobem (passo 1) e enquanto os documentos são enviados para processamento (passo 2), mantenha esta aba aberta. Você pode trocar de tela dentro do PrestAí, mas não feche nem atualize a aba.</li>
+                    <li>Enquanto os arquivos sobem (passo 1), mantenha esta aba aberta. Você pode trocar de tela dentro do PrestAí, mas não feche nem atualize a aba.</li>
                     <li>Os arquivos que já estão na fila ficam guardados: você pode sair e voltar depois para escolher a rubrica e processar. A rubrica escolhida só é gravada quando você clica em Processar.</li>
-                    <li>Depois que o último documento for enviado para processamento, pode sair. A leitura continua no servidor e as notas aparecem em Documentos.</li>
+                    <li>Depois de clicar em Processar, espere a mensagem de que os documentos estão na fila do servidor. A partir daí pode sair: a leitura continua no servidor e as notas aparecem em Documentos.</li>
                 </ul>
             </div>
             ${quadroEnvioHtml}
@@ -10853,8 +10866,12 @@ async function fetchUploadLoteQueue() {
     // processa (status vindo do banco). Nota parada ha mais de MINUTOS_TRAVADO nao e "processando":
     // fica fora para nao ficar presa na tela para sempre.
     const processandoNoServidor = {};
+    const naFilaDoServidor = {};
     let fila = (data || []).filter(d => {
-        if (d.status === 'aguardando_rubrica') return true;
+        if (d.status === 'aguardando_rubrica') {
+            if (d.ocr_fila_em) naFilaDoServidor[d.id] = true;   // #202: já está na fila de OCR do servidor
+            return true;
+        }
         if (estaTravado(d)) return false;
         processandoNoServidor[d.id] = true;
         return true;
@@ -10879,6 +10896,7 @@ async function fetchUploadLoteQueue() {
     }
     // Quem esta em processamento no servidor aparece como Processando; o resto zera.
     state.uploadLoteProcessandoFora = processandoNoServidor;
+    state.uploadLoteNaFila = naFilaDoServidor;
 }
 window.fetchUploadLoteQueue = fetchUploadLoteQueue;
 
@@ -11118,8 +11136,61 @@ window.handleLoteFilesSelected = async function (fileList) {
     render();
 };
 
+// #202: manda o lote para a fila do servidor (POST /api/lote/processar) e libera o usuário.
+// Devolve { indisponivel: true } só quando o servidor ainda não tem a fila (FILA_INDISPONIVEL):
+// aí quem chamou segue pelo envio antigo, pelo navegador. Qualquer outro problema é tratado aqui.
+async function enfileirarLoteNoServidor(itens) {
+    state.loading = true;
+    state.loteEnvioConcluido = null;
+    render();
+    let resposta, corpo;
+    try {
+        resposta = await fetchApiAutenticado('/api/lote/processar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                itens: itens.map(x => ({ document_id: x.doc.id, rubrica_id: x.rubricaIdFk })),
+                extrato_id: state.loteExtratoVinculado ? state.loteExtratoVinculado.id : null
+            })
+        });
+        corpo = await resposta.json().catch(() => ({}));
+    } catch (err) {
+        state.loading = false;
+        render();
+        showToast(err.message || 'Não foi possível falar com o servidor. Tente de novo.', 'error');
+        return { indisponivel: false };
+    }
+    if (resposta.status === 503 && corpo && corpo.codigo === 'FILA_INDISPONIVEL') {
+        state.loading = false;
+        return { indisponivel: true };
+    }
+    if (!resposta.ok) {
+        state.loading = false;
+        render();
+        showToast('Não foi possível processar: ' + ((corpo && corpo.error) || 'erro do servidor') + '.', 'error');
+        return { indisponivel: false };
+    }
+    const resultado = (corpo && corpo.itens) || [];
+    const enfileirados = resultado.filter(r => r.resultado === 'enfileirado');
+    const recusados = resultado.filter(r => r.resultado !== 'enfileirado');
+    if (!state.uploadLoteNaFila) state.uploadLoteNaFila = {};
+    enfileirados.forEach(r => { state.uploadLoteNaFila[r.id] = true; });
+    if (enfileirados.length) {
+        state.loteEnvioConcluido = { qtd: enfileirados.length, servidor: true };
+        showToast(`${enfileirados.length} documento(s) na fila do servidor. Você já pode sair desta tela.`, 'success');
+    }
+    if (recusados.length) {
+        const nome = (id) => ((state.uploadLoteQueue || []).find(d => d.id === id) || {}).name || id;
+        showToast('Não entraram na fila:\n\n' + recusados.map(r => `• ${nome(r.id)}: ${r.motivo}`).join('\n'), 'error');
+    }
+    await fetchUploadLoteQueue();
+    state.loading = false;
+    render();
+    return { indisponivel: false };
+}
+
 window.handleProcessarLoteItem = async function (documentId) {
-    if (state.uploadLoteProgresso && state.uploadLoteProgresso.ativo) return;
+    if ((state.uploadLoteProgresso && state.uploadLoteProgresso.ativo) || state.loteEnfileirando) return;
     const input = document.getElementById(`lote-rubrica-${documentId}`);
     const rubricaInput = input ? input.value.trim() : '';
     if (!rubricaInput) return window.showToast("Escolha a rubrica antes de processar.", 'error');
@@ -11133,6 +11204,17 @@ window.handleProcessarLoteItem = async function (documentId) {
 
     const doc = state.uploadLoteQueue.find(d => d.id === documentId);
     if (!doc) return;
+    if ((state.uploadLoteNaFila || {})[documentId]) return window.showToast('Este documento já está na fila do servidor.', 'info');
+
+    // #202: pela fila do servidor; sem ela (migration_202 não aplicada), o caminho antigo abaixo.
+    state.loteEnfileirando = true;
+    let filaServidor;
+    try {
+        filaServidor = await enfileirarLoteNoServidor([{ doc, rubricaTexto, rubricaIdFk }]);
+    } finally {
+        state.loteEnfileirando = false;
+    }
+    if (!filaServidor.indisponivel) return;
 
     state.loading = true;
     render();
@@ -11163,7 +11245,7 @@ window.handleProcessarLoteItem = async function (documentId) {
 
 window.handleProcessarTodosLote = async function () {
     // Um segundo clique durante o envio nao pode abrir outro lote por cima.
-    if (state.uploadLoteProgresso && state.uploadLoteProgresso.ativo) return;
+    if ((state.uploadLoteProgresso && state.uploadLoteProgresso.ativo) || state.loteEnfileirando) return;
     const itensComRubrica = state.uploadLoteQueue
         .map(doc => {
             const input = document.getElementById(`lote-rubrica-${doc.id}`);
@@ -11178,7 +11260,7 @@ window.handleProcessarTodosLote = async function () {
                 resolvida: !!r
             };
         })
-        .filter(x => x.hasInput && !(state.uploadLoteProcessandoFora || {})[x.doc.id]);
+        .filter(x => x.hasInput && !(state.uploadLoteProcessandoFora || {})[x.doc.id] && !(state.uploadLoteNaFila || {})[x.doc.id]);
 
     if (itensComRubrica.length === 0) {
         return window.showToast("Preencha a rubrica em pelo menos um arquivo.", 'error');
@@ -11235,6 +11317,17 @@ window.handleProcessarTodosLote = async function () {
         confirmLabel: 'Processar',
         variant: 'primary',
         onConfirm: async () => {
+            // #202: o servidor guarda o lote e processa sozinho; o usuário pode sair na hora.
+            // A marca vale já, antes do await: um segundo clique durante a ida ao servidor é ignorado.
+            state.loteEnfileirando = true;
+            let filaServidor;
+            try {
+                filaServidor = await enfileirarLoteNoServidor(itensComRubrica);
+            } finally {
+                state.loteEnfileirando = false;
+            }
+            if (!filaServidor.indisponivel) return;
+            // Servidor sem a fila (migration_202 ainda não aplicada): segue o envio pelo navegador.
             // O redesenho abaixo monta os campos de rubrica a partir de state.uploadLoteQueue, e
             // o que o usuario digitou ainda nao foi gravado (o loop grava um documento por vez).
             // Copia antes do render() para as rubricas continuarem visiveis (#121).

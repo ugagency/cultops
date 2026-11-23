@@ -142,7 +142,9 @@ function criarAmbiente(opcoes = {}) {
         },
         // stubs da tela
         Sidebar: () => '', planilhaOrcamentariaBtn: () => '', renderSaldoBadgeHtml: () => '', avisoExtratosPausadosHtml: () => '',
-        rotuloRubrica: (r) => r.nome, rotuloRubricaCampo: (r) => r.nome, escAttr: (x) => String(x == null ? '' : x)
+        rotuloRubrica: (r) => r.nome, rotuloRubricaCampo: (r) => r.nome,
+        // #202: sem a fila do servidor (migration_202 nao aplicada), o lote segue pelo navegador
+        enfileirarLoteNoServidor: async () => ({ indisponivel: true }), escAttr: (x) => String(x == null ? '' : x)
     };
     ctx.render = () => {
         renders.push({
@@ -205,10 +207,11 @@ async function teste(nome, fn) {
     await teste('a rubrica digitada e copiada para a fila ANTES do primeiro render; item sem rubrica fica como estava', async () => {
         const amb = criarAmbiente();
         const modal = await abrirModal(amb);
-        const p = modal.onConfirm();
-        // o primeiro render de dentro do onConfirm ja aconteceu de forma sincrona
-        const primeiro = amb.renders[0];
-        assert.ok(primeiro, 'o onConfirm redesenha antes do primeiro await');
+        // #202: primeiro o onConfirm pergunta ao servidor (aqui sem a fila); o primeiro render do
+        // envio pelo navegador ja traz as rubricas digitadas.
+        await modal.onConfirm();
+        const primeiro = amb.renders.find(r => r.progresso.ativo);
+        assert.ok(primeiro, 'o envio pelo navegador redesenha com o progresso');
         const por = Object.fromEntries(primeiro.fila.map(d => [d.id, d]));
         assert.strictEqual(por.a.rubrica_id_fk, 'rub-1'); assert.strictEqual(por.a.rubrica, 'Hospedagem');
         assert.strictEqual(por.b.rubrica_id_fk, 'rub-2'); assert.strictEqual(por.b.rubrica, 'Transporte');
@@ -220,7 +223,6 @@ async function teste(nome, fn) {
         assert.strictEqual(primeiro.progresso.ativo, true);
         assert.strictEqual(primeiro.progresso.total, 3);
         assert.ok(primeiro.html.includes('Enviando documento 1 de 3'));
-        await p;
     });
 
     await teste('o progresso avanca a cada documento e cada nota enviada sai da lista na hora', async () => {
