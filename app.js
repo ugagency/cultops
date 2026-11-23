@@ -2017,6 +2017,7 @@ ${Sidebar()}
                                     ${status.label}
                                 </span>
                                 ${seloExtratoHtml(doc, 'margin-top: 0.35rem;')}
+                                ${seloEnvioManualHtml(doc, 'margin-top: 0.35rem;')}
                                 ${estaTravado(doc) ? `
                                     <button type="button" title="Sem avançar há ${formatarTempoTravado(minutosParadoDoc(doc))} — clique para reprocessar"
                                         onclick="event.stopPropagation(); window.handleReprocessarDocumentoTravado('${doc.id}')"
@@ -2078,10 +2079,13 @@ ${Sidebar()}
                             <div style="font-size: 1.05rem; font-weight: 700;">${doc.valor != null ? 'R$ ' + parseValorBR(doc.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '---'}</div>
                             <div class="text-xs" style="color: var(--text-muted);">${new Date(doc.created_at).toLocaleDateString('pt-BR')}</div>
                         </div>
+                        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.3rem;">
                         <span class="badge ${status.class}">
                             <span class="badge-dot"></span>
                             ${status.label}
                         </span>
+                        ${seloEnvioManualHtml(doc)}
+                        </div>
                     </div>
                     <div style="display: flex; gap: 0.5rem;">
                         <button class="btn btn-secondary" style="flex: 1;" onclick="window.navigate('details', '${doc.id}')">
@@ -4040,7 +4044,8 @@ ${Sidebar()}
                         </p>
                     </div>
 
-                    ${(doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') || doc.status === 'revisao_manual') && userCanDelete() ? `
+                    ${doc.status === 'erro_rpa' && userCanDelete() ? envioManualSalicHtml(doc) : ''}
+                    ${(doc.status.includes('erro') || doc.status.includes('bloqueado') || doc.status.includes('divergencia') || doc.status === 'revisao_manual') && doc.status !== 'erro_rpa' && userCanDelete() ? `
                     <div style="margin-top: 1rem; padding: 1rem; background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-sm);">
                         <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
                             <i data-lucide="alert-triangle" style="width: 16px; color: #d97706; flex-shrink: 0;"></i>
@@ -4374,9 +4379,12 @@ ${Sidebar()}
                     ${linhaProjeto ? `<p class="page-subtitle" style="overflow-wrap: anywhere;">${linhaProjeto}</p>` : ''}
                 </div>
             </div>
-            <div class="badge ${infoStatus.class || 'status-pending'}" style="flex-shrink: 0;">
-                <span class="badge-dot"></span>
-                ${infoStatus.label || doc.status}
+            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.35rem; flex-shrink: 0;">
+                <div class="badge ${infoStatus.class || 'status-pending'}">
+                    <span class="badge-dot"></span>
+                    ${infoStatus.label || doc.status}
+                </div>
+                ${seloEnvioManualHtml(doc)}
             </div>
         </header>
 
@@ -4662,6 +4670,75 @@ function extrairLancamentosDoTexto(textoOriginal) {
 // Parecer da Análise de uma nota em erro_rpa (#184). A nota só chega a erro_rpa depois de passar pela
 // conformidade e pela conciliação; o texto guardado em justification é dessa aprovação. Mostrar só
 // "Aprovado" levava a ler a nota como liberada, então o título diz que o envio falhou.
+// #184: nota lançada manualmente no SALIC depois de falha do robô.
+function seloEnvioManualHtml(doc, estilo = '') {
+    if (!doc || !doc.envio_salic_manual) return '';
+    const quando = doc.envio_salic_manual_em ? ` em ${new Date(doc.envio_salic_manual_em).toLocaleDateString('pt-BR')}` : '';
+    return `<span class="badge status-pending" title="Lançada manualmente no SALIC${quando}" style="display: inline-flex; ${estilo}">Envio manual</span>`;
+}
+
+// #184: quadro da nota em erro_rpa que substitui o "Continuar por Conta e Risco". A nota não volta
+// para a fila do robô: o cliente lança no portal do SALIC e confirma aqui. Só administrador.
+function envioManualSalicHtml(doc) {
+    return `
+                    <div id="quadro-envio-manual-salic" style="margin-top: 1rem; padding: 1rem; background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-sm);">
+                        <span style="font-size: 12px; font-weight: 700; color: #d97706;">Lançar manualmente no SALIC</span>
+                        <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin: 0.5rem 0 0.75rem;">
+                            O robô não conseguiu enviar esta nota. Se não for tentar de novo, lance-a manualmente no portal do SALIC. Depois de lançar, confirme aqui: a nota sai da fila de envio e fica marcada como <strong>envio manual</strong>. <strong>O gestor assume a responsabilidade pelo lançamento feito fora do PrestAí.</strong>
+                        </p>
+                        <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 0.25rem;" for="envio-manual-protocolo-${doc.id}">Protocolo ou número do comprovante no SALIC (opcional)</label>
+                        <input type="text" id="envio-manual-protocolo-${doc.id}" maxlength="120" autocomplete="off" style="width: 100%; padding: 0.5rem; font-size: 13px; border: 1px solid var(--border-light); border-radius: 4px; background: white; margin-bottom: 0.6rem;">
+                        <label style="display: flex; gap: 0.5rem; align-items: flex-start; font-size: 12px; margin-bottom: 0.75rem; cursor: pointer;">
+                            <input type="checkbox" id="envio-manual-confirmo-${doc.id}" style="margin-top: 0.15rem;">
+                            <span>Confirmo que lancei esta nota manualmente no SALIC.</span>
+                        </label>
+                        <button class="btn" style="width: 100%; font-size: 12px; padding: 0.5rem; background: transparent; border: 1px solid #d97706; color: #d97706; font-weight: 600;" onclick="window.handleRegistrarEnvioManualSalic('${doc.id}')" ${state.loading ? 'disabled' : ''}>
+                            Registrar envio manual
+                        </button>
+                    </div>`;
+}
+
+window.handleRegistrarEnvioManualSalic = async function (docId) {
+    if (!userCanDelete()) {
+        showToast('Apenas administradores podem registrar o envio manual ao SALIC.', 'error');
+        return;
+    }
+    const confirmo = document.getElementById(`envio-manual-confirmo-${docId}`);
+    if (!confirmo || !confirmo.checked) {
+        showToast('Marque a confirmação de que a nota foi lançada manualmente no SALIC.', 'error');
+        return;
+    }
+    const campo = document.getElementById(`envio-manual-protocolo-${docId}`);
+    const protocolo = campo ? campo.value.trim() : '';
+    window.showConfirmModal({
+        title: 'Registrar envio manual ao SALIC',
+        message: `A nota passa para Enviado ao SALIC, marcada como envio manual, e não será enviada pelo robô.${protocolo ? `\n\nProtocolo informado: ${protocolo}` : '\n\nSem protocolo informado.'}\n\nConfirme só se a nota já foi lançada no portal do SALIC.`,
+        confirmLabel: 'Registrar envio manual',
+        variant: 'danger',
+        onConfirm: async () => {
+            state.loading = true;
+            render();
+            try {
+                const { error } = await supabaseClient.rpc('registrar_envio_manual_salic', {
+                    p_document_id: docId,
+                    p_protocolo: protocolo || null,
+                    p_motivo: null
+                });
+                if (error) throw error;
+                showToast('Envio manual registrado. A nota está como Enviado ao SALIC.', 'success');
+                state.loading = false;
+                await fetchDocumentDetails(docId, true);
+            } catch (err) {
+                console.error('[handleRegistrarEnvioManualSalic]', err);
+                showToast(window.prestaiErroAmigavel ? window.prestaiErroAmigavel(err, 'envio_manual_salic') : ('Erro: ' + err.message), 'error');
+            } finally {
+                state.loading = false;
+                render();
+            }
+        }
+    });
+};
+
 function parecerErroRpaHtml(doc) {
     return `<strong style="color: #d97706;">Conformidade aprovada, mas o envio ao SALIC falhou</strong>${doc.justification ? '<br>' + doc.justification : ''}`;
 }
@@ -5061,8 +5138,9 @@ window.handleForcarAvanco = async function (docId, currentStatus) {
         'revisao_manual': 'aguardando_conformidade',
         'bloqueado_conformidade': 'aguardando_comprovante',
         'divergencia_valor': 'aguardando_d3',
-        'divergencia_beneficiario': 'aguardando_d3',
-        'erro_rpa': 'liberado_rpa_airtop'
+        'divergencia_beneficiario': 'aguardando_d3'
+        // #184: erro_rpa saía para liberado_rpa_airtop e voltava para a fila do robô. Agora a saída por
+        // conta e risco de uma falha de envio é o lançamento manual (handleRegistrarEnvioManualSalic).
     }[currentStatus];
 
     if (!nextStatus) return window.showToast('Não é possível forçar avanço para este status.', 'error');
