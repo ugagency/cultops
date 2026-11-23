@@ -263,7 +263,7 @@ async function teste(nome, fn) {
             setInterval: () => 1, clearInterval() { },
             document: { getElementById: () => ({ value: 'Hospedagem' }) },
             render() { }, showToast() { }, resolverRubricaPorRotulo: (t, l) => l.find(r => r.nome === t) || null,
-            isSaldoRubricasHabilitado: async () => true, dispararOcr: async () => { }, fetchUploadLoteQueue: async () => { },
+            isSaldoRubricasHabilitado: async () => true, dispararOcr: async () => { }, enfileirarLoteNoServidor: async () => ({ indisponivel: true }), fetchUploadLoteQueue: async () => { },
             supabaseClient: {
                 from: (tabela) => {
                     const api = {

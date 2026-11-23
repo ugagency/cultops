@@ -5474,6 +5474,177 @@ app.post('/api/m1/cron-conciliacao-lote', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// #202: fila de OCR dos Documentos em Lote no servidor. Regras e números em fila-ocr-lote.js.
+//
+// POST /api/lote/processar  { itens: [{ document_id, rubrica_id }], extrato_id? }
+// Grava rubrica, rubrica_id_fk, extrato_origem_id e ocr_fila_em de cada documento que ainda está
+// só na fila do lote (aguardando_rubrica). Não chama o n8n: quem envia é o cron abaixo. Responde
+// na hora, com o resultado por documento. Sem a coluna ocr_fila_em (migration_202 não aplicada),
+// responde 503 FILA_INDISPONIVEL sem gravar nada, e o navegador usa o envio antigo.
+// ─────────────────────────────────────────────────────────────────────────────
+const FilaOcr = require('./fila-ocr-lote.js');
+
+app.post('/api/lote/processar', requireAuth, async (req, res) => {
+    try {
+        const orgUsuario = req.user?.app_metadata?.org_id || null;
+        if (!orgUsuario) return res.status(403).json({ error: 'Organização do usuário não identificada.' });
+        const itens = FilaOcr.itensDoPedido(req.body?.itens);
+        if (!itens) return res.status(400).json({ error: 'Escolha a rubrica de ao menos um documento.' });
+        const extratoId = typeof req.body?.extrato_id === 'string' && UUID_DOCUMENTO.test(req.body.extrato_id) ? req.body.extrato_id : null;
+
+        const { data: docs, error: docsErr } = await supabase
+            .from('documents')
+            .select('id, project_id, organization_id, user_id, status, excluido_em, ocr_fila_em')
+            .in('id', itens.map(i => i.document_id));
+        if (docsErr) {
+            if (FilaOcr.colunaFilaAusente(docsErr)) {
+                return res.status(503).json({ error: 'Fila do servidor ainda não disponível.', codigo: 'FILA_INDISPONIVEL' });
+            }
+            throw docsErr;
+        }
+        const orgDe = await organizacaoDosDocumentos(docs);
+        const porId = new Map((docs || []).map(d => [d.id, d]));
+
+        const { data: rubricas, error: rubErr } = await supabase
+            .from('rubricas')
+            .select('id, project_id, nome, ativa')
+            .in('id', [...new Set(itens.map(i => i.rubrica_id))]);
+        if (rubErr) throw rubErr;
+        const rubricaPorId = new Map((rubricas || []).map(r => [r.id, r]));
+
+        let extrato = null;
+        if (extratoId) {
+            const { data: ex, error: exErr } = await supabase
+                .from('extratos').select('id, project_id, organization_id').eq('id', extratoId).maybeSingle();
+            if (exErr) throw exErr;
+            if (ex && ex.organization_id === orgUsuario) extrato = ex;
+        }
+
+        const agora = new Date().toISOString();
+        const resultado = [];
+        for (const it of itens) {
+            const doc = porId.get(it.document_id);
+            const rubrica = rubricaPorId.get(it.rubrica_id);
+            const motivo = FilaOcr.motivoRecusa({
+                doc, rubrica, orgDoc: doc ? orgDe(doc) : null, orgUsuario, usuarioId: req.user.id, papel: req.userRole
+            });
+            if (motivo) { resultado.push({ id: it.document_id, resultado: 'recusado', motivo }); continue; }
+            // Só grava se continuar na fila do lote: outra aba pode ter processado nesse meio-tempo.
+            const { data: gravados, error: updErr } = await supabase
+                .from('documents')
+                .update({
+                    rubrica: rubrica.nome,
+                    rubrica_id_fk: rubrica.id,
+                    extrato_origem_id: FilaOcr.extratoOrigemPara(doc, extrato),
+                    ocr_fila_em: agora
+                })
+                .eq('id', doc.id)
+                .eq('status', FilaOcr.STATUS_FILA)
+                .is('excluido_em', null)
+                .is('ocr_fila_em', null)
+                .select('id');
+            if (updErr) {
+                console.error('[LOTE-PROCESSAR] update', doc.id, updErr.message);
+                resultado.push({ id: doc.id, resultado: 'recusado', motivo: 'Não foi possível colocar o documento na fila agora. Tente de novo.' });
+                continue;
+            }
+            if (!gravados || !gravados.length) {
+                resultado.push({ id: doc.id, resultado: 'recusado', motivo: 'O documento mudou durante a operação. Atualize a fila.' });
+                continue;
+            }
+            resultado.push({ id: doc.id, resultado: 'enfileirado', motivo: 'Na fila de processamento.' });
+        }
+        res.json({ ok: true, enfileirados: resultado.filter(r => r.resultado === 'enfileirado').length, itens: resultado });
+    } catch (err) {
+        console.error('[LOTE-PROCESSAR]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/m1/cron-ocr-lote — chamado a cada minuto pelo pg_cron (x-cron-secret / CRON_SECRET).
+// Pega os documentos com ocr_fila_em, do mais antigo para o mais novo, enquanto houver vaga
+// (no máximo FilaOcr.PARALELO documentos em processing_ocr recente no sistema inteiro). Cada um é
+// "reservado" com um update condicional (aguardando_rubrica + ocr_fila_em -> processing_ocr), o que
+// impede envio duplicado entre execuções e instâncias. A chamada ao n8n fica registrada em
+// processamento_eventos (acao ocr_lote, com duração), que é também a medição pedida no #202.
+// Falha na chamada: a nota fica em processing_ocr e segue o caminho de sempre do banco
+// (retry_ocr_stuck_documents reenvia; revisar_ocr_travado manda para revisão manual).
+let _ocrLoteRodando = false;
+
+app.post('/api/m1/cron-ocr-lote', async (req, res) => {
+    if (!process.env.CRON_SECRET || req.headers['x-cron-secret'] !== process.env.CRON_SECRET) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+    if (_ocrLoteRodando) return res.json({ ok: true, ignorado: 'execução anterior ainda em andamento' });
+    _ocrLoteRodando = true;
+    const inicio = Date.now();
+    let disparados = 0, falhas = 0;
+    try {
+        while (Date.now() - inicio < FilaOcr.ORCAMENTO_MS) {
+            const desde = new Date(Date.now() - FilaOcr.JANELA_EM_ANDAMENTO_MS).toISOString();
+            const { data: emOcr, error: emOcrErr } = await supabase
+                .from('documents')
+                .select('id')
+                .eq('status', 'processing_ocr')
+                .gt('updated_at', desde)
+                .limit(FilaOcr.PARALELO + 1);
+            if (emOcrErr) throw emOcrErr;
+            const vagas = FilaOcr.vagas((emOcr || []).length);
+            if (!vagas) break;
+
+            const { data: fila, error: filaErr } = await supabase
+                .from('documents')
+                .select('id')
+                .eq('status', FilaOcr.STATUS_FILA)
+                .not('ocr_fila_em', 'is', null)
+                .is('excluido_em', null)
+                .order('ocr_fila_em', { ascending: true })
+                .limit(vagas);
+            if (filaErr) {
+                if (FilaOcr.colunaFilaAusente(filaErr)) return res.json({ ok: true, ignorado: 'migration_202 não aplicada' });
+                throw filaErr;
+            }
+            if (!fila || !fila.length) break;
+
+            const envios = [];
+            for (const item of fila) {
+                const { data: reservados, error: resErr } = await supabase
+                    .from('documents')
+                    .update({ status: 'processing_ocr', ocr_fila_em: null })
+                    .eq('id', item.id)
+                    .eq('status', FilaOcr.STATUS_FILA)
+                    .not('ocr_fila_em', 'is', null)
+                    .is('excluido_em', null)
+                    .select('id, file_path, user_id');
+                if (resErr) { console.error('[cron-ocr-lote] reserva', item.id, resErr.message); continue; }
+                const doc = reservados && reservados[0];
+                if (!doc) continue;   // outra execução já pegou
+                envios.push((async () => {
+                    const r = await chamarExterno(
+                        { entidade: 'documents', registro_id: doc.id, acao: 'ocr_lote', usuario_id: null, motivo: null, origem: 'cron' },
+                        {
+                            url: WEBHOOK_OCR_NF, destino: 'n8n:cultops-ocr', timeoutMs: FilaOcr.TIMEOUT_N8N_MS,
+                            body: FilaOcr.payloadOcr(doc, await urlAssinadaParaN8n('documentos', doc.file_path))
+                        }
+                    );
+                    if (r.ok) disparados++; else falhas++;
+                })());
+            }
+            if (!envios.length) break;
+            await Promise.all(envios);
+        }
+        const resposta = { ok: true, disparados, falhas, duracao_ms: Date.now() - inicio };
+        if (disparados || falhas) console.log(`[cron-ocr-lote] ${JSON.stringify(resposta)}`);
+        res.json(resposta);
+    } catch (err) {
+        console.error('[cron-ocr-lote] Erro:', err.message);
+        res.status(500).json({ error: err.message, disparados, falhas });
+    } finally {
+        _ocrLoteRodando = false;
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/conciliacao/auto-lote
 // Concilia automaticamente uma nota que veio de um lote COM extrato vinculado
 // (documents.extrato_origem_id), dentro do universo fechado daquele extrato:
