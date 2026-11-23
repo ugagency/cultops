@@ -4406,6 +4406,7 @@ ${Sidebar()}
 
             <div class="detalhe-coluna-lateral">
                 ${cardDadosExtraidos}
+                ${previaSalicHtml(doc)}
 
                 <div class="card">
                     <h3 class="h2 mb-4">Arquivo Original</h3>
@@ -4679,6 +4680,217 @@ function seloEnvioManualHtml(doc, estilo = '') {
 
 // #184: quadro da nota em erro_rpa que substitui o "Continuar por Conta e Risco". A nota não volta
 // para a fila do robô: o cliente lança no portal do SALIC e confirma aqui. Só administrador.
+// ─────────────────────────────────────────────────────────────────────────────
+// #195: "O que será gravado no SALIC". A prévia aplica as regras do robô (previa-salic.js) aos
+// dados da nota. A simulação chama o dry-run do robô: entra no SALIC, acha a rubrica, preenche
+// o formulário e NÃO salva nem altera a nota. Só gestor ou admin simula (gasta a cota de
+// simulações do robô e usa a credencial SALIC).
+// ─────────────────────────────────────────────────────────────────────────────
+const STATUS_SEM_PREVIA_SALIC = ['enviado_salic', 'concluido', 'processing_ocr', 'aguardando_rubrica',
+    'aguardando_aprovacao_fornecedor', 'rejeitado_fornecedor', 'uploaded', 'erro'];
+
+function mostraPreviaSalic(doc) {
+    return !!doc && !doc.excluido_em && (doc.tipo_documento || 'nf') === 'nf' && !STATUS_SEM_PREVIA_SALIC.includes(doc.status);
+}
+
+function valorCampoPreviaHtml(c) {
+    if (c.valor === null || c.valor === undefined || c.valor === '') {
+        return '<span style="color: #B91C1C; font-weight: 600;">não definido</span>';
+    }
+    let v = c.valor;
+    if (c.campo === 'valor') v = 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    else if (c.campo === 'data_emissao' || c.campo === 'data_pagamento') v = _laudoFmtDate(String(v).split('T')[0]);
+    else v = escAttr(v);
+    const origem = c.origem ? ` <span style="color: var(--text-muted); font-weight: 400;">(${escAttr(c.origem)})</span>` : '';
+    return `<span style="font-weight: 600;">${v}</span>${origem}`;
+}
+
+function resultadoSimulacaoSalicHtml(sim) {
+    if (!sim) return '';
+    if (sim.carregando) {
+        return `<p class="text-xs" style="margin: 0.75rem 0 0; color: var(--text-secondary);">Simulando no SALIC. Pode levar até 2 minutos; nada será salvo.</p>`;
+    }
+    if (sim.erro) {
+        return `<div style="margin-top: 0.75rem; padding: 0.625rem 0.75rem; background: #FEE2E2; border: 1px solid #FCA5A5; border-radius: var(--radius-sm);">
+            <p class="text-xs" style="margin: 0; font-weight: 700; color: #B91C1C;">A simulação encontrou um problema</p>
+            <p class="text-xs" style="margin: 0.25rem 0 0; color: #B91C1C; white-space: pre-wrap; overflow-wrap: anywhere;">${escAttr(sim.erro)}</p>
+            <p class="text-xs" style="margin: 0.25rem 0 0; color: var(--text-secondary);">Nada foi gravado no SALIC.</p>
+        </div>`;
+    }
+    const r = sim.resultado || {};
+    const auditoria = r.auditoria && typeof r.auditoria === 'object' ? Object.entries(r.auditoria) : [];
+    return `<div style="margin-top: 0.75rem; padding: 0.625rem 0.75rem; background: #ECFDF5; border: 1px solid #A7F3D0; border-radius: var(--radius-sm);">
+        <p class="text-xs" style="margin: 0; font-weight: 700; color: #047857;">Simulação concluída: o robô achou a rubrica e preencheu o formulário. Nada foi salvo.</p>
+        <p class="text-xs" style="margin: 0.25rem 0 0;">Rubrica na tela do SALIC: <strong>${escAttr(r.rubricaCasada || r.rubricaNome || '---')}</strong>${r.rubricaProduto ? ` · ${escAttr(r.rubricaProduto)}` : ''}</p>
+        ${auditoria.length ? `<details style="margin-top: 0.375rem;"><summary class="text-xs" style="cursor: pointer;">Campos como ficaram no formulário do SALIC</summary>
+            <div style="margin-top: 0.25rem; font-size: 11px; line-height: 1.6;">${auditoria.map(([k, v]) => `<div><span style="color: var(--text-muted);">${escAttr(k)}:</span> ${escAttr(v == null ? '' : (typeof v === 'object' ? JSON.stringify(v) : v))}</div>`).join('')}</div>
+        </details>` : ''}
+    </div>`;
+}
+
+function previaSalicHtml(doc) {
+    if (!mostraPreviaSalic(doc) || typeof PreviaSalic === 'undefined') return '';
+    // A prévia vale para a versão da nota em que foi montada: mudou a nota, volta a ficar fechada.
+    const p = state.previaSalic && state.previaSalic.docId === doc.id && state.previaSalic.updatedAt === (doc.updated_at || null) ? state.previaSalic : null;
+    const cabecalho = `<h3 class="h2" style="margin: 0;">O que será gravado no SALIC</h3>`;
+    if (!p || !p.aberto) {
+        return `<div class="card">
+            ${cabecalho}
+            <p class="text-xs" style="margin: 0.375rem 0 0.75rem; color: var(--text-secondary);">Tipo de documento, rubrica, valor, datas e números que o robô vai lançar.</p>
+            <button class="btn btn-secondary" style="padding: 0.4rem 0.75rem; font-size: 12px;" onclick="window.abrirPreviaSalic('${doc.id}')">Ver o que será gravado</button>
+        </div>`;
+    }
+    if (p.carregando) return `<div class="card">${cabecalho}<p class="text-xs" style="margin: 0.5rem 0 0; color: var(--text-secondary);">Carregando...</p></div>`;
+    if (p.erro) return `<div class="card">${cabecalho}<p class="text-xs" style="margin: 0.5rem 0 0; color: #B91C1C;">${escAttr(p.erro)}</p></div>`;
+    const previa = p.previa || { campos: [], pendencias: [] };
+    const simulando = p.simulacao && p.simulacao.carregando;
+    return `<div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+            ${cabecalho}
+            <button class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 11px;" onclick="window.fecharPreviaSalic()">Fechar</button>
+        </div>
+        ${previa.pendencias.length ? `<div style="margin-top: 0.75rem; padding: 0.625rem 0.75rem; background: #FFFBEB; border: 1px solid #FDE68A; border-radius: var(--radius-sm);">
+            <p class="text-xs" style="margin: 0; font-weight: 700; color: #92400E;">Do jeito que está, o robô não consegue enviar:</p>
+            <ul class="text-xs" style="margin: 0.25rem 0 0; padding-left: 1rem; color: #92400E;">${previa.pendencias.map(x => `<li>${escAttr(x.mensagem)}</li>`).join('')}</ul>
+        </div>` : ''}
+        <div style="margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;">
+            ${previa.campos.map(c => `<div class="text-xs" style="display: flex; flex-direction: column; gap: 0.1rem; overflow-wrap: anywhere;">
+                <span style="color: var(--text-muted); text-transform: uppercase; font-size: 10px; letter-spacing: 0.03em;">${escAttr(c.rotulo)}</span>
+                <span>${valorCampoPreviaHtml(c)}</span>
+            </div>`).join('')}
+        </div>
+        <p class="text-xs" style="margin: 0.75rem 0 0; color: var(--text-muted);">Prévia calculada com as regras do robô a partir dos dados de hoje. Se a nota mudar antes do envio, a prévia muda junto.</p>
+        ${userIsGestorOrAbove() ? `
+            <div style="margin-top: 0.75rem;">
+                <button class="btn btn-secondary" style="padding: 0.4rem 0.75rem; font-size: 12px;" onclick="window.simularEnvioSalic('${doc.id}')" ${simulando ? 'disabled' : ''}>Simular no SALIC sem salvar</button>
+                <p class="text-xs" style="margin: 0.25rem 0 0; color: var(--text-muted);">Entra no SALIC, confere se a rubrica é encontrada e preenche o formulário, sem salvar nada.</p>
+            </div>` : ''}
+        ${resultadoSimulacaoSalicHtml(p.simulacao)}
+    </div>`;
+}
+
+// Mesmos dados que o robô lê (cultops-rpa-worker/server.js): rubrica pelo UUID, lançamentos
+// conciliados com a nota (mais recente primeiro), as outras linhas do mesmo lançamento e,
+// sem fitid na nota, o documento_referencia do extrato vinculado à despesa.
+async function carregarDadosPreviaSalic(doc) {
+    const dados = { doc, rubrica: null, lancamentos: [], lancamentosMesmoFitid: [], documentoReferenciaExtrato: null };
+    if (doc.rubrica_id_fk) {
+        const { data, error } = await supabaseClient.from('rubricas').select('nome, produto, etapa').eq('id', doc.rubrica_id_fk).maybeSingle();
+        if (error) throw error;
+        dados.rubrica = data || null;
+    }
+    const { data: lancs, error: lErr } = await supabaseClient
+        .from('extratos_lancamentos')
+        .select('extrato_id, data_lancamento, fitid, valor, document_id')
+        .eq('document_id', doc.id)
+        .eq('status_conciliacao', 'conciliado')
+        .order('data_lancamento', { ascending: false });
+    if (lErr) throw lErr;
+    dados.lancamentos = lancs || [];
+    const primeiro = dados.lancamentos[0];
+    if (primeiro && (doc.valor_pago === null || doc.valor_pago === undefined)) {
+        const { data: mesmo, error: mErr } = await supabaseClient
+            .from('extratos_lancamentos')
+            .select('document_id, fitid, valor, data_lancamento')
+            .eq('extrato_id', primeiro.extrato_id)
+            .eq('fitid', primeiro.fitid)
+            .eq('status_conciliacao', 'conciliado');
+        if (mErr) throw mErr;
+        dados.lancamentosMesmoFitid = mesmo || [];
+    }
+    if (!(doc.fitid && String(doc.fitid).trim())) {
+        const { data: desp } = await supabaseClient
+            .from('despesas')
+            .select('extratos_bancarios:extrato_vinculado_id(documento_referencia)')
+            .eq('document_id', doc.id)
+            .maybeSingle();
+        dados.documentoReferenciaExtrato = desp?.extratos_bancarios?.documento_referencia || null;
+    }
+    return dados;
+}
+
+window.abrirPreviaSalic = async function (docId) {
+    const doc = state.currentDocument && state.currentDocument.id === docId ? state.currentDocument : null;
+    if (!doc) return;
+    state.previaSalic = { docId, updatedAt: doc.updated_at || null, aberto: true, carregando: true, previa: null, erro: null, simulacao: null };
+    render();
+    try {
+        const dados = await carregarDadosPreviaSalic(doc);
+        if (!state.previaSalic || state.previaSalic.docId !== docId) return;
+        state.previaSalic.previa = PreviaSalic.montar(dados);
+        state.previaSalic.carregando = false;
+    } catch (err) {
+        console.error('[previa-salic]', err);
+        if (!state.previaSalic || state.previaSalic.docId !== docId) return;
+        state.previaSalic.carregando = false;
+        state.previaSalic.erro = 'Não foi possível montar a prévia: ' + (err.message || 'erro desconhecido');
+    }
+    if (state.currentView === 'details' && state.currentDocument && state.currentDocument.id === docId) render();
+};
+
+window.fecharPreviaSalic = function () {
+    if (state.previaSalic) state.previaSalic.aberto = false;
+    render();
+};
+
+// URL do dry-run no worker, derivada da mesma base do envio (CONFIG.SALIC_API_URL).
+function urlDryRunSalic() {
+    const atual = String(CONFIG.SALIC_API_URL || '');
+    if (!/\/inserir\/?$/.test(atual)) return null;
+    const url = atual.replace(/\/inserir\/?$/, '/dry-run');
+    return url.startsWith('/') ? window.location.origin + url : url;
+}
+
+window.simularEnvioSalic = async function (docId) {
+    const p = state.previaSalic && state.previaSalic.docId === docId ? state.previaSalic : null;
+    if (!p || (p.simulacao && p.simulacao.carregando)) return;
+    if (!userIsGestorOrAbove()) return showToast('Somente gestor ou administrador pode simular o envio.', 'error');
+    const url = urlDryRunSalic();
+    if (!url) return showToast('Simulação indisponível: endereço do robô não configurado.', 'error');
+    p.simulacao = { carregando: true };
+    render();
+    const controle = new AbortController();
+    const limite = setTimeout(() => controle.abort(), 180000);
+    let simulacao;
+    try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session) throw new Error(MSG_SESSAO_EXPIRADA);
+        const resposta = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
+            mode: 'cors',
+            signal: controle.signal,
+            body: JSON.stringify({ documentId: docId })
+        });
+        const corpo = await resposta.json().catch(() => null);
+        simulacao = textoResultadoSimulacao(resposta.status, corpo);
+    } catch (err) {
+        simulacao = { erro: err.name === 'AbortError' ? 'O robô não respondeu em 3 minutos. Tente de novo mais tarde.' : (err.message || 'Não foi possível falar com o robô.') };
+    } finally {
+        clearTimeout(limite);
+    }
+    if (!state.previaSalic || state.previaSalic.docId !== docId) return;
+    state.previaSalic.simulacao = simulacao;
+    if (state.currentView === 'details' && state.currentDocument && state.currentDocument.id === docId) render();
+};
+
+// Resposta do dry-run -> { resultado } ou { erro } (texto para a tela).
+function textoResultadoSimulacao(status, corpo) {
+    if (status === 200 && corpo && corpo.success && corpo.dryRun) return { resultado: corpo };
+    if (status === 429) {
+        const espera = corpo && Number(corpo.tentarEm) ? ` Tente de novo em ${Math.ceil(Number(corpo.tentarEm) / 60)} min.` : '';
+        return { erro: (corpo && corpo.status === 'ocupado' ? 'O robô está ocupado com outro envio.' : 'Limite de simulações atingido.') + espera };
+    }
+    if (status === 404) return { erro: 'Robô sem a simulação disponível ou nota não encontrada para você.' };
+    if (status === 401 || status === 403) return { erro: MSG_SESSAO_EXPIRADA };
+    const bruto = corpo && corpo.error ? String(corpo.error) : 'O robô não conseguiu concluir a simulação.';
+    if (typeof ErrosRpa !== 'undefined') {
+        const e = ErrosRpa.interpretar(bruto);
+        if (e && e.conhecido) return { erro: `${e.info.titulo}. ${e.info.explicacao}\n\nDetalhe do robô: ${bruto}` };
+    }
+    return { erro: bruto };
+}
+
 function envioManualSalicHtml(doc) {
     return `
                     <div id="quadro-envio-manual-salic" style="margin-top: 1rem; padding: 1rem; background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-sm);">
